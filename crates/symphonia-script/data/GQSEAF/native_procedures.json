@@ -1,0 +1,4964 @@
+{
+  "schema_version": 2,
+  "game": "Tales of Symphonia USA Rev 0 (GQSEAF)",
+  "dispatch_entry_count": 237,
+  "procedures": [
+    {
+      "opcode": 1,
+      "name": "jump",
+      "handler": "fn_8005AEC8",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "control-flow-proven",
+      "source": "src/game/fn_8005AEC8.c",
+      "arity_evidence": "handler-stack-delta",
+      "control_flow": true,
+      "authoring_available": false
+    },
+    {
+      "opcode": 2,
+      "name": "call",
+      "handler": "fn_8005AE90",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "control-flow-proven",
+      "source": "src/game/fn_8005AE90.c",
+      "arity_evidence": "handler-stack-delta",
+      "control_flow": true,
+      "authoring_available": false
+    },
+    {
+      "opcode": 3,
+      "name": "return",
+      "handler": "fn_8005AE70",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "control-flow-proven",
+      "source": "src/game/fn_8005AE70.c",
+      "arity_evidence": "handler-stack-delta",
+      "control_flow": true,
+      "authoring_available": false
+    },
+    {
+      "opcode": 4,
+      "name": "branch_false",
+      "handler": "fn_8005AE30",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "control-flow-proven",
+      "source": "src/game/fn_8005AE30.c",
+      "arity_evidence": "handler-stack-delta",
+      "control_flow": true,
+      "authoring_available": false
+    },
+    {
+      "opcode": 10,
+      "name": "close_dialogue",
+      "handler": "fn_8005AD68",
+      "arguments": [
+        "slot"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8005AD68.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 11,
+      "name": "expand_message",
+      "handler": "fn_8005ADD0",
+      "arguments": [
+        "message"
+      ],
+      "argument_types": [
+        "message_id"
+      ],
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_8005ADD0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 12,
+      "name": "configure_dialogue",
+      "handler": "fn_8005A504",
+      "arguments": [
+        "slot",
+        "flags",
+        "attachment",
+        "actor_id",
+        "x",
+        "y",
+        "primary_message",
+        "secondary_message"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "actor_id",
+        "i32",
+        "i32",
+        "message_id",
+        "message_id"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8005A504.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 13,
+      "name": "native_0d",
+      "handler": "fn_8005A2DC",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8005A2DC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 14,
+      "name": "native_0e",
+      "handler": "fn_80050D7C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050D7C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 15,
+      "name": "native_0f",
+      "handler": "fn_80050820",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050820.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 16,
+      "name": "spawn_actor",
+      "handler": "fn_80059CFC",
+      "arguments": [
+        "actor_id",
+        "x",
+        "y",
+        "z",
+        "yaw",
+        "resource_id",
+        "arg6",
+        "arg7"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_80059CFC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 17,
+      "name": "native_11",
+      "handler": "fn_80058F3C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12",
+        "arg13"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80058F3C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 18,
+      "name": "despawn_actor",
+      "handler": "fn_80058D64",
+      "arguments": [
+        "actor_id"
+      ],
+      "argument_types": [
+        "actor_id"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Finds the actor by script ID, switches it to actor state 6, and runs its update callback.",
+      "source": "src/game/fn_80058D64.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 19,
+      "name": "native_13",
+      "handler": "fn_80058A6C",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80058A6C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 20,
+      "name": "set_actor_heading",
+      "handler": "fn_80058888",
+      "arguments": [
+        "actor_id",
+        "value"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Resolves actor_id and writes value as the actor's heading angle at offset 0x74. In stage mode 9 the handler delegates to the stage callback table.",
+      "source": "src/game/fn_80058888.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 21,
+      "name": "native_15",
+      "handler": "fn_800582CC",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800582CC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 22,
+      "name": "move_actor",
+      "handler": "fn_80057F08",
+      "arguments": [
+        "actor_id",
+        "x",
+        "y",
+        "z",
+        "speed_or_duration"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Sets the actor movement target. A negative high-bit form is interpreted by the handler as a duration; the ordinary form is movement speed.",
+      "source": "src/game/fn_80057F08.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 23,
+      "name": "native_17",
+      "handler": "fn_80057D60",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80057D60.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 24,
+      "name": "native_18",
+      "handler": "fn_800579C4",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800579C4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 25,
+      "name": "set_actor_position",
+      "handler": "fn_80057780",
+      "arguments": [
+        "actor_id",
+        "x",
+        "y",
+        "z"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_80057780.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 26,
+      "name": "native_1a",
+      "handler": "fn_80057448",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80057448.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 27,
+      "name": "native_1b",
+      "handler": "fn_8005741C",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8005741C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 28,
+      "name": "get_actor_property",
+      "handler": "fn_8005673C",
+      "arguments": [
+        "actor_id",
+        "property"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "confidence": "semantic-high",
+      "source": "src/game/game_script_vm_80054864.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 29,
+      "name": "set_actor_property",
+      "handler": "fn_80055140",
+      "arguments": [
+        "actor_id",
+        "property",
+        "value"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "confidence": "semantic-high",
+      "notes": "Returns the previous property value.",
+      "source": "src/game/game_script_vm_80054864.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 30,
+      "name": "native_1e",
+      "handler": "fn_80054F60",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/game_script_vm_80054864.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 31,
+      "name": "native_1f",
+      "handler": "fn_80054C58",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12",
+        "arg13",
+        "arg14",
+        "arg15"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/game_script_vm_80054864.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 32,
+      "name": "change_item_count",
+      "handler": "fn_8005477C",
+      "arguments": [
+        "item_id",
+        "amount"
+      ],
+      "returns_value": true,
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8005477C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "item_id",
+        "i32"
+      ],
+      "result_type": "bool",
+      "notes": "Adds or removes inventory quantity with the engine's item-specific cap and returns whether the inventory changed."
+    },
+    {
+      "opcode": 33,
+      "name": "get_item_count",
+      "handler": "fn_8005470C",
+      "arguments": [
+        "item_id"
+      ],
+      "returns_value": true,
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8005470C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "item_id"
+      ],
+      "result_type": "i32",
+      "notes": "Reads the inventory quantity byte at global state offset 0xEAD + item_id."
+    },
+    {
+      "opcode": 34,
+      "name": "select_party_member",
+      "handler": "fn_800545E4",
+      "arguments": [
+        "member_or_mode"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Pushes the current party-member entry and changes the active party member/mode from the argument; values above 9 are normalized by the handler.",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800545E4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 35,
+      "name": "native_23",
+      "handler": "fn_80054590",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80054590.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 36,
+      "name": "register_input_value",
+      "handler": "fn_800543B4",
+      "arguments": [
+        "input_value"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Checks the eight-byte input-value table at global offset 0xE9D and inserts input_value into the first empty slot. Returns the handler's status (already present/full or zero after insertion).",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800543B4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 37,
+      "name": "native_25",
+      "handler": "fn_800542F0",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800542F0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 38,
+      "name": "native_26",
+      "handler": "fn_80054228",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80054228.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 39,
+      "name": "native_27",
+      "handler": "fn_80054100",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80054100.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 40,
+      "name": "set_actor_orientation",
+      "handler": "fn_800585A8",
+      "arguments": [
+        "actor_id",
+        "operation",
+        "value"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Operations 0-3 assign/add actor heading fields; operation 4 writes a scaled orientation-related field.",
+      "source": "src/game/fn_800585A8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 41,
+      "name": "set_event_sound_bit",
+      "handler": "fn_80041458",
+      "arguments": [
+        "packed_sound_bit"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Sets one bit in the per-character/event sound flag table at global offset 0x2D8; the packed argument is (table_index << 8) | bit.",
+      "source": "src/game/fn_80041458.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 42,
+      "name": "native_2a",
+      "handler": "fn_80041318",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80041318.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 43,
+      "name": "native_2b",
+      "handler": "fn_80053FB0",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80053FB0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 44,
+      "name": "native_2c",
+      "handler": "fn_80053C20",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80053C20.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 45,
+      "name": "native_2d",
+      "handler": "fn_80053A34",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80053A34.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 46,
+      "name": "native_2e",
+      "handler": "fn_800539B4",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800539B4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 47,
+      "name": "native_2f",
+      "handler": "fn_800538EC",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800538EC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 48,
+      "name": "native_30",
+      "handler": "fn_80053628",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80053628.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 49,
+      "name": "native_31",
+      "handler": "fn_80053264",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80053264.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 50,
+      "name": "create_script_record",
+      "handler": "fn_80052E5C",
+      "arguments": [
+        "record_key",
+        "value_18",
+        "value_1a",
+        "value_1c",
+        "value_1e",
+        "value_20",
+        "value_22",
+        "value_24"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Allocates the first free entry in the 200-record script table, marks it active (for keys 0..99), initializes its fields, and consumes eight arguments. The record is later consumed by field/effect update handlers.",
+      "source": "src/game/fn_80052E5C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 51,
+      "name": "native_33",
+      "handler": "fn_80052488",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80052488.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 52,
+      "name": "native_34",
+      "handler": "fn_800511BC",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800511BC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 53,
+      "name": "native_35",
+      "handler": "fn_80050F88",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050F88.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 54,
+      "name": "native_36",
+      "handler": "fn_80050EE4",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80050EE4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 55,
+      "name": "native_37",
+      "handler": "fn_80050A5C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050A5C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 56,
+      "name": "native_38",
+      "handler": "fn_80050810",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050810.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 57,
+      "name": "allocate_resource_instance",
+      "handler": "fn_80050508",
+      "arguments": [
+        "resource_key"
+      ],
+      "returns_value": true,
+      "confidence": "semantic-high",
+      "source": "src/game/fn_80050508.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32"
+      ],
+      "result_type": "i32",
+      "notes": "Finds a loaded resource by key, allocates one of 32 script resource-instance records, and returns its pointer-like handle or zero."
+    },
+    {
+      "opcode": 58,
+      "name": "release_resource_instance",
+      "handler": "fn_80050400",
+      "arguments": [
+        "instance"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_80050400.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32"
+      ],
+      "notes": "Marks a nonzero script resource-instance handle as state 3 for release."
+    },
+    {
+      "opcode": 59,
+      "name": "create_script_record_variant",
+      "handler": "fn_80052214",
+      "arguments": [
+        "record_key",
+        "value_10",
+        "value_12",
+        "value_14",
+        "value_18",
+        "value_1a",
+        "value_1c",
+        "value_1e",
+        "value_20",
+        "value_22",
+        "value_24"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Allocates a script-table entry with status 3 and fills the record's key, resource/value fields, and six short parameters. This is the non-active companion to create_script_record.",
+      "source": "src/game/fn_80052214.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 60,
+      "name": "native_3c",
+      "handler": "fn_80051D14",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12",
+        "arg13"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80051D14.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 61,
+      "name": "native_3d",
+      "handler": "fn_800519F8",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12",
+        "arg13",
+        "arg14",
+        "arg15",
+        "arg16"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800519F8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 62,
+      "name": "native_3e",
+      "handler": "fn_80051868",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80051868.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 63,
+      "name": "native_3f",
+      "handler": "fn_80050334",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050334.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 64,
+      "name": "change_field",
+      "handler": "fn_800500D4",
+      "arguments": [
+        "field_id",
+        "x",
+        "y",
+        "z",
+        "yaw"
+      ],
+      "argument_types": [
+        "field_id",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "yields": true,
+      "confidence": "semantic-high",
+      "source": "src/game/fn_800500D4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 65,
+      "name": "native_41",
+      "handler": "fn_8004FE40",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004FE40.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 66,
+      "name": "native_42",
+      "handler": "fn_8004FBC0",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004FBC0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 67,
+      "name": "native_43",
+      "handler": "fn_8004FAB0",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004FAB0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 68,
+      "name": "native_44",
+      "handler": "fn_8004F9B4",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004F9B4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 69,
+      "name": "native_45",
+      "handler": "fn_8004F8B4",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004F8B4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 70,
+      "name": "native_46",
+      "handler": "fn_8004F81C",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004F81C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 71,
+      "name": "native_47",
+      "handler": "fn_8004F7DC",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004F7DC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 72,
+      "name": "native_48",
+      "handler": "fn_8004F774",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004F774.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 73,
+      "name": "native_49",
+      "handler": "fn_8004F6E0",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004F6E0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 74,
+      "name": "native_4a",
+      "handler": "fn_8004F670",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004F670.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 75,
+      "name": "native_4b",
+      "handler": "fn_80041BA4",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80041BA4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 76,
+      "name": "native_4c",
+      "handler": "fn_8004FE90",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004FE90.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 77,
+      "name": "native_4d",
+      "handler": "fn_80051560",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80051560.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 78,
+      "name": "native_4e",
+      "handler": "fn_800513CC",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800513CC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 79,
+      "name": "set_effect_setting",
+      "handler": "fn_8004F1AC",
+      "arguments": [
+        "effect_index",
+        "selector",
+        "value0",
+        "value1",
+        "value2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Updates one of the engine's effect settings. Selectors set mode, position, primary/secondary color, a field byte, or a rotation-derived position; -1 selects the shared settings record and -2 the global record.",
+      "source": "src/game/fn_8004F1AC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 80,
+      "name": "audio_command",
+      "handler": "fn_8004F09C",
+      "arguments": [
+        "command"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Dispatches an audio-system command. -2 and -3 select engine-wide audio actions, 0x61 uses a dedicated path, and all other values are forwarded as an audio resource/command ID.",
+      "source": "src/game/fn_8004F09C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 81,
+      "name": "set_audio_fade",
+      "handler": "fn_8004EFA8",
+      "arguments": [
+        "selector",
+        "limit",
+        "amount"
+      ],
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_8004EFA8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "notes": "Clamps the limit to the global audio cap, scales amount, and submits an audio command with selector 0xFD. Selector 1 can suppress the call from global state."
+    },
+    {
+      "opcode": 82,
+      "name": "play_sound_simple",
+      "handler": "fn_8004EF28",
+      "arguments": [
+        "sound_id",
+        "raw_velocity"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8004EF28.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "sound_id",
+        "i32"
+      ],
+      "notes": "Plays a sound with the global channel/color and a centered, clamped velocity derived from raw_velocity."
+    },
+    {
+      "opcode": 83,
+      "name": "native_53",
+      "handler": "fn_8004E95C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004E95C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 84,
+      "name": "request_field_transition",
+      "handler": "fn_8004E6F8",
+      "arguments": [
+        "field_or_resource_id"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Stores the requested field/resource ID, current stage mode, and transition flag, then switches the script state to the field-transition state.",
+      "source": "src/game/fn_8004E6F8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 85,
+      "name": "native_55",
+      "handler": "fn_8004E688",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004E688.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 86,
+      "name": "change_music",
+      "handler": "fn_8004E5A8",
+      "arguments": [
+        "music_id"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Stops music when music_id is -1; otherwise resolves the music resource and starts a fade/transition when the current stage permits it.",
+      "source": "src/game/fn_8004E5A8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 87,
+      "name": "native_57",
+      "handler": "fn_80041930",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80041930.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 88,
+      "name": "native_58",
+      "handler": "fn_8004CB34",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004CB34.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 89,
+      "name": "native_59",
+      "handler": "fn_8004E1FC",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004E1FC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 90,
+      "name": "native_5a",
+      "handler": "fn_80054470",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80054470.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 92,
+      "name": "native_5c",
+      "handler": "fn_80050AF0",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050AF0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 93,
+      "name": "finish_actor_action",
+      "handler": "fn_800574AC",
+      "arguments": [
+        "action_id"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Stores action_id in the script state, enters substate 0x1A, and enables the current target actor's interaction flags when a prior action is being finalized.",
+      "source": "src/game/fn_800574AC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 94,
+      "name": "native_5e",
+      "handler": "fn_80057594",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80057594.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 95,
+      "name": "native_5f",
+      "handler": "fn_80048E40",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80048E40.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 96,
+      "name": "disable_mapped_input",
+      "handler": "fn_8004E588",
+      "arguments": [],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8004E588.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [],
+      "notes": "Sets the global flag that makes mapped-input queries return zero unless their bypass bit is set."
+    },
+    {
+      "opcode": 97,
+      "name": "reset_event_state",
+      "handler": "fn_8004E4E4",
+      "arguments": [],
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_8004E4E4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 98,
+      "name": "is_mapped_input_disabled",
+      "handler": "fn_8004E448",
+      "arguments": [],
+      "returns_value": true,
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8004E448.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [],
+      "result_type": "bool",
+      "notes": "Returns the mapped-input disable flag."
+    },
+    {
+      "opcode": 99,
+      "name": "set_transition_mode",
+      "handler": "fn_8004E260",
+      "arguments": [
+        "mode",
+        "duration"
+      ],
+      "argument_types": [
+        "int",
+        "int"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Consumes a mode and amount and updates the global fade/transition interpolation state. Modes 0..5 select fade direction, sentinel behavior, or a timer callback.",
+      "source": "src/game/fn_8004E260.c",
+      "arity_evidence": "fn_8004E260 consumes duration then mode; title event 3000 passes (0,240).",
+      "authoring_available": true
+    },
+    {
+      "opcode": 100,
+      "name": "yield_command",
+      "handler": "fn_8004E224",
+      "arguments": [
+        "command",
+        "value"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "yields": true,
+      "confidence": "semantic-high",
+      "notes": "The handler pops value first and command second; source argument order is command, value.",
+      "source": "src/game/fn_8004E224.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 101,
+      "name": "random_mod",
+      "handler": "fn_8004E160",
+      "arguments": [
+        "divisor"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Returns the engine PRNG value modulo divisor.",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004E160.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 102,
+      "name": "show_choice",
+      "handler": "fn_8004E080",
+      "arguments": [
+        "slot",
+        "first_line",
+        "last_line",
+        "timeout",
+        "default_line"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "yields": true,
+      "confidence": "semantic-high",
+      "notes": "Configures the active dialogue slot as a line-range choice and returns the selected 1-based line.",
+      "source": "src/game/fn_8004E080.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 103,
+      "name": "native_67",
+      "handler": "fn_8004DF60",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004DF60.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 104,
+      "name": "set_event_bit",
+      "handler": "fn_8004DDE0",
+      "arguments": [
+        "bit"
+      ],
+      "argument_types": [
+        "event_bit"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/script_bits_8004DD84.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 105,
+      "name": "clear_event_bit",
+      "handler": "fn_8004DD84",
+      "arguments": [
+        "bit"
+      ],
+      "argument_types": [
+        "event_bit"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/script_bits_8004DD84.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 106,
+      "name": "test_event_bit",
+      "handler": "fn_8004DCDC",
+      "arguments": [
+        "bit"
+      ],
+      "argument_types": [
+        "event_bit"
+      ],
+      "returns_value": true,
+      "result_type": "bool",
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8004DCDC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 107,
+      "name": "native_6b",
+      "handler": "fn_8004DC10",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004DC10.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 108,
+      "name": "native_6c",
+      "handler": "fn_8004D4FC",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004D4FC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 109,
+      "name": "native_6d",
+      "handler": "fn_80043A44",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80043A44.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 110,
+      "name": "native_6e",
+      "handler": "fn_8004D4C8",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004D4C8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 111,
+      "name": "native_6f",
+      "handler": "fn_8004D2D0",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004D20C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 112,
+      "name": "native_70",
+      "handler": "fn_8004D20C",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004D20C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 113,
+      "name": "native_71",
+      "handler": "fn_8004CF3C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004CF3C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 114,
+      "name": "set_scenario_timer",
+      "handler": "fn_8004CEA0",
+      "arguments": [
+        "timer_id",
+        "value0",
+        "value1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Writes two timer bytes and the current stage byte into the scenario timer table and records the current OS time for timer_id (0..200).",
+      "source": "src/game/fn_8004CEA0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 115,
+      "name": "native_73",
+      "handler": "fn_80052C20",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80052C20.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 116,
+      "name": "native_74",
+      "handler": "fn_80053418",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80053418.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 117,
+      "name": "native_75",
+      "handler": "fn_80051FDC",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80051FDC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 118,
+      "name": "native_76",
+      "handler": "fn_8004DA84",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004DA84.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 119,
+      "name": "adjust_character_affinity",
+      "handler": "fn_8004D9D8",
+      "arguments": [
+        "character_id",
+        "delta"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Adds delta to the character relation/affinity field at global character record offset 0x1F8, clamps it to [-10000,10000], and returns the new value.",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004D9D8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 120,
+      "name": "set_global_eab_eac",
+      "handler": "fn_8004D688",
+      "arguments": [
+        "value_eab",
+        "value_eac"
+      ],
+      "returns_value": true,
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_8004D688.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "result_type": "i32",
+      "notes": "Returns the old byte at global offset 0xEAB and, unless value_eab is -1, writes bytes 0xEAB and 0xEAC."
+    },
+    {
+      "opcode": 121,
+      "name": "native_79",
+      "handler": "fn_8004D648",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004D648.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 122,
+      "name": "native_7a",
+      "handler": "fn_8004D720",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004D720.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 123,
+      "name": "native_7b",
+      "handler": "fn_80050C20",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050C20.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 124,
+      "name": "native_7c",
+      "handler": "fn_8004D10C",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004D10C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 125,
+      "name": "discard_value",
+      "handler": "fn_800410C4",
+      "arguments": [
+        "value"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Pops one value from the VM argument stack; the handler has no game-side effect.",
+      "source": "src/game/fn_800410C4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 126,
+      "name": "native_7e",
+      "handler": "fn_80040F5C",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80040F5C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 127,
+      "name": "native_7f",
+      "handler": "fn_80047D3C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80047D3C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 128,
+      "name": "native_80",
+      "handler": "fn_80045294",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80045294.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 129,
+      "name": "native_81",
+      "handler": "fn_8004D550",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004D550.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 130,
+      "name": "set_dialogue_slot_flag",
+      "handler": "fn_8005A42C",
+      "arguments": [
+        "slot",
+        "operation",
+        "enabled"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8005A42C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "i32",
+        "bool"
+      ],
+      "notes": "For an active dialogue slot, operation 0 controls flag 0x0002 and operation 1 controls flag 0x0020."
+    },
+    {
+      "opcode": 131,
+      "name": "start_encounter",
+      "handler": "fn_80040EB0",
+      "arguments": [
+        "encounter_id",
+        "enabled",
+        "skip_if_loaded"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_80040EB0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "bool",
+        "bool"
+      ],
+      "yields": true,
+      "notes": "Selects encounter metadata, begins battle mode 0x0B, and yields with command 27. When skip_if_loaded is false, an already loaded encounter is ignored."
+    },
+    {
+      "opcode": 132,
+      "name": "native_84",
+      "handler": "fn_80040D04",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80040D04.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 133,
+      "name": "native_85",
+      "handler": "fn_8004D004",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004D004.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 134,
+      "name": "native_86",
+      "handler": "fn_8005386C",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8005386C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 135,
+      "name": "native_87",
+      "handler": "fn_8004141C",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004141C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 136,
+      "name": "native_88",
+      "handler": "fn_80041848",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80041848.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 137,
+      "name": "snapshot_input_state",
+      "handler": "fn_80040C24",
+      "arguments": [
+        "operation"
+      ],
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_80040C24.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32"
+      ],
+      "notes": "Operation 0 copies eight global input bytes from 0xE9D..0xEA4 to 0x1F34..0x1F3B; operation 1 clears the destination bytes."
+    },
+    {
+      "opcode": 138,
+      "name": "native_8a",
+      "handler": "fn_80040AF0",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80040AF0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 139,
+      "name": "native_8b",
+      "handler": "fn_8004DB64",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004DB64.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 140,
+      "name": "native_8c",
+      "handler": "fn_8004127C",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004127C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 141,
+      "name": "native_8d",
+      "handler": "fn_8004DE3C",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004DE3C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 142,
+      "name": "get_scenario_timer_value",
+      "handler": "fn_8004CE20",
+      "arguments": [
+        "timer_id"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Returns the first timer byte for timer_id from the scenario timer table (0..200), or zero when out of range.",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004CE20.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 143,
+      "name": "native_8f",
+      "handler": "fn_8004E494",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004E494.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 144,
+      "name": "native_90",
+      "handler": "fn_80059A30",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80059A30.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 145,
+      "name": "native_91",
+      "handler": "fn_8004DEDC",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004DEDC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 146,
+      "name": "native_92",
+      "handler": "fn_80043538",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80043538.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 147,
+      "name": "stage_command",
+      "handler": "fn_80042FE4",
+      "arguments": [
+        "command",
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "confidence": "semantic-medium",
+      "notes": "Dispatches a command through the active stage callback table in stage mode 9 and returns zero. Command selectors 0 through 10 are handled.",
+      "source": "src/game/fn_80042FE4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 148,
+      "name": "stage_command_44",
+      "handler": "fn_80042F04",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6"
+      ],
+      "returns_value": true,
+      "confidence": "semantic-medium",
+      "notes": "Calls active-stage callback table offset 0x44 in mode 9 and returns zero.",
+      "source": "src/game/fn_80042F04.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "result_type": "i32"
+    },
+    {
+      "opcode": 149,
+      "name": "native_95",
+      "handler": "fn_80052958",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80052958.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 150,
+      "name": "native_96",
+      "handler": "fn_8005263C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12",
+        "arg13"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8005263C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 151,
+      "name": "native_97",
+      "handler": "fn_8004CDD4",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004CDD4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 152,
+      "name": "resolve_script_resource",
+      "handler": "fn_8004CCB8",
+      "arguments": [
+        "packed_resource"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "confidence": "semantic-medium",
+      "notes": "Decomposes a packed resource identifier, resolves it for the active stage mode, and returns an encoded signed resource handle.",
+      "source": "src/game/fn_8004CCB8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 153,
+      "name": "native_99",
+      "handler": "fn_8004CAA0",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004CAA0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 154,
+      "name": "release_script_resource",
+      "handler": "fn_8004C9F0",
+      "arguments": [
+        "encoded_resource"
+      ],
+      "returns_value": true,
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8004C9F0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32"
+      ],
+      "result_type": "i32",
+      "notes": "Releases encoded resources in the 0xFFFFxxxx handle family and returns zero."
+    },
+    {
+      "opcode": 155,
+      "name": "configure_actor_animation",
+      "handler": "fn_8004C628",
+      "arguments": [
+        "actor_id",
+        "resource_id",
+        "resource_index",
+        "duration_or_frame",
+        "flags"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Selects an actor animation/resource source and configures its duration/frame and flags. Resource ID -1 selects data attached to the actor or stage.",
+      "source": "src/game/fn_8004C628.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 156,
+      "name": "native_9c",
+      "handler": "fn_8004C3DC",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004C3DC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 157,
+      "name": "native_9d",
+      "handler": "fn_8004C138",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004C138.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 158,
+      "name": "native_9e",
+      "handler": "fn_8004BAAC",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004BAAC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 159,
+      "name": "set_actor_animation_property",
+      "handler": "fn_8004BD60",
+      "arguments": [
+        "actor_id",
+        "property",
+        "value"
+      ],
+      "returns_value": true,
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_8004BD60.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32"
+      ],
+      "result_type": "i32",
+      "notes": "Reads or exchanges selector-dependent animation timing fields on the actor's animation object and returns the previous value."
+    },
+    {
+      "opcode": 160,
+      "name": "select_camera",
+      "handler": "fn_8004A8C8",
+      "arguments": [
+        "camera"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "confidence": "semantic-high",
+      "notes": "Returns the previous camera selection. Selectors -1 and -2 invoke special camera modes.",
+      "source": "src/game/fn_8004A8C8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 161,
+      "name": "set_camera_property",
+      "handler": "fn_8004A3F8",
+      "arguments": [
+        "property",
+        "value"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "confidence": "semantic-medium",
+      "notes": "Exchanges a selector-dependent camera property and returns its prior value.",
+      "source": "src/game/fn_8004A3F8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 162,
+      "name": "native_a2",
+      "handler": "fn_8004A24C",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004A24C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 163,
+      "name": "native_a3",
+      "handler": "fn_80049E6C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80049E6C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 164,
+      "name": "set_camera_transition_values",
+      "handler": "fn_80049D4C",
+      "arguments": [
+        "value0",
+        "value1",
+        "value2",
+        "value3"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_80049D4C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "notes": "Writes four floating-point transition values to the selected camera and activates it."
+    },
+    {
+      "opcode": 165,
+      "name": "native_a5",
+      "handler": "fn_80049C54",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80049C54.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 166,
+      "name": "select_actor",
+      "handler": "fn_80049A88",
+      "arguments": [
+        "actor_id"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Resolves actor_id and marks it as the active interaction target, clearing the target-selection latch when the target changes.",
+      "source": "src/game/fn_80049A88.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 167,
+      "name": "set_camera_position",
+      "handler": "fn_80049968",
+      "arguments": [
+        "x",
+        "y",
+        "z"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_80049968.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 168,
+      "name": "configure_camera_parameters",
+      "handler": "fn_80048BBC",
+      "arguments": [
+        "parameter0",
+        "parameter1",
+        "parameter2",
+        "parameter3",
+        "parameter4",
+        "parameter5",
+        "global_5c",
+        "global_60"
+      ],
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_80048BBC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "notes": "Writes six paired fields at camera offsets 0x64..0x90 and two global camera values. The engine's float-zero sentinel leaves individual fields unchanged."
+    },
+    {
+      "opcode": 169,
+      "name": "native_a9",
+      "handler": "fn_80048B44",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80048B44.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 170,
+      "name": "native_aa",
+      "handler": "fn_80049808",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80049808.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 171,
+      "name": "native_ab",
+      "handler": "fn_800496B4",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800496B4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 172,
+      "name": "configure_camera_auxiliary",
+      "handler": "fn_800495D4",
+      "arguments": [
+        "mode",
+        "unused",
+        "x",
+        "y",
+        "value0",
+        "value1"
+      ],
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_800495D4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "notes": "Configures the camera-adjacent structure at lbl_802C8700; mode selects internal state 0 or 5, followed by two float and three byte fields."
+    },
+    {
+      "opcode": 173,
+      "name": "native_ad",
+      "handler": "fn_800494EC",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800494EC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 174,
+      "name": "native_ae",
+      "handler": "fn_80048EF8",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80048EF8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 175,
+      "name": "native_af",
+      "handler": "fn_80048E18",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80048E18.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 176,
+      "name": "measure_actor_geometry",
+      "handler": "fn_80048634",
+      "arguments": [
+        "first_actor_id",
+        "second_actor_id",
+        "operation"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Returns geometry between two actors: operation 0 is heading angle, 1 horizontal distance, 2 vertical delta, and 3 three-dimensional distance.",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80048634.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 177,
+      "name": "native_b1",
+      "handler": "fn_80047764",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80047764.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 178,
+      "name": "set_actor_mode",
+      "handler": "fn_800479F4",
+      "arguments": [
+        "actor_id",
+        "mode"
+      ],
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_800479F4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "actor_id",
+        "i32"
+      ],
+      "notes": "Writes actor mode byte 0xC4; selectors 2 through 17 also write submode byte 0xC7."
+    },
+    {
+      "opcode": 179,
+      "name": "set_actor_behavior",
+      "handler": "fn_800477C8",
+      "arguments": [
+        "actor_id",
+        "behavior"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Writes the actor behavior mode byte at offset 0xCA; behavior values 2..9 select submodes 0..7 at offset 0xCD.",
+      "source": "src/game/fn_800477C8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 180,
+      "name": "get_actor_resource_index",
+      "handler": "fn_800474E0",
+      "arguments": [
+        "actor_id",
+        "resource_kind"
+      ],
+      "argument_types": [
+        "actor_id",
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_800474E0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 181,
+      "name": "native_b5",
+      "handler": "fn_80046FE4",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80046FE4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 182,
+      "name": "native_b6",
+      "handler": "fn_80046940",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80046940.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 183,
+      "name": "attach_actor_to_member",
+      "handler": "fn_80046270",
+      "arguments": [
+        "actor_id",
+        "owner_id",
+        "member_index"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Copies a member's resource/owner value into the actor link fields; member_index -1 clears the link.",
+      "source": "src/game/fn_80046270.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 184,
+      "name": "read_mapped_input",
+      "handler": "fn_80044E88",
+      "arguments": [
+        "player",
+        "mapping"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "returns_value": true,
+      "result_type": "i32",
+      "confidence": "semantic-high",
+      "notes": "Returns a mapped controller/input bitfield for one of four player rows. The low nibble selects the mapping table.",
+      "source": "src/game/fn_80044E88.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 185,
+      "name": "native_b9",
+      "handler": "fn_80059838",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80059838.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 186,
+      "name": "native_ba",
+      "handler": "fn_80059624",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80059624.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 187,
+      "name": "native_bb",
+      "handler": "fn_80059208",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80059208.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 188,
+      "name": "find_actor_animation",
+      "handler": "fn_800472AC",
+      "arguments": [
+        "actor_id",
+        "animation_resource_slot"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Looks up the actor animation resource selected by animation_resource_slot and returns the matching animation index, or -1 if no actor/resource is available.",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800472AC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 189,
+      "name": "native_bd",
+      "handler": "fn_80047CC0",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80047CC0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 190,
+      "name": "native_be",
+      "handler": "fn_80048264",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80048264.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 191,
+      "name": "native_bf",
+      "handler": "fn_80058F4C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12",
+        "arg13",
+        "arg14",
+        "arg15",
+        "arg16",
+        "arg17"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80058F4C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 192,
+      "name": "native_c0",
+      "handler": "fn_80044DE0",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80044DE0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 193,
+      "name": "configure_actor_attachment",
+      "handler": "fn_80046CD4",
+      "arguments": [
+        "actor_id",
+        "value",
+        "part_index",
+        "x",
+        "y",
+        "z",
+        "scale"
+      ],
+      "confidence": "semantic-medium",
+      "source": "src/game/fn_80046CD4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "notes": "Configures one actor attachment/part through fn_8006C660 using a part index, position vector, and scale."
+    },
+    {
+      "opcode": 194,
+      "name": "configure_actor_head_neck",
+      "handler": "fn_8004654C",
+      "arguments": [
+        "actor_id",
+        "neck_value",
+        "head_value",
+        "x",
+        "y",
+        "z",
+        "scale"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8004654C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "actor_id",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "notes": "Configures the Bone_kubi and Bone_atama actor parts through fn_8006C660 with a shared position and scale."
+    },
+    {
+      "opcode": 195,
+      "name": "native_c3",
+      "handler": "fn_80045F54",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80045F54.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 196,
+      "name": "native_c4",
+      "handler": "fn_80045C18",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80045C18.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 197,
+      "name": "set_actor_animation",
+      "handler": "fn_80045474",
+      "arguments": [
+        "actor_id",
+        "animation_id",
+        "loop_or_mode"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Resolves actor_id and selects animation_id through the actor animation object; loop_or_mode chooses the looping or one-shot setter.",
+      "source": "src/game/fn_80045474.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 198,
+      "name": "native_c6",
+      "handler": "fn_80054864",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12",
+        "arg13",
+        "arg14",
+        "arg15",
+        "arg16",
+        "arg17",
+        "arg18",
+        "arg19",
+        "arg20"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/game_script_vm_80054864.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 199,
+      "name": "native_c7",
+      "handler": "fn_800418B8",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800418B8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 200,
+      "name": "native_c8",
+      "handler": "fn_80041880",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80041880.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 201,
+      "name": "native_c9",
+      "handler": "fn_80041780",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80041780.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 202,
+      "name": "native_ca",
+      "handler": "fn_80041494",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80041494.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 203,
+      "name": "native_cb",
+      "handler": "fn_8004568C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004568C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 204,
+      "name": "native_cc",
+      "handler": "fn_80045038",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80045038.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 205,
+      "name": "native_cd",
+      "handler": "fn_8005098C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8005098C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 206,
+      "name": "stage_command_54",
+      "handler": "fn_80042E24",
+      "arguments": [
+        "arg1",
+        "arg0",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6"
+      ],
+      "returns_value": true,
+      "confidence": "semantic-medium",
+      "notes": "Calls active-stage callback table offset 0x54 in mode 9, swapping the first two source arguments, and returns zero.",
+      "source": "src/game/fn_80042E24.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true,
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "result_type": "i32"
+    },
+    {
+      "opcode": 207,
+      "name": "native_cf",
+      "handler": "fn_80042D6C",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80042D6C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 208,
+      "name": "native_d0",
+      "handler": "fn_800429B0",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800429B0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 209,
+      "name": "set_effect_property",
+      "handler": "fn_8004242C",
+      "arguments": [
+        "effect_handle",
+        "property",
+        "value"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Sets one property of an effect/object handle. Properties 120..149 cover position, color, scale, rotation, flags, and byte parameters; the call returns zero.",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004242C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 210,
+      "name": "native_d2",
+      "handler": "fn_80042300",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80042300.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 211,
+      "name": "create_effect_object",
+      "handler": "fn_800426CC",
+      "arguments": [
+        "resource_group",
+        "resource_id",
+        "x",
+        "y",
+        "z",
+        "scale_x",
+        "scale_y",
+        "scale_z",
+        "duration",
+        "layer",
+        "rotation_x",
+        "rotation_y",
+        "flags",
+        "variant"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Allocates and initializes a field effect/object through fn_800830BC, writes its transform, scale, duration, layer, rotation, and flags, and returns the object handle.",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800426CC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 212,
+      "name": "native_d4",
+      "handler": "fn_800429B0",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800429B0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 213,
+      "name": "native_d5",
+      "handler": "fn_800429B0",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10",
+        "arg11",
+        "arg12"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800429B0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 214,
+      "name": "native_d6",
+      "handler": "fn_80059428",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80059428.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 215,
+      "name": "motion_command",
+      "handler": "fn_8004AD10",
+      "arguments": [
+        "operation",
+        "x_or_value",
+        "y_or_value",
+        "z_or_value",
+        "speed_or_duration",
+        "auxiliary"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Controls the VM's persistent motion state: actor position/rotation targets, interpolation speed or frame durations, scalar values, saved integers, and geometry queries (operation 0..19).",
+      "source": "src/game/fn_8004AD10.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 216,
+      "name": "native_d8",
+      "handler": "fn_8004126C",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004126C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 217,
+      "name": "native_d9",
+      "handler": "fn_8004121C",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004121C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 218,
+      "name": "native_da",
+      "handler": "fn_800411F8",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800411F8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 219,
+      "name": "native_db",
+      "handler": "fn_800411A8",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800411A8.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 220,
+      "name": "native_dc",
+      "handler": "fn_80050E8C",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80050E8C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 221,
+      "name": "native_dd",
+      "handler": "fn_800420B4",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3",
+        "arg4",
+        "arg5",
+        "arg6",
+        "arg7",
+        "arg8",
+        "arg9",
+        "arg10"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800420B4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 222,
+      "name": "native_de",
+      "handler": "fn_80041E14",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80041E14.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 223,
+      "name": "native_df",
+      "handler": "fn_80054814",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80054814.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 224,
+      "name": "play_sound",
+      "handler": "fn_8004ECB0",
+      "arguments": [
+        "sound_id",
+        "raw_velocity",
+        "channel",
+        "note"
+      ],
+      "argument_types": [
+        "sound_id",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "source": "src/game/fn_8004ECB0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 225,
+      "name": "configure_input_binding",
+      "handler": "fn_8004EB54",
+      "arguments": [
+        "binding_index",
+        "operation",
+        "value"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "semantic-high",
+      "notes": "Updates the controller binding table: operation 100 sets a digital binding, 101 sets an analog binding, and 102 clears a binding.",
+      "source": "src/game/fn_8004EB54.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 226,
+      "name": "native_e2",
+      "handler": "fn_8004E758",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2",
+        "arg3"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004E758.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 227,
+      "name": "native_e3",
+      "handler": "fn_80041198",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80041198.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 228,
+      "name": "native_e4",
+      "handler": "fn_80041148",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80041148.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 229,
+      "name": "native_e5",
+      "handler": "fn_80041124",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80041124.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 230,
+      "name": "native_e6",
+      "handler": "fn_800410D4",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800410D4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 231,
+      "name": "native_e7",
+      "handler": "fn_80042C44",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80042C44.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 232,
+      "name": "native_e8",
+      "handler": "fn_8004160C",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_8004160C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 233,
+      "name": "run_resource_callback",
+      "handler": "fn_800407C0",
+      "arguments": [
+        "resource_handle"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "semantic-medium",
+      "notes": "Invokes the resource/cache setup callback for resource_handle and pops the handle from the VM stack.",
+      "source": "src/game/fn_800407C0.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 234,
+      "name": "native_ea",
+      "handler": "fn_8004F130",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004F130.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 235,
+      "name": "native_eb",
+      "handler": "fn_80044F94",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80044F94.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 236,
+      "name": "native_ec",
+      "handler": "fn_800530CC",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_800530CC.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 237,
+      "name": "native_ed",
+      "handler": "fn_80040D90",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80040D90.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 238,
+      "name": "native_ee",
+      "handler": "fn_80040E48",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80040E48.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 240,
+      "name": "native_f0",
+      "handler": "fn_80040AA4",
+      "arguments": [],
+      "argument_types": [],
+      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "immediate-output-proven",
+      "source": "src/game/fn_80040AA4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 241,
+      "name": "native_f1",
+      "handler": "fn_800408B4",
+      "arguments": [
+        "arg0",
+        "arg1"
+      ],
+      "argument_types": [
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800408B4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 242,
+      "name": "native_f2",
+      "handler": "fn_800408A4",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_800408A4.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 243,
+      "name": "native_f3",
+      "handler": "fn_8004087C",
+      "arguments": [
+        "arg0"
+      ],
+      "argument_types": [
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_8004087C.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    },
+    {
+      "opcode": 244,
+      "name": "native_f4",
+      "handler": "fn_80040808",
+      "arguments": [
+        "arg0",
+        "arg1",
+        "arg2"
+      ],
+      "argument_types": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "confidence": "arity-proven",
+      "source": "src/game/fn_80040808.c",
+      "arity_evidence": "handler-stack-delta",
+      "authoring_available": true
+    }
+  ]
+}

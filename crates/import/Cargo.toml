@@ -1,0 +1,22 @@
+[package]
+name = "resonance-import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+image.workspace = true
+resonance-content.workspace = true
+resonance-audio-cook.workspace = true
+resonance-audio.workspace = true
+nod = "=2.0.0-alpha.9"
+thiserror = "2"
+cab = "0.6"
+png = "0.18"
+glam = "0.32"
+symphonia-script.workspace = true
+hound = "3.5"
+encoding_rs = "0.8"

@@ -1,0 +1,17 @@
+[package]
+name = "resonance-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+resonance-playback.workspace = true
+anyhow.workspace = true
+ffmpeg-next = { version = "=9.0.0", default-features = false, features = ["codec", "format", "software-scaling", "software-resampling"] }
+resonance-content.workspace = true
+
+[dev-dependencies]
+resonance-audio-device.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hound = "3.5"

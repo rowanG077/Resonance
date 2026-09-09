@@ -1,0 +1,736 @@
+{
+  "game_id": "GQSEAF",
+  "polls": 100000,
+  "rtc": 1700000000,
+  "from_save_state": true,
+  "inputs": [
+    {
+      "poll": 5000,
+      "duration": 4,
+      "buttons": [
+        "start"
+      ]
+    },
+    {
+      "poll": 7000,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 8200,
+      "duration": 4,
+      "buttons": [
+        "down"
+      ]
+    },
+    {
+      "poll": 8300,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 18050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 18350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 18650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 18950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 19250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 19550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 19850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 20150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 20450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 20750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 21050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 21350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 21650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 21950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 22250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 22550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 22850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 23150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 23450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 23750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 24050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 24350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 24650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 24950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 25250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 25550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 25850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 26150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 26450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 26750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 27050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 27350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 27650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 27950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 28250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 28550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 28850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 29150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 29450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 29750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 30050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 30350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 30650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 30950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 31250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 31550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 31850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 32150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 32450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 32750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 33050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 33350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 33650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 33950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 34250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 34550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 34850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 35150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 35450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 35750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 36050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 36350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 36650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 36950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 37250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 37550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 37850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 38150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 38450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 38750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 39050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 39350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 39650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 39950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 40250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 40550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 40850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 41150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 41450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 41750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 42050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 42350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 42650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 42950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 43250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 43550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 43850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 44150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 44450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 44750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 45050,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 45350,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 45650,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 45950,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 46250,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 46550,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 46850,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 47150,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 47450,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    },
+    {
+      "poll": 47750,
+      "duration": 4,
+      "buttons": [
+        "a"
+      ]
+    }
+  ]
+}

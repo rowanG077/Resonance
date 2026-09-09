@@ -1,0 +1,122 @@
+//! The supported ABI: each row binds a typed ID, argument count, return shape
+//! and service handler. IDs without a row remain unavailable to scripts.
+use super::NativeHost;
+use symphonia_script::NativeCall::*;
+use symphonia_script_vm::{Host, NativeBindings};
+
+macro_rules! bindings {
+    (@returns ()) => { false };
+    (@returns i32) => { true };
+    ($($call:ident($arguments:literal) -> $returns:tt = $handler:ident;)*) => {
+        NativeBindings::<Self>::new()$(.register($call as u8, $arguments, bindings!(@returns $returns),
+            |host, args, memory| host.invoke($call, args, memory, Self::$handler)))*
+    };
+}
+impl Host for NativeHost<'_> {
+    const NATIVES: NativeBindings<Self> = bindings! {
+        CloseDialogue(1) -> () = dispatch;
+        ConfigureDialogue(8) -> () = dispatch;
+        SpawnActor(8) -> () = field;
+        DespawnActor(1) -> () = field;
+        SetActorHeading(2) -> () = field;
+        MoveActor(5) -> () = field;
+        SetActorPosition(4) -> () = dispatch;
+        SetActorProperty(3) -> i32 = dispatch;
+        ChangeItemCount(2) -> i32 = party;
+        SelectPartyMember(1) -> i32 = field;
+        AddPartyMember(1) -> i32 = party;
+        SetActorOrientation(3) -> () = field;
+        EquipItem(2) -> () = party;
+        UnequipItem(2) -> () = party;
+        LearnTechnique(2) -> () = party;
+        CreateScriptRecord(8) -> () = field;
+        HealParty(1) -> () = party;
+        SpawnEvent(1) -> i32 = dispatch;
+        CreateScriptRecordVariant(11) -> () = field;
+        ChangeField(5) -> () = field;
+        ConfigureRendering(2) -> () = dispatch;
+        PreloadField(1) -> () = field;
+        CreateOverlay(13) -> () = dispatch;
+        SetEffectSetting(5) -> () = dispatch;
+        AudioCommand(1) -> () = field;
+        SetAudioFade(3) -> () = field;
+        PlaySoundSimple(2) -> () = field;
+        PlayMovieBlocking(1) -> () = dispatch;
+        PlayMovie(1) -> () = dispatch;
+        ReturnFieldControl(1) -> () = field;
+        DisableMappedInput(0) -> () = field;
+        EnableMappedInput(0) -> () = field;
+        SetTransitionMode(2) -> () = dispatch;
+        YieldCommand(2) -> () = dispatch;
+        RandomMod(1) -> i32 = field;
+        ShowChoice(5) -> i32 = dispatch;
+        SetEventBit(1) -> () = field;
+        ClearEventBit(1) -> () = field;
+        TestEventBit(1) -> i32 = field;
+        AddGald(1) -> i32 = party;
+        ConfigureSession(2) -> i32 = party;
+        SetScenarioTimer(3) -> () = field;
+        AdjustCharacterAffinity(2) -> i32 = party;
+        DiscardValue(1) -> () = dispatch;
+        GetScenarioTimerValue(1) -> i32 = field;
+        ResolveScriptResource(1) -> i32 = field;
+        ReleaseScriptResource(1) -> i32 = field;
+        ConfigureActorAnimation(5) -> () = dispatch;
+        SetActorAnimationProperty(3) -> i32 = field;
+        SelectCamera(1) -> i32 = field;
+        SetCameraProperty(2) -> i32 = field;
+        SetCameraTransitionValues(4) -> () = field;
+        SelectActor(1) -> () = field;
+        SetCameraPosition(3) -> () = field;
+        PlayCameraTrack(3) -> () = dispatch;
+        MeasureActorGeometry(3) -> i32 = field;
+        SetActorFace(2) -> () = field;
+        SetActorMouth(2) -> () = field;
+        FindActorBodyPart(2) -> i32 = field;
+        AttachActorToMember(3) -> () = field;
+        CreateSceneActor(8) -> () = dispatch;
+        FindActorNode(2) -> i32 = dispatch;
+        ReadCoordinateRegister(1) -> i32 = dispatch;
+        ConfigureBattleControl(2) -> i32 = party;
+        ConfigureActorAttachment(7) -> () = field;
+        ConfigureActorHeadNeck(7) -> () = field;
+        SetActorAnimation(3) -> () = field;
+        RaisePartyMemberLevel(2) -> () = party;
+        ReadActorAttachment(2) -> () = dispatch;
+        CreateParticle(13) -> i32 = dispatch;
+        SetEffectProperty(3) -> i32 = dispatch;
+        CreateEffectObject(14) -> i32 = field;
+        MotionCommand(6) -> () = field;
+        PlaySound(4) -> () = field;
+        ConfigureSound(3) -> () = field;
+        SelectAudioBank(1) -> () = field;
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registered_signatures_agree_with_the_independent_abi_catalog() {
+        let catalog = symphonia_script::semantics::NativeRegistry::gqseaf();
+        let bindings = NativeHost::NATIVES;
+        for opcode in 0..=u8::MAX {
+            let Some(binding) = bindings.get(opcode) else {
+                continue;
+            };
+            let spec = catalog
+                .get(opcode)
+                .expect("registered call is missing from the catalog");
+            assert!(!spec.control_flow);
+            assert_eq!(
+                binding.signature.arguments,
+                spec.arguments.len(),
+                "{opcode:#04x}"
+            );
+            if let Some(returns) = spec.returns_value {
+                assert_eq!(binding.signature.returns_value, returns, "{opcode:#04x}");
+            }
+        }
+    }
+}

@@ -1,0 +1,11 @@
+{
+  "game_id": "GQSEAF",
+  "polls": 16000,
+  "rtc": 1700000000,
+  "inputs": [
+    {"poll": 5000, "duration": 4, "buttons": ["start"]},
+    {"poll": 5500, "duration": 4, "buttons": ["start"]},
+    {"poll": 6400, "duration": 4, "buttons": ["up"]},
+    {"poll": 7000, "duration": 4, "buttons": ["a"]}
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "probe": {
+    "position": [
+      -52,
+      -619,
+      0
+    ],
+    "heading": 180,
+    "approach_settle_ticks": 120,
+    "settle_ticks": 120,
+    "interaction_actor": null
+  },
+  "updates": 535,
+  "renders_per_update": 2,
+  "movement": [
+    {
+      "update": 10,
+      "direction": [
+        0,
+        -1
+      ]
+    },
+    {
+      "update": 40,
+      "direction": [
+        0,
+        0
+      ]
+    },
+    {
+      "update": 90,
+      "direction": [
+        1,
+        0
+      ]
+    },
+    {
+      "update": 150,
+      "direction": [
+        0,
+        0
+      ]
+    },
+    {
+      "update": 170,
+      "direction": [
+        -1,
+        0
+      ]
+    },
+    {
+      "update": 290,
+      "direction": [
+        0,
+        0
+      ]
+    },
+    {
+      "update": 310,
+      "direction": [
+        1,
+        0
+      ]
+    },
+    {
+      "update": 430,
+      "direction": [
+        0,
+        0
+      ]
+    },
+    {
+      "update": 450,
+      "direction": [
+        -1,
+        0
+      ]
+    }
+  ]
+}

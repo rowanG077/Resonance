@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "inputs": [
+    {"tick": 162, "duration": 2, "buttons": ["accept"]}
+  ]
+}

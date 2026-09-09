@@ -1,0 +1,16 @@
+{
+  "actor": 4,
+  "position": [
+    220.22462463378906,
+    71.06461334228516,
+    0
+  ],
+  "animation_slot": 36,
+  "animation_sample": 61,
+  "duration_updates": 650,
+  "accept_updates": [
+    21,
+    171,
+    321
+  ]
+}

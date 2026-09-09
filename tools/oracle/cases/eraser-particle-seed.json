@@ -1,0 +1,11 @@
+{
+  "anchor": {
+    "actor": 100,
+    "position": [0.0, -10.0, 0.0],
+    "animation_slot": 80,
+    "animation_sample": 20.0,
+    "duration_updates": 21,
+    "accept_updates": []
+  },
+  "random_state": 3749683725
+}
