@@ -1,0 +1,12 @@
+[package]
+name = "resonance-import-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[[bin]]
+name = "resonance-import"
+path = "src/main.rs"
+[dependencies]
+resonance-import.workspace = true
+clap.workspace = true
+anyhow.workspace = true

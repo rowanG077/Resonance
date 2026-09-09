@@ -1,0 +1,11 @@
+[package]
+name = "resonance-events"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+symphonia-script.workspace = true
+symphonia-script-vm.workspace = true
+anyhow.workspace = true
+resonance-content.workspace = true

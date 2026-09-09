@@ -1,0 +1,12 @@
+{
+  "position": [
+    -88.0,
+    -229.0,
+    0.0
+  ],
+  "heading": 180.0,
+  "settle_ticks": 36,
+  "interaction_actor": 2,
+  "animation_samples": {},
+  "approach_settle_ticks": 120
+}

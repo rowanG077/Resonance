@@ -1,0 +1,11 @@
+[package]
+name = "resonance-audio-device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+resonance-playback.workspace = true
+cpal = { version = "=0.17.3", features = ["audio_thread_priority"] }
+audio_thread_priority = "=0.34.0"

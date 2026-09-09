@@ -1,0 +1,8 @@
+{
+  "reference": "local/oracle/title-music-loop-complete-silent/user/Dump/Audio/GQSEAF_2026-09-07_12-05-38_dspdump.wav",
+  "reference_sha256": "31fb9adbf4eb66ed9747e39e87b67cdea35b88a7d4b206b0630604c349e8ea28",
+  "window": {
+    "reference_start_frame": 1383592,
+    "frames": 1264656
+  }
+}

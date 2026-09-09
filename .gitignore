@@ -1,0 +1,7 @@
+/target/
+/local/
+/.direnv/
+/result*
+*.log
+__pycache__/
+.codex

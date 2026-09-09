@@ -1,0 +1,22 @@
+{
+  "reference": "local/oracle/title-navigation-silent/user/Dump/Audio/GQSEAF_2026-09-07_06-40-57_dspdump.wav",
+  "reference_sha256": "30a025ce1c02c70ae93e83acf1fa082031ce29ca72cd9f56283b5b47690526ba",
+  "window": {
+    "reference_start_frame": 1383592,
+    "frames": 516568
+  },
+  "cue_events": [
+    {
+      "frame": 487360,
+      "cue": "navigate"
+    },
+    {
+      "frame": 504000,
+      "cue": "navigate"
+    },
+    {
+      "frame": 506080,
+      "cue": "navigate"
+    }
+  ]
+}
