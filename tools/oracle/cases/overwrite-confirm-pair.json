@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Overwrite confirmation: default No and one full cursor cycle",
+  "registration": "Dolphin begins at the independently recorded populated Save slot list after a normal save. Native begins from the same persistent field progress and free-control checkpoint, creates its own save through normal keyboard input, dismisses success and selects that populated slot. The starting menu state is intentionally reconstructed by input, not added to the native checkpoint. Register settled No once: native update 380 corresponds to Dolphin dump 136, then compare 25 consecutive frames without further adjustment. Dolphin memory observations use VI 134 onward; PNG and VI indices are distinct because rendering is buffered. Both fixtures preserve map 332/story 2500 and the same pose. Different saved play times and randomized HP/TP remain visible in the underlying slot card and are not claimed equivalent. The complete overwrite popup region extends below the frame to include the cursor. No audio acceptance is claimed. Set the shared UI presentation origin once to 39148: observed source VI 134 has UI clock 39528 and pairs native update 380. Every one of this case's 25 frame observations yields the same source-UI-minus-native-update constant. The runtime already used the shared UI clock before the first cleanup; the former fixture registered only the local menu clock. No per-frame clock adjustment, capture movement, source substitution or relaxed gate is applied. Its dedicated replay retains save-load-keyboard's corrected input sequence; Load's independently registered window requires a different initial UI origin and therefore a separate replay identity.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/paired-school-grounds.json",
+    "sha256": "f085ba361bd4f26cfd982ace70f9f2dd86e574803a927439fa614607745278e8"
+  },
+  "native_replay": {
+    "path": "overwrite-confirm-keyboard.json",
+    "sha256": "0ac17097dc1ae2e232b4361da59c17c2109887c63b6ddc3509486b4987e6c7c0"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-saved-slot/user/StateSaves/GQSEAF.s01",
+      "sha256": "c6054789283a390bdd3922ab509890e2c670b090c568b24d8d551a8cf7a92916"
+    },
+    "prefix_sha256": "31c39e5fbf6d455deb2b25672659f96ec0235ac95e2216b66921c1f82b8912c3",
+    "start_poll": 78789,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    }
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 900,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {"name":"overwrite-0","native":"overwrite-0","dolphin":136,"dolphin_vi":134,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-1","native":"overwrite-1","dolphin":137,"dolphin_vi":135,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-2","native":"overwrite-2","dolphin":138,"dolphin_vi":136,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-3","native":"overwrite-3","dolphin":139,"dolphin_vi":137,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-4","native":"overwrite-4","dolphin":140,"dolphin_vi":138,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-5","native":"overwrite-5","dolphin":141,"dolphin_vi":139,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-6","native":"overwrite-6","dolphin":142,"dolphin_vi":140,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-7","native":"overwrite-7","dolphin":143,"dolphin_vi":141,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-8","native":"overwrite-8","dolphin":144,"dolphin_vi":142,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-9","native":"overwrite-9","dolphin":145,"dolphin_vi":143,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-10","native":"overwrite-10","dolphin":146,"dolphin_vi":144,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-11","native":"overwrite-11","dolphin":147,"dolphin_vi":145,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-12","native":"overwrite-12","dolphin":148,"dolphin_vi":146,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-13","native":"overwrite-13","dolphin":149,"dolphin_vi":147,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-14","native":"overwrite-14","dolphin":150,"dolphin_vi":148,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-15","native":"overwrite-15","dolphin":151,"dolphin_vi":149,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-16","native":"overwrite-16","dolphin":152,"dolphin_vi":150,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-17","native":"overwrite-17","dolphin":153,"dolphin_vi":151,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-18","native":"overwrite-18","dolphin":154,"dolphin_vi":152,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-19","native":"overwrite-19","dolphin":155,"dolphin_vi":153,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-20","native":"overwrite-20","dolphin":156,"dolphin_vi":154,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-21","native":"overwrite-21","dolphin":157,"dolphin_vi":155,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-22","native":"overwrite-22","dolphin":158,"dolphin_vi":156,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-23","native":"overwrite-23","dolphin":159,"dolphin_vi":157,"regions":[[120,170,400,156]],"slot_confirmation":true},
+    {"name":"overwrite-24","native":"overwrite-24","dolphin":160,"dolphin_vi":158,"regions":[[120,170,400,156]],"slot_confirmation":true}
+  ],
+  "audio": []
+}

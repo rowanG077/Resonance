@@ -1,0 +1,354 @@
+{
+  "version": 1,
+  "presentation_origin": 38084,
+  "session_origin": 34583,
+  "updates": 2580,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 250,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 251,
+      "keys": []
+    },
+    {
+      "update": 330,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 331,
+      "keys": []
+    },
+    {
+      "update": 410,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 411,
+      "keys": []
+    },
+    {
+      "update": 490,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 491,
+      "keys": []
+    },
+    {
+      "update": 570,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 571,
+      "keys": []
+    },
+    {
+      "update": 650,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 651,
+      "keys": []
+    },
+    {
+      "update": 730,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 731,
+      "keys": []
+    },
+    {
+      "update": 810,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 811,
+      "keys": []
+    },
+    {
+      "update": 890,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 891,
+      "keys": []
+    },
+    {
+      "update": 970,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 971,
+      "keys": []
+    },
+    {
+      "update": 1050,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1051,
+      "keys": []
+    },
+    {
+      "update": 1130,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1131,
+      "keys": []
+    },
+    {
+      "update": 1210,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1211,
+      "keys": []
+    },
+    {
+      "update": 1290,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1291,
+      "keys": []
+    },
+    {
+      "update": 1370,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1371,
+      "keys": []
+    },
+    {
+      "update": 1450,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1451,
+      "keys": []
+    },
+    {
+      "update": 1530,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1531,
+      "keys": []
+    },
+    {
+      "update": 1610,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1611,
+      "keys": []
+    },
+    {
+      "update": 1690,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1691,
+      "keys": []
+    },
+    {
+      "update": 1770,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1771,
+      "keys": []
+    },
+    {
+      "update": 1850,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1851,
+      "keys": []
+    },
+    {
+      "update": 1930,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1931,
+      "keys": []
+    },
+    {
+      "update": 2010,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2011,
+      "keys": []
+    },
+    {
+      "update": 2090,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2091,
+      "keys": []
+    },
+    {
+      "update": 2170,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2171,
+      "keys": []
+    },
+    {
+      "update": 2250,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 2251,
+      "keys": []
+    },
+    {
+      "update": 2330,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2331,
+      "keys": []
+    },
+    {
+      "update": 2410,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2411,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "vi-0",
+    "230": "vi-230",
+    "630": "vi-630",
+    "710": "vi-710",
+    "790": "vi-790",
+    "870": "vi-870",
+    "1030": "vi-1030",
+    "1110": "vi-1110",
+    "1430": "vi-1430",
+    "1590": "vi-1590",
+    "1670": "vi-1670",
+    "1750": "vi-1750",
+    "1830": "vi-1830",
+    "1910": "vi-1910",
+    "2070": "vi-2070",
+    "2150": "vi-2150",
+    "2310": "vi-2310",
+    "2470": "vi-2470"
+  },
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "skit": {
+      "id": 600,
+      "remaining": 1498,
+      "opacity": 255,
+      "control_ticks": 7501,
+      "text_opacity": 255
+    }
+  },
+  "story_origin": {
+    "from": 2500,
+    "to": 1403000,
+    "update": 40
+  }
+}

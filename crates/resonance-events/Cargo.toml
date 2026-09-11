@@ -5,7 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+serde.workspace = true
 symphonia-script.workspace = true
 symphonia-script-vm.workspace = true
 anyhow.workspace = true
 resonance-content.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

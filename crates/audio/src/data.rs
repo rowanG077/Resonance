@@ -4,6 +4,10 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
     pub macro_id: u16,
@@ -72,6 +76,8 @@ pub enum Command {
         factor: u8,
         offset: u8,
         milliseconds: u16,
+        #[serde(default, skip_serializing_if = "is_false")]
+        from_silence: bool,
     },
     Auxiliary {
         bus: u8,

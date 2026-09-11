@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "description": "Mono Iselia music after committing Customize. The original first previews BGM=64, then commits Mono. Compare the same six-second interval before and after the native correction at the already registered PCM alignment. Native voices must center their pan before the shared effects; averaging the old stereo output alone fails the fixed gain/waveform gates.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "reference": {
+    "path": "local/findings-menu/music64-mono-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-52-51_dspdump.wav",
+    "sha256": "eaf3dc4cd99f04b2f1887a2630cbb6f79b4cd1cd76866995d8630c1fee67ce36"
+  },
+  "native": {
+    "path": "local/findings-menu/iselia-level64-mono-native-v2.wav",
+    "sha256": "54996862920bc6dc6257f4d281f7efc12ef6f28418b7a220bbfb49cac69401a8",
+    "recording": [
+      "target/debug/examples/record_field_music",
+      "local/cooked",
+      "OUTPUT",
+      "7",
+      "120",
+      "64",
+      "6",
+      "mono"
+    ],
+    "audio_device": false
+  },
+  "window": {
+    "reference_start_frame": 960840,
+    "actual_start_frame": 3617856,
+    "frames": 192168,
+    "window_frames": 32028,
+    "sample_rate": 32028,
+    "channels": 2
+  },
+  "thresholds": {
+    "minimum_window_correlation": 0.99,
+    "minimum_window_mean_removed_signal_to_error_db": 15,
+    "maximum_window_abs_level_difference_db": 0.15
+  },
+  "dolphin": {
+    "state": "local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+    "state_sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72",
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "replay": {
+      "game_id": "GQSEAF",
+      "polls": 5300,
+      "rtc": 1700000000,
+      "inputs": [
+        {
+          "poll": 20,
+          "duration": 4,
+          "buttons": [
+            "y"
+          ]
+        },
+        {
+          "poll": 180,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 340,
+          "duration": 4,
+          "buttons": [
+            "a"
+          ]
+        },
+        {
+          "poll": 500,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 660,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 820,
+          "duration": 4,
+          "buttons": [
+            "a"
+          ]
+        },
+        {
+          "poll": 1000,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1160,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1320,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1480,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1640,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1800,
+          "duration": 4,
+          "buttons": [
+            "a"
+          ]
+        },
+        {
+          "poll": 1960,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2000,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2040,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2080,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2120,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2160,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2200,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2240,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2300,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 2380,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 2460,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 2540,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 2620,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 2700,
+          "duration": 4,
+          "buttons": [
+            "right"
+          ]
+        },
+        {
+          "poll": 2780,
+          "duration": 4,
+          "buttons": [
+            "b"
+          ]
+        },
+        {
+          "poll": 2940,
+          "duration": 4,
+          "buttons": [
+            "b"
+          ]
+        }
+      ]
+    },
+    "watch_vis": 2600,
+    "registration": "Uses the same initial source state and music timeline as customize-music-audio.json. The draft switches to Mono at VI 1350 and commits at VI 1470. MemoryWatcher observes saved audio word 0x03fc407f afterward. Reference PCM frame 960840 (30 seconds) pairs with native frame 3617856, preserving the stereo case's existing offset. Compare six seconds without a new search, gain adjustment or resampling. Raw source channels differ by a small DAC/DC residual; waveform acceptance retains the existing mean-removed metrics."
+  },
+  "negative_control": {
+    "path": "local/findings-menu/iselia-level64-mono-native-v1.wav",
+    "sha256": "86983dfe03ee8484042913c68f2e83b56aaa9a267e6254dfd034979bbaf2f0ef",
+    "description": "Previous final-channel averaging: zero lag drift but up to 1.2528 dB level error, fails unchanged acceptance."
+  }
+}

@@ -1,0 +1,409 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Open the Rename Gem through Recent Items, edit and commit a character name, and return to the item list.",
+  "registration": "Uses the same audited Rename Gem fixture as the Status editor case. Inputs after native menu update 40 use source poll/2 + 1. The first observation is settled Items at VI/update 200, after source disc loading. Captures share presentation origin 38084 and equal update/VI. Source VI 469 has no movie presentation; capture 470 uses the next timestamp. Target-panel closure, Items departure, name entry and return transitions are observed, together with names and gem count. A completed name-editor fade is inactive on its blank handoff frame. No image-based registration is used.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/rename-fixture-v1/native.json",
+    "sha256": "767ed1d9e76c212352d9ef1d5bdf3e767647f204eb10b8c2e65ae86a7ea6a69b"
+  },
+  "native_replay": {
+    "path": "rename-items-keyboard.json",
+    "sha256": "8ef56b4b600c15b344337b4f27c95bb55a8982099b7d52299effb22e02d8d620"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/rename-fixture-v1/GQSEAF.s01",
+      "sha256": "58b49659211ade454c438cd3a7dd6e9b9e27ec5bd927b4146870c8bdecadccb3"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 2400,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 580,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1340,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1420,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1740,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "vi-200",
+      "native": "vi-200",
+      "dolphin_vi": 200,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-260",
+      "native": "vi-260",
+      "dolphin_vi": 260,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-300",
+      "native": "vi-300",
+      "dolphin_vi": 300,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-340",
+      "native": "vi-340",
+      "dolphin_vi": 340,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-380",
+      "native": "vi-380",
+      "dolphin_vi": 380,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-450",
+      "native": "vi-450",
+      "dolphin_vi": 450,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-451",
+      "native": "vi-451",
+      "dolphin_vi": 451,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-452",
+      "native": "vi-452",
+      "dolphin_vi": 452,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-455",
+      "native": "vi-455",
+      "dolphin_vi": 455,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-458",
+      "native": "vi-458",
+      "dolphin_vi": 458,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-459",
+      "native": "vi-459",
+      "dolphin_vi": 459,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-461",
+      "native": "vi-461",
+      "dolphin_vi": 461,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-463",
+      "native": "vi-463",
+      "dolphin_vi": 463,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-466",
+      "native": "vi-466",
+      "dolphin_vi": 466,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-468",
+      "native": "vi-468",
+      "dolphin_vi": 468,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-470",
+      "native": "vi-470",
+      "dolphin_vi": 470,
+      "rename_state": true
+    },
+    {
+      "name": "vi-471",
+      "native": "vi-471",
+      "dolphin_vi": 471,
+      "rename_state": true
+    },
+    {
+      "name": "vi-474",
+      "native": "vi-474",
+      "dolphin_vi": 474,
+      "rename_state": true
+    },
+    {
+      "name": "vi-477",
+      "native": "vi-477",
+      "dolphin_vi": 477,
+      "rename_state": true
+    },
+    {
+      "name": "vi-480",
+      "native": "vi-480",
+      "dolphin_vi": 480,
+      "rename_state": true
+    },
+    {
+      "name": "vi-500",
+      "native": "vi-500",
+      "dolphin_vi": 500,
+      "rename_state": true
+    },
+    {
+      "name": "vi-560",
+      "native": "vi-560",
+      "dolphin_vi": 560,
+      "rename_state": true
+    },
+    {
+      "name": "vi-600",
+      "native": "vi-600",
+      "dolphin_vi": 600,
+      "rename_state": true
+    },
+    {
+      "name": "vi-640",
+      "native": "vi-640",
+      "dolphin_vi": 640,
+      "rename_state": true
+    },
+    {
+      "name": "vi-680",
+      "native": "vi-680",
+      "dolphin_vi": 680,
+      "rename_state": true
+    },
+    {
+      "name": "vi-720",
+      "native": "vi-720",
+      "dolphin_vi": 720,
+      "rename_state": true
+    },
+    {
+      "name": "vi-751",
+      "native": "vi-751",
+      "dolphin_vi": 751,
+      "rename_state": true
+    },
+    {
+      "name": "vi-755",
+      "native": "vi-755",
+      "dolphin_vi": 755,
+      "rename_state": true
+    },
+    {
+      "name": "vi-760",
+      "native": "vi-760",
+      "dolphin_vi": 760,
+      "rename_state": true
+    },
+    {
+      "name": "vi-762",
+      "native": "vi-762",
+      "dolphin_vi": 762,
+      "rename_state": true
+    },
+    {
+      "name": "vi-763",
+      "native": "vi-763",
+      "dolphin_vi": 763,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-766",
+      "native": "vi-766",
+      "dolphin_vi": 766,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-769",
+      "native": "vi-769",
+      "dolphin_vi": 769,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-772",
+      "native": "vi-772",
+      "dolphin_vi": 772,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-776",
+      "native": "vi-776",
+      "dolphin_vi": 776,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-800",
+      "native": "vi-800",
+      "dolphin_vi": 800,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-900",
+      "native": "vi-900",
+      "dolphin_vi": 900,
+      "rename_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "vi-1000",
+      "native": "vi-1000",
+      "dolphin_vi": 1000,
+      "rename_state": true,
+      "inventory_state": true
+    }
+  ]
+}

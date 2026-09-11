@@ -3,10 +3,19 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(about = "Resonance — Tales of Symphonia reimplementation")]
-#[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame"]).multiple(false)))]
+#[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame", "load"]).multiple(false)))]
 struct Args {
     #[arg(long, default_value = "local/cooked")]
     assets: PathBuf,
+    /// Directory for normal saves and development quicksave slots.
+    #[arg(long)]
+    save_directory: Option<PathBuf>,
+    /// Development slot used by F5 (save) and F9 (load).
+    #[arg(long)]
+    quick_slot: Option<String>,
+    /// Start from a free-exploration save, without replaying the opening.
+    #[arg(long, conflicts_with_all = ["record_music", "record_playthrough", "replay"])]
+    load: Option<PathBuf>,
     /// Fixed render resolution for this session (default 640x480); restart to change it.
     #[arg(long, conflicts_with_all = ["capture", "record_music", "record_playthrough", "replay"])]
     resolution: Option<resonance_presentation::Resolution>,
@@ -73,6 +82,11 @@ fn main() -> anyhow::Result<()> {
     }
     resonance_presentation::run_with_display(
         resonance_presentation::RunOptions {
+            saves: resonance_presentation::SaveOptions {
+                directory: args.save_directory,
+                quick_slot: args.quick_slot,
+                load: args.load,
+            },
             assets: args.assets,
             tick: args.tick,
             presentation_start: args.presentation_start,

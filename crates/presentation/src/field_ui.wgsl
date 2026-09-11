@@ -25,7 +25,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if all(point >= lower) && all(point < upper) {
             let uv = mix(quad.uv.xy, quad.uv.zw, (point - quad.rect.xy) / (quad.rect.zw - quad.rect.xy));
             var alpha = 0.0;
-            if quad.properties.x < 0.5 {
+            if quad.properties.x > 1.5 {
+                alpha = 1.0;
+            } else if quad.properties.x < 0.5 {
                 alpha = textureSampleLevel(frame_mask, frame_sampler, uv, 0.0).a;
             } else {
                 alpha = textureSampleLevel(color_mask, color_sampler, uv, 0.0).a;

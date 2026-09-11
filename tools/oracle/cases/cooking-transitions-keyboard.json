@@ -1,0 +1,758 @@
+{
+  "version": 1,
+  "updates": 1686,
+  "inputs": [
+    {
+      "update": 76,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 77,
+      "keys": []
+    },
+    {
+      "update": 155,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 156,
+      "keys": []
+    },
+    {
+      "update": 195,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 196,
+      "keys": []
+    },
+    {
+      "update": 235,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 236,
+      "keys": []
+    },
+    {
+      "update": 275,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 276,
+      "keys": []
+    },
+    {
+      "update": 315,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 316,
+      "keys": []
+    },
+    {
+      "update": 465,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 466,
+      "keys": []
+    },
+    {
+      "update": 615,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 616,
+      "keys": []
+    },
+    {
+      "update": 765,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 766,
+      "keys": []
+    },
+    {
+      "update": 865,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 866,
+      "keys": []
+    },
+    {
+      "update": 905,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 906,
+      "keys": []
+    },
+    {
+      "update": 945,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 946,
+      "keys": []
+    },
+    {
+      "update": 1025,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1026,
+      "keys": []
+    },
+    {
+      "update": 1065,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1066,
+      "keys": []
+    },
+    {
+      "update": 1165,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 1166,
+      "keys": []
+    },
+    {
+      "update": 1265,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1266,
+      "keys": []
+    },
+    {
+      "update": 1365,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1366,
+      "keys": []
+    },
+    {
+      "update": 1465,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1466,
+      "keys": []
+    },
+    {
+      "update": 1615,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1616,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "64": "origin-0",
+    "66": "poison-first",
+    "70": "poison-second",
+    "74": "poison-third",
+    "76": "main-open-0",
+    "77": "main-open-1",
+    "78": "main-open-2",
+    "79": "main-open-3",
+    "80": "main-open-4",
+    "81": "main-open-5",
+    "82": "main-open-6",
+    "83": "main-open-7",
+    "84": "main-open-8",
+    "85": "main-open-9",
+    "86": "main-open-10",
+    "314": "cooking-enter-0",
+    "315": "cooking-enter-1",
+    "316": "cooking-enter-2",
+    "317": "cooking-enter-3",
+    "318": "cooking-enter-4",
+    "319": "cooking-enter-5",
+    "320": "cooking-enter-6",
+    "321": "cooking-enter-7",
+    "322": "cooking-enter-8",
+    "323": "cooking-enter-9",
+    "324": "cooking-enter-10",
+    "325": "cooking-enter-11",
+    "326": "cooking-enter-12",
+    "327": "cooking-enter-13",
+    "328": "cooking-enter-14",
+    "329": "cooking-enter-15",
+    "330": "cooking-enter-16",
+    "331": "cooking-enter-17",
+    "332": "cooking-enter-18",
+    "333": "cooking-enter-19",
+    "334": "cooking-enter-20",
+    "335": "cooking-enter-21",
+    "336": "cooking-enter-22",
+    "337": "cooking-enter-23",
+    "338": "cooking-enter-24",
+    "339": "cooking-enter-25",
+    "340": "cooking-enter-26",
+    "341": "cooking-enter-27",
+    "342": "cooking-enter-28",
+    "343": "cooking-enter-29",
+    "344": "cooking-enter-30",
+    "345": "cooking-enter-31",
+    "346": "cooking-enter-32",
+    "414": "overview",
+    "464": "chef-list-enter-0",
+    "465": "chef-list-enter-1",
+    "466": "chef-list-enter-2",
+    "467": "chef-list-enter-3",
+    "564": "cooks",
+    "614": "chef-move-0",
+    "615": "chef-move-1",
+    "616": "chef-move-2",
+    "617": "chef-move-3",
+    "714": "colette",
+    "764": "chef-confirm-0",
+    "765": "chef-confirm-1",
+    "766": "chef-confirm-2",
+    "767": "chef-confirm-3",
+    "768": "chef-confirm-4",
+    "814": "selected-chef",
+    "864": "header-recipe-0",
+    "865": "header-recipe-1",
+    "866": "header-recipe-2",
+    "867": "header-recipe-3",
+    "904": "recipe-list-enter-0",
+    "905": "recipe-list-enter-1",
+    "906": "recipe-list-enter-2",
+    "907": "recipe-list-enter-3",
+    "944": "recipe-page-0",
+    "945": "recipe-page-1",
+    "946": "recipe-page-2",
+    "947": "recipe-page-3",
+    "948": "recipe-page-4",
+    "949": "recipe-page-5",
+    "950": "recipe-page-6",
+    "951": "recipe-page-7",
+    "952": "recipe-page-8",
+    "953": "recipe-page-9",
+    "954": "recipe-page-10",
+    "955": "recipe-page-11",
+    "956": "recipe-page-12",
+    "957": "recipe-page-13",
+    "958": "recipe-page-14",
+    "959": "recipe-page-15",
+    "960": "recipe-page-16",
+    "961": "recipe-page-17",
+    "962": "recipe-page-18",
+    "963": "recipe-page-19",
+    "964": "recipe-navigation",
+    "1024": "recipe-help-0",
+    "1025": "recipe-help-1",
+    "1026": "recipe-help-2",
+    "1027": "recipe-help-3",
+    "1028": "recipe-help-4",
+    "1029": "recipe-help-5",
+    "1030": "recipe-help-6",
+    "1031": "recipe-help-7",
+    "1032": "recipe-help-8",
+    "1033": "recipe-help-9",
+    "1034": "recipe-help-10",
+    "1035": "recipe-help-11",
+    "1036": "recipe-help-12",
+    "1037": "recipe-help-13",
+    "1038": "recipe-help-14",
+    "1039": "recipe-help-15",
+    "1040": "recipe-help-16",
+    "1041": "recipe-help-17",
+    "1042": "recipe-help-18",
+    "1043": "recipe-help-19",
+    "1044": "recipe-preview",
+    "1064": "recipe-confirm-0",
+    "1065": "recipe-confirm-1",
+    "1066": "recipe-confirm-2",
+    "1067": "recipe-confirm-3",
+    "1114": "selected-recipe",
+    "1164": "meal-open-0",
+    "1165": "meal-open-1",
+    "1166": "meal-open-2",
+    "1167": "meal-open-3",
+    "1168": "meal-open-4",
+    "1169": "meal-open-5",
+    "1170": "meal-open-6",
+    "1171": "meal-open-7",
+    "1172": "meal-open-8",
+    "1173": "meal-open-9",
+    "1174": "meal-open-10",
+    "1244": "result",
+    "1264": "meal-held-input-0",
+    "1265": "meal-held-input-1",
+    "1266": "meal-held-input-2",
+    "1267": "meal-held-input-3",
+    "1314": "result-held",
+    "1364": "meal-close-0",
+    "1365": "meal-close-1",
+    "1366": "meal-close-2",
+    "1367": "meal-close-3",
+    "1368": "meal-close-4",
+    "1369": "meal-close-5",
+    "1370": "meal-close-6",
+    "1371": "meal-close-7",
+    "1372": "meal-close-8",
+    "1373": "meal-close-9",
+    "1374": "meal-close-10",
+    "1414": "return",
+    "1464": "cooking-close-0",
+    "1465": "cooking-close-1",
+    "1466": "cooking-close-2",
+    "1467": "cooking-close-3",
+    "1468": "cooking-close-4",
+    "1469": "cooking-close-5",
+    "1470": "cooking-close-6",
+    "1471": "cooking-close-7",
+    "1472": "cooking-close-8",
+    "1473": "cooking-close-9",
+    "1474": "cooking-close-10",
+    "1475": "cooking-close-11",
+    "1476": "cooking-close-12",
+    "1477": "cooking-close-13",
+    "1478": "cooking-close-14",
+    "1479": "cooking-close-15",
+    "1480": "cooking-close-16",
+    "1481": "cooking-close-17",
+    "1482": "cooking-close-18",
+    "1483": "cooking-close-19",
+    "1484": "cooking-close-20",
+    "1485": "cooking-close-21",
+    "1486": "cooking-close-22",
+    "1487": "cooking-close-23",
+    "1488": "cooking-close-24",
+    "1534": "main",
+    "1614": "main-close-0",
+    "1615": "main-close-1",
+    "1616": "main-close-2",
+    "1617": "main-close-3",
+    "1618": "main-close-4",
+    "1619": "main-close-5",
+    "1620": "main-close-6",
+    "1621": "main-close-7",
+    "1622": "main-close-8",
+    "1623": "main-close-9",
+    "1624": "main-close-10",
+    "1625": "main-close-11",
+    "1626": "main-close-12",
+    "1627": "main-close-13",
+    "1628": "main-close-14",
+    "1684": "field"
+  },
+  "presentation_origin": 38020,
+  "session_origin": 34519,
+  "ambient_origin": {
+    "update": 64,
+    "samples": {
+      "999980": 76,
+      "999996": 76,
+      "999998": 1076,
+      "-2147483648": 115.29785
+    },
+    "effect_tick": 37551,
+    "random_state": 667551397,
+    "eyes": {
+      "1": {
+        "frame": 0,
+        "tick": 34
+      },
+      "209": {
+        "frame": 0,
+        "tick": 73
+      },
+      "210": {
+        "frame": 0,
+        "tick": 46
+      }
+    },
+    "actors": {
+      "1": {
+        "autonomy": {
+          "behavior": "player",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 129,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1968.5965576171875,
+          1005.5621948242188,
+          0
+        ],
+        "heading": 276,
+        "target_heading": 276,
+        "animation_slot": 12,
+        "animation_sample": 58,
+        "animation_repeat": true
+      },
+      "209": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 4,
+          "home": [
+            1715,
+            1316,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 87,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1311.25830078125,
+          1539.6483154296875,
+          0
+        ],
+        "heading": 30,
+        "target_heading": 30,
+        "animation_slot": 12,
+        "animation_sample": 4,
+        "animation_repeat": true
+      },
+      "210": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 2,
+          "home": [
+            1472,
+            1507,
+            0
+          ],
+          "radius": 600,
+          "activity": "walk",
+          "remaining": 29,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1557.2791748046875,
+          1834.7120361328125,
+          0
+        ],
+        "heading": 64,
+        "target_heading": 64,
+        "animation_slot": 36,
+        "animation_sample": 30,
+        "animation_repeat": true
+      },
+      "211": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 14,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": 84,
+        "animation_sample": 500,
+        "animation_repeat": false
+      },
+      "90020": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            1,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 119,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      }
+    },
+    "flutters": [
+      {
+        "kind": 25,
+        "age": 112,
+        "lifetime": 150,
+        "position": [
+          2893.152099609375,
+          878.3523559570312,
+          72.08041381835938
+        ],
+        "size": 25,
+        "rgba": [
+          13,
+          60,
+          4,
+          255
+        ],
+        "motion": {
+          "rotation": [
+            23037,
+            18576,
+            25591.51171875
+          ],
+          "fall_speed": 1.840000033378601,
+          "spin": 0.2,
+          "heading": -49,
+          "turn_after": 9
+        }
+      }
+    ],
+    "background_waits": [
+      {
+        "key": 5000,
+        "pc": 7678,
+        "remaining": 157,
+        "require_control": false
+      },
+      {
+        "key": 5100,
+        "pc": 7786,
+        "remaining": 122,
+        "require_control": false
+      }
+    ],
+    "save_sparks": [
+      {
+        "save_point": 0,
+        "age": 7,
+        "offset": [
+          -29,
+          -19
+        ],
+        "size": 35,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 31,
+        "offset": [
+          -9,
+          -6
+        ],
+        "size": 37,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 59,
+        "offset": [
+          8,
+          22
+        ],
+        "size": 32,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 55,
+        "offset": [
+          24,
+          4
+        ],
+        "size": 41,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 51,
+        "offset": [
+          16,
+          -29
+        ],
+        "size": 40,
+        "speed_eighths": 29
+      },
+      {
+        "save_point": 0,
+        "age": 47,
+        "offset": [
+          -3,
+          -18
+        ],
+        "size": 41,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 43,
+        "offset": [
+          6,
+          8
+        ],
+        "size": 42,
+        "speed_eighths": 44
+      },
+      {
+        "save_point": 0,
+        "age": 39,
+        "offset": [
+          15,
+          -19
+        ],
+        "size": 41,
+        "speed_eighths": 27
+      },
+      {
+        "save_point": 0,
+        "age": 35,
+        "offset": [
+          17,
+          25
+        ],
+        "size": 34,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 27,
+        "offset": [
+          -14,
+          -7
+        ],
+        "size": 43,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 23,
+        "offset": [
+          5,
+          19
+        ],
+        "size": 36,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 19,
+        "offset": [
+          21,
+          9
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      },
+      {
+        "save_point": 0,
+        "age": 15,
+        "offset": [
+          -3,
+          -29
+        ],
+        "size": 41,
+        "speed_eighths": 30
+      },
+      {
+        "save_point": 0,
+        "age": 11,
+        "offset": [
+          22,
+          31
+        ],
+        "size": 35,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 3,
+        "offset": [
+          -11,
+          14
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      }
+    ],
+    "skit": {
+      "id": 600,
+      "control_ticks": 7501,
+      "remaining": 1498,
+      "opacity": 255,
+      "text_opacity": 255
+    },
+    "gameplay_random": "uninitialized",
+    "poison_puffs": []
+  }
+}

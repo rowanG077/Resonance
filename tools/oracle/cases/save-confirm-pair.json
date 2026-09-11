@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Memory-circle save confirmation: one complete cursor cycle over the dimmed slot menu",
+  "registration": "Both starts are free control on the activated school-grounds memory circle at story 2500. Use the ordinary field checkpoint; ambient presentation restarts. Open Save and select the first empty slot with ordinary input. Storage waits are skipped natively. Register the settled Yes confirmation once: native update 180 (menu clock 160) corresponds to Dolphin dump 403 and VI observation 404 (UI clock 38488), with the same clock phase modulo 24. Compare 25 consecutive updates without further adjustment. Every frame checks both the whole image and the complete popup, including its cursor. This case does not claim audio equivalence. Set the shared UI presentation origin once to 38308: observed source VI 404 has UI clock 38488 and pairs native update 180. Every one of this case's 25 frame observations yields the same source-UI-minus-native-update constant. The runtime already used the shared UI clock before the first cleanup; the former fixture registered only the local menu clock. No per-frame clock adjustment, capture movement, source substitution or relaxed gate is applied.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/paired-school-grounds.json",
+    "sha256": "f085ba361bd4f26cfd982ace70f9f2dd86e574803a927439fa614607745278e8"
+  },
+  "native_replay": {
+    "path": "save-confirm-keyboard.json",
+    "sha256": "219bb8e020b4dd7aedc1f3037c022af90ffe5b50b5100ac3b1ab2f754662eb72"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    }
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 1500,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 600,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {"name":"confirm-yes-0","native":"confirm-yes-0","dolphin":403,"dolphin_vi":404,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-1","native":"confirm-yes-1","dolphin":404,"dolphin_vi":405,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-2","native":"confirm-yes-2","dolphin":405,"dolphin_vi":406,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-3","native":"confirm-yes-3","dolphin":406,"dolphin_vi":407,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-4","native":"confirm-yes-4","dolphin":407,"dolphin_vi":408,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-5","native":"confirm-yes-5","dolphin":408,"dolphin_vi":409,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-6","native":"confirm-yes-6","dolphin":409,"dolphin_vi":410,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-7","native":"confirm-yes-7","dolphin":410,"dolphin_vi":411,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-8","native":"confirm-yes-8","dolphin":411,"dolphin_vi":412,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-9","native":"confirm-yes-9","dolphin":412,"dolphin_vi":413,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-10","native":"confirm-yes-10","dolphin":413,"dolphin_vi":414,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-11","native":"confirm-yes-11","dolphin":414,"dolphin_vi":415,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-12","native":"confirm-yes-12","dolphin":415,"dolphin_vi":416,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-13","native":"confirm-yes-13","dolphin":416,"dolphin_vi":417,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-14","native":"confirm-yes-14","dolphin":417,"dolphin_vi":418,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-15","native":"confirm-yes-15","dolphin":418,"dolphin_vi":419,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-16","native":"confirm-yes-16","dolphin":419,"dolphin_vi":420,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-17","native":"confirm-yes-17","dolphin":420,"dolphin_vi":421,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-18","native":"confirm-yes-18","dolphin":421,"dolphin_vi":422,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-19","native":"confirm-yes-19","dolphin":422,"dolphin_vi":423,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-20","native":"confirm-yes-20","dolphin":423,"dolphin_vi":424,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-21","native":"confirm-yes-21","dolphin":424,"dolphin_vi":425,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-22","native":"confirm-yes-22","dolphin":425,"dolphin_vi":426,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-23","native":"confirm-yes-23","dolphin":426,"dolphin_vi":427,"regions":[[124,170,392,140]],"slot_confirmation":true},
+    {"name":"confirm-yes-24","native":"confirm-yes-24","dolphin":427,"dolphin_vi":428,"regions":[[124,170,392,140]],"slot_confirmation":true}
+  ],
+  "audio": []
+}

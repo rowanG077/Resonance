@@ -1,7 +1,6 @@
 //! Blend authored skeletal poses before script adjustments and secondary motion.
 use super::field_view::{ActorPart, Art, State};
 use bevy::prelude::*;
-use std::collections::BTreeMap;
 
 #[derive(Component)]
 pub(super) struct Rig {
@@ -18,26 +17,19 @@ pub(super) fn bind(
     art: Res<Art>,
     roots: Query<(Entity, &ActorPart), Without<Rig>>,
     children: Query<&Children>,
-    nodes: Query<(&Name, &Transform)>,
+    nodes: Query<(&Name, &Transform, &ChildOf)>,
+    meshes: Query<(), With<Mesh3d>>,
 ) {
     for (root, part) in &roots {
         if !part.prepared {
             continue;
         }
-        let names: BTreeMap<_, _> = children
-            .iter_descendants(root)
-            .filter_map(|entity| {
-                nodes
-                    .get(entity)
-                    .ok()
-                    .map(|(name, t)| (name.as_str(), (entity, *t)))
-            })
-            .collect();
+        let names = super::field_pose::named_bones(root, &children, &nodes, &meshes);
         let spec = &art.models[&part.resource][part.part].spec;
         let bones: Vec<_> = spec
             .bone_names
             .iter()
-            .filter_map(|name| names.get(name.as_str()).copied())
+            .filter_map(|name| names.get(name).map(|&(entity, rest, _)| (entity, rest)))
             .collect();
         if bones.is_empty() {
             continue;
@@ -95,9 +87,11 @@ pub(super) fn blend(
                 if weight < 1. {
                     *transform = mix(rig.from[i], *transform, weight);
                 }
-                // Cache the base blended pose. Mouth/bone overrides, cloth and
-                // attachments run later and must never feed back into a blend.
-                rig.previous[i] = *transform;
+                // An interrupted blend keeps its original source pose. Cache
+                // only completed poses, before mouth, cloth and bone overrides.
+                if weight >= 1. {
+                    rig.previous[i] = *transform;
+                }
             }
         }
         rig.sampled = true;
@@ -136,5 +130,50 @@ mod tests {
         let end = mix(old, rest, 1.);
         assert_eq!(end.translation, Vec3::ZERO);
         assert!(end.rotation.angle_between(Quat::IDENTITY) < 0.001);
+    }
+
+    #[test]
+    fn mesh_names_do_not_redirect_skeletal_pose_updates() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let root = world.spawn_empty().id();
+        let rest = Transform::from_xyz(5., 2., 1.);
+        let bone = world.spawn((Name::new("sheath"), rest, ChildOf(root))).id();
+        let mesh = world
+            .spawn((Name::new("sheath"), Transform::IDENTITY, ChildOf(bone)))
+            .id();
+        world.spawn((
+            Name::new("sheath"),
+            Transform::IDENTITY,
+            Mesh3d::default(),
+            ChildOf(mesh),
+        ));
+        // Skinned geometry is a sibling of the skeleton and may be visited first.
+        let skinned = world
+            .spawn((Name::new("sheath"), Transform::IDENTITY, ChildOf(root)))
+            .id();
+        world.spawn((Mesh3d::default(), ChildOf(skinned)));
+        let names = world
+            .run_system_once(
+                move |children: Query<&Children>,
+                      nodes: Query<(&Name, &Transform, &ChildOf)>,
+                      meshes: Query<(), With<Mesh3d>>| {
+                    super::super::field_pose::named_bones(root, &children, &nodes, &meshes)
+                },
+            )
+            .unwrap();
+        let &(entity, authored, parent) = &names["sheath"];
+        assert_eq!((entity, authored, parent), (bone, rest, root));
+        world.spawn(Rig {
+            sampled: false,
+            bones: vec![(entity, authored)],
+            previous: vec![authored],
+            from: vec![authored],
+            clip: None,
+        });
+        world.get_mut::<Transform>(bone).unwrap().translation = Vec3::ZERO;
+        world.run_system_once(restore).unwrap();
+        assert_eq!(*world.get::<Transform>(bone).unwrap(), rest);
+        assert_eq!(*world.get::<Transform>(mesh).unwrap(), Transform::IDENTITY);
     }
 }

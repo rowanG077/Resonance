@@ -4,6 +4,7 @@ pub mod choice;
 pub mod clock;
 pub mod dialogue;
 pub mod field;
+pub mod menu;
 pub mod replay;
 pub mod title_events;
 pub const TITLE_REVEAL_TICKS: u32 = 843;
@@ -19,6 +20,7 @@ pub struct MenuInput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitleAction {
     NewGame,
+    Load,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -86,7 +88,15 @@ impl TitleState {
             self.pulse_tick = 90;
             self.expansion[self.selected] = 6.;
         }
-        (can_confirm && input.accept && self.selected == 0).then_some(TitleAction::NewGame)
+        if can_confirm && input.accept {
+            match self.selected {
+                0 => Some(TitleAction::NewGame),
+                1 => Some(TitleAction::Load),
+                _ => None,
+            }
+        } else {
+            None
+        }
     }
 }
 
@@ -115,7 +125,7 @@ impl DirectionRepeat {
 mod tests {
     use super::*;
     #[test]
-    fn confirm_requires_a_visible_menu_and_selects_new_game_only() {
+    fn confirm_requires_a_visible_menu_and_dispatches_supported_entries() {
         let accept = MenuInput {
             reveal: true,
             accept: true,
@@ -128,7 +138,7 @@ mod tests {
         }
         assert_eq!(title.step(accept), Some(TitleAction::NewGame));
         title.selected = 1;
-        assert_eq!(title.step(accept), None);
+        assert_eq!(title.step(accept), Some(TitleAction::Load));
         title.selected = 2;
         assert_eq!(title.step(accept), None);
     }

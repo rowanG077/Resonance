@@ -1,0 +1,331 @@
+{
+  "version": 1,
+  "presentation_origin": 38084,
+  "session_origin": 34583,
+  "updates": 2420,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 250,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 251,
+      "keys": []
+    },
+    {
+      "update": 330,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 331,
+      "keys": []
+    },
+    {
+      "update": 410,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 411,
+      "keys": []
+    },
+    {
+      "update": 490,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 491,
+      "keys": []
+    },
+    {
+      "update": 570,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 571,
+      "keys": []
+    },
+    {
+      "update": 650,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 651,
+      "keys": []
+    },
+    {
+      "update": 730,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 731,
+      "keys": []
+    },
+    {
+      "update": 810,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 811,
+      "keys": []
+    },
+    {
+      "update": 890,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 891,
+      "keys": []
+    },
+    {
+      "update": 970,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 971,
+      "keys": []
+    },
+    {
+      "update": 1050,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1051,
+      "keys": []
+    },
+    {
+      "update": 1130,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1131,
+      "keys": []
+    },
+    {
+      "update": 1210,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1211,
+      "keys": []
+    },
+    {
+      "update": 1290,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1291,
+      "keys": []
+    },
+    {
+      "update": 1370,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 1371,
+      "keys": []
+    },
+    {
+      "update": 1450,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 1451,
+      "keys": []
+    },
+    {
+      "update": 1530,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1531,
+      "keys": []
+    },
+    {
+      "update": 1610,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 1611,
+      "keys": []
+    },
+    {
+      "update": 1690,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 1691,
+      "keys": []
+    },
+    {
+      "update": 1770,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1771,
+      "keys": []
+    },
+    {
+      "update": 1850,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1851,
+      "keys": []
+    },
+    {
+      "update": 1930,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1931,
+      "keys": []
+    },
+    {
+      "update": 2010,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 2011,
+      "keys": []
+    },
+    {
+      "update": 2090,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2091,
+      "keys": []
+    },
+    {
+      "update": 2170,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2171,
+      "keys": []
+    },
+    {
+      "update": 2250,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2251,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "vi-0",
+    "310": "vi-310",
+    "470": "vi-470",
+    "550": "vi-550",
+    "630": "vi-630",
+    "710": "vi-710",
+    "790": "vi-790",
+    "950": "vi-950",
+    "1110": "vi-1110",
+    "1190": "vi-1190",
+    "1270": "vi-1270",
+    "1510": "vi-1510",
+    "1590": "vi-1590",
+    "1670": "vi-1670",
+    "1750": "vi-1750",
+    "1830": "vi-1830",
+    "1990": "vi-1990",
+    "2070": "vi-2070",
+    "2230": "vi-2230",
+    "2310": "vi-2310"
+  },
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "skit": {
+      "id": 600,
+      "remaining": 1498,
+      "opacity": 255,
+      "control_ticks": 7501,
+      "text_opacity": 255
+    }
+  }
+}

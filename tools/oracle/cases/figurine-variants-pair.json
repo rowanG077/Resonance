@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Figure Collection variants: shared texture frames, costume models, Katz numeric animation tracks, the final catalogue row and its lower boundary.",
+  "registration": "Uses the same nineteen-figurine ownership fixture as figurine-pair.json. Native menu opens at update 40; later inputs use source poll/2. First-preview controller samples come from figurine-variants-source-v1/memory.jsonl and register once per selected model. Later samples advance normally. VIs 1300 and 1420 have no video presentation: both engines use the first subsequent presented VI (1301 and 1421), chosen from video timestamps before comparing images.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/figurine-fixture-v1/native.json",
+    "sha256": "fc7f02c474243d5ec9ee20140f7af22fc75eac58110bc7b37828a6f5d43e816e"
+  },
+  "native_replay": {
+    "path": "figurine-variants-keyboard.json",
+    "sha256": "ea06d27af76eb59b2800cc6b9211cf30400392de27f3e998f0252cd8184d36ff"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/figurine-fixture-v1/GQSEAF.s01",
+      "sha256": "bde349467689677fad98d012291b6d7f95afe1735ff312bde18922687907ed73"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3600,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 740,
+        "duration": 4,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 40,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3140,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "vi-820",
+      "native": "vi-820",
+      "dolphin_vi": 820,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-940",
+      "native": "vi-940",
+      "dolphin_vi": 940,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-1060",
+      "native": "vi-1060",
+      "dolphin_vi": 1060,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-1180",
+      "native": "vi-1180",
+      "dolphin_vi": 1180,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-1301",
+      "native": "vi-1301",
+      "dolphin_vi": 1301,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-1421",
+      "native": "vi-1421",
+      "dolphin_vi": 1421,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-1440",
+      "native": "vi-1440",
+      "dolphin_vi": 1440,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-1540",
+      "native": "vi-1540",
+      "dolphin_vi": 1540,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-1660",
+      "native": "vi-1660",
+      "dolphin_vi": 1660,
+      "figurine_state": true
+    },
+    {
+      "name": "vi-1780",
+      "native": "vi-1780",
+      "dolphin_vi": 1780
+    }
+  ],
+  "audio": []
+}
+

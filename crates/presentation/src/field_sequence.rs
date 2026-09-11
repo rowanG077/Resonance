@@ -15,6 +15,9 @@ use std::{
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldSequence {
+    /// Compact field restart for paired oracle cases; no transient VM state.
+    #[serde(default)]
+    pub checkpoint: Option<resonance_game::field::FieldCheckpoint>,
     pub start_tick: Option<u32>,
     pub probe: Option<crate::ClassroomProbe>,
     pub updates: u32,
@@ -143,6 +146,7 @@ fn capture(
     session: Res<Session>,
     art: Res<Art>,
     ready: Res<crate::RenderReady>,
+    refraction: Res<crate::field_refraction::Ready>,
     target: Res<crate::Framebuffer>,
     roots: Query<(Entity, &ActorPart)>,
     children: Query<&Children>,
@@ -156,6 +160,7 @@ fn capture(
             && !roots.is_empty()
             && roots.iter().all(|(_, p)| p.prepared)
             && ready.0.load(std::sync::atomic::Ordering::Relaxed)
+            && refraction.get()
         {
             recording.settled += 1;
         } else {
@@ -177,6 +182,11 @@ fn capture(
         "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"position":a.position,"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
         "poses":roots.iter().filter(|(_,p)|p.actor==world.controlled_actor && p.part==0).flat_map(|(root,_)|children.iter_descendants(root)).filter_map(|e|bones.get(e).ok()).map(|(name,t,g)|serde_json::json!({"name":name.as_str(),"translation":t.translation.to_array(),"rotation":t.rotation.to_array(),"world":g.to_matrix().to_cols_array()})).collect::<Vec<_>>(),
         "emotes":format!("{:?}",world.emotes),
+        "refractions":world.refractions.iter().map(|(id,p)| {
+            let (size, alpha) = p.sample(world.tick);
+            serde_json::json!({"id":id,"born":p.born,"position":p.position,"size":size,"alpha":alpha})
+        }).collect::<Vec<_>>(),
+        "save_points":world.save_points.iter().map(|p|serde_json::json!({"position":p.position,"active":p.active,"glow_scale":p.glow_scale})).collect::<Vec<_>>(),
         "effects":effects.iter().map(|(mesh,visibility)|serde_json::json!({"visibility":format!("{visibility:?}"),"positions":format!("{:?}",meshes.get(mesh).and_then(|m|m.attribute(Mesh::ATTRIBUTE_POSITION)))})).collect::<Vec<_>>(),
         "dialogue_layouts":ui.diagnostic_layouts(&session.0),
     });

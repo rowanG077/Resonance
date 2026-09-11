@@ -83,24 +83,84 @@ fn fixture() -> Fixture {
     )));
     fs::create_dir(&fixture.0).unwrap();
     let mut files = BTreeMap::new();
+    let window_colors = json!({"menu":vec![0;4],"dialogue":vec![0;4],"choice":vec![0;4],"popup":vec![0;4],
+        "shade_top":vec![0;4],"shade_bottom":vec![0;4],"selection":vec![0;4]});
     for (path, bytes) in [
         ("fields/test/events.ssb", script()),
         ("fields/test/messages.json", b"[]".to_vec()),
         ("fields/test/room.glb", b"fixture mesh".to_vec()),
         ("fields/test/optional.glb", b"hidden actor mesh".to_vec()),
         ("textures/shared.ktx2", b"fixture texture".to_vec()),
+        ("textures/refraction.ktx2", b"displacement texture".to_vec()),
     ] {
         files.insert(path.to_string(), fixture.write(path, &bytes));
     }
     let hash = "0".repeat(64);
     let ui_texture = json!({"path":"textures/shared.ktx2", "width":16, "height":16});
+    let preview = json!({"scale":1.,"elevation":0.,"hidden_geometry":[],"node_scales":[],"parts":[{
+        "scene":{"resource":0,"mesh":"monsters/model.glb","textures":[],"materials":[],
+            "translation":[0.,0.,0.],"clips":[],"autoplay":false,"texture_animations":[],"bone_names":[]},
+        "attached_to":null,"additive":false}]});
+    let mut menu_texture = ui_texture.clone();
+    menu_texture["repeat"] = json!(true);
     for (path, value) in [
+        (
+            "ui/menu.json",
+            json!({"version":resonance_content::menu::MenuArt::VERSION,"textures":vec![menu_texture;30],
+                "windows":vec![json!({"patterns":vec![0;6],"heading":null,"cursor":null,"cursor_motion":[4.0,0.1],"slices":null,"outset":4,"flourish_outset":[0,0],"foot_outset":0,"left_joins":[0,0],"left_strip":[0,0]});3],
+                "fill":[48,104,120,216],"popup_fill":[24,88,80,232],
+                "shade":[[24,48,48,216],[32,80,88,216]],
+                "palette":vec![vec![255;4];11],
+                "sprites":{"buttons":vec![[0,0,1,1];32],"item_images":vec![[0,0,1,1];528],"recipes":vec![[0,0,1,1];24],"cooking_stars":vec![[0,0,1,1];2],"item_tabs":vec![[0,0,1,1];9],"items":vec![[0,0,1,1];46],"portraits":vec![[0,0,1,1];9],"petrified_portraits":vec![[0,0,1,1];9],"condition_icons":vec![[0,0,1,1];14],"technique":vec![[0,0,1,1];13],
+                    "tech_ranks":vec![[0,0,1,1];2],"elements":vec![[0,0,1,1];8],"equipment_markers":vec![[0,0,1,1];8],
+                    "strategy_characters":vec![[0,0,1,1];9],
+                    "numbers":[0,0,1,1],"leader":[0,0,1,1],
+                    "number_colors":vec![[[255;4];2];18],"bar_colors":vec![[[255;4];4];3],"names":vec!["Name";9]},
+                "labels":(["tech","unison","strategy","status","synopsis","items",
+                    "ex_skill","equip","cooking","system","save","go_in","go_out","load","customize",
+                    "empty","time","encounter","combo","next","gald","play_time","encounters","max_combo",
+                    "yes","no","confirm_save_a","confirm_save_b","confirm_load_a","confirm_load_b",
+                    "confirm_overwrite_a","confirm_overwrite_b"]
+                    .into_iter().map(|key|(key,key)).collect::<BTreeMap<_,_>>())}),
+        ),
         (
             "ui/dialogue.json",
             json!({"version":2,"font":"ui/font.json",
             "textures":vec![ui_texture.clone();9], "cursor":ui_texture,
             "selection":{"mode":0,"color":vec![255;4],"row_offsets":vec![0;9],"bob_amplitude":0.,"bob_step":0.},
             "source_sha256":hash}),
+        ),
+        (
+            "game/menu-data.json",
+            json!({"version":resonance_content::menu_data::MenuData::VERSION,"world_map":{"names":["A","A"],"locations":{},"field_locations":{},"shops":[]},"item_categories":vec!["A";48],"inventory_categories":vec!["A";9],"items":vec![json!({"name":"A","description":"","details":"","category":0,"price":0,"transforms_to":0,"field_use":null,"equipment_stats":vec![0;7]});528],
+                "item_group_prompt":{"lines":[[{"kind":"button","sprite":6},{"kind":"text","text":"A","color":9}]]},
+                "item_bottle_count":{"lines":[[{"kind":"text","text":"A","color":8}]]},
+                "ex_skills":{"skills":(1..=17).map(|id|(id.to_string(),json!({"name":"A","description":{"lines":[[]]},"stat_bonuses":[],"tendency":(id<17).then_some("strike"),"activation":"constant"}))).collect::<BTreeMap<_,_>>(),
+                    "characters":vec![json!({"levels":[[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16]],"compounds":vec![json!({"skill":17,"required":[1,2]});24]});9],"gem_items":[40,41,42,43,496],
+                    "activation_labels":(["constant","chance","battle_end","other"]).into_iter().map(|k|(k,"A")).collect::<BTreeMap<_,_>>(),
+                    "labels":resonance_content::menu_data::EX_LABELS.into_iter().map(|k|(k,"A")).collect::<BTreeMap<_,_>>()},
+                "figurines":{"title":"A","records":(0..resonance_content::figurine::FIGURINE_COUNT).map(|id|json!({
+                    "version":1,"id":id,"name":"A","preview":preview})).collect::<Vec<_>>()},
+                "manual":{"title":"A","chapters":(1..=9).map(|flag|json!({"name":"A","topics":[{
+                    "name":"A","learned_flag":flag,"paragraphs":[{"lines":[[{"kind":"text","text":"A","color":9}]]}]}]})).collect::<Vec<_>>()},
+                "monsters":{"records":(0..resonance_content::monster::MONSTER_COUNT).map(|id|json!({
+                    "version":1,"id":id,"name":"A","location":"A","category":"A",
+                    "statistics":[{"hp":1,"tp":0,"attack":0,"defense":0,"experience":0,"gald":0}],
+                    "drops":[null,null],"steal":null,"attack_element":null,"weaknesses":[],"resistances":[],
+                    "preview":preview})).collect::<Vec<_>>(),
+                    "labels":(["title","number","hp","tp","attack","experience","gald","defense","drops","steal","location","attack_element","weak","strong","battle_rank","normal","hard","mania","unknown_stat","unknown_item"].into_iter().map(|k|(k,"A")).collect::<BTreeMap<_,_>>())},
+                "status":{"conditions":vec!["";32],"equipment_effects":{},"technical_type":"A","strike_type":"A"},"customize":{"options":vec![json!({"name":"A","description":""});14],"difficulties":vec!["A";3],"actions":vec!["A";7],"control_buttons":[0,1,2,3,4,5,6],"color_groups":vec!["A";7],"volume_channels":vec!["A";6],"themes":vec![window_colors;3],
+                    "defaults":resonance_content::menu_data::CustomizeSettings::default(),
+                    "labels":(["cancel","default","cancel_help","default_help","on","off","stereo","mono","color","volume","position","position_help"]).into_iter().map(|k|(k,"A")).collect::<BTreeMap<_,_>>()},
+                "cooking":{"recipes":vec![json!({"name":"A","description":"","required":[{"item":1}],"cooks":vec![json!({"base_stars":1,"grades":vec![json!({"effects":[],"recovery":0,"extras":[]});3]});9]});24],
+                    "groups":vec![json!({"name":"A","category":1,"items":[1]});32],"preferences":vec![json!({"likes":[],"dislikes":[]});9],"effects":vec!["A";12],"bonus_skill":1,
+                    "labels":(["cook","required","additional","success","failure","no_effect","missing","full","unknown","locked","result_join"]).into_iter().map(|k|(k,"A")).collect::<BTreeMap<_,_>>()},
+                "synopsis":{"entries":vec![json!({"heading":"A","title":"A","location":null,"text":[null,null,null]});200],"months":vec!["A";12]},
+                "strategy":{"groups":resonance_content::menu_data::STRATEGY_COUNTS.map(|n|vec![json!({"name":"A","description":"","details":"","characters":511});n]),"presets":vec![json!({"name":"A","members":vec![[0,0,0];9]});3],"default_positions":[0,0,0,0,0,0,0,0,0],"positions":[0,0,0,0,0,0],"keyboard":"A".repeat(90),"keys":vec!["A";9],"labels":vec!["A";3]},
+                "techniques":vec![json!({"name":"A","description":"","tp":0,"tp_percent":false,"unison_usable":true,"rank":0,"element":0,"level":0,"route":0,"prerequisite":0,"alternatives":[0,0,0,0],"field_use":null});resonance_content::menu_data::TECHNIQUE_COUNT],
+                "titles":vec![vec![json!({"name":"A","description":"","growth":vec![0;7]})];9],"full_names":vec!["A";9],
+                "rename":{"initial_names":vec!["A";9],"defaults":vec!["A";9],"keyboard":"A".repeat(104),"heading":"A","delete":"A","default":"A","commands":["A","A","A"]},
+                "labels": (["unison_title", "unison_player", "tech_unison", "tech_unison_title", "status", "next", "strength", "defense", "slash", "accuracy", "attack", "thrust", "evasion", "intelligence", "luck", "weapon", "body", "head", "arm", "accessory_1", "accessory_2", "optimal", "remove", "change_order", "optimal_selection", "optimal_slash", "optimal_thrust", "alphabetical", "parameter", "stat_arrow", "preview_loading", "item_defense", "item_accuracy", "item_evasion", "item_intelligence", "item_luck", "party_swap_target", "party_leader", "party_swap", "collectors_book", "transform_full", "transform_empty"].into_iter().map(|key|(key,"A")).collect::<BTreeMap<_,_>>())}),
         ),
         (
             "ui/font.json",
@@ -110,8 +170,14 @@ fn fixture() -> Fixture {
         ),
         (
             "effects/test.json",
-            json!({"version":1,"dust_texture":"textures/shared.ktx2",
-            "emote_texture":"textures/shared.ktx2","dust_uv":[0.,0.,1.,1.],"emotes":{},"mouth_cycle":[0]}),
+            json!({"version":3,
+            "sprites":{"0":{"texture":"textures/shared.ktx2","uv":[0.,0.,1.,1.],"additive":false},
+                "10":{"texture":"textures/shared.ktx2","uv":[0.,0.,1.,1.],"additive":true}},
+            "refraction":{"sprite":{"texture":"textures/refraction.ktx2","uv":[0.,0.,1.,1.],"additive":false},"displacement":[1.,1.]},
+            "emote_texture":"textures/shared.ktx2","status_texture":"textures/shared.ktx2",
+            "paralysis":{"anchor":"head","intro":[],"cycle":vec![vec![json!({
+                "offset":[0.,0.,0.],"size":[1.,1.],"uv":[0.,0.,1.,1.],"rotation":0.
+            })];2]},"emotes":{},"mouth_cycle":[0]}),
         ),
     ] {
         files.insert(path.into(), fixture.json(path, &value));
@@ -123,7 +189,8 @@ fn fixture() -> Fixture {
         "autoplay":false,"texture_animations":[],"bone_names":["root"]});
     let mut actor_part = part.clone();
     actor_part["mesh"] = json!("fields/test/optional.glb");
-    let field = json!({"version":5,"map_id":123,"source_sha256":hash,
+    let field = json!({"version":7,"map_id":123,"source_sha256":hash,"doors":[],
+        "blink":{"frames":[0],"initial_tick":0,"initial_spread":1},
         "script":{"path":"fields/test/events.ssb","sha256":files["fields/test/events.ssb"]},
         "messages":"fields/test/messages.json", "parts":[part],
         "actors":[{"resource":700,"model_sha256":hash,"animation_sha256":hash,"parts":[actor_part],"hidden_nodes":[0]}],
@@ -168,7 +235,12 @@ fn complete_field_includes_hidden_actors_all_clips_and_deduplicates_files() {
     assert_eq!(first.scenes[1].material_indices, [0]);
     assert!(first.features.contains(&Feature::Billboards));
     assert!(first.features.contains(&Feature::Choices));
-    assert_eq!(first.files.len(), 9); // One shared texture, despite all its users.
+    assert_eq!(first.files.len(), 12); // Shared sprite texture, menu definitions and displacement.
+    assert!(
+        first.files["textures/refraction.ktx2"]
+            .roles
+            .contains(&Role::Texture)
+    );
     assert!(first.files.contains_key("fields/test/optional.glb"));
     assert_eq!(
         first.total_file_bytes,
@@ -199,7 +271,9 @@ fn missing_media_is_explicit_then_closes_when_cooked() {
         "width":640,"height":480,"frames":30,"frame_micros":33333,"sample_rate":32000,"channels":2,"audio_frames":32000}));
     root.json(
         "audio/test.json",
-        &json!({"version":1,"music":{},"sounds":{},"voices":{},"recipe":{}}),
+        &json!({"version":resonance_content::field_audio::FieldAudio::VERSION,
+            "voice_gains":(0..128).map(|v| v as f32 / 127.).collect::<Vec<_>>(),
+            "music":{},"sounds":{},"voices":{},"recipe":{}}),
     );
     let ready = build(&root.0, inputs).unwrap();
     assert!(ready.is_complete());
@@ -280,7 +354,8 @@ fn audio_closure_includes_samples_shared_packages_and_voices() {
     let root = fixture();
     let package_hash = audio_package(&root);
     let voice_hash = root.write("audio/voice.wav", b"voice fixture");
-    root.json("audio/test.json", &json!({"version":1,
+    root.json("audio/test.json", &json!({"version":resonance_content::field_audio::FieldAudio::VERSION,
+        "voice_gains":(0..128).map(|v| v as f32 / 127.).collect::<Vec<_>>(),
         "music":{"7":{"path":"audio/package.json","sha256":package_hash}},
         "sounds":{"80":{"path":"audio/package.json","sha256":package_hash}},
         "voices":{"42":{"path":"audio/voice.wav","sha256":voice_hash,"frames":1,"sample_rate":32000,
@@ -288,7 +363,7 @@ fn audio_closure_includes_samples_shared_packages_and_voices() {
     let mut inputs = root.inputs();
     inputs.audio.insert("audio/test.json".into());
     let manifest = build(&root.0, inputs.clone()).unwrap();
-    assert_eq!(manifest.files.len(), 13);
+    assert_eq!(manifest.files.len(), 16);
     assert!(
         manifest.files["audio/sample.wav"]
             .roles
@@ -354,7 +429,9 @@ fn recipe_refresh_backfills_both_fields_after_later_media_cooks() {
     assert_eq!(read("new-game-setup").missing_inputs.len(), 2);
     root.json(
         "fields/iselia-classroom-audio.json",
-        &json!({"version":1,"music":{},"sounds":{},"voices":{},"recipe":{}}),
+        &json!({"version":resonance_content::field_audio::FieldAudio::VERSION,
+            "voice_gains":(0..128).map(|v| v as f32 / 127.).collect::<Vec<_>>(),
+            "music":{},"sounds":{},"voices":{},"recipe":{}}),
     );
     crate::field::refresh_preloads(&root.0).unwrap();
     assert!(read("iselia-classroom").is_complete());
@@ -367,4 +444,21 @@ fn recipe_refresh_backfills_both_fields_after_later_media_cooks() {
     let classroom = read("iselia-classroom");
     assert_eq!(classroom.map_id, 340);
     assert!(!classroom.files.contains_key("movies/story.mkv"));
+
+    let setup = "fields/new-game-setup.json";
+    let path = "fields/iselia-classroom.json";
+    let mut field: Value = serde_json::from_slice(&fs::read(root.0.join(path)).unwrap()).unwrap();
+    field["files"][setup] = json!(crate::media::hash_file(&root.0.join(setup)).unwrap());
+    root.json(path, &field);
+    let texture = "textures/shared.ktx2";
+    let hash = root.write(texture, b"recooked texture");
+    assert!(crate::field::refresh_preloads(&root.0).is_err());
+    crate::field::refresh_shared(&root.0, &[texture.into()]).unwrap();
+    for name in ["iselia-classroom", "new-game-setup"] {
+        assert_eq!(read(name).files[texture].sha256, hash);
+    }
+    assert_eq!(
+        read("iselia-classroom").files[setup].sha256,
+        crate::media::hash_file(&root.0.join(setup)).unwrap()
+    );
 }

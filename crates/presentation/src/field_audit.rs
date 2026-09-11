@@ -21,16 +21,22 @@ pub(super) enum Request {
     Attachment(i32, usize),
     Bone(i32, usize, u8),
     Mouth(i32),
+    Eyes(i32),
     SecondaryMotion(i32, usize),
     Shadow(i32),
     Emote(i32),
+    Paralysis,
     Billboard(i32),
+    Refraction(i32),
     Particle(i32),
+    SavePoint(usize, u8),
     Dialogue(u8),
     Choice(u8),
     Overlay(i32),
     Camera,
     Fade,
+    Menu,
+    Skit,
 }
 
 #[derive(Resource, Default)]
@@ -59,8 +65,24 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
     applied.expected = expected(&state.get().events.world, |resource| {
         art.models.get(&resource).map_or(1, Vec::len)
     });
+    if state.get().menu.is_some() {
+        applied.expected.insert(Request::Menu);
+    }
+    if state.get().active_skit.is_some() {
+        applied.expected.insert(Request::Skit);
+        for (&slot, request) in &state.get().dialogue_scene().0.dialogue {
+            if request.operation.is_pending() {
+                applied.expected.insert(Request::Dialogue(slot));
+            }
+        }
+    }
     for (&id, actor) in &state.get().events.world.actors {
         if actor.visible && !actor.appearance.model_hidden {
+            if !matches!(actor.appearance.face, resonance_events::Face::Disabled)
+                && art.has_eyes(actor.resource)
+            {
+                applied.expected.insert(Request::Eyes(id));
+            }
             for part in art.secondary_parts(actor.resource) {
                 applied.expected.insert(Request::SecondaryMotion(id, part));
             }
@@ -121,8 +143,14 @@ fn expected(
         }
     }
     expected.extend(world.emotes.keys().map(|id| Request::Emote(*id)));
+    expected.extend(world.paralysis.map(|_| Request::Paralysis));
     expected.extend(world.billboards.keys().map(|id| Request::Billboard(*id)));
+    expected.extend(world.refractions.keys().map(|id| Request::Refraction(*id)));
     expected.extend(world.particles.iter().map(|p| Request::Particle(p.handle)));
+    expected.extend(
+        (0..world.save_points.len())
+            .flat_map(|index| (0..2).map(move |pass| Request::SavePoint(index, pass))),
+    );
     expected.extend(
         world
             .dialogue
@@ -218,9 +246,41 @@ mod tests {
         );
         applied.requests.insert(Request::Emote(-100));
         validate(0, &applied, Instant::now()).unwrap();
+        world.save_points.push(resonance_events::SavePoint {
+            actor: 0,
+            position: [0.; 3],
+            resource: resonance_content::field::SAVE_POINT_RESOURCE,
+            born: 0,
+            active: false,
+            glow_scale: 0.08,
+        });
+        applied.expected = expected(&world, |_| 1);
+        assert!(
+            validate(0, &applied, Instant::now())
+                .unwrap_err()
+                .to_string()
+                .contains("SavePoint(0, 0)")
+        );
+        applied.ack(Request::SavePoint(0, 0));
+        applied.ack(Request::SavePoint(0, 1));
         world.actors.get_mut(&1).unwrap().visible = false;
         applied.requests.remove(&Request::Actor(1, 0));
         applied.expected = expected(&world, |_| 1);
+        validate(0, &applied, Instant::now()).unwrap();
+        let pulse = world
+            .emit_refraction(resonance_events::effect::RefractionPulse {
+                position: [0.; 3],
+                born: 0,
+                lifetime: 30,
+                size: 20.,
+                growth: 40.,
+                alpha: 224.,
+                fade: 8.,
+            })
+            .unwrap();
+        applied.expected = expected(&world, |_| 1);
+        assert!(validate(0, &applied, Instant::now()).is_err());
+        applied.ack(Request::Refraction(pulse));
         validate(0, &applied, Instant::now()).unwrap();
     }
     #[test]

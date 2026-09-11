@@ -1,0 +1,206 @@
+{
+  "version": 1,
+  "updates": 1380,
+  "session_origin": 34583,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 91,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 92,
+      "keys": []
+    },
+    {
+      "update": 171,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 172,
+      "keys": []
+    },
+    {
+      "update": 251,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 252,
+      "keys": []
+    },
+    {
+      "update": 331,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 332,
+      "keys": []
+    },
+    {
+      "update": 411,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 412,
+      "keys": []
+    },
+    {
+      "update": 491,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 492,
+      "keys": []
+    },
+    {
+      "update": 571,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 572,
+      "keys": []
+    },
+    {
+      "update": 651,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 652,
+      "keys": []
+    },
+    {
+      "update": 731,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 732,
+      "keys": []
+    },
+    {
+      "update": 811,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 812,
+      "keys": []
+    },
+    {
+      "update": 891,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 892,
+      "keys": []
+    },
+    {
+      "update": 971,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 972,
+      "keys": []
+    },
+    {
+      "update": 1051,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 1052,
+      "keys": []
+    },
+    {
+      "update": 1131,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 1132,
+      "keys": []
+    },
+    {
+      "update": 1211,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1212,
+      "keys": []
+    },
+    {
+      "update": 1291,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1292,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "vi-0",
+    "230": "vi-230",
+    "390": "vi-390",
+    "470": "vi-470",
+    "550": "vi-550",
+    "630": "vi-630",
+    "710": "vi-710",
+    "790": "vi-790",
+    "870": "vi-870",
+    "950": "vi-950",
+    "1030": "vi-1030",
+    "1110": "vi-1110",
+    "1190": "vi-1190",
+    "1270": "vi-1270",
+    "1350": "vi-1350"
+  },
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "skit": {
+      "id": 600,
+      "remaining": 1498,
+      "opacity": 255,
+      "control_ticks": 7501,
+      "text_opacity": 255
+    }
+  },
+  "presentation_origin": 38084
+}

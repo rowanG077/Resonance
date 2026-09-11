@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use self::GeometryError::Gpl;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
@@ -161,9 +162,7 @@ const fn default_true() -> bool {
 /// the decoded scene and source files for inspection.
 pub fn export_section(section: &[u8], output: &Path) -> Result<GeometryManifest, GeometryError> {
     if section.len() < 0x20 {
-        return Err(GeometryError::Gpl(
-            "MAP section is shorter than its resource header".into(),
-        ));
+        return Err(Gpl("MAP section is shorter than its resource header".into()));
     }
     // `map-unpack` preserves outer 0x1F resource containers.  Their payload
     // begins at the recorded offset (normally 0x80) and contains the usual
@@ -172,27 +171,25 @@ pub fn export_section(section: &[u8], output: &Path) -> Result<GeometryManifest,
         read_u32(section, 4)
             .and_then(|offset| usize::try_from(offset).ok())
             .filter(|offset| *offset + 0x20 <= section.len())
-            .ok_or_else(|| GeometryError::Gpl("invalid 0x1F resource container".into()))?
+            .ok_or_else(|| Gpl("invalid 0x1F resource container".into()))?
     } else {
         0
     };
     let resource = &section[container_offset..];
-    let tpl_offset = read_u32(resource, 0)
-        .ok_or_else(|| GeometryError::Gpl("MAP section has no TPL offset".into()))?
-        as usize;
+    let tpl_offset =
+        read_u32(resource, 0).ok_or_else(|| Gpl("MAP section has no TPL offset".into()))? as usize;
     let tpl_end = read_u32(resource, 4)
-        .ok_or_else(|| GeometryError::Gpl("MAP section has no TPL end offset".into()))?
-        as usize;
+        .ok_or_else(|| Gpl("MAP section has no TPL end offset".into()))? as usize;
     if tpl_offset < 0x20 || tpl_end < tpl_offset || tpl_end > resource.len() {
-        return Err(GeometryError::Gpl(format!(
+        return Err(Gpl(format!(
             "invalid MAP resource ranges 0x{tpl_offset:X}..0x{tpl_end:X}"
         )));
     }
     let gpl = &resource[0x20..tpl_offset];
     let tpl = &resource[tpl_offset..tpl_end];
     if !matches!(read_u32(gpl, 0), Some(0x005B_BC61 | 0x00B7_49E0)) {
-        return Err(GeometryError::Gpl(
-            "MAP section does not contain a geometry-palette GPL".into(),
+        return Err(Gpl(
+            "MAP section does not contain a geometry-palette GPL".into()
         ));
     }
     // Field actor resources append a compact model blob after the GPL/TPL
@@ -326,12 +323,10 @@ fn model_draw_order(model: &ModelBlobJson) -> Result<Vec<u16>, GeometryError> {
     while let Some(pointer) = pending.pop() {
         let offset = pointer
             .checked_sub(model.node_offset)
-            .ok_or_else(|| GeometryError::Gpl("draw node precedes node table".into()))?;
+            .ok_or_else(|| Gpl("draw node precedes node table".into()))?;
         let index = offset as usize / 28;
         if !offset.is_multiple_of(28) || index >= model.nodes.len() || !seen.insert(index) {
-            return Err(GeometryError::Gpl(
-                "invalid or cyclic draw hierarchy".into(),
-            ));
+            return Err(Gpl("invalid or cyclic draw hierarchy".into()));
         }
         let node = &model.nodes[index];
         if node.object_index != u16::MAX {
@@ -345,9 +340,7 @@ fn model_draw_order(model: &ModelBlobJson) -> Result<Vec<u16>, GeometryError> {
         }
     }
     if seen.len() != model.nodes.len() {
-        return Err(GeometryError::Gpl(
-            "draw hierarchy leaves model nodes unreachable".into(),
-        ));
+        return Err(Gpl("draw hierarchy leaves model nodes unreachable".into()));
     }
     nodes.sort_by_key(|(priority, _)| *priority);
     let root = (model.field14 >> 16) as u16;
@@ -368,14 +361,14 @@ fn object_draw_order(
     let mut rank = std::collections::BTreeMap::new();
     for (index, object) in model_draw_order(model)?.into_iter().enumerate() {
         if rank.insert(usize::from(object), index).is_some() {
-            return Err(GeometryError::Gpl(
+            return Err(Gpl(
                 "repeated geometry instances need independent draw recipes".into(),
             ));
         }
     }
     for object in objects {
         if !rank.contains_key(&object.source_index) {
-            return Err(GeometryError::Gpl(format!(
+            return Err(Gpl(format!(
                 "object {} has no authored draw: {}",
                 object.source_index, object.name
             )));
@@ -439,16 +432,14 @@ fn export_geometry(
             while pointer != 0 {
                 let offset = pointer
                     .checked_sub(model.node_offset)
-                    .ok_or_else(|| GeometryError::Gpl("invalid model child pointer".into()))?
+                    .ok_or_else(|| Gpl("invalid model child pointer".into()))?
                     as usize;
                 let child = offset / 28;
                 if !offset.is_multiple_of(28) || child >= model.nodes.len() || !seen.insert(child) {
-                    return Err(GeometryError::Gpl("invalid model hierarchy".into()));
+                    return Err(Gpl("invalid model hierarchy".into()));
                 }
                 if !child_nodes.insert(child) || child == parent {
-                    return Err(GeometryError::Gpl(
-                        "model node has multiple parents or a cycle".into(),
-                    ));
+                    return Err(Gpl("model node has multiple parents or a cycle".into()));
                 }
                 parents[child] = Some(parent);
                 nodes[parent]["children"]
@@ -464,9 +455,7 @@ fn export_geometry(
         .collect();
     let has_skin = objects.iter().any(|o| o.mesh.joints.is_some());
     if has_skin && model_nodes.is_empty() {
-        return Err(GeometryError::Gpl(
-            "skinned geometry has no model hierarchy".into(),
-        ));
+        return Err(Gpl("skinned geometry has no model hierarchy".into()));
     }
     let mut skins = Vec::new();
     if has_skin {
@@ -478,7 +467,7 @@ fn export_geometry(
             let bind = bind_transform(index, &model_nodes, &parents)?;
             let inverse = bind.inverse();
             if !inverse.is_finite() {
-                return Err(GeometryError::Gpl("singular bind transform".into()));
+                return Err(Gpl("singular bind transform".into()));
             }
             for value in inverse.to_cols_array() {
                 buffer.extend(value.to_le_bytes());
@@ -506,9 +495,7 @@ fn export_geometry(
         let mesh_node = json!({"name": object.name, "mesh": index});
         if let Some(joints) = &object.mesh.joints {
             if joints.iter().any(|j| usize::from(*j) >= model_nodes.len()) {
-                return Err(GeometryError::Gpl(
-                    "joint index exceeds model hierarchy".into(),
-                ));
+                return Err(Gpl("joint index exceeds model hierarchy".into()));
             }
             let mut node = mesh_node;
             node["skin"] = json!(0);
@@ -696,7 +683,7 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
     // Both geometry-palette revisions use the same bounded entry/array
     // records. The older revision is used by the original setup map.
     if !matches!(read_u32(data, 0), Some(0x005B_BC61 | 0x00B7_49E0)) || data.len() < 0x14 {
-        return Err(GeometryError::Gpl("missing geometry-palette header".into()));
+        return Err(Gpl("missing geometry-palette header".into()));
     }
     let count = read_u32(data, 0x0C).unwrap() as usize;
     let entries = read_u32(data, 0x10).unwrap() as usize;
@@ -704,9 +691,7 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
         .checked_add(count * 8)
         .is_none_or(|end| end > data.len())
     {
-        return Err(GeometryError::Gpl(
-            "geometry entry table exceeds file".into(),
-        ));
+        return Err(Gpl("geometry entry table exceeds file".into()));
     }
     let mut descriptors = Vec::with_capacity(count);
     for index in 0..count {
@@ -720,9 +705,7 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
     for (index, (offset, name)) in descriptors.iter().enumerate() {
         let end = descriptors.get(index + 1).map_or(data.len(), |item| item.0);
         if *offset < 0x14 || *offset + 0x18 > end || end > data.len() {
-            return Err(GeometryError::Gpl(format!(
-                "object {index} range is invalid"
-            )));
+            return Err(Gpl(format!("object {index} range is invalid")));
         }
         let object = &data[*offset..end];
         let pos_record = read_u32(object, 0).unwrap() as usize;
@@ -734,9 +717,7 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
             || (tex_record != 0 && tex_record + 8 > object.len())
             || material_record + 8 > object.len()
         {
-            return Err(GeometryError::Gpl(format!(
-                "object {index} array records are invalid"
-            )));
+            return Err(Gpl(format!("object {index} array records are invalid")));
         }
         let positions_desc = parse_vertex_desc(object, pos_record, "position")?;
         let texcoords_desc = if tex_record != 0 {
@@ -750,17 +731,18 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
                 scale: 1.0,
             }
         };
-        if positions_desc.components != 3 || component_type(positions_desc.format) != 3 {
-            return Err(GeometryError::Gpl(format!(
+        if positions_desc.components != 3 || !matches!(component_type(positions_desc.format), 3 | 4)
+        {
+            return Err(Gpl(format!(
                 "object {index} has unsupported position component format {}",
                 positions_desc.format
             )));
         }
         if tex_record != 0
             && (texcoords_desc.components != 2
-                || !matches!(component_type(texcoords_desc.format), 2 | 3))
+                || !matches!(component_type(texcoords_desc.format), 2..=4))
         {
-            return Err(GeometryError::Gpl(format!(
+            return Err(Gpl(format!(
                 "object {index} has unsupported texcoord component format {}",
                 texcoords_desc.format
             )));
@@ -769,8 +751,8 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
         if tex_record != 0 {
             validate_array(object, texcoords_desc, "texcoord")?;
         }
-        let positions = decode_vectors::<3>(object, positions_desc);
-        let texcoords = decode_vectors::<2>(object, texcoords_desc);
+        let positions = decode_vectors::<3>(object, positions_desc)?;
+        let texcoords = decode_vectors::<2>(object, texcoords_desc)?;
         let color = if color_record != 0 {
             let desc = parse_vertex_desc(object, color_record, "color")?;
             validate_array(object, desc, "color")?;
@@ -781,18 +763,16 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
         let normal = if normal_record != 0 {
             let desc = parse_vertex_desc(object, normal_record, "normal")?;
             validate_array(object, desc, "normal")?;
-            Some((desc, decode_vectors::<3>(object, desc)))
+            Some((desc, decode_vectors::<3>(object, desc)?))
         } else {
             None
         };
         let material_ptr = read_u32(object, material_record + 4).unwrap() as usize;
         if material_ptr + 0x30 > object.len() {
-            return Err(GeometryError::Gpl(format!(
-                "object {index} material record is invalid"
-            )));
+            return Err(Gpl(format!("object {index} material record is invalid")));
         }
         let command_count = read_u16(object, material_record + 8)
-            .ok_or_else(|| GeometryError::Gpl("missing render command count".into()))?
+            .ok_or_else(|| Gpl("missing render command count".into()))?
             as usize;
         for (draw, (render_state, display_offset, display_size)) in parse_render_commands(
             object,
@@ -814,7 +794,7 @@ fn parse_geometry(data: &[u8]) -> Result<Vec<GeometryObject>, GeometryError> {
                 color.as_ref().map(|(_, values)| values.as_slice()),
                 normal.as_ref().map(|(_, values)| values.as_slice()),
                 &render_state,
-            ).map_err(|error| GeometryError::Gpl(format!("object {index} ({name}), draw {draw} at {:#x}, VCD {:?}, {} colors, {} normals: {error}", offset + display_offset, render_state.vcd, color.as_ref().map_or(0, |(_, values)| values.len()), normal.as_ref().map_or(0, |(_, values)| values.len()))))?;
+            ).map_err(|error| Gpl(format!("object {index} ({name}), draw {draw} at {:#x}, VCD {:?}, {} colors, {} normals: {error}", offset + display_offset, render_state.vcd, color.as_ref().map_or(0, |(_, values)| values.len()), normal.as_ref().map_or(0, |(_, values)| values.len()))))?;
             objects.push(GeometryObject {
                 source_index: index,
                 name: if draw == 0 {
@@ -863,10 +843,10 @@ fn parse_vertex_desc(
     label: &str,
 ) -> Result<VertexArrayDesc, GeometryError> {
     let data_offset = read_u32(object, offset)
-        .ok_or_else(|| GeometryError::Gpl(format!("{label} descriptor has no data pointer")))?
+        .ok_or_else(|| Gpl(format!("{label} descriptor has no data pointer")))?
         as usize;
     let packed = read_u32(object, offset + 4)
-        .ok_or_else(|| GeometryError::Gpl(format!("{label} descriptor has no format")))?;
+        .ok_or_else(|| Gpl(format!("{label} descriptor has no format")))?;
     Ok(VertexArrayDesc {
         data_offset,
         count: (packed >> 16) as usize,
@@ -900,7 +880,7 @@ fn validate_array(object: &[u8], desc: VertexArrayDesc, label: &str) -> Result<(
         component_width(desc.format)
     };
     if width == 0 || desc.components == 0 {
-        return Err(GeometryError::Gpl(format!(
+        return Err(Gpl(format!(
             "{label} descriptor has unsupported format 0x{:02X}",
             desc.format
         )));
@@ -909,13 +889,13 @@ fn validate_array(object: &[u8], desc: VertexArrayDesc, label: &str) -> Result<(
         .count
         .checked_mul(usize::from(desc.components))
         .and_then(|value| value.checked_mul(width))
-        .ok_or_else(|| GeometryError::Gpl(format!("{label} array overflows")))?;
+        .ok_or_else(|| Gpl(format!("{label} array overflows")))?;
     if desc
         .data_offset
         .checked_add(size)
         .is_none_or(|end| end > object.len())
     {
-        return Err(GeometryError::Gpl(format!("{label} array exceeds object")));
+        return Err(Gpl(format!("{label} array exceeds object")));
     }
     Ok(())
 }
@@ -937,14 +917,21 @@ fn read_component(data: &[u8], offset: usize, format: u8) -> f32 {
     }
 }
 
-fn decode_vectors<const N: usize>(object: &[u8], desc: VertexArrayDesc) -> Vec<[f32; N]> {
+fn decode_vectors<const N: usize>(
+    object: &[u8],
+    desc: VertexArrayDesc,
+) -> Result<Vec<[f32; N]>, GeometryError> {
     let width = component_width(desc.format);
     (0..desc.count)
         .map(|index| {
             let at = desc.data_offset + index * usize::from(desc.components) * width;
-            std::array::from_fn(|axis| {
+            let vector = std::array::from_fn(|axis| {
                 read_component(object, at + axis * width, desc.format) * desc.scale
-            })
+            });
+            if vector.iter().any(|v| !v.is_finite()) {
+                return Err(Gpl("non-finite vertex component".into()));
+            }
+            Ok(vector)
         })
         .collect()
 }
@@ -981,10 +968,30 @@ fn decode_colors(object: &[u8], desc: VertexArrayDesc) -> Vec<[f32; 4]> {
                     color[3] = 0xFF;
                 }
                 4 => {
-                    let value = u32::from_be_bytes([0, object[at], object[at + 1], object[at + 2]]);
-                    color = [18, 12, 6, 0].map(|shift| expand6(((value >> shift) & 0x3F) as u16));
+                    if desc.count == 1 {
+                        // The constant-color loader reads a 16-bit word for RGBA6.
+                        let value =
+                            u32::from(u16::from_be_bytes(object[at..at + 2].try_into().unwrap()));
+                        color = [value >> 16, value >> 10, value >> 4, value << 2]
+                            .map(|v| (v & 0xFC) as u8);
+                    } else {
+                        let value =
+                            u32::from_be_bytes([0, object[at], object[at + 1], object[at + 2]]);
+                        color =
+                            [18, 12, 6, 0].map(|shift| expand6(((value >> shift) & 0x3F) as u16));
+                    }
                 }
                 _ => {}
+            }
+            // A single palette entry becomes a material constant. Its packed
+            // channels are left-aligned; indexed colors expand their low bits.
+            if desc.count == 1 {
+                let masks = match component_type(desc.format) {
+                    0 => [0xF8, 0xFC, 0xF8, 0xFF],
+                    3 => [0xF0; 4],
+                    _ => [0xFF; 4],
+                };
+                color = std::array::from_fn(|i| color[i] & masks[i]);
             }
             color.map(|value| f32::from(value) / 255.0)
         })
@@ -1013,7 +1020,7 @@ fn parse_render_commands(
             .checked_add(count * 16)
             .is_none_or(|end| end > object.len())
     {
-        return Err(GeometryError::Gpl("invalid render command table".into()));
+        return Err(Gpl("invalid render command table".into()));
     }
     let mut state = RenderStateInfo::default();
     let mut draws = Vec::new();
@@ -1027,9 +1034,7 @@ fn parse_render_commands(
             (false, 4) => 3,
             (false, 5) => 4,
             (false, 2) => {
-                return Err(GeometryError::Gpl(
-                    "unsupported old render command 2".into(),
-                ));
+                return Err(Gpl("unsupported old render command 2".into()));
             }
             (_, kind) => kind,
         };
@@ -1049,9 +1054,7 @@ fn parse_render_commands(
                     match value {
                         0 | 1 | 3 | 4 => value + 1,
                         _ => {
-                            return Err(GeometryError::Gpl(format!(
-                                "unsupported old material {value}"
-                            )));
+                            return Err(Gpl(format!("unsupported old material {value}")));
                         }
                     }
                 }]
@@ -1062,7 +1065,7 @@ fn parse_render_commands(
                 state.matrix_commands.push(value);
             }
             0 => break,
-            kind => return Err(GeometryError::Gpl(format!("unknown render command {kind}"))),
+            kind => return Err(Gpl(format!("unknown render command {kind}"))),
         }
         let offset = read_u32(object, at + 8).unwrap() as usize;
         let size = read_u32(object, at + 12).unwrap() as usize;
@@ -1073,12 +1076,12 @@ fn parse_render_commands(
             .checked_add(size)
             .is_none_or(|end| end > object.len())
         {
-            return Err(GeometryError::Gpl("draw range exceeds object".into()));
+            return Err(Gpl("draw range exceeds object".into()));
         }
         draws.push((state.clone(), offset, size));
     }
     if draws.is_empty() {
-        return Err(GeometryError::Gpl("object has no draw commands".into()));
+        return Err(Gpl("object has no draw commands".into()));
     }
     Ok(draws)
 }
@@ -1121,7 +1124,7 @@ fn decode_display_list(
         .map(|spec| index_width(spec.kind))
         .sum::<usize>();
     if stride == 0 {
-        return Err(GeometryError::Gpl("empty GX vertex layout".into()));
+        return Err(Gpl("empty GX vertex layout".into()));
     }
     let mut out_positions = Vec::new();
     let mut out_texcoords = Vec::new();
@@ -1142,18 +1145,16 @@ fn decode_display_list(
         }
         if (0x80..=0xBF).contains(&opcode) {
             if cursor + 3 > data.len() {
-                return Err(GeometryError::Gpl("truncated GX primitive header".into()));
+                return Err(Gpl("truncated GX primitive header".into()));
             }
             let primitive = (opcode & 0x78) >> 3;
             let count = usize::from(u16::from_be_bytes([data[cursor + 1], data[cursor + 2]]));
             let payload = cursor + 3;
             let end = payload
                 .checked_add(count * stride)
-                .ok_or_else(|| GeometryError::Gpl("GX primitive overflows display list".into()))?;
+                .ok_or_else(|| Gpl("GX primitive overflows display list".into()))?;
             if end > data.len() {
-                return Err(GeometryError::Gpl(
-                    "GX primitive exceeds display list".into(),
-                ));
+                return Err(Gpl("GX primitive exceeds display list".into()));
             }
             let first_vertex = out_positions.len();
             for vertex in 0..count {
@@ -1167,8 +1168,8 @@ fn decode_display_list(
                 for spec in &specs {
                     let width = index_width(spec.kind);
                     if spec.kind == 1 && spec.attr != 0 {
-                        return Err(GeometryError::Gpl(
-                            "direct GX vertex attributes are not supported yet".into(),
+                        return Err(Gpl(
+                            "direct GX vertex attributes are not supported yet".into()
                         ));
                     }
                     let index = read_index(data, offset, width);
@@ -1180,9 +1181,7 @@ fn decode_display_list(
                                 .matrix_commands
                                 .iter()
                                 .find(|v| (**v & 0xffff) as usize == slot)
-                                .ok_or_else(|| {
-                                    GeometryError::Gpl(format!("unbound joint matrix slot {slot}"))
-                                })?;
+                                .ok_or_else(|| Gpl(format!("unbound joint matrix slot {slot}")))?;
                             joints.as_mut().unwrap().push((joint >> 16) as u16);
                         }
                         9 => pos_index = Some(index),
@@ -1193,28 +1192,20 @@ fn decode_display_list(
                         _ => {}
                     }
                 }
-                let pos_index = pos_index.ok_or_else(|| {
-                    GeometryError::Gpl("GX layout has no position attribute".into())
-                })?;
+                let pos_index =
+                    pos_index.ok_or_else(|| Gpl("GX layout has no position attribute".into()))?;
                 let has_texcoord = tex_index.is_some();
                 let tex_index = tex_index.unwrap_or(0);
                 if pos_index >= positions.len() || (has_texcoord && tex_index >= texcoords.len()) {
-                    return Err(GeometryError::Gpl(format!(
+                    return Err(Gpl(format!(
                         "GX vertex index exceeds source array: position {pos_index}/{}, UV {tex_index}/{}, primitive {opcode:#x}, vertex {vertex}, stride {stride}",
                         positions.len(),
                         texcoords.len()
                     )));
                 }
                 if let Some(index) = color_index {
-                    let values = colors.ok_or_else(|| {
-                        GeometryError::Gpl("GX layout references missing color array".into())
-                    })?;
-                    if index >= values.len() {
-                        return Err(GeometryError::Gpl(
-                            "GX color index exceeds source array".into(),
-                        ));
-                    }
-                    out_colors.as_mut().unwrap().push(values[index]);
+                    let value = indexed_vertex(colors, index, "color")?;
+                    out_colors.as_mut().unwrap().push(value);
                     color_map.push(index);
                 } else if let Some(values) = colors
                     && values.len() == 1
@@ -1223,70 +1214,47 @@ fn decode_display_list(
                     color_map.push(0);
                 }
                 if let Some(index) = normal_index {
-                    let values = normals.ok_or_else(|| {
-                        GeometryError::Gpl("GX layout references missing normal array".into())
-                    })?;
-                    if index >= values.len() {
-                        return Err(GeometryError::Gpl(
-                            "GX normal index exceeds source array".into(),
-                        ));
-                    }
-                    out_normals.as_mut().unwrap().push(values[index]);
+                    let value = indexed_vertex(normals, index, "normal")?;
+                    out_normals.as_mut().unwrap().push(value);
                     normal_map.push(index);
                 }
                 out_positions.push(positions[pos_index]);
                 out_texcoords.push(texcoords.get(tex_index).copied().unwrap_or([0.0; 2]));
                 if let Some(index) = secondary_tex_index {
-                    let uv = texcoords.get(index).ok_or_else(|| {
-                        GeometryError::Gpl("secondary UV index exceeds source array".into())
-                    })?;
+                    let uv = texcoords
+                        .get(index)
+                        .ok_or_else(|| Gpl("secondary UV index exceeds source array".into()))?;
                     secondary_texcoords.as_mut().unwrap().push(*uv);
                 }
                 vertex_map.push([pos_index, tex_index]);
             }
+            let mut triangle = |vertices| tri_indices(&mut indices, first_vertex, vertices);
             match primitive {
                 0 | 1 => {
-                    for group in (0..count).step_by(4) {
-                        if group + 3 < count {
-                            quad_indices(&mut indices, first_vertex + group);
-                        }
+                    for group in 0..count / 4 {
+                        let base = group * 4;
+                        triangle([base, base + 1, base + 2]);
+                        triangle([base, base + 2, base + 3]);
                     }
                 }
                 2 => {
-                    for group in (0..count).step_by(3) {
-                        if group + 2 < count {
-                            tri_indices(
-                                &mut indices,
-                                first_vertex + group,
-                                first_vertex + group + 1,
-                                first_vertex + group + 2,
-                            );
-                        }
+                    for group in 0..count / 3 {
+                        let base = group * 3;
+                        triangle([base, base + 1, base + 2]);
                     }
                 }
                 3 => {
                     for group in 0..count.saturating_sub(2) {
-                        let (a, b, c) = if group % 2 == 0 {
-                            (group, group + 1, group + 2)
+                        triangle(if group % 2 == 0 {
+                            [group, group + 1, group + 2]
                         } else {
-                            (group + 1, group, group + 2)
-                        };
-                        tri_indices(
-                            &mut indices,
-                            first_vertex + a,
-                            first_vertex + b,
-                            first_vertex + c,
-                        );
+                            [group + 1, group, group + 2]
+                        });
                     }
                 }
                 4 => {
                     for group in 1..count.saturating_sub(1) {
-                        tri_indices(
-                            &mut indices,
-                            first_vertex,
-                            first_vertex + group,
-                            first_vertex + group + 1,
-                        );
+                        triangle([0, group, group + 1]);
                     }
                 }
                 _ => {}
@@ -1310,6 +1278,18 @@ fn decode_display_list(
     })
 }
 
+fn indexed_vertex<T: Copy>(
+    values: Option<&[T]>,
+    index: usize,
+    label: &str,
+) -> Result<T, GeometryError> {
+    values
+        .ok_or_else(|| Gpl(format!("GX layout references missing {label} array")))?
+        .get(index)
+        .copied()
+        .ok_or_else(|| Gpl(format!("GX {label} index exceeds source array")))
+}
+
 fn vertex_specs(vcd: u32) -> Result<Vec<VertexAttributeSpec>, GeometryError> {
     let mut specs = Vec::new();
     let mut add = |attr: u8, kind: u8| {
@@ -1323,9 +1303,7 @@ fn vertex_specs(vcd: u32) -> Result<Vec<VertexAttributeSpec>, GeometryError> {
     }
     add(25, ((vcd >> 26) & 3) as u8);
     if !specs.iter().any(|spec| spec.attr == 9) {
-        return Err(GeometryError::Gpl(format!(
-            "GX VCD 0x{vcd:08X} has no position attribute"
-        )));
+        return Err(Gpl(format!("GX VCD 0x{vcd:08X} has no position attribute")));
     }
     Ok(specs)
 }
@@ -1345,16 +1323,12 @@ fn read_index(data: &[u8], offset: usize, size: usize) -> usize {
         usize::from(u16::from_be_bytes([data[offset], data[offset + 1]]))
     }
 }
-fn tri_indices(indices: &mut Vec<u32>, a: usize, b: usize, c: usize) {
+fn tri_indices(indices: &mut Vec<u32>, base: usize, [a, b, c]: [usize; 3]) {
     // Retail GPL display lists describe outward-facing polygons clockwise in
     // the model coordinate system. glTF defines counter-clockwise triangles
     // as front-facing, so preserve the vertex/UV pairing but reverse the
     // winding at the interchange boundary.
-    indices.extend([a as u32, c as u32, b as u32]);
-}
-fn quad_indices(indices: &mut Vec<u32>, base: usize) {
-    tri_indices(indices, base, base + 1, base + 2);
-    tri_indices(indices, base, base + 2, base + 3);
+    indices.extend([a, c, b].map(|index| (base + index) as u32));
 }
 
 fn gx_command_size(opcode: u8, data: &[u8]) -> Result<usize, GeometryError> {
@@ -1362,7 +1336,7 @@ fn gx_command_size(opcode: u8, data: &[u8]) -> Result<usize, GeometryError> {
         0x08 => 6,
         0x10 => {
             if data.len() < 5 {
-                return Err(GeometryError::Gpl("truncated GX XF command".into()));
+                return Err(Gpl("truncated GX XF command".into()));
             }
             // XF commands carry a BE command word after the opcode.  The
             // low nibble of its high half-word is the number of extra 32-bit
@@ -1370,23 +1344,15 @@ fn gx_command_size(opcode: u8, data: &[u8]) -> Result<usize, GeometryError> {
             let command = u32::from_be_bytes(data[1..5].try_into().unwrap());
             5 + (((command >> 16) as usize & 0xF) + 1) * 4
         }
-        0x20 | 0x28 | 0x30 | 0x38 | 0x40 | 0x61 => {
-            if opcode == 0x40 {
-                9
-            } else {
-                5
-            }
-        }
-        0x44 => 5,
+        0x20 | 0x28 | 0x30 | 0x38 | 0x44 | 0x61 => 5,
+        0x40 => 9,
         0x48 => 1,
         _ => {
-            return Err(GeometryError::Gpl(format!(
-                "unsupported GX command 0x{opcode:02X}"
-            )));
+            return Err(Gpl(format!("unsupported GX command 0x{opcode:02X}")));
         }
     };
     if data.len() < size {
-        return Err(GeometryError::Gpl("GX command exceeds display list".into()));
+        return Err(Gpl("GX command exceeds display list".into()));
     }
     Ok(size)
 }
@@ -1565,7 +1531,7 @@ fn bind_transform(
     let mut cursor = Some(index);
     while let Some(i) = cursor {
         if i >= nodes.len() || chain.contains(&i) {
-            return Err(GeometryError::Gpl("invalid skeleton hierarchy".into()));
+            return Err(Gpl("invalid skeleton hierarchy".into()));
         }
         chain.push(i);
         cursor = parents[i];
@@ -1660,38 +1626,61 @@ fn align4(data: &mut Vec<u8>) {
 mod tests {
     use super::*;
 
-    #[test]
-    #[ignore = "requires locally extracted GQSEAF setup map; Rust cooking only"]
-    fn original_setup_geometry_uses_checked_vertex_arrays() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-        let archive =
-            crate::field::MapArchive::open(&root.join("extracted/disc1/files/MAP/_custom.bin"))
-                .unwrap();
-        let manifest = export_section(
-            archive.section(0).unwrap(),
-            &root.join("analysis/new-game-setup/geometry"),
-        )
-        .unwrap();
-        assert!(!manifest.objects.is_empty());
+    fn commands(records: &[[u32; 4]], length: usize) -> Vec<u8> {
+        let mut bytes: Vec<_> = records
+            .iter()
+            .flat_map(|&[kind, value, offset, size]| [kind << 24, value, offset, size])
+            .flat_map(u32::to_be_bytes)
+            .collect();
+        bytes.resize(length, 0);
+        bytes
     }
 
     #[test]
-    fn packed_vertex_colors_preserve_white_and_independent_alpha() {
-        for (format, bytes, expected) in [
-            (0, vec![0xff, 0xff], [255u8, 255, 255, 255]),
-            (0x30, vec![0xf1, 0x28], [255, 17, 34, 136]),
-            (0x40, vec![0xfc, 0x1f, 0xca], [255, 4, 255, 40]),
+    fn floating_vertex_coordinates_reject_non_finite_values() {
+        let desc = VertexArrayDesc {
+            data_offset: 0,
+            count: 1,
+            format: 0x40,
+            components: 3,
+            scale: 1.,
+        };
+        for (values, valid) in [
+            ([1., -2.5, 0.125], true),
+            ([f32::NAN, 0., 0.], false),
+            ([0., f32::INFINITY, 0.], false),
+        ] {
+            let bytes: Vec<_> = values.into_iter().flat_map(f32::to_be_bytes).collect();
+            let result = decode_vectors::<3>(&bytes, desc);
+            if valid {
+                assert_eq!(result.unwrap(), [values]);
+            } else {
+                assert!(result.is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn packed_colors_distinguish_indexed_expansion_from_material_constants() {
+        for (count, format, bytes, expected) in [
+            (2, 0, vec![0xff, 0xff], [255u8, 255, 255, 255]),
+            (2, 0x30, vec![0xf1, 0x28], [255, 17, 34, 136]),
+            (2, 0x40, vec![0xfc, 0x1f, 0xca], [255, 4, 255, 40]),
+            (1, 0, vec![0xff, 0xff], [248, 252, 248, 255]),
+            (1, 0, vec![0x84, 0x21], [128, 132, 8, 255]),
+            (1, 0x30, vec![0xf1, 0x28], [240, 16, 32, 128]),
+            (1, 0x40, vec![0xfc, 0x1f, 0xca], [0, 60, 192, 124]),
         ] {
             let desc = VertexArrayDesc {
                 data_offset: 0,
-                count: 1,
+                count,
                 format,
                 components: 4,
                 scale: 1.,
             };
             assert_eq!(
-                decode_colors(&bytes, desc)[0],
-                expected.map(|v| f32::from(v) / 255.)
+                decode_colors(&bytes.repeat(count), desc),
+                vec![expected.map(|v| f32::from(v) / 255.); count]
             );
         }
     }
@@ -1720,23 +1709,16 @@ mod tests {
 
     #[test]
     fn draws_follow_commands_beyond_the_first_three_records() {
-        let mut object = vec![0; 128];
-        for (index, (kind, value, offset, size)) in [
-            (1u32, 0x11110002u32, 0u32, 0u32),
-            (1, 0x11112000, 0, 0),
-            (3, 17, 0, 0),
-            (2, 0x2888, 96, 12),
-            (4, 0x00070002, 108, 20),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let at = index * 16;
-            object[at] = kind as u8;
-            for (i, value) in [value, offset, size].into_iter().enumerate() {
-                object[at + 4 + i * 4..at + 8 + i * 4].copy_from_slice(&value.to_be_bytes());
-            }
-        }
+        let object = commands(
+            &[
+                [1, 0x11110002, 0, 0],
+                [1, 0x11112000, 0, 0],
+                [3, 17, 0, 0],
+                [2, 0x2888, 96, 12],
+                [4, 0x70002, 108, 20],
+            ],
+            128,
+        );
         let draws = parse_render_commands(&object, 0, 5, true).unwrap();
         assert_eq!(draws.len(), 2);
         assert_eq!((draws[0].1, draws[0].2), (96, 12));
@@ -1747,17 +1729,7 @@ mod tests {
 
     #[test]
     fn old_palette_commands_keep_vertex_layout_separate_from_material_mode() {
-        let mut object = vec![0; 80];
-        for (index, (kind, value, offset, size)) in [(4u8, 4u32, 0u32, 0u32), (3, 8, 64, 16)]
-            .into_iter()
-            .enumerate()
-        {
-            let at = index * 16;
-            object[at] = kind;
-            for (i, value) in [value, offset, size].into_iter().enumerate() {
-                object[at + 4 + i * 4..at + 8 + i * 4].copy_from_slice(&value.to_be_bytes());
-            }
-        }
+        let object = commands(&[[4, 4, 0, 0], [3, 8, 64, 16]], 80);
         let draws = parse_render_commands(&object, 0, 2, false).unwrap();
         assert_eq!(draws[0].0.vcd, Some(8));
         assert_eq!(draws[0].0.tev_modes, [5]);

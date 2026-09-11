@@ -102,6 +102,10 @@ pub(crate) enum Wait {
         ready_at: Option<u32>,
     },
     Voice,
+    SkitMedia {
+        id: Option<u32>,
+        position: Option<u32>,
+    },
     Tick(u32),
     ControlHandoff(u32),
     Camera {
@@ -137,6 +141,20 @@ impl Wait {
         }
         let operation = match self {
             Self::Service { .. } => unreachable!(),
+            Self::SkitMedia { id, position } => {
+                let scene = world
+                    .skit
+                    .as_ref()
+                    .ok_or("skit media wait outside a skit")?;
+                return Ok(if let Some(id) = id {
+                    scene.media.as_ref().is_some_and(|m| m.id == *id)
+                } else {
+                    scene.media.as_ref().is_none_or(|m| {
+                        m.finished(world.tick)
+                            || position.is_some_and(|p| m.position(world.tick) >= p)
+                    })
+                });
+            }
             Self::Voice => {
                 return Ok(world
                     .voice
@@ -194,6 +212,7 @@ impl Wait {
                 | Self::ActorAnimation(_)
                 | Self::ActorHeading(_)
                 | Self::Voice => unreachable!(),
+                Self::SkitMedia { .. } => unreachable!(),
             }),
         }
     }

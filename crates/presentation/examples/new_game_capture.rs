@@ -7,6 +7,16 @@ fn main() -> anyhow::Result<()> {
         .nth(2)
         .unwrap_or_else(|| "local/cooked".into());
     let mode = std::env::args().nth(3).unwrap_or_else(|| "keyboard".into());
+    if mode == "exploration" {
+        let replay = std::env::args()
+            .nth(4)
+            .ok_or_else(|| anyhow::anyhow!("REPLAY.json required"))?;
+        return resonance_presentation::record_new_game_exploration(
+            std::path::Path::new(&assets),
+            std::path::Path::new(&output),
+            &serde_json::from_slice(&std::fs::read(replay)?)?,
+        );
+    }
     anyhow::ensure!(
         matches!(mode.as_str(), "keyboard" | "gamepad"),
         "expected keyboard or gamepad"

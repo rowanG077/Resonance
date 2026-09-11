@@ -2,6 +2,7 @@
 
 struct SurfaceUniform {
     uv_offsets: vec4<f32>,
+    uv_scales: vec4<f32>,
     tint: vec4<f32>,
     field_light: vec4<f32>,
     shade_colors: array<vec4<f32>, 2>,

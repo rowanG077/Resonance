@@ -5,11 +5,21 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionData {
+    /// Shared gameplay rules bound from menu-data after loading; never saved twice.
+    #[serde(skip)]
+    pub ex_skills: Option<std::sync::Arc<crate::menu_data::ExSkillData>>,
     pub version: u32,
     pub executable_sha256: String,
     pub items: Vec<ItemDefinition>,
     pub characters: Vec<CharacterDefinition>,
     pub experience: Vec<u32>,
+}
+
+/// Localized labels are independent of the statistics used for save identity.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GameText {
+    pub items: BTreeMap<u16, String>,
+    pub titles: BTreeMap<u16, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +32,18 @@ pub struct ItemDefinition {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterDefinition {
+    #[serde(default, skip_serializing_if = "zeroes")]
+    pub cooking: [u8; crate::menu_data::RECIPE_COUNT],
+    #[serde(default, skip_serializing_if = "zeroes")]
+    pub ex_skills: [u8; 4],
+    #[serde(default, skip_serializing_if = "zeroes")]
+    pub ex_gems: [u8; 4],
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compound_ex_skills: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_compound_ex_skills: Vec<u8>,
+    #[serde(default, skip_serializing_if = "neutral_technique")]
+    pub technique_balance: i8,
     pub affinity: i32,
     pub level: u8,
     pub experience: u32,
@@ -36,6 +58,14 @@ pub struct CharacterDefinition {
     pub shortcuts: [u16; 4],
     pub growth: [StatGrowth; 7],
     pub level_techniques: BTreeMap<u8, Vec<u16>>,
+}
+
+fn neutral_technique(value: &i8) -> bool {
+    *value == 0
+}
+
+fn zeroes<const N: usize>(values: &[u8; N]) -> bool {
+    values.iter().all(|&v| v == 0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +108,28 @@ impl SessionData {
         }
         for character in &self.characters {
             ensure!(
+                character.ex_gems.iter().all(|&level| level <= 5)
+                    && character
+                        .ex_gems
+                        .iter()
+                        .zip(character.ex_skills)
+                        .all(|(&level, skill)| level != 0 || skill == 0)
+                    && character.compound_ex_skills.iter().all(|&id| id < 24)
+                    && character
+                        .recent_compound_ex_skills
+                        .iter()
+                        .all(|id| character.compound_ex_skills.contains(id)),
+                "invalid initial EX skill state"
+            );
+            ensure!(
+                character.cooking.iter().all(|&v| v <= 8),
+                "invalid cooking experience"
+            );
+            ensure!(
+                (-100..=100).contains(&character.technique_balance),
+                "invalid technique balance"
+            );
+            ensure!(
                 character.level > 0 && usize::from(character.level) < self.experience.len(),
                 "invalid initial level"
             );
@@ -91,6 +143,10 @@ impl SessionData {
             ensure!(
                 character.techniques.len() <= 64
                     && character.allowed_techniques.len() <= 64
+                    && character
+                        .allowed_techniques
+                        .iter()
+                        .all(|id| usize::from(*id) < crate::menu_data::TECHNIQUE_COUNT)
                     && character
                         .techniques
                         .iter()

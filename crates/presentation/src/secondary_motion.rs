@@ -17,6 +17,153 @@ struct Bone {
     authored: Transform,
 }
 
+impl Rig {
+    pub(super) fn new(
+        spec: &resonance_content::ScenePart,
+        names: &BTreeMap<String, (Entity, Transform, Entity)>,
+    ) -> Option<Self> {
+        let bones: BTreeMap<_, _> = spec
+            .bone_names
+            .iter()
+            .enumerate()
+            .filter_map(|(index, name)| {
+                let &(entity, authored, parent) = names.get(name)?;
+                Some((
+                    index as u16,
+                    Bone {
+                        entity,
+                        authored,
+                        parent,
+                    },
+                ))
+            })
+            .collect();
+        if spec.secondary_motion.iter().any(|chain| {
+            chain.joints.iter().any(|j| !bones.contains_key(&j.node))
+                || chain
+                    .collision_plane
+                    .as_ref()
+                    .is_some_and(|p| !bones.contains_key(&p.anchor))
+        }) {
+            return None;
+        }
+        Some(Self {
+            bones,
+            chains: spec
+                .secondary_motion
+                .iter()
+                .cloned()
+                .map(|chain| (chain, Simulation::default()))
+                .collect(),
+            tick: None,
+        })
+    }
+
+    pub(super) fn advance(
+        &mut self,
+        helper: &TransformHelper,
+        yaw: f32,
+        tick: u32,
+        settle: bool,
+        animated_roots: &[u16],
+    ) -> Option<BTreeMap<u16, GlobalTransform>> {
+        let authored: BTreeMap<_, _> = self
+            .bones
+            .iter()
+            .filter_map(|(&node, bone)| {
+                helper
+                    .compute_global_transform(bone.entity)
+                    .ok()
+                    .map(|pose| (node, pose))
+            })
+            .collect();
+        if authored.len() != self.bones.len() {
+            return None;
+        }
+
+        let actor_rotation = Quat::from_rotation_z(yaw.to_radians());
+        let steps = if self.tick.is_none() && settle {
+            300
+        } else {
+            self.tick
+                .map_or(1, |previous| tick.saturating_sub(previous).min(16))
+        };
+        let mut output = BTreeMap::new();
+        for (chain, simulation) in &mut self.chains {
+            let targets: Vec<_> = chain
+                .joints
+                .iter()
+                .map(|joint| authored[&joint.node].translation())
+                .collect();
+            let plane = chain.collision_plane.as_ref().map(|p| {
+                (
+                    authored[&p.anchor].rotation() * Vec3::from_array(p.normal),
+                    p.offset,
+                    p.strength,
+                )
+            });
+            let attraction = if animated_roots.contains(&chain.joints[0].node) {
+                0.2
+            } else {
+                chain.attraction
+            };
+            simulation.advance(chain, &targets, plane, attraction, steps);
+            for (index, joint) in chain.joints.iter().enumerate().take(chain.joints.len() - 1) {
+                let mut pose = authored[&joint.node].compute_transform();
+                pose.translation = simulation.positions[index];
+                if !chain.preserve_rotation {
+                    let angles = |direction: Vec3| {
+                        let d = actor_rotation.inverse() * direction.normalize_or_zero();
+                        Vec2::new((-d.y).clamp(-1., 1.).asin(), d.x.atan2(d.z))
+                    };
+                    let mut delta =
+                        angles(simulation.positions[index] - simulation.positions[index + 1])
+                            - angles(targets[index] - targets[index + 1]);
+                    if chain.rotation_locks[0] {
+                        delta.x = 0.;
+                    }
+                    if chain.rotation_locks[1] {
+                        delta.y = 0.;
+                    }
+                    pose.rotation *= Quat::from_euler(EulerRot::ZYX, 0., delta.y, delta.x);
+                }
+                output.insert(joint.node, GlobalTransform::from(pose));
+            }
+        }
+
+        self.tick = Some(tick);
+        Some(output)
+    }
+
+    pub(super) fn locals(
+        &self,
+        helper: &TransformHelper,
+        pose: &BTreeMap<u16, GlobalTransform>,
+    ) -> Vec<(Entity, Transform)> {
+        let mut locals = Vec::new();
+        let entities: BTreeMap<_, _> = self
+            .bones
+            .iter()
+            .map(|(&node, bone)| (bone.entity, node))
+            .collect();
+        for (&node, world) in pose {
+            let Some(bone) = self.bones.get(&node) else {
+                continue;
+            };
+            let parent = entities
+                .get(&bone.parent)
+                .and_then(|node| pose.get(node))
+                .copied()
+                .or_else(|| helper.compute_global_transform(bone.parent).ok());
+            if let Some(parent) = parent {
+                locals.push((bone.entity, world.reparented_to(&parent)));
+            }
+        }
+
+        locals
+    }
+}
+
 /// Read-only solver evidence for silent replay checkpoints.
 pub(super) fn diagnostic(world: &mut World) -> serde_json::Value {
     let mut query = world.query::<(&ActorPart, &Rig)>();
@@ -36,52 +183,18 @@ pub(super) fn bind(
     art: Res<Art>,
     actors: Query<(Entity, &ActorPart), Without<Rig>>,
     children: Query<&Children>,
-    nodes: Query<(Entity, &Name, &Transform, &ChildOf)>,
+    nodes: Query<(&Name, &Transform, &ChildOf)>,
+    meshes: Query<(), With<Mesh3d>>,
 ) {
     for (root, actor) in &actors {
         let spec = &art.models[&actor.resource][actor.part].spec;
         if !actor.prepared || spec.secondary_motion.is_empty() {
             continue;
         }
-        let names: BTreeMap<_, _> = children
-            .iter_descendants(root)
-            .filter_map(|entity| nodes.get(entity).ok())
-            .map(|(entity, name, transform, parent)| {
-                (name.as_str(), (entity, *transform, parent.parent()))
-            })
-            .collect();
-        let mut bones = BTreeMap::new();
-        for (index, name) in spec.bone_names.iter().enumerate() {
-            if let Some(&(entity, authored, parent)) = names.get(name.as_str()) {
-                bones.insert(
-                    index as u16,
-                    Bone {
-                        entity,
-                        parent,
-                        authored,
-                    },
-                );
-            }
+        let names = super::field_pose::named_bones(root, &children, &nodes, &meshes);
+        if let Some(rig) = Rig::new(spec, &names) {
+            commands.entity(root).insert(rig);
         }
-        if spec.secondary_motion.iter().any(|chain| {
-            chain.joints.iter().any(|j| !bones.contains_key(&j.node))
-                || chain
-                    .collision_plane
-                    .as_ref()
-                    .is_some_and(|p| !bones.contains_key(&p.anchor))
-        }) {
-            continue;
-        }
-        commands.entity(root).insert(Rig {
-            bones,
-            chains: spec
-                .secondary_motion
-                .iter()
-                .cloned()
-                .map(|chain| (chain, Simulation::default()))
-                .collect(),
-            tick: None,
-        });
     }
 }
 
@@ -120,85 +233,20 @@ pub(super) fn apply(
             let Some(actor) = state.get().events.world.actors.get(&part.actor) else {
                 continue;
             };
-            let authored: BTreeMap<_, _> = rig
-                .bones
-                .iter()
-                .filter_map(|(&node, bone)| {
-                    helper
-                        .compute_global_transform(bone.entity)
-                        .ok()
-                        .map(|pose| (node, pose))
-                })
-                .collect();
-            if authored.len() != rig.bones.len() {
-                continue;
-            }
-            let actor_rotation = Quat::from_rotation_z(
-                actor
-                    .appearance
-                    .fixed_heading
-                    .unwrap_or(actor.heading)
-                    .to_radians(),
-            );
-            let steps = rig
-                .tick
-                .map_or(1, |previous| tick.saturating_sub(previous).min(16));
-            // An isolated checkpoint starts at a settled authored pose. The
-            // player flow instead evolves once per consumed field tick.
-            let steps = if rig.tick.is_none() && state.checkpoint.is_some() {
-                300
-            } else {
-                steps
-            };
-            let mut output = BTreeMap::new();
             let animated_roots = part
                 .active_clip
                 .and_then(|index| art.models[&part.resource][part.part].spec.clips.get(index))
                 .map(|clip| clip.secondary_pose_nodes.as_slice())
                 .unwrap_or_default();
-            for (chain, simulation) in &mut rig.chains {
-                let targets: Vec<_> = chain
-                    .joints
-                    .iter()
-                    .map(|joint| authored[&joint.node].translation())
-                    .collect();
-                let plane = chain.collision_plane.as_ref().map(|p| {
-                    (
-                        authored[&p.anchor].rotation() * Vec3::from_array(p.normal),
-                        p.offset,
-                        p.strength,
-                    )
-                });
-                let attraction = if animated_roots.contains(&chain.joints[0].node) {
-                    0.2
-                } else {
-                    chain.attraction
-                };
-                simulation.advance(chain, &targets, plane, attraction, steps);
-                for (index, joint) in chain.joints.iter().enumerate().take(chain.joints.len() - 1) {
-                    let mut pose = authored[&joint.node].compute_transform();
-                    pose.translation = simulation.positions[index];
-                    if !chain.preserve_rotation {
-                        let angles = |direction: Vec3| {
-                            let d = actor_rotation.inverse() * direction.normalize_or_zero();
-                            Vec2::new((-d.y).clamp(-1., 1.).asin(), d.x.atan2(d.z))
-                        };
-                        let mut delta =
-                            angles(simulation.positions[index] - simulation.positions[index + 1])
-                                - angles(targets[index] - targets[index + 1]);
-                        if chain.rotation_locks[0] {
-                            delta.x = 0.;
-                        }
-                        if chain.rotation_locks[1] {
-                            delta.y = 0.;
-                        }
-                        pose.rotation *= Quat::from_euler(EulerRot::ZYX, 0., delta.y, delta.x);
-                    }
-                    output.insert(joint.node, GlobalTransform::from(pose));
-                }
+            if let Some(output) = rig.advance(
+                &helper,
+                actor.appearance.fixed_heading.unwrap_or(actor.heading),
+                tick,
+                state.checkpoint.is_some(),
+                animated_roots,
+            ) {
+                poses.insert(part.actor, output);
             }
-            rig.tick = Some(tick);
-            poses.insert(part.actor, output);
         }
     }
     // Parent transforms must also use the deformed pose. Copying the same
@@ -219,24 +267,7 @@ pub(super) fn apply(
             }
             continue;
         };
-        let entities: BTreeMap<_, _> = rig
-            .bones
-            .iter()
-            .map(|(&node, bone)| (bone.entity, node))
-            .collect();
-        for (&node, world) in pose {
-            let Some(bone) = rig.bones.get(&node) else {
-                continue;
-            };
-            let parent = entities
-                .get(&bone.parent)
-                .and_then(|node| pose.get(node))
-                .copied()
-                .or_else(|| helper.compute_global_transform(bone.parent).ok());
-            if let Some(parent) = parent {
-                locals.push((bone.entity, world.reparented_to(&parent)));
-            }
-        }
+        locals.extend(rig.locals(&helper, pose));
         applied.ack(super::field_audit::Request::SecondaryMotion(
             part.actor, part.part,
         ));

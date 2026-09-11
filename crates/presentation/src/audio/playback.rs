@@ -32,8 +32,10 @@ impl PlaybackAssets {
             metadata.validate()?;
             let cues = Manifest::load(root, &metadata.path, &metadata.sha256)?;
             anyhow::ensure!(
-                cues.cues.contains_key("navigate") && cues.cues.contains_key("confirm"),
-                "missing required menu cues"
+                ["navigate", "confirm", "back", "error"]
+                    .iter()
+                    .all(|key| cues.cues.contains_key(*key)),
+                "missing required menu cues; run resonance-import cook-title-sounds"
             );
             Some(Arc::new(cues))
         } else {

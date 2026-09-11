@@ -1,0 +1,222 @@
+{
+  "version": 1,
+  "updates": 1850,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 130,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 131,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 300,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 301,
+      "keys": []
+    },
+    {
+      "update": 400,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 401,
+      "keys": []
+    },
+    {
+      "update": 500,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 501,
+      "keys": []
+    },
+    {
+      "update": 600,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 601,
+      "keys": []
+    },
+    {
+      "update": 700,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 701,
+      "keys": []
+    },
+    {
+      "update": 800,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 801,
+      "keys": []
+    },
+    {
+      "update": 900,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 901,
+      "keys": []
+    },
+    {
+      "update": 1000,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1001,
+      "keys": []
+    },
+    {
+      "update": 1100,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1101,
+      "keys": []
+    },
+    {
+      "update": 1200,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1201,
+      "keys": []
+    },
+    {
+      "update": 1300,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1301,
+      "keys": []
+    },
+    {
+      "update": 1400,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 1401,
+      "keys": []
+    },
+    {
+      "update": 1500,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1501,
+      "keys": []
+    },
+    {
+      "update": 1600,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1601,
+      "keys": []
+    },
+    {
+      "update": 1700,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1701,
+      "keys": []
+    },
+    {
+      "update": 1800,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1801,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "350": "orders",
+    "450": "rename",
+    "550": "renamed",
+    "650": "cancel-choice",
+    "750": "confirm-choice",
+    "850": "name-saved",
+    "950": "default",
+    "1050": "guard",
+    "1150": "preset-member",
+    "1250": "preset-setting",
+    "1350": "preset-options",
+    "1450": "preset-preview",
+    "1550": "preset-changed",
+    "1849": "current-unchanged"
+  }
+}

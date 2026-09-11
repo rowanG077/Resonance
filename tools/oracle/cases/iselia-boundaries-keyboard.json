@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "updates": 1525,
+  "inputs": [
+    {
+      "update": 1286,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1318,
+      "keys": []
+    },
+    {
+      "update": 1406,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 1438,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "1275": "initial",
+    "1305": "school-walk",
+    "1405": "village-arrival",
+    "1429": "village-walk",
+    "1525": "school-arrival",
+    "1428": "village-walk-before",
+    "1430": "village-walk-after"
+  },
+  "ambient_origin": {
+    "update": 1275,
+    "samples": {
+      "999996": 135,
+      "999998": 335,
+      "999980": 135,
+      "-2147483648": 33.400062561035156
+    }
+  }
+}

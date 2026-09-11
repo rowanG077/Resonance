@@ -1,0 +1,398 @@
+{
+  "version": 1,
+  "updates": 1630,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 130,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 131,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 210,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 211,
+      "keys": []
+    },
+    {
+      "update": 250,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 251,
+      "keys": []
+    },
+    {
+      "update": 290,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 291,
+      "keys": []
+    },
+    {
+      "update": 330,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 331,
+      "keys": []
+    },
+    {
+      "update": 370,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 371,
+      "keys": []
+    },
+    {
+      "update": 410,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 411,
+      "keys": []
+    },
+    {
+      "update": 450,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 451,
+      "keys": []
+    },
+    {
+      "update": 470,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 471,
+      "keys": []
+    },
+    {
+      "update": 490,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 491,
+      "keys": []
+    },
+    {
+      "update": 530,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 531,
+      "keys": []
+    },
+    {
+      "update": 570,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 571,
+      "keys": []
+    },
+    {
+      "update": 590,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 591,
+      "keys": []
+    },
+    {
+      "update": 610,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 611,
+      "keys": []
+    },
+    {
+      "update": 650,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 651,
+      "keys": []
+    },
+    {
+      "update": 690,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 691,
+      "keys": []
+    },
+    {
+      "update": 710,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 711,
+      "keys": []
+    },
+    {
+      "update": 730,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 731,
+      "keys": []
+    },
+    {
+      "update": 770,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 771,
+      "keys": []
+    },
+    {
+      "update": 810,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 811,
+      "keys": []
+    },
+    {
+      "update": 850,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 851,
+      "keys": []
+    },
+    {
+      "update": 890,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 891,
+      "keys": []
+    },
+    {
+      "update": 930,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 931,
+      "keys": []
+    },
+    {
+      "update": 970,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 971,
+      "keys": []
+    },
+    {
+      "update": 1010,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1011,
+      "keys": []
+    },
+    {
+      "update": 1130,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 1131,
+      "keys": []
+    },
+    {
+      "update": 1220,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1221,
+      "keys": []
+    },
+    {
+      "update": 1260,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1261,
+      "keys": []
+    },
+    {
+      "update": 1340,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1341,
+      "keys": []
+    },
+    {
+      "update": 1380,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 1381,
+      "keys": []
+    },
+    {
+      "update": 1420,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1421,
+      "keys": []
+    },
+    {
+      "update": 1460,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1461,
+      "keys": []
+    },
+    {
+      "update": 1500,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1501,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "initial",
+    "160": "items",
+    "350": "bread",
+    "390": "confirm-no",
+    "430": "declined",
+    "480": "confirm-yes",
+    "510": "discard-one",
+    "630": "discard-two",
+    "750": "discard-last",
+    "790": "empty",
+    "1070": "no-ingredients",
+    "1180": "missing",
+    "1240": "missing-held",
+    "1300": "dismissed",
+    "1410": "missing-recipe-header",
+    "1530": "field"
+  },
+  "session_origin": 34583,
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "skit": {
+      "id": 600,
+      "remaining": 1498,
+      "opacity": 255,
+      "control_ticks": 7501,
+      "text_opacity": 255
+    },
+    "gameplay_random": "uninitialized"
+  },
+  "presentation_origin": 38084
+}

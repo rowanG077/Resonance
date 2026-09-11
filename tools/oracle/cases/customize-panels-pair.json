@@ -1,0 +1,726 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Customize nested panels: RGBA color editing, independent volume levels and stereo, duplicate-free controller remapping, screen offsets/reset, and committing preferences.",
+  "registration": "Use the same source checkpoint and once-verified field origins as the accepted party-menu case. Warm up 64 updates and pair native update 64 with source VI 0. Open at update 76, when the source pauses the field. Apply Customize confirmation at update 475 (source poll 820 first takes effect at VI 411) and release at 476, matching the accepted dense customize-transitions case. Native now performs System closing at VIs 411-418, Main closing at 419-429 and Customize opening from VI 430. The previous update 491 compensated for immediate native page entry; retaining it would delay the preview clock twice. All remaining input edges now use poll/2 + 1 + 64, matching the independently accepted dense Customize replay. Exact source memory confirms the first Down at VI 501: row remains 0 through VI 500 with preview shown 24/wait 2, then becomes 1 at 501 and retains those counters; the obsolete update 564 fired one VI early and retained wait 1. Likewise row 3 becomes 4 at VI 621 and Colors opens at VI 661. Captures and clock origins remain unchanged. Capture settled panels 30 VIs after each named input. No repeated origins, state fitting, image shifts or threshold changes are allowed. This case ends in the main menu; the separate windows case covers field return. Compare every active draft preference and panel selection against read-only source memory. The two nonzero screen-position images are explicit diagnostics: native scanout applies the offset, while Dolphin's frame dump is captured before the original VI origin adjustment. Keep both raw image failures visible; do not translate either recording to make them pass. Applied mixer settings are also compared: draft BGM previews immediately; effects, voice and stereo retain committed preferences until leaving Customize. The initial and returned main-menu frames check committed mixer settings.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "customize-panels-keyboard.json",
+    "sha256": "82e0f76f2ef0a4868ac1a3fd6036da5b424383985985bcd83047a74b7d61e23e"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 4900,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1000,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1080,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1160,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1240,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1320,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1480,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1640,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1720,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1800,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1880,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 1960,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2040,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2120,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2280,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2360,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2440,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2520,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2600,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2680,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2760,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2840,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2920,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3000,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3080,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3160,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3240,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3320,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3400,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3480,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3560,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3640,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3720,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3800,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3880,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3960,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4040,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4120,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4200,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4280,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4360,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4440,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4520,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4600,
+        "duration": 4,
+        "buttons": [
+          "start"
+        ]
+      },
+      {
+        "poll": 4680,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4760,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "initial-field",
+      "native": "initial-field",
+      "dolphin_vi": 0,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": false,
+      "audio_state": true
+    },
+    {
+      "name": "color-heading",
+      "native": "color-heading",
+      "dolphin_vi": 690,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "dialogue-color",
+      "native": "dialogue-color",
+      "dolphin_vi": 770,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "color-red",
+      "native": "color-red",
+      "dolphin_vi": 850,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "color-red-increase",
+      "native": "color-red-increase",
+      "dolphin_vi": 890,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "color-green-decrease",
+      "native": "color-green-decrease",
+      "dolphin_vi": 970,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "volume-music",
+      "native": "volume-music",
+      "dolphin_vi": 1090,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "volume-music-decrease",
+      "native": "volume-music-decrease",
+      "dolphin_vi": 1130,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "volume-effects-decrease",
+      "native": "volume-effects-decrease",
+      "dolphin_vi": 1210,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "volume-music-second-step",
+      "native": "volume-music-second-step",
+      "dolphin_vi": 1290,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "volume-stereo",
+      "native": "volume-stereo",
+      "dolphin_vi": 1490,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "volume-mono",
+      "native": "volume-mono",
+      "dolphin_vi": 1530,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "controls-first",
+      "native": "controls-first",
+      "dolphin_vi": 1650,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "controls-first-remapped",
+      "native": "controls-first-remapped",
+      "dolphin_vi": 1690,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "controls-first-restored",
+      "native": "controls-first-restored",
+      "dolphin_vi": 1730,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "controls-second-remapped",
+      "native": "controls-second-remapped",
+      "dolphin_vi": 1810,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "controls-second-restored",
+      "native": "controls-second-restored",
+      "dolphin_vi": 1850,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "screen-position",
+      "native": "screen-position",
+      "dolphin_vi": 2210,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "screen-right",
+      "native": "screen-right",
+      "dolphin_vi": 2250,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "screen-down",
+      "native": "screen-down",
+      "dolphin_vi": 2290,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "screen-reset",
+      "native": "screen-reset",
+      "dolphin_vi": 2330,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true,
+      "audio_state": false
+    },
+    {
+      "name": "main-customized",
+      "native": "main-customized",
+      "dolphin_vi": 2410,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": false,
+      "audio_state": true
+    }
+  ],
+  "audio": []
+}

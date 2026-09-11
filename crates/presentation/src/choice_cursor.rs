@@ -4,6 +4,14 @@ use resonance_content::{HEIGHT, SCENE_HEIGHT};
 // Rounded authoring coefficient: retain its precision before integer truncation.
 const SCENE_Y_SCALE: f64 = 0.93333333;
 
+pub(super) fn bob(style: &resonance_content::font::SelectionArt, tick: u32) -> f32 {
+    const PERIOD: u32 = 24;
+    // Scale the phase before division: rounding the angle per tick changes
+    // which integer pixel the cursor occupies at the descending half-amplitude.
+    let angle = style.bob_step * PERIOD as f32 * (tick % PERIOD) as f32 / PERIOD as f32;
+    (style.bob_amplitude * angle.sin()).trunc()
+}
+
 /// Round Y in the 448-row scene projection before adding pixel offsets, then
 /// convert back to the dialogue overlay’s 480-row coordinates.
 pub(super) fn drawing_y(y: f32) -> f32 {
@@ -61,6 +69,21 @@ impl Trail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursor_bob_preserves_integer_pixel_boundaries() {
+        let style = resonance_content::font::SelectionArt {
+            mode: 1,
+            color: [255; 4],
+            row_offsets: [0; 9],
+            bob_amplitude: 4.,
+            bob_step: std::f32::consts::PI / 24.,
+        };
+        assert_eq!(
+            [0, 12, 20, 24].map(|tick| bob(&style, tick)),
+            [0., 4., 1., 0.]
+        );
+    }
 
     #[test]
     fn dialogue_coordinates_preserve_the_original_cursor_size_and_rounding() {

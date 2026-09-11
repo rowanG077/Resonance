@@ -1,0 +1,343 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Iselia school revisit: enter the classroom, walk to the desks, and return outside; timestamped video checks across both field changes.",
+  "registration": "Start with the same semantic school checkpoint and 2237-update warm-up as the door case. Register only scenery samples 0/2/12 at 52/252/52. Native update 2237 + N uses Dolphin VI N selected from lossless RGB video timestamps; first video frame is VI 0. The 16-update presentation pause at native updates 2378..2393 records Dolphin's black field-loading gap: simulation continues, but no frame is presented. The registered loading image pairs native update 2410 with Dolphin VI 220, the first matching black handoff frame; subsequent visible frames continue at their semantic VI. VI 849 is explicitly captured on both sides because the source has no presentation at VI 850. No animation, notification or audio state is loaded from the quicksave. Audio is recorded to files only, with no accepted audio gate.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/classroom-door-quicksave.json",
+    "sha256": "e5c8fe64cb813c353659237fdf3b092cd4ca433672197711dc6e696c1e8360f1"
+  },
+  "native_replay": {
+    "path": "classroom-return-keyboard.json",
+    "sha256": "a11f2ef2f2bd45bf1d2c3e91e7dfcba940f73bfdf6718c9d2f2f44ad6dcae03e"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-school-revisit/user/StateSaves/GQSEAF.s01",
+      "sha256": "d5f5bfed1da03609df96663e4397c0b9e5e4d8f617b672c39bb6e2279585c247"
+    },
+    "prefix_sha256": "04309fb42fc8726e326c7d10ca9a5b3be3da1cc17927eb083a7d0edbd1de72fd",
+    "start_poll": 68989,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1016.4122924804688,
+      1356.66259765625,
+      11.68171215057373
+    ],
+    "heading": 185
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 2600,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 60,
+        "buttons": [],
+        "stick": [
+          160,
+          128
+        ]
+      },
+      {
+        "poll": 100,
+        "duration": 40,
+        "buttons": [],
+        "stick": [
+          128,
+          160
+        ]
+      },
+      {
+        "poll": 200,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 600,
+        "duration": 130,
+        "buttons": [],
+        "stick": [
+          128,
+          160
+        ]
+      },
+      {
+        "poll": 800,
+        "duration": 220,
+        "buttons": [],
+        "stick": [
+          160,
+          128
+        ]
+      },
+      {
+        "poll": 1200,
+        "duration": 220,
+        "buttons": [],
+        "stick": [
+          96,
+          128
+        ]
+      },
+      {
+        "poll": 1480,
+        "duration": 170,
+        "buttons": [],
+        "stick": [
+          128,
+          96
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "initial",
+      "native": "initial",
+      "dolphin_vi": 0,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "right-moving",
+      "native": "right-moving",
+      "dolphin_vi": 30,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "right-stopped",
+      "native": "right-stopped",
+      "dolphin_vi": 40,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "door-step",
+      "native": "door-step",
+      "dolphin_vi": 70,
+      "action_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          476,
+          426,
+          160,
+          44
+        ]
+      ]
+    },
+    {
+      "name": "before-door",
+      "native": "before-door",
+      "dolphin_vi": 100,
+      "action_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          476,
+          426,
+          160,
+          44
+        ]
+      ]
+    },
+    {
+      "name": "corridor-arrival",
+      "native": "corridor-arrival",
+      "dolphin_vi": 140,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "corridor-loading",
+      "native": "corridor-loading",
+      "dolphin_vi": 220,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "before-corridor-walk",
+      "native": "before-corridor-walk",
+      "dolphin_vi": 300,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "corridor-walk",
+      "native": "corridor-walk",
+      "dolphin_vi": 330,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "classroom-door",
+      "native": "classroom-door",
+      "dolphin_vi": 365,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "before-room",
+      "native": "before-room",
+      "dolphin_vi": 400,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "entering-room",
+      "native": "entering-room",
+      "dolphin_vi": 420,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "room-view",
+      "native": "room-view",
+      "dolphin_vi": 440,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "desk-approach",
+      "native": "desk-approach",
+      "dolphin_vi": 480,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "desks",
+      "native": "desks",
+      "dolphin_vi": 520,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "desks-idle",
+      "native": "desks-idle",
+      "dolphin_vi": 560,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "before-return",
+      "native": "before-return",
+      "dolphin_vi": 600,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "room-exit",
+      "native": "room-exit",
+      "dolphin_vi": 630,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "door-pass",
+      "native": "door-pass",
+      "dolphin_vi": 650,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "corridor-return",
+      "native": "corridor-return",
+      "dolphin_vi": 710,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "before-exit-walk",
+      "native": "before-exit-walk",
+      "dolphin_vi": 740,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "hall-return",
+      "native": "hall-return",
+      "dolphin_vi": 780,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "exit-door",
+      "native": "exit-door",
+      "dolphin_vi": 825,
+      "action_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          476,
+          426,
+          160,
+          44
+        ]
+      ]
+    },
+    {
+      "name": "school-arrival",
+      "native": "school-arrival",
+      "dolphin_vi": 900,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "school-settled",
+      "native": "school-settled",
+      "dolphin_vi": 1000,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "finished",
+      "native": "finished",
+      "dolphin_vi": 1100,
+      "action_prompt": true,
+      "skit_prompt": true
+    },
+    {
+      "name": "before-exit",
+      "native": "before-exit",
+      "dolphin_vi": 849,
+      "action_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          476,
+          426,
+          160,
+          44
+        ]
+      ]
+    }
+  ],
+  "audio": []
+}

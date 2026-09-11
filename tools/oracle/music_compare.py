@@ -17,6 +17,17 @@ import numpy as np
 from scipy import signal
 
 
+# Dolphin's DSP dump includes a backend-dependent DC component.  Evaluate
+# field music after removing each recording's channel mean, while retaining
+# raw PCM measurements in the report.  These thresholds catch phase, level,
+# and spectral regressions without treating that known DC component as music.
+AUDIO_ACCEPTANCE = {
+    "minimum_window_correlation": 0.99,
+    "minimum_window_mean_removed_signal_to_error_db": 15.0,
+    "maximum_window_abs_level_difference_db": 0.15,
+}
+
+
 def read_pcm(path):
     with wave.open(str(path), "rb") as wav:
         if (wav.getnchannels(), wav.getsampwidth(), wav.getcomptype()) != (2, 2, "NONE"):
@@ -87,6 +98,36 @@ def metrics(reference, actual):
     }
 
 
+def acceptance(summary, windows):
+    """Return the fixed-alignment field-music acceptance decision."""
+    correlations = [w['correlation'] for w in windows]
+    snrs = [w['mean_removed_signal_to_error_db'] for w in windows]
+    levels = [w['level_difference_db'] for w in windows]
+    minimum_correlation = min(correlations) if correlations else None
+    minimum_snr = min(snrs) if snrs and all(value is not None for value in snrs) else None
+    maximum_level_error = (
+        max(abs(value) for value in levels)
+        if levels and all(value is not None for value in levels)
+        else None
+    )
+    values = (minimum_correlation, minimum_snr, maximum_level_error)
+    passed = (
+        all(value is not None and math.isfinite(value) for value in values)
+        and minimum_correlation >= AUDIO_ACCEPTANCE['minimum_window_correlation']
+        and minimum_snr >= AUDIO_ACCEPTANCE['minimum_window_mean_removed_signal_to_error_db']
+        and maximum_level_error <= AUDIO_ACCEPTANCE['maximum_window_abs_level_difference_db']
+        and summary['reference_clipped_samples'] == 0
+        and summary['actual_clipped_samples'] == 0
+    )
+    return {
+        "thresholds": AUDIO_ACCEPTANCE,
+        "minimum_window_correlation": minimum_correlation,
+        "minimum_window_mean_removed_signal_to_error_db": minimum_snr,
+        "maximum_window_abs_level_difference_db": maximum_level_error,
+        "passed": bool(passed),
+    }
+
+
 def compare(reference, actual, rate, reference_start, search_start, search_end,
             registration_frames, frames, window_frames, lag_radius):
     if (reference_start < 0 or search_start < 0 or search_end > len(actual)
@@ -118,7 +159,7 @@ def compare(reference, actual, rate, reference_start, search_start, search_end,
         selected = (frequencies >= low) & (frequencies < high)
         ar = float(np.sum(ref_power[selected])); br = float(np.sum(act_power[selected]))
         bands.append({'hz': [low, high], 'actual_minus_reference_db': db_ratio(math.sqrt(br), math.sqrt(ar))})
-    return {
+    result = {
         'sample_rate': rate,
         'registration': {'reference_start_frame': reference_start, 'actual_start_frame': actual_start,
                          'frames': registration_frames, 'correlation': coefficient,
@@ -130,6 +171,8 @@ def compare(reference, actual, rate, reference_start, search_start, search_end,
         'method': 'One fixed stereo alignment, original sample rate, no time stretching or gain adjustment. All errors use that alignment. Local lag searches are reported only to diagnose drift. Mean-removed errors subtract each compared window’s channel means; these are diagnostic, not independently measured silence offsets.',
         'audio_output': False,
     }
+    result['acceptance'] = acceptance(result['summary'], windows)
+    return result
 
 
 def main():
@@ -139,7 +182,10 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--reference-start', type=float, required=True, help='seconds')
     parser.add_argument('--actual-search-start', type=float, default=0)
-    parser.add_argument('--actual-search-end', type=float, required=True, help='seconds')
+    registration = parser.add_mutually_exclusive_group(required=True)
+    registration.add_argument('--actual-search-end', type=float, help='seconds')
+    registration.add_argument('--actual-start-frame', type=int,
+                              help='use a previously observed alignment without searching')
     parser.add_argument('--seconds', type=float, required=True)
     parser.add_argument('--registration-seconds', type=float, default=2)
     parser.add_argument('--window-seconds', type=float, default=2)
@@ -147,18 +193,26 @@ def main():
     args = parser.parse_args()
     if args.output.exists():
         parser.error('output already exists; keep previous measurements')
-    quantities = [args.reference_start, args.actual_search_start, args.actual_search_end,
+    quantities = [args.reference_start, args.actual_search_start,
                   args.seconds, args.registration_seconds, args.window_seconds]
+    if args.actual_search_end is not None:
+        quantities.append(args.actual_search_end)
     if (not all(math.isfinite(x) and x >= 0 for x in quantities)
             or min(args.seconds, args.registration_seconds, args.window_seconds) <= 0
-            or args.actual_search_end <= args.actual_search_start or not 0 <= args.lag_radius <= 4096):
+            or (args.actual_search_end is not None and args.actual_search_end <= args.actual_search_start)
+            or (args.actual_start_frame is not None
+                and (args.actual_start_frame < 0 or args.actual_search_start != 0))
+            or not 0 <= args.lag_radius <= 4096):
         parser.error('invalid interval or lag radius')
     rate, ref = read_pcm(args.reference)
     actual_rate, act = read_pcm(args.actual)
     if rate != actual_rate:
         parser.error('sample rates disagree; comparison never resamples')
-    report = compare(ref, act, rate, round(args.reference_start * rate),
-                     round(args.actual_search_start * rate), round(args.actual_search_end * rate),
+    start = (args.actual_start_frame if args.actual_start_frame is not None
+             else round(args.actual_search_start * rate))
+    end = (start + round(args.registration_seconds * rate) if args.actual_start_frame is not None
+           else round(args.actual_search_end * rate))
+    report = compare(ref, act, rate, round(args.reference_start * rate), start, end,
                      round(args.registration_seconds * rate), round(args.seconds * rate),
                      round(args.window_seconds * rate), args.lag_radius)
     for key in ['reference', 'actual']:
@@ -166,7 +220,10 @@ def main():
         report[key] = {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
-    print(json.dumps({'registration': report['registration'], 'summary': report['summary']}, indent=2))
+    print(json.dumps({'registration': report['registration'], 'summary': report['summary'],
+                      'acceptance': report['acceptance']}, indent=2))
+    if not report['acceptance']['passed']:
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':

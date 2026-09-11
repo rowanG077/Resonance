@@ -10,6 +10,7 @@ import ctypes
 import ctypes.util
 import hashlib
 import json
+import math
 from pathlib import Path
 import struct
 
@@ -72,6 +73,59 @@ def inspect(path, library=None):
     result["title"]["state_flags"] = struct.unpack_from(">H", ram, 0x35a762)[0]
     # fn_80124BF4: observe the shared generator without advancing it.
     result["random_state"] = u32(0x35a340)
+    # Gameplay MT19937 is independent of field animation and particle effects.
+    next_word = u32(0x35a7e0)
+    remaining = struct.unpack_from(">i", ram, 0x35a1e0)[0]
+    result["gameplay_random_cursor"] = {"pointer": next_word, "remaining": remaining}
+    if remaining < 0:
+        result["gameplay_random"] = "uninitialized"
+    elif 0x802ce560 <= next_word <= 0x802cef20 and (next_word - 0x802ce560) % 4 == 0:
+        index = (next_word - 0x802ce560) // 4
+        if remaining != 624 - index:
+            raise ValueError("inconsistent gameplay random cursor")
+        result["gameplay_random"] = {"state": {
+            "index": index, "words": list(struct.unpack_from(">624I", ram, 0x2ce560))}}
+    result["blink_sequence"] = [
+        {"frame": ram[at], "ticks": struct.unpack_from(">H", ram, at + 2)[0] + 1}
+        for at in range(0x1e3840, 0x1e3850, 4)]
+    globals_base = u32(0x35a578) - 0x80000000
+    if 0 <= globals_base <= len(ram) - 0x400:
+        result["progress"] = {"story": struct.unpack_from(">i", ram, globals_base + 0x40)[0],
+                              "address": f"{globals_base + 0x80000000:08x}"}
+    result["script_instances"] = []
+    if 0 <= globals_base <= len(ram) - 0xC41C:
+        count = struct.unpack_from(">H", ram, globals_base + 0x5814)[0]
+        if count > 300:
+            raise ValueError("script registry exceeds its instance table")
+        result["script_entries"] = [
+            dict(zip(("kind", "key", "pc"), struct.unpack_from(">3I", ram, globals_base + 0x2160 + i * 12)))
+            for i in range(count)]
+        for slot in range(32):
+            at = globals_base + 0x581C + slot * 0x360
+            if ram[at + 2] == 1:
+                result["script_instances"].append({
+                    "slot": slot, "address": f"{at + 0x80000000:08x}",
+                    "flags": ram[at + 3], "program_address": f"{u32(at + 4):08x}",
+                    "pc": u32(at + 8),
+                    "wait_value": struct.unpack_from(">i", ram, at + 12)[0],
+                    "wait_mode": u32(at + 16),
+                    "kind": struct.unpack_from(">H", ram, at + 0x346)[0],
+                })
+    font = u32(0x35a5a8) - 0x80000000
+    if 0 <= font <= len(ram) - 0x14400:
+        result["font_sha256"] = hashlib.sha256(ram[font:font + 0x14400]).hexdigest()
+    # Common model record and resolved model used by the field save-point object.
+    result["save_point_resource"] = {
+        "record": bytes(ram[0x2bd2cc:0x2bd310]).hex(),
+        "model_address": u32(0x35a4cc),
+    }
+    scene_texture = [u32(0x2c8710 + i*4) for i in range(8)]
+    result["refraction_scene_texture"] = {
+        "words": scene_texture,
+        "width": (scene_texture[2] & 1023) + 1,
+        "height": ((scene_texture[2] >> 10) & 1023) + 1,
+        "format": scene_texture[5],
+    }
     # fn_80104FA8 is lwz r3,-0x75e4(r13), with r13=0x80362000.
     # fn_800DE37C uses this VI clock and retains a short integer cursor trail.
     result["choice_cursor"] = {
@@ -79,7 +133,96 @@ def inspect(path, library=None):
         "trail_anchor": list(struct.unpack_from(">2h", ram, 0x35a1d0)),
         "trail_remaining": struct.unpack_from(">h", ram, 0x35a7d8)[0],
     }
+    menu = 0x221cf8
+    message = u32(menu + 0x20) - 0x80000000
+    result["save_menu"] = {
+        "bank": ram[menu + 0xc], "slot": ram[menu + 0xd],
+        "first_slot": struct.unpack_from(">h", ram, menu + 0xe)[0],
+        "scroll": struct.unpack_from(">h", ram, menu + 0x10)[0],
+        "choice": ram[menu + 0x12], "mode": ram[menu + 0x13],
+        "screen": struct.unpack_from(">h", ram, menu + 0x14)[0],
+        "confirmation_alpha": ram[menu + 0x28], "notice_alpha": ram[menu + 0x29],
+        "message": (bytes(ram[message:message + 1024]).split(b"\0")[0].decode("shift_jis")
+                    if 0 <= message <= len(ram) - 1024 else None),
+    }
+    result["field_clearance"] = struct.unpack_from(">H", ram, 0x35a008)[0]
     settings = u32(0x35a768) - 0x80000000
+    skit_title = u32(0x35a798) - 0x80000000
+    if (0 <= skit_title <= len(ram) - 256
+            and 0 <= settings <= len(ram) - 0x1f5a):
+        result["skit_prompt"] = {
+            "id": u32(0x35a794),
+            "title": bytes(ram[skit_title:skit_title + 256]).split(b"\0")[0].decode("shift_jis"),
+            "opacity": u32(0x35a454), "remaining": u32(0x35a458),
+            "refresh_tick": u32(0x35a450),
+            "field_ticks": u32(settings + 0x1e94),
+            "availability_flags": ram[settings + 0x1e91],
+            "selection_mode": ram[settings + 0x1e90],
+            "cooldown": struct.unpack_from(">h", ram, settings + 0x1f58)[0],
+        }
+    if 0 <= settings <= len(ram) - 0x10d4:
+        # The field loader selects its resource-table row from this session word.
+        result["field"] = {"map_id": u32(settings + 0x10d0),
+                           "address": f"{settings + 0x80000000:08x}"}
+        half = lambda at: struct.unpack_from(">H", ram, at)[0]
+        result["party_menu"] = {
+            "gald": u32(settings),
+            "encounters": half(settings + 4), "max_combo": half(settings + 6),
+            "saved_play_ticks": u32(settings + 8),
+            "session_ticks": (u32(0x35aa1c) - u32(0x35a7dc)) & 0xffffffff,
+            "formation": [member for member in ram[settings + 0xe9d:settings + 0xea5] if member],
+            "items": {str(i): ram[settings + 0xead + i] for i in range(1, 528) if ram[settings + 0xead + i]},
+            "found_items": [i for i in range(1, 528) if u32(settings + 0x1124 + i // 32 * 4) & (1 << (i % 32))],
+            "recent_items": [i for i in struct.unpack_from(">32H", ram, settings + 0x10e4) if i],
+            "leader_locked": bool(ram[settings + 0xea9] & 8),
+            "members": [],
+        }
+        for index in range(9):
+            member = settings + 0x2b8 + index * 0x118
+            result["party_menu"]["members"].append({
+                "id": index + 1,
+                "name": bytes(ram[member:member + 16]).split(b"\0")[0].decode("ascii", errors="replace"),
+                "level": ram[member + 0x10], "experience": u32(member + 0x18),
+                "hp": half(member + 0x12), "tp": half(member + 0x14),
+                "max_hp": half(member + 0x36), "max_tp": half(member + 0x38),
+                "base_stats": [half(member + offset) for offset in [0x26, 0x28, 0x2a, 0x2c, 0x34, 0x32, 0x30]],
+                "luck": half(member + 0x2e) // 10,
+                "equipment": [half(member + offset) for offset in [0x4a, 0x4c, 0x4e, 0x52, 0x54, 0x50]],
+                "title": half(member + 0xe) & 0xff,
+                "titles_mask": u32(member + 0x20),
+                "technique_balance": struct.unpack_from("b", ram, member + 0x10c)[0],
+                "cooking": list(ram[member + 0xf4:member + 0x10c]),
+                "ex_skills": list(ram[member + 0xee:member + 0xf2]),
+            })
+    if 0 <= settings <= len(ram) - 0x1e23:
+        result["party_menu"]["field_leader"] = ram[settings + 0x1e22] + 1
+        result["party_menu"]["travel"] = {
+            "current_location": half(0x2cb52e) or None,
+            "visited_locations": [world * 256 + i + 1 for world in range(2) for i in range(128)
+                                  if u32(settings + 0x1df8 + world * 16 + i // 32 * 4) & (1 << (i % 32))],
+            "visited_shops": [i for i in range(52) if u32(settings + 0x1de8 + i // 32 * 4) & (1 << (i % 32))],
+        }
+        result["cooking"] = {
+            "known": u32(settings + 0x1e18),
+            "full": bool(ram[settings + 0x1e1c]),
+            "recipe": ram[settings + 0x1e1d],
+            "chef": ram[settings + 0x1e1e],
+            "last_success": bool(ram[settings + 0x1e1f]),
+        }
+    if 0 <= settings <= len(ram) - 0x1de8:
+        # Synopsis records keep an OS timestamp (epoch 2000); the time base
+        # runs at one quarter of the bus clock stored in low memory.
+        frequency = u32(0xf8) // 4
+        result["event_records"] = {}
+        for index in range(200):
+            entry = settings + 0x1168 + index * 16
+            if ram[entry] != 0:
+                ticks = struct.unpack_from(">Q", ram, entry + 8)[0]
+                result["event_records"][str(index)] = {
+                    "value": ram[entry], "extra": ram[entry + 1],
+                    "level": ram[entry + 2], "calendar_ticks": ticks,
+                    "recorded_at": 946684800 + ticks // frequency if frequency else None,
+                }
     if 0 <= settings <= len(ram) - 0x200:
         result["dialogue_settings"] = {
             "text_speed": ram[settings + 0x190],
@@ -126,7 +269,11 @@ def inspect(path, library=None):
             "height": struct.unpack_from(">H", ram, mode + 6)[0],
             "copy_filter": list(ram[mode + 50:mode + 57]),
         }
-    floating = lambda offset: struct.unpack_from(">f", ram, offset)[0]
+    def floating(offset):
+        value = struct.unpack_from(">f", ram, offset)[0]
+        # Inactive animation channels can contain uninitialized memory. JSON
+        # null marks a nonfinite observation; it must never become a pose value.
+        return value if math.isfinite(value) else None
     result["projection_viewport"] = [floating(0x2cab00 + i*4) for i in range(6)]
     result["cinematic"] = {
         "movie_index": u32(0x35a71c), "presented_frames": u32(0x35a714),
@@ -172,6 +319,39 @@ def inspect(path, library=None):
     def pointer(address, size):
         offset = address - 0x80000000
         return offset if 0 <= offset <= len(ram) - size else None
+
+    bank = pointer(u32(0x35a490), 8)
+    if bank is not None:
+        count = u32(bank)
+        if not 1 <= count <= 512 or pointer(bank + 0x80000000, 4 + count * 4) is None:
+            raise ValueError("invalid field model bank")
+        result["field_models"] = []
+        if count > 1:
+            ids = pointer(bank + 0x80000000 + (u32(bank + 4) & ~3), (count - 1) * 2)
+            if ids is None:
+                raise ValueError("invalid field model IDs")
+            for index in range(1, count):
+                address = bank + 0x80000000 + (u32(bank + 4 + index*4) & ~3)
+                if pointer(address, 4) is None:
+                    raise ValueError("invalid field model resource")
+                result["field_models"].append({
+                    "id": struct.unpack_from(">H", ram, ids + (index - 1)*2)[0],
+                    "resource_address": f"{address:08x}",
+                })
+
+    runtime = pointer(u32(0x35a578), 0x2f70 + 200*0x34)
+    if runtime is not None:
+        result["field_triggers"] = []
+        for index in range(200):
+            at = runtime + 0x2f70 + index*0x34
+            kind = u32(at)
+            if kind not in (1, 2, 3):
+                continue
+            result["field_triggers"].append({
+                "kind": kind, "key": u32(at + 4), "shape": ram[at + 12],
+                "metadata": [*struct.unpack_from(">HH", ram, at + 16), u32(at + 20)],
+                "coordinates": list(struct.unpack_from(">13h", ram, at + 24)),
+            })
 
     # fn_800A2100 / fn_800A0E24 configure two standard-reverb callbacks.
     result["audio_setup"] = {
@@ -404,6 +584,14 @@ def inspect(path, library=None):
             "turn_step": floating(at + 0x78),
             "turn_speed": floating(at + 0x80),
             "behavior": struct.unpack_from(">H", ram, at + 0x96)[0],
+            "autonomy": {
+                "kind": ram[at + 0x9a],
+                "override": struct.unpack_from(">H", ram, at + 0x98)[0],
+                "timer": struct.unpack_from(">i", ram, at + 0xb0)[0],
+                "speed": floating(at + 0x790),
+                "home": [floating(at + 0x838 + i*4) for i in range(3)],
+                "radius": floating(at + 0x844),
+                "floor_attributes": u32(at + 0xa8)},
             "scale": [floating(at + 0x5c + i*4) for i in range(3)],
             "flags_9c": ram[at + 0x9c],
             "shadow": {"flags": ram[at + 0x9b], "node": ram[at + 0x9f],
@@ -422,16 +610,39 @@ def inspect(path, library=None):
         tracks, seen = [], set()
         while track is not None and track not in seen and len(tracks) < 32:
             seen.add(track)
-            tracks.append({"time": floating(track + 8), "start": floating(track + 12),
+            tracks.append({"address": f"{track + 0x80000000:08x}",
+                "time": floating(track + 8), "start": floating(track + 12),
                 "end": floating(track + 16), "loop_start": floating(track + 20),
                 "speed": floating(track + 24), "flags": u32(track + 28),
                 "state_flags": ram[track + 32],
                 "blend_duration": floating(track + 36), "blend_tick": floating(track + 40)})
             track = pointer(u32(track + 44), 0x34)
         actor["animation_tracks"] = tracks
-        if callback == 0x8001a6fc:
+        resource = pointer(u32(at + 0xc0), 0x80)
+        actor["script_animation_slots"] = (
+            [slot for slot in range(12, 0x80, 4)
+             if u32(resource + slot) and u32(at + 0xc0) + u32(resource + slot) == u32(at + 0x82c)]
+            if resource is not None and ram[at + 0x824] else [])
+        if callback in (0x8001a6fc, 0x8000e720):
             actor["model_nodes"] = model_nodes(at)
-            actor["secondary_chains"] = secondary_chains(at)
+            if callback == 0x8001a6fc:
+                actor["secondary_chains"] = secondary_chains(at)
+        elif callback == 0x8007e1bc:
+            # Location lettering uses one shared animation controller.
+            state = 0x2cb3e8
+            short = lambda offset: struct.unpack_from(">H", ram, state + offset)[0]
+            actor["location_caption"] = {
+                "hold_remaining": floating(at + 0x7c), "alpha": ram[at + 0x851],
+                "width": u32(state), "progress": u32(state + 4),
+                "complete": bool(ram[state + 8]), "frame": short(10),
+                "phase": short(12), "bar_alpha": short(14),
+                "phase_done": bool(ram[state + 16]), "multi": bool(ram[state + 17]),
+                "main_width": short(18), "main_alpha": short(20),
+                "entries_started": bool(ram[state + 22]), "count": short(24),
+                "total_width": short(26),
+                "entry_alpha": [short(28 + i*2) for i in range(min(10, short(24)))],
+                "entry_width": [short(48 + i*2) for i in range(min(10, short(24)))],
+            }
         elif callback == 0x800157e8:
             actor["emote"] = {
                 "actor": struct.unpack_from(">i", ram, at + 0x740)[0],
@@ -443,6 +654,18 @@ def inspect(path, library=None):
         return actor
 
     result["controlled_actor"] = actor_observation(0x2c7ea0)
+    # The field exit service approaches a scenery door, plays the opening pose,
+    # turns the door node and fades before allowing the destination to activate.
+    door = 0x2c8948
+    result["field_exit"] = {
+        "flags": ram[door], "phase": ram[door + 1],
+        "approach_ticks": ram[door + 2],
+        "angle_limit": floating(door + 4), "opened_angle": floating(door + 8),
+        "width": floating(door + 12), "heading": floating(door + 16),
+        "approach_position": [floating(door + 0x24 + i*4) for i in range(3)],
+        "node_address": f"{u32(door + 0x30):08x}",
+        "interaction_radius": floating(0x35a55c),
+    }
     result["secondary_global_force"] = [floating(0x2caaa0 + i * 4) for i in range(3)]
     pool = pointer(u32(0x35a4e4), 0x860)
     if pool is not None:
@@ -462,7 +685,8 @@ def inspect(path, library=None):
     # Static field groups have their own animation/texture controllers; they
     # do not appear in the script-created actor table.
     groups = []
-    for resource, at in [(0, 0x2bf4c0), (2, 0x2bdba0)]:
+    for resource, script_actor, at in [(0, 999996, 0x2bf4c0), (2, 999998, 0x2bdba0),
+                                      (None, 999997, 0x2bec60), (12, 999980, 0x2be400)]:
         if not u32(at + 0x100):
             continue
         tracks = []
@@ -472,6 +696,7 @@ def inspect(path, library=None):
             seen.add(track)
             if u32(track):
                 tracks.append({
+                    "address": f"{track + 0x80000000:08x}",
                     "time": floating(track + 8), "end": floating(track + 16),
                     "speed": floating(track + 24), "flags": u32(track + 28),
                 })
@@ -479,7 +704,8 @@ def inspect(path, library=None):
         count = ram[at + 0x16c]
         if count > 8:
             raise ValueError("unexpected field texture-matrix count")
-        groups.append({"resource": resource, "animation_tracks": tracks,
+        groups.append({"resource": resource, "script_actor": script_actor,
+                       "address": f"{at + 0x80000000:08x}", "animation_tracks": tracks,
                        "model_nodes": model_nodes(at),
                        "texture_matrices": [{
                            "texture": struct.unpack_from(">H", ram, at + 0x1a0 + i*0x34)[0],
@@ -510,6 +736,7 @@ def inspect(path, library=None):
             "mode": ram[emote_pool + index * 28 + 24],
         } for index in range(40) if u32(emote_pool + index * 28 + 20) != 0]
     pool = u32(0x35a4fc) - 0x80000000
+    result["particle_pool_address"] = f"{pool + 0x80000000:08x}"
     if 0 <= pool <= len(ram) - 0x800 * 0x6c:
         particles = []
         for index in range(0x800):
@@ -527,8 +754,13 @@ def inspect(path, library=None):
                 "size_delta": floating(at + 0x54),
                 "fade_value": struct.unpack_from(">h", ram, at + 0x58)[0],
                 "fade_delta": struct.unpack_from(">h", ram, at + 0x5a)[0],
+                "motion_flags": ram[at + 0x5c],
+                "draw_mode": ram[at + 0x5d],
+                "rotation_mode": ram[at + 0x5e],
                 "rgba": list(ram[at + 0x20:at + 0x24]),
                 "uv_bytes": list(ram[at + 0x1c:at + 0x20]),
+                "recipe_address": f"{u32(at + 0x30):08x}",
+                "callback_address": f"{u32(at + 0x68):08x}",
             })
         result["particles"] = particles
     # fn_80018278 submits transient ground-shadow quads into a separate pool.
@@ -567,4 +799,4 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--lz4", help="Explicit LZ4 library path, if outside nix develop")
     args = parser.parse_args()
-    args.output.write_text(json.dumps(inspect(args.state, args.lz4), indent=2) + "\n")
+    args.output.write_text(json.dumps(inspect(args.state, args.lz4), indent=2, allow_nan=False) + "\n")

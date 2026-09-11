@@ -1,16 +1,13 @@
+use crate::pair::file_hash as hash;
 use anyhow::{Context, Result, ensure};
 use hound::{SampleFormat, WavReader};
-use serde::Serialize;
-use sha2::{Digest, Sha256};
-use std::{
-    fs::File,
-    io::{BufReader, Read},
-    path::Path,
-};
+use serde::{Deserialize, Serialize};
+use std::{fs::File, io::BufReader, path::Path};
 
 pub(crate) mod gaps;
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct Window {
     pub reference_start_frame: u32,
     pub actual_start_frame: u32,
@@ -34,20 +31,6 @@ pub(super) struct Report {
     root_mean_squared_error: f64,
     max_sample_error: f64,
     pub passed: bool,
-}
-
-fn hash(path: &Path) -> Result<String> {
-    let mut file = File::open(path)?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0u8; 65536];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hash.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
 }
 
 fn samples(wave: &mut WavReader<BufReader<File>>) -> Box<dyn Iterator<Item = Result<f64>> + '_> {

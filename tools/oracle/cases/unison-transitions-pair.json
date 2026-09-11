@@ -1,0 +1,1754 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Unison outer and list transitions, retained help, page jumps, assignment and removal, closing and reopening, plus every settled variants check.",
+  "registration": "Reuses the unchanged silent unison-variants-paired-v2/dolphin recording and its native/Dolphin fixture pins and source input replay. Native update 64 registers source VI zero using the complete equipment-transitions-keyboard ambient origin. Read-only reinspection of the Unison savestate matches the equipment source exactly for controlled actor, all ambient actors, particles, RNG, clocks, field animations, skit, eyes and background script registries. Native loads story 2500 to initialize the shared school field, then changes the checkpoint and event story to 1403000 at update 76 after Main opens; source already has story 1403000. The origin-0 native capture is registration only and is not paired while these story values differ. Source Y requests Main at VI 11 and first presents it at VI 12, mapped to native update 76; subsequent action edges use source poll/2 + 1, mapped to VI + 64, with native release on the next update. All 4,150 observed VIs are contiguous and satisfy UI clock = 38084 + VI and effect clock = 37551 + VI, with no skipped source clocks, removed waits or presentation/effect advances. Exact timestamp inspection found 4,040 unique native-resolution lossless FFV1 presentations spanning VIs 0-4148; all timestamps satisfy NTSC VI quantization. Requested VIs 184, 187, 190, 193, 195, 198, 1211, 1214, 1217, 1220, 1223 have no video presentation and are omitted without shifting inputs or substituting neighboring images. All 24 old settled frames remain. Unison is active at VIs 183-3382 and from 3463 onward; unison_state checks every selected active frame, including retained outgoing description, against watched mode/slot, row/first, postdraw scroll, character/count, all nine members' shortcuts, selected member choices and retained description. Every required word was audited in the per-VI observations and watcher map before enabling the gate. effect_clock_state checks every paired frame. The older recording has no Main/page/list/help fade or RNG word observations, so numerical transition-phase, Main and random-state gates are deliberately absent; full-frame images still cover their visible output with the unchanged 8/1% tolerance. It contains page jumps and list/help transitions but no nonzero animated row-scroll phase, so signed row-boundary scrolling is not covered. No new Dolphin, GPU or audio run was performed to author this case.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/unison-variants-fixture-v1/native.json",
+    "sha256": "0e8922f7517f4f9e783d31e8807ac336e964b823fc30961214adc3bbc377b1b0"
+  },
+  "native_replay": {
+    "path": "unison-transitions-keyboard.json",
+    "sha256": "30e2cb3da36f745633fec778da80e31326155f4f3d53efa15437fa653ac709fb"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/unison-variants-fixture-v1/GQSEAF.s01",
+      "sha256": "886f94cd1f673382ca60f9651edf92e5137beb58419aa13689f34786fa3a7176"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 1403000,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 8300,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6100,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6740,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 6900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7060,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7220,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 7380,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 7540,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 7700,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 7860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "main-first-pose",
+      "native": "main-first-pose",
+      "dolphin_vi": 12,
+      "effect_clock_state": true
+    },
+    {
+      "name": "main-open",
+      "native": "main-open",
+      "dolphin_vi": 21,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-0",
+      "native": "entry-0",
+      "dolphin_vi": 171,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-1",
+      "native": "entry-1",
+      "dolphin_vi": 172,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-2",
+      "native": "entry-2",
+      "dolphin_vi": 173,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-3",
+      "native": "entry-3",
+      "dolphin_vi": 174,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-4",
+      "native": "entry-4",
+      "dolphin_vi": 175,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-5",
+      "native": "entry-5",
+      "dolphin_vi": 176,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-6",
+      "native": "entry-6",
+      "dolphin_vi": 177,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-7",
+      "native": "entry-7",
+      "dolphin_vi": 178,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-8",
+      "native": "entry-8",
+      "dolphin_vi": 179,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-9",
+      "native": "entry-9",
+      "dolphin_vi": 180,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-10",
+      "native": "entry-10",
+      "dolphin_vi": 181,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-11",
+      "native": "entry-11",
+      "dolphin_vi": 182,
+      "effect_clock_state": true
+    },
+    {
+      "name": "entry-12",
+      "native": "entry-12",
+      "dolphin_vi": 183,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-14",
+      "native": "entry-14",
+      "dolphin_vi": 185,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-15",
+      "native": "entry-15",
+      "dolphin_vi": 186,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-17",
+      "native": "entry-17",
+      "dolphin_vi": 188,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-18",
+      "native": "entry-18",
+      "dolphin_vi": 189,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-20",
+      "native": "entry-20",
+      "dolphin_vi": 191,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-21",
+      "native": "entry-21",
+      "dolphin_vi": 192,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-23",
+      "native": "entry-23",
+      "dolphin_vi": 194,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-25",
+      "native": "entry-25",
+      "dolphin_vi": 196,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-26",
+      "native": "entry-26",
+      "dolphin_vi": 197,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "entry-28",
+      "native": "entry-28",
+      "dolphin_vi": 199,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-0",
+      "native": "list-entry-0",
+      "dolphin_vi": 251,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-1",
+      "native": "list-entry-1",
+      "dolphin_vi": 252,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-2",
+      "native": "list-entry-2",
+      "dolphin_vi": 253,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-3",
+      "native": "list-entry-3",
+      "dolphin_vi": 254,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-4",
+      "native": "list-entry-4",
+      "dolphin_vi": 255,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-5",
+      "native": "list-entry-5",
+      "dolphin_vi": 256,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-6",
+      "native": "list-entry-6",
+      "dolphin_vi": 257,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-7",
+      "native": "list-entry-7",
+      "dolphin_vi": 258,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-8",
+      "native": "list-entry-8",
+      "dolphin_vi": 259,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-9",
+      "native": "list-entry-9",
+      "dolphin_vi": 260,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-10",
+      "native": "list-entry-10",
+      "dolphin_vi": 261,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-11",
+      "native": "list-entry-11",
+      "dolphin_vi": 262,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-12",
+      "native": "list-entry-12",
+      "dolphin_vi": 263,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-13",
+      "native": "list-entry-13",
+      "dolphin_vi": 264,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-14",
+      "native": "list-entry-14",
+      "dolphin_vi": 265,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-entry-15",
+      "native": "list-entry-15",
+      "dolphin_vi": 266,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "long-list",
+      "native": "long-list",
+      "dolphin_vi": 310,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-0",
+      "native": "page-down-help-0",
+      "dolphin_vi": 331,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-1",
+      "native": "page-down-help-1",
+      "dolphin_vi": 332,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-2",
+      "native": "page-down-help-2",
+      "dolphin_vi": 333,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-3",
+      "native": "page-down-help-3",
+      "dolphin_vi": 334,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-4",
+      "native": "page-down-help-4",
+      "dolphin_vi": 335,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-5",
+      "native": "page-down-help-5",
+      "dolphin_vi": 336,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-6",
+      "native": "page-down-help-6",
+      "dolphin_vi": 337,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-7",
+      "native": "page-down-help-7",
+      "dolphin_vi": 338,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-8",
+      "native": "page-down-help-8",
+      "dolphin_vi": 339,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-9",
+      "native": "page-down-help-9",
+      "dolphin_vi": 340,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-10",
+      "native": "page-down-help-10",
+      "dolphin_vi": 341,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-11",
+      "native": "page-down-help-11",
+      "dolphin_vi": 342,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-12",
+      "native": "page-down-help-12",
+      "dolphin_vi": 343,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-13",
+      "native": "page-down-help-13",
+      "dolphin_vi": 344,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-14",
+      "native": "page-down-help-14",
+      "dolphin_vi": 345,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-down-help-15",
+      "native": "page-down-help-15",
+      "dolphin_vi": 346,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-page",
+      "native": "next-page",
+      "dolphin_vi": 390,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-0",
+      "native": "next-row-help-0",
+      "dolphin_vi": 411,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-1",
+      "native": "next-row-help-1",
+      "dolphin_vi": 412,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-2",
+      "native": "next-row-help-2",
+      "dolphin_vi": 413,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-3",
+      "native": "next-row-help-3",
+      "dolphin_vi": 414,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-4",
+      "native": "next-row-help-4",
+      "dolphin_vi": 415,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-5",
+      "native": "next-row-help-5",
+      "dolphin_vi": 416,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-6",
+      "native": "next-row-help-6",
+      "dolphin_vi": 417,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-7",
+      "native": "next-row-help-7",
+      "dolphin_vi": 418,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "next-row-help-settled-0",
+      "native": "next-row-help-settled-0",
+      "dolphin_vi": 426,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "last-row",
+      "native": "last-row",
+      "dolphin_vi": 550,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "lower-bound",
+      "native": "lower-bound",
+      "dolphin_vi": 630,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-0",
+      "native": "assign-list-exit-0",
+      "dolphin_vi": 651,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-1",
+      "native": "assign-list-exit-1",
+      "dolphin_vi": 652,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-2",
+      "native": "assign-list-exit-2",
+      "dolphin_vi": 653,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-3",
+      "native": "assign-list-exit-3",
+      "dolphin_vi": 654,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-4",
+      "native": "assign-list-exit-4",
+      "dolphin_vi": 655,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-5",
+      "native": "assign-list-exit-5",
+      "dolphin_vi": 656,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-6",
+      "native": "assign-list-exit-6",
+      "dolphin_vi": 657,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-7",
+      "native": "assign-list-exit-7",
+      "dolphin_vi": 658,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assign-list-exit-8",
+      "native": "assign-list-exit-8",
+      "dolphin_vi": 659,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assigned-last",
+      "native": "assigned-last",
+      "dolphin_vi": 710,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-0",
+      "native": "list-reopen-0",
+      "dolphin_vi": 731,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-1",
+      "native": "list-reopen-1",
+      "dolphin_vi": 732,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-2",
+      "native": "list-reopen-2",
+      "dolphin_vi": 733,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-3",
+      "native": "list-reopen-3",
+      "dolphin_vi": 734,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-4",
+      "native": "list-reopen-4",
+      "dolphin_vi": 735,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-5",
+      "native": "list-reopen-5",
+      "dolphin_vi": 736,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-6",
+      "native": "list-reopen-6",
+      "dolphin_vi": 737,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-7",
+      "native": "list-reopen-7",
+      "dolphin_vi": 738,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-reopen-8",
+      "native": "list-reopen-8",
+      "dolphin_vi": 739,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopened-scroll",
+      "native": "reopened-scroll",
+      "dolphin_vi": 790,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "previous-page-offset",
+      "native": "previous-page-offset",
+      "dolphin_vi": 950,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "first-row",
+      "native": "first-row",
+      "dolphin_vi": 1030,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "upper-bound",
+      "native": "upper-bound",
+      "dolphin_vi": 1110,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-0",
+      "native": "cancel-list-exit-help-0",
+      "dolphin_vi": 1131,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-1",
+      "native": "cancel-list-exit-help-1",
+      "dolphin_vi": 1132,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-2",
+      "native": "cancel-list-exit-help-2",
+      "dolphin_vi": 1133,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-3",
+      "native": "cancel-list-exit-help-3",
+      "dolphin_vi": 1134,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-4",
+      "native": "cancel-list-exit-help-4",
+      "dolphin_vi": 1135,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-5",
+      "native": "cancel-list-exit-help-5",
+      "dolphin_vi": 1136,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-6",
+      "native": "cancel-list-exit-help-6",
+      "dolphin_vi": 1137,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-7",
+      "native": "cancel-list-exit-help-7",
+      "dolphin_vi": 1138,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-8",
+      "native": "cancel-list-exit-help-8",
+      "dolphin_vi": 1139,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-9",
+      "native": "cancel-list-exit-help-9",
+      "dolphin_vi": 1140,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-10",
+      "native": "cancel-list-exit-help-10",
+      "dolphin_vi": 1141,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-11",
+      "native": "cancel-list-exit-help-11",
+      "dolphin_vi": 1142,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-12",
+      "native": "cancel-list-exit-help-12",
+      "dolphin_vi": 1143,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-13",
+      "native": "cancel-list-exit-help-13",
+      "dolphin_vi": 1144,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-14",
+      "native": "cancel-list-exit-help-14",
+      "dolphin_vi": 1145,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-15",
+      "native": "cancel-list-exit-help-15",
+      "dolphin_vi": 1146,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-16",
+      "native": "cancel-list-exit-help-16",
+      "dolphin_vi": 1147,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-17",
+      "native": "cancel-list-exit-help-17",
+      "dolphin_vi": 1148,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-18",
+      "native": "cancel-list-exit-help-18",
+      "dolphin_vi": 1149,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-19",
+      "native": "cancel-list-exit-help-19",
+      "dolphin_vi": 1150,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-20",
+      "native": "cancel-list-exit-help-20",
+      "dolphin_vi": 1151,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-21",
+      "native": "cancel-list-exit-help-21",
+      "dolphin_vi": 1152,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-22",
+      "native": "cancel-list-exit-help-22",
+      "dolphin_vi": 1153,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-list-exit-help-23",
+      "native": "cancel-list-exit-help-23",
+      "dolphin_vi": 1154,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-preview",
+      "native": "cancel-preview",
+      "dolphin_vi": 1190,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-1",
+      "native": "remove-help-1",
+      "dolphin_vi": 1212,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-2",
+      "native": "remove-help-2",
+      "dolphin_vi": 1213,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-4",
+      "native": "remove-help-4",
+      "dolphin_vi": 1215,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-5",
+      "native": "remove-help-5",
+      "dolphin_vi": 1216,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-7",
+      "native": "remove-help-7",
+      "dolphin_vi": 1218,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-8",
+      "native": "remove-help-8",
+      "dolphin_vi": 1219,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-10",
+      "native": "remove-help-10",
+      "dolphin_vi": 1221,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-11",
+      "native": "remove-help-11",
+      "dolphin_vi": 1222,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-13",
+      "native": "remove-help-13",
+      "dolphin_vi": 1224,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-14",
+      "native": "remove-help-14",
+      "dolphin_vi": 1225,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "remove-help-15",
+      "native": "remove-help-15",
+      "dolphin_vi": 1226,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "removed-last",
+      "native": "removed-last",
+      "dolphin_vi": 1270,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assigned-second",
+      "native": "assigned-second",
+      "dolphin_vi": 1510,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "genis-list",
+      "native": "genis-list",
+      "dolphin_vi": 1670,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "list-ignores-left",
+      "native": "list-ignores-left",
+      "dolphin_vi": 1750,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "selected-row-restored",
+      "native": "selected-row-restored",
+      "dolphin_vi": 1990,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "page-retains-offset",
+      "native": "page-retains-offset",
+      "dolphin_vi": 2070,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "assigned-middle",
+      "native": "assigned-middle",
+      "dolphin_vi": 2150,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "second-slot",
+      "native": "second-slot",
+      "dolphin_vi": 2470,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "duplicate-shortcut",
+      "native": "duplicate-shortcut",
+      "dolphin_vi": 2790,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "fourth-slot",
+      "native": "fourth-slot",
+      "dolphin_vi": 3350,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-0",
+      "native": "exit-0",
+      "dolphin_vi": 3371,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-1",
+      "native": "exit-1",
+      "dolphin_vi": 3372,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-2",
+      "native": "exit-2",
+      "dolphin_vi": 3373,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-3",
+      "native": "exit-3",
+      "dolphin_vi": 3374,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-4",
+      "native": "exit-4",
+      "dolphin_vi": 3375,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-5",
+      "native": "exit-5",
+      "dolphin_vi": 3376,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-6",
+      "native": "exit-6",
+      "dolphin_vi": 3377,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-7",
+      "native": "exit-7",
+      "dolphin_vi": 3378,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-8",
+      "native": "exit-8",
+      "dolphin_vi": 3379,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-9",
+      "native": "exit-9",
+      "dolphin_vi": 3380,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-10",
+      "native": "exit-10",
+      "dolphin_vi": 3381,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-11",
+      "native": "exit-11",
+      "dolphin_vi": 3382,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "exit-12",
+      "native": "exit-12",
+      "dolphin_vi": 3383,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-13",
+      "native": "exit-13",
+      "dolphin_vi": 3384,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-14",
+      "native": "exit-14",
+      "dolphin_vi": 3385,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-15",
+      "native": "exit-15",
+      "dolphin_vi": 3386,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-16",
+      "native": "exit-16",
+      "dolphin_vi": 3387,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-17",
+      "native": "exit-17",
+      "dolphin_vi": 3388,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-18",
+      "native": "exit-18",
+      "dolphin_vi": 3389,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-19",
+      "native": "exit-19",
+      "dolphin_vi": 3390,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-20",
+      "native": "exit-20",
+      "dolphin_vi": 3391,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-21",
+      "native": "exit-21",
+      "dolphin_vi": 3392,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-22",
+      "native": "exit-22",
+      "dolphin_vi": 3393,
+      "effect_clock_state": true
+    },
+    {
+      "name": "exit-23",
+      "native": "exit-23",
+      "dolphin_vi": 3394,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-0",
+      "native": "reopen-0",
+      "dolphin_vi": 3451,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-1",
+      "native": "reopen-1",
+      "dolphin_vi": 3452,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-2",
+      "native": "reopen-2",
+      "dolphin_vi": 3453,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-3",
+      "native": "reopen-3",
+      "dolphin_vi": 3454,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-4",
+      "native": "reopen-4",
+      "dolphin_vi": 3455,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-5",
+      "native": "reopen-5",
+      "dolphin_vi": 3456,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-6",
+      "native": "reopen-6",
+      "dolphin_vi": 3457,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-7",
+      "native": "reopen-7",
+      "dolphin_vi": 3458,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-8",
+      "native": "reopen-8",
+      "dolphin_vi": 3459,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-9",
+      "native": "reopen-9",
+      "dolphin_vi": 3460,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-10",
+      "native": "reopen-10",
+      "dolphin_vi": 3461,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-11",
+      "native": "reopen-11",
+      "dolphin_vi": 3462,
+      "effect_clock_state": true
+    },
+    {
+      "name": "reopen-12",
+      "native": "reopen-12",
+      "dolphin_vi": 3463,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-13",
+      "native": "reopen-13",
+      "dolphin_vi": 3464,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-14",
+      "native": "reopen-14",
+      "dolphin_vi": 3465,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-15",
+      "native": "reopen-15",
+      "dolphin_vi": 3466,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-16",
+      "native": "reopen-16",
+      "dolphin_vi": 3467,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-17",
+      "native": "reopen-17",
+      "dolphin_vi": 3468,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-18",
+      "native": "reopen-18",
+      "dolphin_vi": 3469,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-19",
+      "native": "reopen-19",
+      "dolphin_vi": 3470,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-20",
+      "native": "reopen-20",
+      "dolphin_vi": 3471,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-21",
+      "native": "reopen-21",
+      "dolphin_vi": 3472,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-22",
+      "native": "reopen-22",
+      "dolphin_vi": 3473,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-23",
+      "native": "reopen-23",
+      "dolphin_vi": 3474,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-24",
+      "native": "reopen-24",
+      "dolphin_vi": 3475,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-25",
+      "native": "reopen-25",
+      "dolphin_vi": 3476,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-26",
+      "native": "reopen-26",
+      "dolphin_vi": 3477,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-27",
+      "native": "reopen-27",
+      "dolphin_vi": 3478,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopen-28",
+      "native": "reopen-28",
+      "dolphin_vi": 3479,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopened-shortcuts",
+      "native": "reopened-shortcuts",
+      "dolphin_vi": 3510,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "reopened-middle-scroll",
+      "native": "reopened-middle-scroll",
+      "dolphin_vi": 3590,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "party-upper-left-bound",
+      "native": "party-upper-left-bound",
+      "dolphin_vi": 3830,
+      "effect_clock_state": true,
+      "unison_state": true
+    },
+    {
+      "name": "genis-reopened",
+      "native": "genis-reopened",
+      "dolphin_vi": 3990,
+      "effect_clock_state": true,
+      "unison_state": true
+    }
+  ],
+  "audio": []
+}

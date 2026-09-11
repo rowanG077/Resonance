@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "presentation_origin": 38308,
+  "updates": 204,
+  "inputs": [
+    {
+      "update": 20,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 21,
+      "keys": []
+    },
+    {
+      "update": 80,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 81,
+      "keys": []
+    },
+    {
+      "update": 140,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 141,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "180": "confirm-yes-0",
+    "181": "confirm-yes-1",
+    "182": "confirm-yes-2",
+    "183": "confirm-yes-3",
+    "184": "confirm-yes-4",
+    "185": "confirm-yes-5",
+    "186": "confirm-yes-6",
+    "187": "confirm-yes-7",
+    "188": "confirm-yes-8",
+    "189": "confirm-yes-9",
+    "190": "confirm-yes-10",
+    "191": "confirm-yes-11",
+    "192": "confirm-yes-12",
+    "193": "confirm-yes-13",
+    "194": "confirm-yes-14",
+    "195": "confirm-yes-15",
+    "196": "confirm-yes-16",
+    "197": "confirm-yes-17",
+    "198": "confirm-yes-18",
+    "199": "confirm-yes-19",
+    "200": "confirm-yes-20",
+    "201": "confirm-yes-21",
+    "202": "confirm-yes-22",
+    "203": "confirm-yes-23",
+    "204": "confirm-yes-24"
+  },
+  "expected": {
+    "180": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    },
+    "204": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    }
+  }
+}

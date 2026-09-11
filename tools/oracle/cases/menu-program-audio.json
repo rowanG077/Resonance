@@ -1,0 +1,344 @@
+{
+  "version": 1,
+  "description": "Back and empty-slot Load Error, including complete cue decay and silence. Original Customize sets BGM to 0 and leaves SE/Voice at 127. Subtract an independently recorded identical-input baseline with the target cue omitted; this removes the original mixer's residual DC output. Compare raw stereo PCM without centering, gain fitting or resampling. At most one PCM unit of error per sample is allowed. These cases verify isolated cues, not outdoor music or shared-mix equivalence. Nondefault SE cases distinguish draft and committed preferences: menu cues retain saved SE until Customize commits. Per-case volume is the source-applied value, not a fitted amplitude.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "dolphin_version": "Dolphin [master] 2606",
+  "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+  "cases": [
+    {
+      "cue": "back",
+      "reference": {
+        "path": "local/milestone-3/oracle-audio-exit-volume/user/Dump/Audio/GQSEAF_2026-09-09_15-32-48_dspdump.wav",
+        "sha256": "88d43d2ab494336e8adb5343b6a7da6d923a18e1ed0f85d999adefcbd16c3420"
+      },
+      "baseline": {
+        "path": "local/milestone-3/oracle-audio-muted-baseline/user/Dump/Audio/GQSEAF_2026-09-09_15-33-10_dspdump.wav",
+        "sha256": "593e4f1b8ffb4406bd3d763aa72fdf59f3ac58850252c8dc39bbf8f692bc7493"
+      },
+      "window": {
+        "reference_start_frame": 22664,
+        "frames": 140320
+      },
+      "dolphin": {
+        "state": "local/milestone-3/oracle-audio-music-off/user/StateSaves/GQSEAF.s01",
+        "state_sha256": "de7b67851617fed7565d66e1162817de10e7d4899dee07c5e0e33cfc682daa65",
+        "prefix_sha256": "f8d397701a441ca0bb35b9ad548a1e1676368fcfd346583818c1c38d7798a926",
+        "start_poll": 59645,
+        "replay": {
+          "game_id": "GQSEAF",
+          "polls": 1600,
+          "rtc": 1700000000,
+          "inputs": [
+            {
+              "poll": 80,
+              "duration": 4,
+              "buttons": [
+                "b"
+              ]
+            },
+            {
+              "poll": 900,
+              "duration": 4,
+              "buttons": [
+                "b"
+              ]
+            }
+          ]
+        },
+        "baseline_omit_polls": [
+          80,
+          900
+        ],
+        "capture_frame": 720,
+        "registration": "Start in Volume Settings after holding BGM at zero and allowing the music tail to settle. The first B closes the volume panel; the second B exits Customize after the comparison window. The baseline holds the panel open without input. Cue frame zero corresponds to source frame 22664 on this state-based replay."
+      }
+    },
+    {
+      "cue": "error",
+      "reference": {
+        "path": "local/milestone-3/oracle-audio-muted-error/user/Dump/Audio/GQSEAF_2026-09-09_15-34-31_dspdump.wav",
+        "sha256": "01c7f5a3a7a9cadd74582564c90eb0a7988ad55063fccf5837174f5c4a5eb74c"
+      },
+      "baseline": {
+        "path": "local/milestone-3/oracle-audio-muted-error-baseline/user/Dump/Audio/GQSEAF_2026-09-09_15-35-06_dspdump.wav",
+        "sha256": "f40eb6f517773361fd5ccceebc43370aa894035fa008a4eb1948fa094dc28538"
+      },
+      "window": {
+        "reference_start_frame": 188384,
+        "frames": 155360
+      },
+      "dolphin": {
+        "state": "local/milestone-3/oracle-audio-exit-volume/user/StateSaves/GQSEAF.s01",
+        "state_sha256": "086ceb69a5b5d18e71116a4cb211c8ade449bfd88d216e81a48975f4b202dd8a",
+        "prefix_sha256": "c5f9efde655d2d61d25f6d7a61874414ac59333b1ae989805a2448bcaf8ebbda",
+        "start_poll": 61091,
+        "replay": {
+          "game_id": "GQSEAF",
+          "polls": 2200,
+          "rtc": 1700000000,
+          "inputs": [
+            {
+              "poll": 20,
+              "duration": 4,
+              "buttons": [
+                "a"
+              ]
+            },
+            {
+              "poll": 100,
+              "duration": 4,
+              "buttons": [
+                "down"
+              ]
+            },
+            {
+              "poll": 180,
+              "duration": 4,
+              "buttons": [
+                "a"
+              ]
+            },
+            {
+              "poll": 420,
+              "duration": 4,
+              "buttons": [
+                "a"
+              ]
+            },
+            {
+              "poll": 700,
+              "duration": 4,
+              "buttons": [
+                "a"
+              ]
+            }
+          ]
+        },
+        "baseline_omit_polls": [
+          700
+        ],
+        "capture_frame": 750,
+        "registration": "Start on the field menu's System item after exiting Customize, with persistent volumes 0/127/127. Open System Load and bank A, then accept empty slot 1. Source screen stays 5, mode 1, bank/slot 0, with both popup alphas zero. The baseline executes the same prefix but omits the final A. Cue frame zero corresponds to source frame 188384."
+      }
+    },
+    {
+      "id": "back-effects-draft",
+      "cue": "back",
+      "volume": 127,
+      "draft_effects": 64,
+      "reference": {
+        "path": "local/findings-menu/effects64-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-30-58_dspdump.wav",
+        "sha256": "8b35b7cd84ededb415e1e1c4133df6f0cd77c9b8670b083e3e616d8593e3aa4e"
+      },
+      "baseline": {
+        "path": "local/findings-menu/effects64-baseline-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-31-02_dspdump.wav",
+        "sha256": "3ee3c8ce488b42f1e9f269745c27f3a32c212f104ee5e88c6544d6745750bfb5"
+      },
+      "window": {
+        "reference_start_frame": 241704,
+        "frames": 140320
+      },
+      "dolphin": {
+        "state": "local/milestone-3/oracle-audio-music-off/user/StateSaves/GQSEAF.s01",
+        "state_sha256": "de7b67851617fed7565d66e1162817de10e7d4899dee07c5e0e33cfc682daa65",
+        "prefix_sha256": "f8d397701a441ca0bb35b9ad548a1e1676368fcfd346583818c1c38d7798a926",
+        "start_poll": 59645,
+        "replay": {
+          "game_id": "GQSEAF",
+          "polls": 2300,
+          "rtc": 1700000000,
+          "inputs": [
+            {
+              "poll": 20,
+              "duration": 4,
+              "buttons": [
+                "down"
+              ]
+            },
+            {
+              "poll": 180,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 220,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 260,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 300,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 340,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 380,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 420,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 460,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 900,
+              "duration": 4,
+              "buttons": [
+                "b"
+              ]
+            }
+          ]
+        },
+        "baseline_omit_polls": [
+          900
+        ],
+        "capture_frame": 1050,
+        "registration": "From the music-off Volume panel, select SE and decrease 127 to 64 in eight controller steps. B at poll 900 leaves Volume without committing. The Back cue still uses saved SE=127. Its first nonzero PCM frame is 241833, corresponding to native cue sample 129, so cue origin is 241704."
+      }
+    },
+    {
+      "id": "back-effects-committed",
+      "cue": "back",
+      "volume": 64,
+      "draft_effects": 64,
+      "reference": {
+        "path": "local/findings-menu/effects64-commit-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-34-56_dspdump.wav",
+        "sha256": "526b539a51e961376f71a82faa5efbeb0e87dba96224cc3760359b28fe142298"
+      },
+      "baseline": {
+        "path": "local/findings-menu/effects64-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-30-58_dspdump.wav",
+        "sha256": "8b35b7cd84ededb415e1e1c4133df6f0cd77c9b8670b083e3e616d8593e3aa4e"
+      },
+      "window": {
+        "reference_start_frame": 455464,
+        "frames": 140320
+      },
+      "dolphin": {
+        "state": "local/milestone-3/oracle-audio-music-off/user/StateSaves/GQSEAF.s01",
+        "state_sha256": "de7b67851617fed7565d66e1162817de10e7d4899dee07c5e0e33cfc682daa65",
+        "prefix_sha256": "f8d397701a441ca0bb35b9ad548a1e1676368fcfd346583818c1c38d7798a926",
+        "start_poll": 59645,
+        "replay": {
+          "game_id": "GQSEAF",
+          "polls": 2300,
+          "rtc": 1700000000,
+          "inputs": [
+            {
+              "poll": 20,
+              "duration": 4,
+              "buttons": [
+                "down"
+              ]
+            },
+            {
+              "poll": 180,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 220,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 260,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 300,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 340,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 380,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 420,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 460,
+              "duration": 4,
+              "buttons": [
+                "left"
+              ]
+            },
+            {
+              "poll": 900,
+              "duration": 4,
+              "buttons": [
+                "b"
+              ]
+            },
+            {
+              "poll": 1700,
+              "duration": 4,
+              "buttons": [
+                "b"
+              ]
+            }
+          ]
+        },
+        "baseline_omit_polls": [
+          1700
+        ],
+        "capture_frame": 1050,
+        "registration": "Repeat the draft case, then B at poll 1700 commits Customize. This Back cue uses saved SE=64. The baseline omits only this second B. Its first nonzero PCM frame is 455593, corresponding to native cue sample 129, so cue origin is 455464."
+      }
+    }
+  ]
+}

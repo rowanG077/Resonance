@@ -1,0 +1,1825 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Dense Cooking transitions around the recorded Cream Stew route: Main handoffs, chef selection, recipe-page and retained-help changes, successful meal popup and dismissal, and field resumption.",
+  "registration": "Reuse local/findings-menu/cooking-stew-main-transition-v1/dolphin without replaying Dolphin. Keep its unchanged paired fixture, disc, savestate prefix, RTC, inputs and capture profile. The controlled fixture learns recipe 15, grants ingredients and changes member vitals as recorded in cooking-stew-fixture-v1/fixture.json; this does not claim natural recipe acquisition or story progression. All 1,800 source observations have UI clock = 38084 + VI and effect clock = 37551 + VI. Register the complete source-observed ambient state at native update 64, including the initially empty poison-puff list and uninitialized gameplay RNG; every capture is native update = source VI + 64. Initial Y is native update 76, and later inputs use their observed source VI (poll / 2 + 1) + 64. The final Main close starts at update 1615 and field resumes at source VI 1563. The 191 captures retain all 15 original settled samples and their existing poison/paralysis checks, while adding dense Main/Cooking slides, chef selection, recipe-page and help changes, successful meal popup opening and dismissal, ignored movement during the held result, and field resumption. Source video timestamps were checked against the VI index; every requested VI is present. Persistent Cooking state, inventory, all nine members' vitals/conditions/training, effect clock/random state and gameplay RNG are checked at every capture. Cooking fade, scroll, previous recipe and popup opacity words were not observed by this older capture, so their transitions are checked through images only. Main viewport was also not observed, so no Main state gate is enabled. This route previews unknown recipe 14 but selects known recipe 15 before confirmation; it contains no error popup, no five-step recipe row scroll, and no Cooking reopen.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/cooking-stew-fixture-v1/native.json",
+    "sha256": "5de8dfd25b148d88f42ffcd8bcaf52e0666baa2332c77bfd3a29f027987a90f6"
+  },
+  "native_replay": {
+    "path": "cooking-transitions-keyboard.json",
+    "sha256": "d2bfaa54af7a57100a23a5b5474aa35851b09aaf029c56f8620fe590d665df69"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/cooking-stew-fixture-v1/GQSEAF.s01",
+      "sha256": "69f9ac822797ac1471cf7f92086157483d0c819d9f7d8ed81afde1c690b1615c"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3600,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 800,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1100,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1400,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1600,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1680,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1760,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1920,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 2400,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2600,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2800,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3100,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "origin-0",
+      "native": "origin-0",
+      "dolphin_vi": 0,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "poison-first",
+      "native": "poison-first",
+      "dolphin_vi": 2,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ],
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "poison-second",
+      "native": "poison-second",
+      "dolphin_vi": 6,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4
+      ],
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "poison-third",
+      "native": "poison-third",
+      "dolphin_vi": 10,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "main-open-0",
+      "native": "main-open-0",
+      "dolphin_vi": 12,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-1",
+      "native": "main-open-1",
+      "dolphin_vi": 13,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-2",
+      "native": "main-open-2",
+      "dolphin_vi": 14,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-3",
+      "native": "main-open-3",
+      "dolphin_vi": 15,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-4",
+      "native": "main-open-4",
+      "dolphin_vi": 16,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-5",
+      "native": "main-open-5",
+      "dolphin_vi": 17,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-6",
+      "native": "main-open-6",
+      "dolphin_vi": 18,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-7",
+      "native": "main-open-7",
+      "dolphin_vi": 19,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-8",
+      "native": "main-open-8",
+      "dolphin_vi": 20,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-9",
+      "native": "main-open-9",
+      "dolphin_vi": 21,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-open-10",
+      "native": "main-open-10",
+      "dolphin_vi": 22,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-0",
+      "native": "cooking-enter-0",
+      "dolphin_vi": 250,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-1",
+      "native": "cooking-enter-1",
+      "dolphin_vi": 251,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-2",
+      "native": "cooking-enter-2",
+      "dolphin_vi": 252,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-3",
+      "native": "cooking-enter-3",
+      "dolphin_vi": 253,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-4",
+      "native": "cooking-enter-4",
+      "dolphin_vi": 254,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-5",
+      "native": "cooking-enter-5",
+      "dolphin_vi": 255,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-6",
+      "native": "cooking-enter-6",
+      "dolphin_vi": 256,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-7",
+      "native": "cooking-enter-7",
+      "dolphin_vi": 257,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-8",
+      "native": "cooking-enter-8",
+      "dolphin_vi": 258,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-9",
+      "native": "cooking-enter-9",
+      "dolphin_vi": 259,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-10",
+      "native": "cooking-enter-10",
+      "dolphin_vi": 260,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-11",
+      "native": "cooking-enter-11",
+      "dolphin_vi": 261,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-12",
+      "native": "cooking-enter-12",
+      "dolphin_vi": 262,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-13",
+      "native": "cooking-enter-13",
+      "dolphin_vi": 263,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-14",
+      "native": "cooking-enter-14",
+      "dolphin_vi": 264,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-15",
+      "native": "cooking-enter-15",
+      "dolphin_vi": 265,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-16",
+      "native": "cooking-enter-16",
+      "dolphin_vi": 266,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-17",
+      "native": "cooking-enter-17",
+      "dolphin_vi": 267,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-18",
+      "native": "cooking-enter-18",
+      "dolphin_vi": 268,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-19",
+      "native": "cooking-enter-19",
+      "dolphin_vi": 269,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-20",
+      "native": "cooking-enter-20",
+      "dolphin_vi": 270,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-21",
+      "native": "cooking-enter-21",
+      "dolphin_vi": 271,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-22",
+      "native": "cooking-enter-22",
+      "dolphin_vi": 272,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-23",
+      "native": "cooking-enter-23",
+      "dolphin_vi": 273,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-24",
+      "native": "cooking-enter-24",
+      "dolphin_vi": 274,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-25",
+      "native": "cooking-enter-25",
+      "dolphin_vi": 275,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-26",
+      "native": "cooking-enter-26",
+      "dolphin_vi": 276,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-27",
+      "native": "cooking-enter-27",
+      "dolphin_vi": 277,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-28",
+      "native": "cooking-enter-28",
+      "dolphin_vi": 278,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-29",
+      "native": "cooking-enter-29",
+      "dolphin_vi": 279,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-30",
+      "native": "cooking-enter-30",
+      "dolphin_vi": 280,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-31",
+      "native": "cooking-enter-31",
+      "dolphin_vi": 281,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-enter-32",
+      "native": "cooking-enter-32",
+      "dolphin_vi": 282,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "overview",
+      "native": "overview",
+      "dolphin_vi": 350,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "chef-list-enter-0",
+      "native": "chef-list-enter-0",
+      "dolphin_vi": 400,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-list-enter-1",
+      "native": "chef-list-enter-1",
+      "dolphin_vi": 401,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-list-enter-2",
+      "native": "chef-list-enter-2",
+      "dolphin_vi": 402,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-list-enter-3",
+      "native": "chef-list-enter-3",
+      "dolphin_vi": 403,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooks",
+      "native": "cooks",
+      "dolphin_vi": 500,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "chef-move-0",
+      "native": "chef-move-0",
+      "dolphin_vi": 550,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-move-1",
+      "native": "chef-move-1",
+      "dolphin_vi": 551,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-move-2",
+      "native": "chef-move-2",
+      "dolphin_vi": 552,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-move-3",
+      "native": "chef-move-3",
+      "dolphin_vi": 553,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "colette",
+      "native": "colette",
+      "dolphin_vi": 650,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "chef-confirm-0",
+      "native": "chef-confirm-0",
+      "dolphin_vi": 700,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-confirm-1",
+      "native": "chef-confirm-1",
+      "dolphin_vi": 701,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-confirm-2",
+      "native": "chef-confirm-2",
+      "dolphin_vi": 702,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-confirm-3",
+      "native": "chef-confirm-3",
+      "dolphin_vi": 703,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "chef-confirm-4",
+      "native": "chef-confirm-4",
+      "dolphin_vi": 704,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "selected-chef",
+      "native": "selected-chef",
+      "dolphin_vi": 750,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "header-recipe-0",
+      "native": "header-recipe-0",
+      "dolphin_vi": 800,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "header-recipe-1",
+      "native": "header-recipe-1",
+      "dolphin_vi": 801,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "header-recipe-2",
+      "native": "header-recipe-2",
+      "dolphin_vi": 802,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "header-recipe-3",
+      "native": "header-recipe-3",
+      "dolphin_vi": 803,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-list-enter-0",
+      "native": "recipe-list-enter-0",
+      "dolphin_vi": 840,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-list-enter-1",
+      "native": "recipe-list-enter-1",
+      "dolphin_vi": 841,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-list-enter-2",
+      "native": "recipe-list-enter-2",
+      "dolphin_vi": 842,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-list-enter-3",
+      "native": "recipe-list-enter-3",
+      "dolphin_vi": 843,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-0",
+      "native": "recipe-page-0",
+      "dolphin_vi": 880,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-1",
+      "native": "recipe-page-1",
+      "dolphin_vi": 881,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-2",
+      "native": "recipe-page-2",
+      "dolphin_vi": 882,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-3",
+      "native": "recipe-page-3",
+      "dolphin_vi": 883,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-4",
+      "native": "recipe-page-4",
+      "dolphin_vi": 884,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-5",
+      "native": "recipe-page-5",
+      "dolphin_vi": 885,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-6",
+      "native": "recipe-page-6",
+      "dolphin_vi": 886,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-7",
+      "native": "recipe-page-7",
+      "dolphin_vi": 887,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-8",
+      "native": "recipe-page-8",
+      "dolphin_vi": 888,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-9",
+      "native": "recipe-page-9",
+      "dolphin_vi": 889,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-10",
+      "native": "recipe-page-10",
+      "dolphin_vi": 890,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-11",
+      "native": "recipe-page-11",
+      "dolphin_vi": 891,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-12",
+      "native": "recipe-page-12",
+      "dolphin_vi": 892,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-13",
+      "native": "recipe-page-13",
+      "dolphin_vi": 893,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-14",
+      "native": "recipe-page-14",
+      "dolphin_vi": 894,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-15",
+      "native": "recipe-page-15",
+      "dolphin_vi": 895,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-16",
+      "native": "recipe-page-16",
+      "dolphin_vi": 896,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-17",
+      "native": "recipe-page-17",
+      "dolphin_vi": 897,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-18",
+      "native": "recipe-page-18",
+      "dolphin_vi": 898,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-page-19",
+      "native": "recipe-page-19",
+      "dolphin_vi": 899,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-navigation",
+      "native": "recipe-navigation",
+      "dolphin_vi": 900,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "recipe-help-0",
+      "native": "recipe-help-0",
+      "dolphin_vi": 960,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-1",
+      "native": "recipe-help-1",
+      "dolphin_vi": 961,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-2",
+      "native": "recipe-help-2",
+      "dolphin_vi": 962,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-3",
+      "native": "recipe-help-3",
+      "dolphin_vi": 963,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-4",
+      "native": "recipe-help-4",
+      "dolphin_vi": 964,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-5",
+      "native": "recipe-help-5",
+      "dolphin_vi": 965,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-6",
+      "native": "recipe-help-6",
+      "dolphin_vi": 966,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-7",
+      "native": "recipe-help-7",
+      "dolphin_vi": 967,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-8",
+      "native": "recipe-help-8",
+      "dolphin_vi": 968,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-9",
+      "native": "recipe-help-9",
+      "dolphin_vi": 969,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-10",
+      "native": "recipe-help-10",
+      "dolphin_vi": 970,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-11",
+      "native": "recipe-help-11",
+      "dolphin_vi": 971,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-12",
+      "native": "recipe-help-12",
+      "dolphin_vi": 972,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-13",
+      "native": "recipe-help-13",
+      "dolphin_vi": 973,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-14",
+      "native": "recipe-help-14",
+      "dolphin_vi": 974,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-15",
+      "native": "recipe-help-15",
+      "dolphin_vi": 975,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-16",
+      "native": "recipe-help-16",
+      "dolphin_vi": 976,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-17",
+      "native": "recipe-help-17",
+      "dolphin_vi": 977,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-18",
+      "native": "recipe-help-18",
+      "dolphin_vi": 978,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-help-19",
+      "native": "recipe-help-19",
+      "dolphin_vi": 979,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-preview",
+      "native": "recipe-preview",
+      "dolphin_vi": 980,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "recipe-confirm-0",
+      "native": "recipe-confirm-0",
+      "dolphin_vi": 1000,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-confirm-1",
+      "native": "recipe-confirm-1",
+      "dolphin_vi": 1001,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-confirm-2",
+      "native": "recipe-confirm-2",
+      "dolphin_vi": 1002,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "recipe-confirm-3",
+      "native": "recipe-confirm-3",
+      "dolphin_vi": 1003,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "selected-recipe",
+      "native": "selected-recipe",
+      "dolphin_vi": 1050,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "meal-open-0",
+      "native": "meal-open-0",
+      "dolphin_vi": 1100,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-1",
+      "native": "meal-open-1",
+      "dolphin_vi": 1101,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-2",
+      "native": "meal-open-2",
+      "dolphin_vi": 1102,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-3",
+      "native": "meal-open-3",
+      "dolphin_vi": 1103,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-4",
+      "native": "meal-open-4",
+      "dolphin_vi": 1104,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-5",
+      "native": "meal-open-5",
+      "dolphin_vi": 1105,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-6",
+      "native": "meal-open-6",
+      "dolphin_vi": 1106,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-7",
+      "native": "meal-open-7",
+      "dolphin_vi": 1107,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-8",
+      "native": "meal-open-8",
+      "dolphin_vi": 1108,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-9",
+      "native": "meal-open-9",
+      "dolphin_vi": 1109,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-open-10",
+      "native": "meal-open-10",
+      "dolphin_vi": 1110,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "result",
+      "native": "result",
+      "dolphin_vi": 1180,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "meal-held-input-0",
+      "native": "meal-held-input-0",
+      "dolphin_vi": 1200,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-held-input-1",
+      "native": "meal-held-input-1",
+      "dolphin_vi": 1201,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-held-input-2",
+      "native": "meal-held-input-2",
+      "dolphin_vi": 1202,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-held-input-3",
+      "native": "meal-held-input-3",
+      "dolphin_vi": 1203,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "result-held",
+      "native": "result-held",
+      "dolphin_vi": 1250,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ],
+      "paralysis_state": true
+    },
+    {
+      "name": "meal-close-0",
+      "native": "meal-close-0",
+      "dolphin_vi": 1300,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-1",
+      "native": "meal-close-1",
+      "dolphin_vi": 1301,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-2",
+      "native": "meal-close-2",
+      "dolphin_vi": 1302,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-3",
+      "native": "meal-close-3",
+      "dolphin_vi": 1303,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-4",
+      "native": "meal-close-4",
+      "dolphin_vi": 1304,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-5",
+      "native": "meal-close-5",
+      "dolphin_vi": 1305,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-6",
+      "native": "meal-close-6",
+      "dolphin_vi": 1306,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-7",
+      "native": "meal-close-7",
+      "dolphin_vi": 1307,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-8",
+      "native": "meal-close-8",
+      "dolphin_vi": 1308,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-9",
+      "native": "meal-close-9",
+      "dolphin_vi": 1309,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "meal-close-10",
+      "native": "meal-close-10",
+      "dolphin_vi": 1310,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "return",
+      "native": "return",
+      "dolphin_vi": 1350,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "cooking-close-0",
+      "native": "cooking-close-0",
+      "dolphin_vi": 1400,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-1",
+      "native": "cooking-close-1",
+      "dolphin_vi": 1401,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-2",
+      "native": "cooking-close-2",
+      "dolphin_vi": 1402,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-3",
+      "native": "cooking-close-3",
+      "dolphin_vi": 1403,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-4",
+      "native": "cooking-close-4",
+      "dolphin_vi": 1404,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-5",
+      "native": "cooking-close-5",
+      "dolphin_vi": 1405,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-6",
+      "native": "cooking-close-6",
+      "dolphin_vi": 1406,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-7",
+      "native": "cooking-close-7",
+      "dolphin_vi": 1407,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-8",
+      "native": "cooking-close-8",
+      "dolphin_vi": 1408,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-9",
+      "native": "cooking-close-9",
+      "dolphin_vi": 1409,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-10",
+      "native": "cooking-close-10",
+      "dolphin_vi": 1410,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-11",
+      "native": "cooking-close-11",
+      "dolphin_vi": 1411,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-12",
+      "native": "cooking-close-12",
+      "dolphin_vi": 1412,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-13",
+      "native": "cooking-close-13",
+      "dolphin_vi": 1413,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-14",
+      "native": "cooking-close-14",
+      "dolphin_vi": 1414,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-15",
+      "native": "cooking-close-15",
+      "dolphin_vi": 1415,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-16",
+      "native": "cooking-close-16",
+      "dolphin_vi": 1416,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-17",
+      "native": "cooking-close-17",
+      "dolphin_vi": 1417,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-18",
+      "native": "cooking-close-18",
+      "dolphin_vi": 1418,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-19",
+      "native": "cooking-close-19",
+      "dolphin_vi": 1419,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-20",
+      "native": "cooking-close-20",
+      "dolphin_vi": 1420,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-21",
+      "native": "cooking-close-21",
+      "dolphin_vi": 1421,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-22",
+      "native": "cooking-close-22",
+      "dolphin_vi": 1422,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-23",
+      "native": "cooking-close-23",
+      "dolphin_vi": 1423,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooking-close-24",
+      "native": "cooking-close-24",
+      "dolphin_vi": 1424,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main",
+      "native": "main",
+      "dolphin_vi": 1470,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "main-close-0",
+      "native": "main-close-0",
+      "dolphin_vi": 1550,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-1",
+      "native": "main-close-1",
+      "dolphin_vi": 1551,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-2",
+      "native": "main-close-2",
+      "dolphin_vi": 1552,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-3",
+      "native": "main-close-3",
+      "dolphin_vi": 1553,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-4",
+      "native": "main-close-4",
+      "dolphin_vi": 1554,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-5",
+      "native": "main-close-5",
+      "dolphin_vi": 1555,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-6",
+      "native": "main-close-6",
+      "dolphin_vi": 1556,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-7",
+      "native": "main-close-7",
+      "dolphin_vi": 1557,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-8",
+      "native": "main-close-8",
+      "dolphin_vi": 1558,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-9",
+      "native": "main-close-9",
+      "dolphin_vi": 1559,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-10",
+      "native": "main-close-10",
+      "dolphin_vi": 1560,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-11",
+      "native": "main-close-11",
+      "dolphin_vi": 1561,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-12",
+      "native": "main-close-12",
+      "dolphin_vi": 1562,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-13",
+      "native": "main-close-13",
+      "dolphin_vi": 1563,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-14",
+      "native": "main-close-14",
+      "dolphin_vi": 1564,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "field-cured",
+      "native": "field",
+      "dolphin_vi": 1620,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "audio": []
+}

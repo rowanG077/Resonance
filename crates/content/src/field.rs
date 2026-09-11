@@ -1,6 +1,10 @@
 //! High-level field data. Coordinates retain the authored Z-up world space.
 /// Reserved resource range for static scenery, separate from character models.
 pub const SCENERY_RESOURCE_BASE: u32 = 0x1000_0000;
+/// Shared save-point model, addressed by the field service rather than scripts.
+pub const SAVE_POINT_RESOURCE: u32 = 0x2000_0000;
+/// Character-specific field service animations, separate from script banks.
+pub const DOOR_MOTION_RESOURCE_BASE: u32 = 0x2100_0000;
 use crate::{ScenePart, ScriptAsset, validate_asset_path};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -49,14 +53,33 @@ pub struct FieldAssets {
     pub parts: Vec<ScenePart>,
     pub ground: Vec<CollisionGroup>,
     pub regions: Vec<CollisionGroup>,
+    pub doors: Vec<Door>,
     #[serde(default)]
     pub actors: Vec<ActorAssets>,
     pub contact_shadow: ContactShadow,
     pub toon_ramp: String,
     pub effects: String,
+    pub blink: crate::effect::BlinkCycle,
+    #[serde(default)]
+    pub particles: BTreeMap<i32, crate::effect::FlutterRecipe>,
+    #[serde(default)]
+    pub captions: BTreeMap<i32, String>,
+    #[serde(default)]
+    pub save_point_tutorial: Vec<crate::font::TextSpan>,
     /// Complete cooked dependency inventory, excluding this manifest itself.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+}
+
+/// A scenery hinge and the standing pose used to open it before a field exit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Door {
+    pub bone: String,
+    pub position: [f32; 3],
+    pub approach: [f32; 3],
+    pub heading: f32,
+    pub pull: bool,
+    pub angle: f32,
 }
 
 /// A soft textured ground quad, positioned from an animated actor joint.
@@ -84,10 +107,30 @@ pub struct ActorAssets {
 impl FieldAssets {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 5 && !self.parts.is_empty() && !self.ground.is_empty(),
+            self.version == 7 && !self.parts.is_empty() && !self.ground.is_empty(),
             "unsupported or incomplete field assets"
         );
         validate_asset_path(&self.script.path)?;
+        self.blink.validate()?;
+        ensure!(self.doors.len() <= 128, "too many scenery doors");
+        let mut hinges = std::collections::BTreeSet::new();
+        for door in &self.doors {
+            ensure!(
+                hinges.insert(&door.bone)
+                    && self
+                        .parts
+                        .iter()
+                        .any(|part| part.resource == 0 && part.bone_names.contains(&door.bone))
+                    && door
+                        .position
+                        .iter()
+                        .chain(&door.approach)
+                        .all(|v| v.is_finite())
+                    && (0. ..360.).contains(&door.heading)
+                    && (1. ..=180.).contains(&door.angle.abs()),
+                "invalid scenery door"
+            );
+        }
         validate_asset_path(&self.messages)?;
         ensure!(
             !self.files.is_empty() && self.files.len() <= 4096,
@@ -103,6 +146,37 @@ impl FieldAssets {
         let shadow = &self.contact_shadow;
         validate_asset_path(&self.toon_ramp)?;
         validate_asset_path(&self.effects)?;
+        ensure!(self.particles.len() <= 256, "too many particle recipes");
+        ensure!(self.captions.len() <= 32, "too many location captions");
+        ensure!(
+            self.save_point_tutorial.len() <= 128,
+            "system notice is too long"
+        );
+        for span in &self.save_point_tutorial {
+            span.validate()?;
+        }
+        ensure!(
+            !self
+                .actors
+                .iter()
+                .any(|a| a.resource == SAVE_POINT_RESOURCE)
+                || !self.save_point_tutorial.is_empty(),
+            "memory-circle tutorial is missing; recook the field"
+        );
+        for caption in self.captions.values() {
+            validate_asset_path(caption)?;
+            ensure!(
+                self.files.contains_key(caption),
+                "caption is missing from dependencies"
+            );
+        }
+        for recipe in self.particles.values() {
+            recipe.validate()?;
+            ensure!(
+                self.files.contains_key(&recipe.texture),
+                "particle texture is missing from dependencies"
+            );
+        }
         ensure!(
             self.files.contains_key(&self.effects),
             "field effects are missing from dependencies"

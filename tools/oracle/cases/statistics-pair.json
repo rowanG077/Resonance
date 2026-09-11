@@ -1,0 +1,275 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Start toggles the party statistics display; Status switches between statistics and equipment traits, changes character, opens titles and returns to the main menu.",
+  "registration": "Use the observed school-grounds save and session clock. Initial native menu input at update 40 allows checkpoint setup; subsequent inputs use source poll/2. Compare complete native-resolution menu images and independently observed display-page state. VI 1360 and 1560 are recorded presentations; the preceding round-number VIs fall in source loading gaps.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "statistics-keyboard.json",
+    "sha256": "5efb9ba5174691e8667baa4c52b6aa61d79b91c47fe95edee61d20350710010b"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3400,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "start"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "start"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2000,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2400,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 2600,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2800,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3000,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3200,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "party-statistics",
+      "native": "vi-130",
+      "dolphin_vi": 130,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "party-selected-statistics",
+      "native": "vi-290",
+      "dolphin_vi": 290,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "party-vitals",
+      "native": "vi-370",
+      "dolphin_vi": 370,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "status-character",
+      "native": "vi-850",
+      "dolphin_vi": 850,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "lloyd-status",
+      "native": "vi-950",
+      "dolphin_vi": 950,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "lloyd-traits",
+      "native": "vi-1050",
+      "dolphin_vi": 1050,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "colette-traits",
+      "native": "vi-1150",
+      "dolphin_vi": 1150,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "colette-status",
+      "native": "vi-1250",
+      "dolphin_vi": 1250,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "title-selected",
+      "native": "vi-1360",
+      "dolphin_vi": 1360,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "title-list",
+      "native": "vi-1450",
+      "dolphin_vi": 1450,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "status-return",
+      "native": "vi-1560",
+      "dolphin_vi": 1560,
+      "statistics_state": true,
+      "party_state": true
+    },
+    {
+      "name": "main-return",
+      "native": "vi-1650",
+      "dolphin_vi": 1650,
+      "statistics_state": true,
+      "party_state": true
+    }
+  ],
+  "audio": []
+}

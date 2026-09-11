@@ -22,12 +22,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
     var texture_color = vec4<f32>(1.0);
 #ifdef VERTEX_UVS_A
-    let primary = sample_primary(slot, in.uv + uv_offsets.xy);
+    let primary = sample_primary(slot, in.uv * material.uv_scales.xy + uv_offsets.xy);
     texture_color *= primary;
     color *= primary;
 #endif
 #ifdef VERTEX_UVS_B
-    let secondary = sample_secondary(slot, in.uv_b + uv_offsets.zw);
+    let secondary = sample_secondary(slot, in.uv_b * material.uv_scales.zw + uv_offsets.zw);
     texture_color *= secondary;
     color *= secondary;
 #endif

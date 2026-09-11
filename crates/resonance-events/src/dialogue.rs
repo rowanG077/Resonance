@@ -28,6 +28,56 @@ pub enum TextToken {
 pub struct ResolvedMessage {
     pub tokens: Vec<TextToken>,
 }
+impl ResolvedMessage {
+    pub fn from_spans(spans: &[resonance_content::font::TextSpan]) -> Self {
+        Self {
+            tokens: spans
+                .iter()
+                .flat_map(|span| {
+                    [
+                        TextToken::Control {
+                            opcode: 3,
+                            value: i32::from(span.color),
+                        },
+                        TextToken::Text {
+                            text: span.text.clone(),
+                        },
+                    ]
+                })
+                .collect(),
+        }
+    }
+}
+
+impl crate::GameWorld {
+    /// Open a centered notice using the same renderer and cancellation lifetime
+    /// as script dialogue. The owning game service controls player input.
+    pub fn show_notice(&mut self, body: ResolvedMessage, flags: u16) -> Result<Operation, String> {
+        let slot = (0..DIALOGUE_SLOTS)
+            .find(|slot| {
+                self.dialogue
+                    .get(slot)
+                    .is_none_or(|d| !d.operation.is_pending())
+            })
+            .ok_or("all dialogue slots are occupied")?;
+        let operation = self.operations.begin()?;
+        self.dialogue.insert(
+            slot,
+            Dialogue {
+                operation: operation.clone(),
+                speaker: ResolvedMessage { tokens: Vec::new() },
+                body,
+                anchor: DialogueAnchor::Screen([0., 0.]),
+                speaker_actor: None,
+                opening_actor: None,
+                flags,
+                dimensions: None,
+                height_offset: 0,
+            },
+        );
+        Ok(operation)
+    }
+}
 struct ExpressionHost;
 impl Host for ExpressionHost {}
 
@@ -37,6 +87,7 @@ pub(crate) fn resolve(
     message: &Message,
     memory: &mut Memory,
     names: &BTreeMap<i32, String>,
+    text: &resonance_content::session::GameText,
     controlled: i32,
 ) -> Result<ResolvedMessage, String> {
     use symphonia_script::message::Token;
@@ -75,6 +126,16 @@ pub(crate) fn resolve(
                                 .clone(),
                         });
                     }
+                    4 | 0x11 => tokens.push(TextToken::Text {
+                        text: (if *opcode == 4 {
+                            &text.items
+                        } else {
+                            &text.titles
+                        })
+                        .get(&u16::try_from(value).map_err(|_| "invalid message label index")?)
+                        .ok_or("message item/title name is not cooked")?
+                        .clone(),
+                    }),
                     5 => tokens.push(TextToken::Text {
                         text: value.to_string(),
                     }),

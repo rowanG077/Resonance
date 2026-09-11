@@ -37,17 +37,27 @@ pub(super) fn advance_clock(
     recording: Option<Res<playthrough::Recording>>,
     loading: Option<Res<super::loading::Pending>>,
     resident: Option<Res<super::loading::Resident>>,
-    session: Option<Res<super::new_game::Session>>,
+    mut session: Option<ResMut<super::new_game::Session>>,
+    pause: Option<Res<super::PresentationPause>>,
 ) {
     // Presentation age continues across movies and title entries;
     // pure loading waits do not advance it.
     if options.capture.is_none()
         && loading.is_none()
         && (session.is_none() || resident.is_none_or(|r| r.active.load(Ordering::Acquire)))
+        && session
+            .as_ref()
+            .is_none_or(|s| s.field.events.world.field_transition.is_none())
         && ready.0
+        && pause.is_none_or(|p| !p.0)
         && recording.is_none_or(|r| r.started)
         && (boot.active() || !movie.active || movie.is_presenting())
     {
         clock.0.advance();
+        if movie.active
+            && let Some(session) = &mut session
+        {
+            session.field.play_time.advance();
+        }
     }
 }

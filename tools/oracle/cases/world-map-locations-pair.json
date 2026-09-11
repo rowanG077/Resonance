@@ -1,0 +1,2343 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Both world maps: location scrolling, page bounds, Tethealla opening, multiple visited shops, item panels and final return.",
+  "registration": "Rust inventory-fixture grants both maps, records all 55 listed locations and shops 1–51 in copies of the Items handoff fixture. These are controlled menu fixtures, not story/travel evidence. Native update 64 is source VI zero with the observed independent field/UI origins and no loading-clock adjustment. Inputs check nested fades, ignored early input, item row scrolling and page jumps. Whole-frame tolerance remains 8/1%; world_map_state compares navigation, page/popup fades, description state, post-draw scroll counters and UI time. This second route checks location scrolling and paging through the final Sylvarant row, then opens Tethealla and visits multiple shops in Meltokio and Sybak. VIs 1228 have no video presentation and are omitted based on ffprobe timestamps.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/map-handoffs-fixture-v1/native.json",
+    "sha256": "1b8e625ba5bbb26ebbf5699b4f0ad5ff12f4834fb9d6975472de8500c7330b5c"
+  },
+  "native_replay": {
+    "path": "world-map-locations-keyboard.json",
+    "sha256": "7404a8ec6fbc90b80979176af0ef5331429cbf18ae41fe48c03bf966f8644869"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/map-handoffs-fixture-v1/GQSEAF.s01",
+      "sha256": "b30466c0c7d17ecc76af13f29af6fec74467ecfcba72e1652d6917d349f959c1"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3100,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 440,
+        "duration": 2,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 2,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 560,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 640,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 720,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 760,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 800,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 840,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 880,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 920,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 960,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1000,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1040,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1044,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1080,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1120,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1160,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1280,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1340,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1400,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1520,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1580,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1660,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1740,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1820,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1860,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1900,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1904,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1960,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2040,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2320,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2380,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2440,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2500,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2560,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2620,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2680,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2800,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2860,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2920,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "origin-0",
+      "native": "origin-0",
+      "dolphin_vi": 0,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "first-0",
+      "native": "first-0",
+      "dolphin_vi": 350,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-scroll-0",
+      "native": "location-scroll-0",
+      "dolphin_vi": 521,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-scroll-1",
+      "native": "location-scroll-1",
+      "dolphin_vi": 522,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-scroll-2",
+      "native": "location-scroll-2",
+      "dolphin_vi": 523,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-scroll-3",
+      "native": "location-scroll-3",
+      "dolphin_vi": 524,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-scroll-4",
+      "native": "location-scroll-4",
+      "dolphin_vi": 525,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-scroll-5",
+      "native": "location-scroll-5",
+      "dolphin_vi": 526,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-down-0",
+      "native": "page-down-0",
+      "dolphin_vi": 581,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-down-1",
+      "native": "page-down-1",
+      "dolphin_vi": 582,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-down-2",
+      "native": "page-down-2",
+      "dolphin_vi": 583,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-page-0",
+      "native": "last-page-0",
+      "dolphin_vi": 611,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-page-1",
+      "native": "last-page-1",
+      "dolphin_vi": 612,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-page-2",
+      "native": "last-page-2",
+      "dolphin_vi": 613,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-bound-0",
+      "native": "page-bound-0",
+      "dolphin_vi": 641,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-bound-1",
+      "native": "page-bound-1",
+      "dolphin_vi": 642,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-bound-2",
+      "native": "page-bound-2",
+      "dolphin_vi": 643,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-row-0",
+      "native": "last-row-0",
+      "dolphin_vi": 671,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-row-1",
+      "native": "last-row-1",
+      "dolphin_vi": 672,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-row-2",
+      "native": "last-row-2",
+      "dolphin_vi": 673,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-bound-0",
+      "native": "last-bound-0",
+      "dolphin_vi": 701,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-bound-1",
+      "native": "last-bound-1",
+      "dolphin_vi": 702,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-bound-2",
+      "native": "last-bound-2",
+      "dolphin_vi": 703,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-up-0",
+      "native": "page-up-0",
+      "dolphin_vi": 731,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-up-1",
+      "native": "page-up-1",
+      "dolphin_vi": 732,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-up-2",
+      "native": "page-up-2",
+      "dolphin_vi": 733,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-up-next-0",
+      "native": "page-up-next-0",
+      "dolphin_vi": 761,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-up-next-1",
+      "native": "page-up-next-1",
+      "dolphin_vi": 762,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "page-up-next-2",
+      "native": "page-up-next-2",
+      "dolphin_vi": 763,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-up-0",
+      "native": "location-up-0",
+      "dolphin_vi": 951,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-up-1",
+      "native": "location-up-1",
+      "dolphin_vi": 952,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-up-2",
+      "native": "location-up-2",
+      "dolphin_vi": 953,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-up-3",
+      "native": "location-up-3",
+      "dolphin_vi": 954,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-up-4",
+      "native": "location-up-4",
+      "dolphin_vi": 955,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "location-up-5",
+      "native": "location-up-5",
+      "dolphin_vi": 956,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-0",
+      "native": "syl-close-0",
+      "dolphin_vi": 981,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-1",
+      "native": "syl-close-1",
+      "dolphin_vi": 982,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-2",
+      "native": "syl-close-2",
+      "dolphin_vi": 983,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-3",
+      "native": "syl-close-3",
+      "dolphin_vi": 984,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-4",
+      "native": "syl-close-4",
+      "dolphin_vi": 985,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-5",
+      "native": "syl-close-5",
+      "dolphin_vi": 986,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-6",
+      "native": "syl-close-6",
+      "dolphin_vi": 987,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-7",
+      "native": "syl-close-7",
+      "dolphin_vi": 988,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-8",
+      "native": "syl-close-8",
+      "dolphin_vi": 989,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-9",
+      "native": "syl-close-9",
+      "dolphin_vi": 990,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-10",
+      "native": "syl-close-10",
+      "dolphin_vi": 991,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-close-11",
+      "native": "syl-close-11",
+      "dolphin_vi": 992,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-0",
+      "native": "syl-items-0",
+      "dolphin_vi": 993,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-1",
+      "native": "syl-items-1",
+      "dolphin_vi": 994,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-2",
+      "native": "syl-items-2",
+      "dolphin_vi": 995,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-3",
+      "native": "syl-items-3",
+      "dolphin_vi": 996,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-4",
+      "native": "syl-items-4",
+      "dolphin_vi": 997,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-5",
+      "native": "syl-items-5",
+      "dolphin_vi": 998,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-6",
+      "native": "syl-items-6",
+      "dolphin_vi": 999,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-7",
+      "native": "syl-items-7",
+      "dolphin_vi": 1000,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-8",
+      "native": "syl-items-8",
+      "dolphin_vi": 1001,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-9",
+      "native": "syl-items-9",
+      "dolphin_vi": 1002,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-10",
+      "native": "syl-items-10",
+      "dolphin_vi": 1003,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-11",
+      "native": "syl-items-11",
+      "dolphin_vi": 1004,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-12",
+      "native": "syl-items-12",
+      "dolphin_vi": 1005,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "syl-items-13",
+      "native": "syl-items-13",
+      "dolphin_vi": 1006,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-selected-0",
+      "native": "teth-selected-0",
+      "dolphin_vi": 1031,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-0",
+      "native": "teth-depart-0",
+      "dolphin_vi": 1051,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-1",
+      "native": "teth-depart-1",
+      "dolphin_vi": 1052,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-2",
+      "native": "teth-depart-2",
+      "dolphin_vi": 1053,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-3",
+      "native": "teth-depart-3",
+      "dolphin_vi": 1054,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-4",
+      "native": "teth-depart-4",
+      "dolphin_vi": 1055,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-5",
+      "native": "teth-depart-5",
+      "dolphin_vi": 1056,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-6",
+      "native": "teth-depart-6",
+      "dolphin_vi": 1057,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-7",
+      "native": "teth-depart-7",
+      "dolphin_vi": 1058,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-8",
+      "native": "teth-depart-8",
+      "dolphin_vi": 1059,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-9",
+      "native": "teth-depart-9",
+      "dolphin_vi": 1060,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-10",
+      "native": "teth-depart-10",
+      "dolphin_vi": 1061,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-depart-11",
+      "native": "teth-depart-11",
+      "dolphin_vi": 1062,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-0",
+      "native": "teth-open-0",
+      "dolphin_vi": 1063,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-1",
+      "native": "teth-open-1",
+      "dolphin_vi": 1064,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-2",
+      "native": "teth-open-2",
+      "dolphin_vi": 1065,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-3",
+      "native": "teth-open-3",
+      "dolphin_vi": 1066,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-4",
+      "native": "teth-open-4",
+      "dolphin_vi": 1067,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-5",
+      "native": "teth-open-5",
+      "dolphin_vi": 1068,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-6",
+      "native": "teth-open-6",
+      "dolphin_vi": 1069,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-7",
+      "native": "teth-open-7",
+      "dolphin_vi": 1070,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-8",
+      "native": "teth-open-8",
+      "dolphin_vi": 1071,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-9",
+      "native": "teth-open-9",
+      "dolphin_vi": 1072,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-10",
+      "native": "teth-open-10",
+      "dolphin_vi": 1073,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-11",
+      "native": "teth-open-11",
+      "dolphin_vi": 1074,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-12",
+      "native": "teth-open-12",
+      "dolphin_vi": 1075,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-13",
+      "native": "teth-open-13",
+      "dolphin_vi": 1076,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-14",
+      "native": "teth-open-14",
+      "dolphin_vi": 1077,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-15",
+      "native": "teth-open-15",
+      "dolphin_vi": 1078,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-16",
+      "native": "teth-open-16",
+      "dolphin_vi": 1079,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-open-17",
+      "native": "teth-open-17",
+      "dolphin_vi": 1080,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-0",
+      "native": "meltokio-shops-0",
+      "dolphin_vi": 1101,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-1",
+      "native": "meltokio-shops-1",
+      "dolphin_vi": 1102,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-2",
+      "native": "meltokio-shops-2",
+      "dolphin_vi": 1103,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-3",
+      "native": "meltokio-shops-3",
+      "dolphin_vi": 1104,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-4",
+      "native": "meltokio-shops-4",
+      "dolphin_vi": 1105,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-5",
+      "native": "meltokio-shops-5",
+      "dolphin_vi": 1106,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-6",
+      "native": "meltokio-shops-6",
+      "dolphin_vi": 1107,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-7",
+      "native": "meltokio-shops-7",
+      "dolphin_vi": 1108,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-8",
+      "native": "meltokio-shops-8",
+      "dolphin_vi": 1109,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-9",
+      "native": "meltokio-shops-9",
+      "dolphin_vi": 1110,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-10",
+      "native": "meltokio-shops-10",
+      "dolphin_vi": 1111,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-11",
+      "native": "meltokio-shops-11",
+      "dolphin_vi": 1112,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-12",
+      "native": "meltokio-shops-12",
+      "dolphin_vi": 1113,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-13",
+      "native": "meltokio-shops-13",
+      "dolphin_vi": 1114,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-14",
+      "native": "meltokio-shops-14",
+      "dolphin_vi": 1115,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-15",
+      "native": "meltokio-shops-15",
+      "dolphin_vi": 1116,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-16",
+      "native": "meltokio-shops-16",
+      "dolphin_vi": 1117,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shops-17",
+      "native": "meltokio-shops-17",
+      "dolphin_vi": 1118,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shop-0",
+      "native": "meltokio-shop-0",
+      "dolphin_vi": 1131,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shop-1",
+      "native": "meltokio-shop-1",
+      "dolphin_vi": 1132,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shop-2",
+      "native": "meltokio-shop-2",
+      "dolphin_vi": 1133,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-shop-3",
+      "native": "meltokio-shop-3",
+      "dolphin_vi": 1134,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-0",
+      "native": "meltokio-items-0",
+      "dolphin_vi": 1161,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-1",
+      "native": "meltokio-items-1",
+      "dolphin_vi": 1162,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-2",
+      "native": "meltokio-items-2",
+      "dolphin_vi": 1163,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-3",
+      "native": "meltokio-items-3",
+      "dolphin_vi": 1164,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-4",
+      "native": "meltokio-items-4",
+      "dolphin_vi": 1165,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-5",
+      "native": "meltokio-items-5",
+      "dolphin_vi": 1166,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-6",
+      "native": "meltokio-items-6",
+      "dolphin_vi": 1167,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-7",
+      "native": "meltokio-items-7",
+      "dolphin_vi": 1168,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-8",
+      "native": "meltokio-items-8",
+      "dolphin_vi": 1169,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-9",
+      "native": "meltokio-items-9",
+      "dolphin_vi": 1170,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-10",
+      "native": "meltokio-items-10",
+      "dolphin_vi": 1171,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-11",
+      "native": "meltokio-items-11",
+      "dolphin_vi": 1172,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-12",
+      "native": "meltokio-items-12",
+      "dolphin_vi": 1173,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-13",
+      "native": "meltokio-items-13",
+      "dolphin_vi": 1174,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-14",
+      "native": "meltokio-items-14",
+      "dolphin_vi": 1175,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-items-15",
+      "native": "meltokio-items-15",
+      "dolphin_vi": 1176,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-page-0",
+      "native": "meltokio-page-0",
+      "dolphin_vi": 1191,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-page-1",
+      "native": "meltokio-page-1",
+      "dolphin_vi": 1192,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-page-2",
+      "native": "meltokio-page-2",
+      "dolphin_vi": 1193,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-page-3",
+      "native": "meltokio-page-3",
+      "dolphin_vi": 1194,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-page-4",
+      "native": "meltokio-page-4",
+      "dolphin_vi": 1195,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-page-5",
+      "native": "meltokio-page-5",
+      "dolphin_vi": 1196,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-0",
+      "native": "meltokio-close-items-0",
+      "dolphin_vi": 1221,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-1",
+      "native": "meltokio-close-items-1",
+      "dolphin_vi": 1222,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-2",
+      "native": "meltokio-close-items-2",
+      "dolphin_vi": 1223,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-3",
+      "native": "meltokio-close-items-3",
+      "dolphin_vi": 1224,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-4",
+      "native": "meltokio-close-items-4",
+      "dolphin_vi": 1225,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-5",
+      "native": "meltokio-close-items-5",
+      "dolphin_vi": 1226,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-6",
+      "native": "meltokio-close-items-6",
+      "dolphin_vi": 1227,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-8",
+      "native": "meltokio-close-items-8",
+      "dolphin_vi": 1229,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-9",
+      "native": "meltokio-close-items-9",
+      "dolphin_vi": 1230,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-10",
+      "native": "meltokio-close-items-10",
+      "dolphin_vi": 1231,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-11",
+      "native": "meltokio-close-items-11",
+      "dolphin_vi": 1232,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-12",
+      "native": "meltokio-close-items-12",
+      "dolphin_vi": 1233,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-13",
+      "native": "meltokio-close-items-13",
+      "dolphin_vi": 1234,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-14",
+      "native": "meltokio-close-items-14",
+      "dolphin_vi": 1235,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-15",
+      "native": "meltokio-close-items-15",
+      "dolphin_vi": 1236,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-16",
+      "native": "meltokio-close-items-16",
+      "dolphin_vi": 1237,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-items-17",
+      "native": "meltokio-close-items-17",
+      "dolphin_vi": 1238,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-0",
+      "native": "meltokio-close-shops-0",
+      "dolphin_vi": 1251,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-1",
+      "native": "meltokio-close-shops-1",
+      "dolphin_vi": 1252,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-2",
+      "native": "meltokio-close-shops-2",
+      "dolphin_vi": 1253,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-3",
+      "native": "meltokio-close-shops-3",
+      "dolphin_vi": 1254,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-4",
+      "native": "meltokio-close-shops-4",
+      "dolphin_vi": 1255,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-5",
+      "native": "meltokio-close-shops-5",
+      "dolphin_vi": 1256,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-6",
+      "native": "meltokio-close-shops-6",
+      "dolphin_vi": 1257,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-7",
+      "native": "meltokio-close-shops-7",
+      "dolphin_vi": 1258,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-8",
+      "native": "meltokio-close-shops-8",
+      "dolphin_vi": 1259,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-9",
+      "native": "meltokio-close-shops-9",
+      "dolphin_vi": 1260,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-10",
+      "native": "meltokio-close-shops-10",
+      "dolphin_vi": 1261,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-11",
+      "native": "meltokio-close-shops-11",
+      "dolphin_vi": 1262,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-12",
+      "native": "meltokio-close-shops-12",
+      "dolphin_vi": 1263,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-13",
+      "native": "meltokio-close-shops-13",
+      "dolphin_vi": 1264,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-14",
+      "native": "meltokio-close-shops-14",
+      "dolphin_vi": 1265,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-15",
+      "native": "meltokio-close-shops-15",
+      "dolphin_vi": 1266,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-16",
+      "native": "meltokio-close-shops-16",
+      "dolphin_vi": 1267,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "meltokio-close-shops-17",
+      "native": "meltokio-close-shops-17",
+      "dolphin_vi": 1268,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-0",
+      "native": "sybak-0",
+      "dolphin_vi": 1300,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-0",
+      "native": "sybak-shops-0",
+      "dolphin_vi": 1311,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-1",
+      "native": "sybak-shops-1",
+      "dolphin_vi": 1312,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-2",
+      "native": "sybak-shops-2",
+      "dolphin_vi": 1313,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-3",
+      "native": "sybak-shops-3",
+      "dolphin_vi": 1314,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-4",
+      "native": "sybak-shops-4",
+      "dolphin_vi": 1315,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-5",
+      "native": "sybak-shops-5",
+      "dolphin_vi": 1316,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-6",
+      "native": "sybak-shops-6",
+      "dolphin_vi": 1317,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-7",
+      "native": "sybak-shops-7",
+      "dolphin_vi": 1318,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-8",
+      "native": "sybak-shops-8",
+      "dolphin_vi": 1319,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-9",
+      "native": "sybak-shops-9",
+      "dolphin_vi": 1320,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-10",
+      "native": "sybak-shops-10",
+      "dolphin_vi": 1321,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-11",
+      "native": "sybak-shops-11",
+      "dolphin_vi": 1322,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-12",
+      "native": "sybak-shops-12",
+      "dolphin_vi": 1323,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-13",
+      "native": "sybak-shops-13",
+      "dolphin_vi": 1324,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-14",
+      "native": "sybak-shops-14",
+      "dolphin_vi": 1325,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-15",
+      "native": "sybak-shops-15",
+      "dolphin_vi": 1326,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-16",
+      "native": "sybak-shops-16",
+      "dolphin_vi": 1327,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shops-17",
+      "native": "sybak-shops-17",
+      "dolphin_vi": 1328,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shop-0",
+      "native": "sybak-shop-0",
+      "dolphin_vi": 1341,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shop-1",
+      "native": "sybak-shop-1",
+      "dolphin_vi": 1342,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shop-2",
+      "native": "sybak-shop-2",
+      "dolphin_vi": 1343,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-shop-3",
+      "native": "sybak-shop-3",
+      "dolphin_vi": 1344,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-0",
+      "native": "sybak-items-0",
+      "dolphin_vi": 1371,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-1",
+      "native": "sybak-items-1",
+      "dolphin_vi": 1372,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-2",
+      "native": "sybak-items-2",
+      "dolphin_vi": 1373,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-3",
+      "native": "sybak-items-3",
+      "dolphin_vi": 1374,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-4",
+      "native": "sybak-items-4",
+      "dolphin_vi": 1375,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-5",
+      "native": "sybak-items-5",
+      "dolphin_vi": 1376,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-6",
+      "native": "sybak-items-6",
+      "dolphin_vi": 1377,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-7",
+      "native": "sybak-items-7",
+      "dolphin_vi": 1378,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-8",
+      "native": "sybak-items-8",
+      "dolphin_vi": 1379,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-9",
+      "native": "sybak-items-9",
+      "dolphin_vi": 1380,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-10",
+      "native": "sybak-items-10",
+      "dolphin_vi": 1381,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-11",
+      "native": "sybak-items-11",
+      "dolphin_vi": 1382,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-12",
+      "native": "sybak-items-12",
+      "dolphin_vi": 1383,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-13",
+      "native": "sybak-items-13",
+      "dolphin_vi": 1384,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-14",
+      "native": "sybak-items-14",
+      "dolphin_vi": 1385,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "sybak-items-15",
+      "native": "sybak-items-15",
+      "dolphin_vi": 1386,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-0",
+      "native": "teth-close-0",
+      "dolphin_vi": 1461,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-1",
+      "native": "teth-close-1",
+      "dolphin_vi": 1462,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-2",
+      "native": "teth-close-2",
+      "dolphin_vi": 1463,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-3",
+      "native": "teth-close-3",
+      "dolphin_vi": 1464,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-4",
+      "native": "teth-close-4",
+      "dolphin_vi": 1465,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-5",
+      "native": "teth-close-5",
+      "dolphin_vi": 1466,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-6",
+      "native": "teth-close-6",
+      "dolphin_vi": 1467,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-7",
+      "native": "teth-close-7",
+      "dolphin_vi": 1468,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-8",
+      "native": "teth-close-8",
+      "dolphin_vi": 1469,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-9",
+      "native": "teth-close-9",
+      "dolphin_vi": 1470,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-10",
+      "native": "teth-close-10",
+      "dolphin_vi": 1471,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "teth-close-11",
+      "native": "teth-close-11",
+      "dolphin_vi": 1472,
+      "world_map_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-0",
+      "native": "final-items-0",
+      "dolphin_vi": 1473,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-1",
+      "native": "final-items-1",
+      "dolphin_vi": 1474,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-2",
+      "native": "final-items-2",
+      "dolphin_vi": 1475,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-3",
+      "native": "final-items-3",
+      "dolphin_vi": 1476,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-4",
+      "native": "final-items-4",
+      "dolphin_vi": 1477,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-5",
+      "native": "final-items-5",
+      "dolphin_vi": 1478,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-6",
+      "native": "final-items-6",
+      "dolphin_vi": 1479,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-7",
+      "native": "final-items-7",
+      "dolphin_vi": 1480,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-8",
+      "native": "final-items-8",
+      "dolphin_vi": 1481,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-9",
+      "native": "final-items-9",
+      "dolphin_vi": 1482,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-10",
+      "native": "final-items-10",
+      "dolphin_vi": 1483,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-11",
+      "native": "final-items-11",
+      "dolphin_vi": 1484,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-12",
+      "native": "final-items-12",
+      "dolphin_vi": 1485,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-13",
+      "native": "final-items-13",
+      "dolphin_vi": 1486,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-14",
+      "native": "final-items-14",
+      "dolphin_vi": 1487,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "final-items-15",
+      "native": "final-items-15",
+      "dolphin_vi": 1488,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    }
+  ],
+  "audio": []
+}

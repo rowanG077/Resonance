@@ -1,14 +1,13 @@
 //! Opt-in integration evidence. The original script/assets stay in ignored local/.
+mod common;
+use common::{asset_root, cooked};
 use resonance_content::TitleAssets;
-use std::{fs, path::PathBuf};
+use std::fs;
 #[test]
 #[ignore = "requires locally cooked GQSEAF title assets"]
 fn original_title_program_drives_the_scene_for_ten_thousand_updates() {
-    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"));
-    let assets: TitleAssets =
-        serde_json::from_slice(&fs::read(root.join("title.json")).unwrap()).unwrap();
+    let root = asset_root();
+    let assets: TitleAssets = cooked("title.json");
     assets.validate().unwrap();
     let scene = assets.scene.unwrap();
     let mut runtime = resonance_game::title_events::start(

@@ -1,6 +1,17 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
+#[path = "field_ui_caption.rs"]
+mod caption;
 #[path = "field_ui_coverage.rs"]
 mod coverage;
+#[path = "field_ui_menu.rs"]
+mod menu;
+pub(super) fn model_preview_depth() -> f32 {
+    menu::model_preview_depth()
+}
+#[path = "field_ui_prompt.rs"]
+mod prompt;
+#[path = "field_ui_skit.rs"]
+mod skit;
 use anyhow::{Context, Result};
 use bevy::{
     asset::RenderAssetUsages,
@@ -17,26 +28,30 @@ use resonance_events::dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, TextT
 use resonance_game::{dialogue::DialoguePlayer, field::FieldSession};
 use std::{collections::BTreeMap, fs, path::Path};
 
-// Compositing order; font and cursor share the final depth plane.
+// Explicit compositing order keeps text underneath the cursor and its shadow.
 mod layer {
     pub const FILL: usize = 0;
-    pub const FRAME: usize = 1;
-    pub const POINTER_FILL: usize = 2;
-    pub const POINTER: usize = 3;
-    pub const CORNERS: usize = 4;
-    pub const SPEAKER_FILL: usize = 5;
-    pub const SPEAKER: usize = 6;
-    pub const FONT: usize = 7;
-    pub const CURSOR: usize = 8;
+    pub const BEVEL: usize = 1;
+    pub const FRAME: usize = 2;
+    pub const POINTER_FILL: usize = 3;
+    pub const POINTER: usize = 4;
+    pub const CORNERS: usize = 5;
+    pub const SPEAKER_FILL: usize = 6;
+    pub const SPEAKER: usize = 7;
+    pub const FONT: usize = 8;
+    pub const CURSOR: usize = 9;
     // Cooked atlas indices: fill, frame, color overlay, font and cursor.
-    pub const TEXTURES: [usize; 9] = [7, 0, 1, 0, 0, 1, 0, 9, 10];
+    pub const TEXTURES: [usize; 10] = [7, 7, 0, 1, 0, 0, 1, 0, 9, 10];
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub(super) struct Surface {
     #[texture(0)]
-    #[sampler(1)]
     source: Handle<Image>,
+    /// Reuse another prepared image's sampler without duplicating its pixels.
+    #[texture(7)]
+    #[sampler(1)]
+    sampling: Handle<Image>,
     #[texture(2)]
     #[sampler(3)]
     frame_mask: Handle<Image>,
@@ -75,6 +90,10 @@ pub(super) struct Artwork {
     choice_trail: super::choice_cursor::Trail,
     subtitles: resonance_content::font::MovieSubtitles,
     subtitle_layer: Option<Layer>,
+    captions: BTreeMap<u32, caption::Caption>,
+    menu: menu::MenuArtwork,
+    prompt_layers: Vec<Layer>,
+    skits: skit::Artwork,
 }
 struct Layer {
     entity: Entity,
@@ -82,6 +101,83 @@ struct Layer {
     material: Handle<Surface>,
     uploaded: Option<(Batch, [u32; 2])>,
     visible: bool,
+}
+
+/// The same slot renderer can be used before a field session exists.
+#[derive(Resource)]
+pub(super) struct MenuOverlay {
+    font: BitmapFont,
+    dialogue: DialogueArt,
+    images: Vec<Handle<Image>>,
+    artwork: menu::MenuArtwork,
+}
+impl MenuOverlay {
+    pub fn load(
+        root: &Path,
+        server: &AssetServer,
+        materials: &mut Assets<Surface>,
+    ) -> Result<Self> {
+        let read = |path: &str| -> Result<Vec<u8>> { Ok(fs::read(root.join(path))?) };
+        let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
+        dialogue.validate()?;
+        let font: BitmapFont = serde_json::from_slice(&read(&dialogue.font)?)?;
+        font.validate()?;
+        let images: Vec<_> = [&font.texture, &dialogue.cursor.path]
+            .into_iter()
+            .map(|path| {
+                server
+                    .load_builder()
+                    .with_settings(|s: &mut ImageLoaderSettings| {
+                        s.is_srgb = false;
+                        s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                            address_mode_u: ImageAddressMode::Repeat,
+                            address_mode_v: ImageAddressMode::Repeat,
+                            ..ImageSamplerDescriptor::linear()
+                        });
+                    })
+                    .load(path.clone())
+            })
+            .collect();
+        let surfaces: Vec<_> = images
+            .iter()
+            .map(|source| {
+                materials.add(Surface {
+                    source: source.clone(),
+                    sampling: source.clone(),
+                    frame_mask: source.clone(),
+                    color_mask: source.clone(),
+                    coverage: Coverage::default(),
+                })
+            })
+            .collect();
+        let artwork = menu::MenuArtwork::load(read, server, materials, &surfaces[0], &surfaces[1])?;
+        Ok(Self {
+            font,
+            dialogue,
+            images,
+            artwork,
+        })
+    }
+    pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+        self.artwork.prepare(commands, meshes);
+    }
+    pub fn ready(&self, images: &Assets<Image>) -> bool {
+        self.images.iter().all(|image| images.contains(image.id())) && self.artwork.ready(images)
+    }
+    pub fn render(
+        &mut self,
+        menu: Option<&resonance_game::menu::Menu>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        self.artwork
+            .render(menu, &self.font, &self.dialogue, 0, commands, meshes)
+    }
+    pub fn despawn(self, world: &mut World) {
+        for layer in self.artwork.layers {
+            world.despawn(layer.entity);
+        }
+    }
 }
 impl Layer {
     fn update_mesh(
@@ -114,23 +210,34 @@ impl Layer {
     }
 }
 impl Artwork {
-    pub fn despawn(self, world: &mut World) {
-        for layer in self.layers.into_values() {
+    pub fn despawn(&mut self, world: &mut World) {
+        for layer in std::mem::take(&mut self.layers)
+            .into_values()
+            .chain(self.captions.values_mut().flat_map(|c| c.layers.drain(..)))
+            .chain(self.menu.layers.drain(..))
+            .chain(self.prompt_layers.drain(..))
+            .chain(self.skits.layers.drain(..))
+            .chain(self.skits.warm.drain(..))
+        {
             world.despawn(layer.entity);
         }
-        if let Some(layer) = self.subtitle_layer {
+        if let Some(layer) = self.subtitle_layer.take() {
             world.despawn(layer.entity);
         }
+        self.head_heights.clear();
+        self.choice_trail = Default::default();
     }
     pub fn load(
         root: &Path,
+        field: &resonance_content::field::FieldAssets,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
     ) -> Result<Self> {
-        Self::load_with(root, server, materials, None)
+        Self::load_with(root, field, server, materials, None)
     }
     pub fn load_with(
         root: &Path,
+        field: &resonance_content::field::FieldAssets,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         files: Option<&resonance_content::prepared::Files>,
@@ -178,18 +285,22 @@ impl Artwork {
                     .load(path)
             })
             .collect();
-        let surfaces = images
+        let surfaces: Vec<_> = images
             .iter()
             .map(|source| {
                 materials.add(Surface {
                     source: source.clone(),
+                    sampling: source.clone(),
                     frame_mask: images[0].clone(),
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
                 })
             })
             .collect();
+        let menu = menu::MenuArtwork::load(read, server, materials, &surfaces[9], &surfaces[10])?;
+        let skits = skit::Artwork::load(read, server, materials, &surfaces[9])?;
         Ok(Self {
+            skits,
             resolution: Default::default(),
             font,
             spec,
@@ -200,10 +311,16 @@ impl Artwork {
             choice_trail: Default::default(),
             subtitles,
             subtitle_layer: None,
+            captions: caption::Caption::load(field, read, server, materials)?,
+            menu,
+            prompt_layers: Vec::new(),
         })
     }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
         self.images.iter().all(|image| images.contains(image.id()))
+            && self.captions.values().all(|caption| caption.ready(images))
+            && self.menu.ready(images)
+            && self.skits.ready(images)
     }
     /// Allocate every supported dialogue slot/layer before its first request.
     pub(super) fn prepare(
@@ -212,6 +329,12 @@ impl Artwork {
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) {
+        self.menu.prepare(commands, meshes);
+        self.skits.prepare(commands, meshes);
+        self.prepare_prompt(commands, meshes, materials);
+        for caption in self.captions.values_mut() {
+            caption.prepare(commands, meshes);
+        }
         for slot in 0..DIALOGUE_SLOTS {
             for (index, texture) in layer::TEXTURES.into_iter().enumerate() {
                 if self.layers.contains_key(&(slot, index)) {
@@ -222,7 +345,7 @@ impl Artwork {
                 let mesh = meshes.add(batch.mesh([1, 1]));
                 let template = materials.get(&self.surfaces[texture]).unwrap().clone();
                 let material = materials.add(template);
-                let order = index.min(layer::FONT) as f32;
+                let order = index as f32;
                 let entity = commands
                     .spawn((
                         Mesh2d(mesh.clone()),
@@ -272,6 +395,11 @@ impl Artwork {
         self.layers
             .values()
             .chain(self.subtitle_layer.iter())
+            .chain(self.captions.values().flat_map(|c| &c.layers))
+            .chain(&self.menu.layers)
+            .chain(&self.prompt_layers)
+            .chain(&self.skits.layers)
+            .chain(&self.skits.warm)
             .map(|layer| (&layer.mesh, &layer.material))
     }
     pub fn diagnostic_layouts(&self, session: &FieldSession) -> Vec<serde_json::Value> {
@@ -307,26 +435,49 @@ impl Artwork {
             })
             .collect()
     }
+    pub fn render_captions(
+        &mut self,
+        world: &resonance_events::GameWorld,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<Vec<i32>> {
+        let mut handled = Vec::new();
+        for (&resource, caption) in &mut self.captions {
+            handled.extend(caption.render(resource, world, commands, meshes)?);
+        }
+        Ok(handled)
+    }
     pub fn render(
         &mut self,
         session: &FieldSession,
+        presentation_tick: u32,
         heads: &BTreeMap<i32, Vec3>,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
+        self.render_prompt(session, presentation_tick, commands, meshes)?;
+        self.skits
+            .render(session.active_skit.as_ref(), &self.font, commands, meshes)?;
+        self.menu.render(
+            session.menu.as_ref(),
+            &self.font,
+            &self.spec,
+            presentation_tick,
+            commands,
+            meshes,
+        )?;
         let mut used = std::collections::BTreeSet::new();
+        let (world, dialogue) = session.dialogue_scene();
         self.head_heights.retain(|operation, _| {
-            session
-                .events
-                .world
+            world
                 .dialogue
                 .values()
                 .any(|d| d.operation.id() == *operation)
         });
-        for request in session.events.world.dialogue.values() {
+        for request in world.dialogue.values() {
             if let Some(id) = request.speaker_actor
-                && let Some(actor) = session.events.world.actors.get(&id)
+                && let Some(actor) = world.actors.get(&id)
                 && let Some(head) = heads.get(&id)
             {
                 // Capture head height once, then follow the actor’s ground position.
@@ -336,13 +487,11 @@ impl Artwork {
                     .or_insert((head.z - actor.position[2]).trunc() + 30.);
             }
         }
-        for (&slot, player) in &session.dialogue {
+        for (&slot, player) in dialogue {
             if !player.window_visible() || player.operation.progress().outcome.is_some() {
                 continue;
             }
-            let Some(request) = session
-                .events
-                .world
+            let Some(request) = world
                 .dialogue
                 .get(&slot)
                 .filter(|r| r.operation.id() == player.operation.id())
@@ -383,6 +532,12 @@ impl Artwork {
                     _ => None,
                 })
                 .collect();
+            let preferences = world.party.as_ref().map(|p| &p.settings.preferences);
+            let window = preferences.map_or(self.spec.selection.mode, |p| p.window);
+            let (cursor_image, cursor_size) = self.menu.choice_cursor(window).unwrap_or((
+                &self.images[layer::TEXTURES[layer::CURSOR]],
+                [self.spec.cursor.width, self.spec.cursor.height],
+            ));
             if request.flags & flags::FRAMELESS == 0 {
                 frame(
                     &mut batches,
@@ -391,6 +546,7 @@ impl Artwork {
                     &self.font,
                     pointer.filter(|_| opening.is_none()),
                     request.flags,
+                    preferences,
                 );
             }
             // Mask fills with the frame artwork: even translucent ornaments own
@@ -417,13 +573,15 @@ impl Artwork {
                 &self.spec,
                 opening.is_some(),
             )?;
-            let fill_coverage = ornament_coverage.with_frame(
+            let frame_coverage = ornament_coverage.with_frame(
                 &batches[layer::FRAME],
                 &self.spec,
                 opening.is_some(),
             )?;
+            let fill_coverage =
+                frame_coverage.with_solid(&batches[layer::BEVEL], &self.spec, opening.is_some())?;
             let [left, top, _, _] = rect;
-            if let Some(choice) = session.events.world.choices.get(&slot)
+            if let Some(choice) = world.choices.get(&slot)
                 && choice.operation.is_pending()
                 && player.fully_revealed()
                 && player.accepts_input()
@@ -431,7 +589,10 @@ impl Artwork {
                 let y =
                     super::choice_cursor::drawing_y(top + f32::from(choice.selected_line) * 25.);
                 let overlay = super::choice_cursor::overlay_rect;
-                let style = &self.spec.selection;
+                let mut style = self.spec.selection.clone();
+                style.mode = window;
+                [style.bob_amplitude, style.bob_step] = self.menu.cursor_motion(window);
+                style.color = preferences.map_or(style.color, |p| p.colors.selection);
                 let mut color = style.color.map(|v| f32::from(v) / 255.);
                 color[3] = f32::from(u16::from(style.color[3]) * 128 / 255) / 255.;
                 if style.mode == 0 {
@@ -448,15 +609,13 @@ impl Artwork {
                         );
                     }
                 }
-                let w = self.spec.cursor.width as f32;
-                let h = self.spec.cursor.height as f32;
-                let phase = (session.events.tick() % 24) as f32;
-                let bob = (style.bob_amplitude * (phase * style.bob_step).sin()).trunc();
+                let [w, h] = cursor_size.map(|v| v as f32);
+                let bob = super::choice_cursor::bob(&style, presentation_tick);
                 let x = left + bob;
                 let y = y - bob;
                 for ([tx, ty], alpha) in self
                     .choice_trail
-                    .sample(session.events.tick(), [x as i32, y as i32])
+                    .sample(presentation_tick, [x as i32, y as i32])
                 {
                     let [tx, ty] = [tx as f32, ty as f32];
                     batches[layer::CURSOR].quad(
@@ -536,10 +695,14 @@ impl Artwork {
             {
                 // The continue marker’s pulse follows scene age, not window age.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
-                let phase = (session.events.tick() % 90) as f32 * 4.0f32.to_radians();
+                let phase = (world.tick % 90) as f32 * 4.0f32.to_radians();
                 batches[layer::FRAME].quad(
                     [rect[2] - 28., bottom, rect[2] - 4., bottom + 24.],
-                    [224., 120., 248., 144.],
+                    if preferences.is_some_and(|s| s.window == 2) {
+                        [112., 176., 136., 200.]
+                    } else {
+                        [224., 120., 248., 144.]
+                    },
                     [1., 1., 1., phase.sin().abs()],
                 );
             }
@@ -561,12 +724,23 @@ impl Artwork {
                     layer::SPEAKER_FILL => speaker_coverage.clone(),
                     layer::POINTER_FILL => pointer_coverage.clone(),
                     layer::FILL => fill_coverage.clone(),
+                    layer::BEVEL => frame_coverage.clone(),
                     _ => Coverage::default(),
                 };
-                let texture_index = layer::TEXTURES[index];
+                let texture_index = if matches!(index, layer::FILL | layer::BEVEL) {
+                    preferences.map_or(7, |s| {
+                        if s.window == 0 && s.background == 5 {
+                            8
+                        } else {
+                            usize::from(s.background) + 2
+                        }
+                    })
+                } else {
+                    layer::TEXTURES[index]
+                };
                 let size = match index {
                     layer::FONT => [self.font.width, self.font.height],
-                    layer::CURSOR => [self.spec.cursor.width, self.spec.cursor.height],
+                    layer::CURSOR => cursor_size,
                     _ => [
                         self.spec.textures[texture_index].width,
                         self.spec.textures[texture_index].height,
@@ -576,13 +750,19 @@ impl Artwork {
                     .layers
                     .get_mut(&key)
                     .context("dialogue layer was not prepared")?;
-                if materials
+                let material = materials
                     .get(&layer.material)
-                    .context("dialogue layer material was removed")?
-                    .coverage
-                    != coverage
-                {
-                    materials.get_mut(&layer.material).unwrap().coverage = coverage;
+                    .context("dialogue layer material was removed")?;
+                let source = if index == layer::CURSOR {
+                    cursor_image
+                } else {
+                    &self.images[texture_index]
+                };
+                if material.coverage != coverage || material.source != *source {
+                    let mut material = materials.get_mut(&layer.material).unwrap();
+                    material.coverage = coverage;
+                    material.source = source.clone();
+                    material.sampling = source.clone();
                 }
                 layer.update_mesh(batch, size, meshes)?;
                 layer.show(true, commands);
@@ -599,13 +779,17 @@ impl Artwork {
 
 pub(super) fn subtitles(
     mut commands: Commands,
-    movie: Res<super::movie::Playback>,
+    playback: (
+        Res<super::movie::Playback>,
+        Option<Res<super::new_game::Session>>,
+    ),
     sinks: Query<&super::audio_output::Sink>,
     mut art: Option<ResMut<Artwork>>,
     images: Res<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    let (movie, session) = playback;
     let Some(art) = &mut art else {
         return;
     };
@@ -617,7 +801,11 @@ pub(super) fn subtitles(
         .asset
         .as_ref()
         .is_some_and(|a| a.path == "movies/story-intro.mkv");
-    let cue = frame.filter(|_| story).and_then(|frame| {
+    let enabled = session
+        .as_ref()
+        .and_then(|s| s.field.events.world.party.as_ref())
+        .is_none_or(|p| p.settings.preferences.movie_subtitles);
+    let cue = frame.filter(|_| story && enabled).and_then(|frame| {
         // Subtitle cue frames are one-based; the decoded movie frame is zero-based.
         art.subtitles
             .cues
@@ -856,7 +1044,7 @@ fn box_above_speaker(flags: u16, pointer: Option<[f32; 2]>) -> bool {
     }
 }
 
-/// Default blue theme assembled from frame slices.
+/// Saved window style and pattern assembled from prepared frame slices.
 fn frame(
     batch: &mut [Batch; layer::TEXTURES.len()],
     [x0, top, x1, bottom]: [f32; 4],
@@ -864,6 +1052,7 @@ fn frame(
     font: &BitmapFont,
     pointer: Option<[f32; 2]>,
     flags: u16,
+    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
 ) {
     let h = (bottom - top).max(48.);
     let y0 = frame_top(top, bottom - top);
@@ -886,14 +1075,17 @@ fn frame(
                 )
             }
         });
-    let blue = if flags & flags::GREEN != 0 {
-        [24., 88., 80., 232.]
+    let defaults = resonance_content::menu_data::CustomizeSettings::default();
+    let preferences = preferences.unwrap_or(&defaults);
+    let colors = &preferences.colors;
+    let tint = if flags & flags::GREEN != 0 {
+        colors.popup
     } else if flags & flags::RED != 0 {
-        [136., 40., 40., 232.]
+        colors.choice
     } else {
-        [0., 72., 144., 232.]
-    }
-    .map(|c| c / 255.);
+        colors.dialogue
+    };
+    let blue = tint.map(|c| f32::from(c) / 255.);
     if !speaker.is_empty() {
         let width: f32 = speaker
             .chars()
@@ -974,6 +1166,77 @@ fn frame(
         [0., 0., x1 - x0, y1 - y0],
         blue,
     );
+    // Frame styles share one atlas; background overlays occupy 32-pixel rows.
+    let row = [96., 208., 152.][usize::from(preferences.window)];
+    for index in [layer::FRAME, layer::CORNERS, layer::POINTER, layer::SPEAKER] {
+        for uv in &mut batch[index].uv {
+            uv[1] += row - 208.;
+        }
+    }
+    let pattern = f32::from(preferences.background) * 32.;
+    for index in [layer::SPEAKER_FILL, layer::POINTER_FILL] {
+        for uv in &mut batch[index].uv {
+            uv[1] += pattern - 160.;
+            if index == layer::SPEAKER_FILL && preferences.window == 2 {
+                uv[0] -= 32.;
+            }
+        }
+    }
+    if preferences.window == 0 {
+        let color = |rgb: [u8; 3]| {
+            [
+                f32::from(rgb[0]) / 255.,
+                f32::from(rgb[1]) / 255.,
+                f32::from(rgb[2]) / 255.,
+                blue[3],
+            ]
+        };
+        let rgb = [tint[0], tint[1], tint[2]];
+        let light = color(rgb.map(|v| v.saturating_add(64)));
+        let dark = color(rgb.map(|v| (v / 2).saturating_sub(64)));
+        let tab = color(rgb.map(|v| v.saturating_add(128)));
+        batch[layer::SPEAKER].colors.fill(tab);
+        batch[layer::SPEAKER_FILL] = Batch::default();
+        batch[layer::POINTER] = Batch::default();
+        if pointer_art.is_some() {
+            let above = box_above_speaker(flags, pointer);
+            let pattern = if preferences.background == 5 {
+                2
+            } else {
+                preferences.background
+            };
+            let y = f32::from(pattern) * 32.;
+            let [a, b] = if above {
+                [y + 6., y + 30.]
+            } else {
+                [y + 24., y + 2.]
+            };
+            batch[layer::POINTER_FILL].uv = vec![[64., a], [96., a], [96., b], [64., b]];
+            batch[layer::POINTER_FILL]
+                .colors
+                .fill(if above { dark } else { light });
+        }
+        let [left, top, right, bottom] = [x0 - 14., y0 - 14., x1 + 14., y1 + 14.];
+        for (rect, color) in [
+            ([left, top, right, top + 4.], light),
+            ([left, bottom - 4., right, bottom], dark),
+            ([left, top + 4., left + 4., bottom - 4.], light),
+            ([right - 4., top + 4., right, bottom - 4.], dark),
+        ] {
+            batch[layer::BEVEL].quad(rect, [0., 0., (x1 - x0) * 2., (y1 - y0) * 2.], color);
+        }
+        batch[layer::FILL].colors = [
+            rgb,
+            rgb.map(|v| (u16::from(v) * 3 / 4) as u8),
+            rgb.map(|v| v / 2),
+            rgb.map(|v| (u16::from(v) * 3 / 4) as u8),
+        ]
+        .map(color)
+        .to_vec();
+        if preferences.background == 5 {
+            batch[layer::FILL].uv = vec![[0., 0.], [32., 0.], [32., 32.], [0., 32.]];
+        }
+    }
 }
 
 // ASCII body glyphs use 21×25 quads with proportional advances.
@@ -989,6 +1252,27 @@ struct Batch {
     indices: Vec<u32>,
 }
 impl Batch {
+    /// Clip axis-aligned quads after composition, including their gradient colours.
+    fn clip_vertical(&mut self, start: usize, top: f32, bottom: f32) {
+        for i in (start..self.positions.len()).step_by(4) {
+            let y0 = self.positions[i][1];
+            let y1 = self.positions[i + 2][1];
+            if y0 <= y1 {
+                continue;
+            }
+            for (a, b) in [(0, 3), (1, 2)] {
+                let (uv0, uv1) = (self.uv[i + a], self.uv[i + b]);
+                let (c0, c1) = (self.colors[i + a], self.colors[i + b]);
+                for j in [i + a, i + b] {
+                    let y = self.positions[j][1].clamp(bottom, top);
+                    let t = ((y0 - y) / (y0 - y1)).clamp(0., 1.);
+                    self.positions[j][1] = y;
+                    self.uv[j] = std::array::from_fn(|c| uv0[c] + (uv1[c] - uv0[c]) * t);
+                    self.colors[j] = std::array::from_fn(|c| c0[c] + (c1[c] - c0[c]) * t);
+                }
+            }
+        }
+    }
     fn append(&mut self, other: Self) {
         let offset = self.positions.len() as u32;
         self.positions.extend(other.positions);
@@ -1060,6 +1344,7 @@ mod tests {
             &font,
             pointer,
             0x40,
+            None,
         );
         // The upper outline uses atlas rows 232 → 208; row 184 is transparent.
         assert_eq!(

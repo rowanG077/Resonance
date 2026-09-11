@@ -3,7 +3,17 @@
 use crate::read::{f32 as f32_at, u16 as u16_at, u32 as u32_at};
 use anyhow::{Context, Result, ensure};
 use glam::{Vec3, Vec4};
+use serde::Serialize;
 use serde_json::{Value, json};
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[repr(u8)]
+enum Channel {
+    Translation = 1,
+    Scale = 2,
+    Rotation = 8,
+}
 
 struct Key {
     time: f32,
@@ -123,27 +133,26 @@ fn vector_curve(
     Ok(match mode {
         0 => av,
         1 => av.lerp(bv, t),
-        2 => {
-            ensure!(a.tangents > 0 && b.tangents > 0, "missing Bezier tangents");
-            cubic(
-                av,
-                bv,
-                Vec3::from_array(vector(bytes, a.tangents + tangent_offset + 6, scale)?),
-                Vec3::from_array(vector(bytes, b.tangents + tangent_offset, scale)?),
-                t,
-            )
-        }
-        3 => {
-            ensure!(a.tangents > 0 && b.tangents > 0, "missing Hermite tangents");
+        2 | 3 => {
+            ensure!(
+                a.tangents > 0 && b.tangents > 0,
+                "missing {} tangents",
+                if mode == 2 { "Bezier" } else { "Hermite" }
+            );
             let outgoing = Vec3::from_array(vector(bytes, a.tangents + tangent_offset + 6, scale)?);
             let incoming = Vec3::from_array(vector(bytes, b.tangents + tangent_offset, scale)?);
-            let ease_out = vector::<1>(bytes, a.tangents + tangent_offset + 14, 1. / 16384.)?[0];
-            let ease_in = vector::<1>(bytes, b.tangents + tangent_offset + 12, 1. / 16384.)?[0];
-            ensure!(
-                ease_out == 0. && ease_in == 0.,
-                "nonzero vector ease needs validation"
-            );
-            hermite(av, bv, outgoing, incoming, t)
+            if mode == 2 {
+                cubic(av, bv, outgoing, incoming, t)
+            } else {
+                let ease_out =
+                    vector::<1>(bytes, a.tangents + tangent_offset + 14, 1. / 16384.)?[0];
+                let ease_in = vector::<1>(bytes, b.tangents + tangent_offset + 12, 1. / 16384.)?[0];
+                ensure!(
+                    ease_out == 0. && ease_in == 0.,
+                    "nonzero vector ease needs validation"
+                );
+                hermite(av, bv, outgoing, incoming, t)
+            }
         }
         _ => anyhow::bail!("unsupported title vector interpolation {mode}"),
     })
@@ -175,7 +184,7 @@ fn spherical(a: Vec4, b: Vec4, t: f32) -> Vec4 {
 }
 
 impl Track {
-    fn sample(&self, bytes: &[u8], time: f32, component: &str) -> Result<Vec<f32>> {
+    fn sample(&self, bytes: &[u8], time: f32, component: Channel) -> Result<Vec<f32>> {
         let left = self
             .keys
             .partition_point(|k| k.time <= time)
@@ -195,45 +204,36 @@ impl Track {
         let scale = 2f32.powi(-i32::from(self.format & 15));
         let scale_mode = (self.interpolation >> 2) & 3;
         let rotation_mode = (self.interpolation >> 4) & 7;
-        let scale_tangents = if self.flags & 2 == 0 {
-            0
-        } else {
-            match scale_mode {
-                2 => 12,
-                3 => 16,
-                _ => 0,
-            }
+        let scale_tangents = match (self.flags & 2 != 0, scale_mode) {
+            (true, 2) => 12,
+            (true, 3) => 16,
+            _ => 0,
         };
         match component {
-            "scale" => Ok(vector_curve(bytes, a, b, 0, 0, scale, scale_mode, t)?
-                .to_array()
-                .to_vec()),
-            "translation" => {
-                let value_offset =
-                    usize::from(self.flags & 2 != 0) * 6 + usize::from(self.flags & 8 != 0) * 8;
-                let rotation_tangents = if self.flags & 8 == 0 {
-                    0
-                } else {
-                    match rotation_mode {
-                        4 => 16,
-                        5 => 20,
-                        _ => 0,
+            Channel::Scale | Channel::Translation => {
+                let (value_offset, tangent_offset, mode) = match component {
+                    Channel::Scale => (0, 0, scale_mode),
+                    _ => {
+                        let rotation_tangents = match (self.flags & 8 != 0, rotation_mode) {
+                            (true, 4) => 16,
+                            (true, 5) => 20,
+                            _ => 0,
+                        };
+                        (
+                            usize::from(self.flags & 2 != 0) * 6
+                                + usize::from(self.flags & 8 != 0) * 8,
+                            scale_tangents + rotation_tangents,
+                            self.interpolation & 3,
+                        )
                     }
                 };
-                Ok(vector_curve(
-                    bytes,
-                    a,
-                    b,
-                    value_offset,
-                    scale_tangents + rotation_tangents,
-                    scale,
-                    self.interpolation & 3,
-                    t,
-                )?
-                .to_array()
-                .to_vec())
+                Ok(
+                    vector_curve(bytes, a, b, value_offset, tangent_offset, scale, mode, t)?
+                        .to_array()
+                        .to_vec(),
+                )
             }
-            "rotation" => {
+            Channel::Rotation => {
                 let offset = usize::from(self.flags & 2 != 0) * 6;
                 let av = Vec4::from_array(vector(bytes, a.values + offset, 1. / 16384.)?);
                 let bv = Vec4::from_array(vector(bytes, b.values + offset, 1. / 16384.)?);
@@ -288,7 +288,6 @@ impl Track {
                 );
                 Ok(value.normalize().to_array().to_vec())
             }
-            _ => anyhow::bail!("unknown animation component"),
         }
     }
 }
@@ -389,15 +388,19 @@ pub fn bake_with_model(
         );
         let times = (0..=steps).map(|i| i as f32 / 120.).collect::<Vec<_>>();
         let input = accessor(gltf, binary, &times, 1);
-        for (flag, component, width) in [(1, "translation", 3), (2, "scale", 3), (8, "rotation", 4)]
-        {
-            if track.flags & flag == 0 {
+        for component in [Channel::Translation, Channel::Scale, Channel::Rotation] {
+            if track.flags & component as u8 == 0 {
                 continue;
             }
             let mut values = Vec::new();
             for i in 0..=steps {
                 values.extend(track.sample(bytes, i as f32 * 0.25, component)?);
             }
+            let width = if matches!(component, Channel::Rotation) {
+                4
+            } else {
+                3
+            };
             let output = accessor(gltf, binary, &values, width);
             channels
                 .push(json!({"sampler":samplers.len(),"target":{"node":node,"path":component}}));
@@ -423,10 +426,6 @@ pub fn bake_with_model(
         channels.push(json!({"sampler":0,"target":{"node":0,"path":"translation"}}));
         samplers.push(json!({"input":input,"output":output,"interpolation":"LINEAR"}));
     }
-    ensure!(
-        !channels.is_empty(),
-        "animation {name} has no bound channels"
-    );
     if missing != 0 {
         eprintln!("Animation {name}: {missing} tracks have no matching bone in this model variant");
     }
@@ -442,7 +441,9 @@ pub fn bake_with_model(
 }
 
 fn names(bytes: &[u8], offset: usize, count: usize) -> Result<Option<Vec<&[u8]>>> {
-    if offset == 0 {
+    // Unnamed clips can retain an empty table at the end of their resource.
+    // They bind tracks by numeric node ID, like clips with a null table.
+    if offset == 0 || offset == bytes.len() {
         return Ok(None);
     }
     let mut remaining = bytes.get(offset..).context("name table exceeds resource")?;

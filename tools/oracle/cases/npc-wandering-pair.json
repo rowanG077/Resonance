@@ -1,0 +1,1109 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "School NPC wandering, idle decisions, and edge turns.",
+  "registration": "Register source-observed NPC positions, headings, ambient decisions and animation samples once at native update 64/source VI 0, alongside the existing field effect and eye phases. Validate every origin against the recorded source savestate. All subsequent motion uses ordinary runtime behavior and cooked walkmesh. Image, RNG, actor-state, eye and scenery gates remain enabled. Ordinary saves do not capture these transient phases. The initial full-opacity leaf is also registered to the observed position, rotations, wind heading and next-turn timer, using its scripted 150-update lifetime. The oracle verifies every field against the source savestate; subsequent motion and randomness remain ordinary runtime updates. The two leaf emitters register only their observed remaining timed waits. Registration requires the same existing script PC and control gate; no VM seek or stack restoration is permitted. The built-in camera anchor uses the same source-verified ambient origin without a model animation; its later state is checked alongside NPCs.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "npc-wandering-keyboard.json",
+    "sha256": "debe2279c475138c7e8f285ad26cc4fc4c6bddb262f7a4ea50c20cc5e509c4cc"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 700,
+    "rtc": 1700000000,
+    "inputs": []
+  },
+  "frames": [
+    {
+      "name": "wander-0",
+      "native": "vi-0",
+      "dolphin_vi": 0,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-1",
+      "native": "vi-1",
+      "dolphin_vi": 1,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-2",
+      "native": "vi-2",
+      "dolphin_vi": 2,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-14",
+      "native": "vi-14",
+      "dolphin_vi": 14,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-15",
+      "native": "vi-15",
+      "dolphin_vi": 15,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-16",
+      "native": "vi-16",
+      "dolphin_vi": 16,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-17",
+      "native": "vi-17",
+      "dolphin_vi": 17,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-18",
+      "native": "vi-18",
+      "dolphin_vi": 18,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-29",
+      "native": "vi-29",
+      "dolphin_vi": 29,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-30",
+      "native": "vi-30",
+      "dolphin_vi": 30,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-31",
+      "native": "vi-31",
+      "dolphin_vi": 31,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-32",
+      "native": "vi-32",
+      "dolphin_vi": 32,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-85",
+      "native": "vi-85",
+      "dolphin_vi": 85,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-87",
+      "native": "vi-87",
+      "dolphin_vi": 87,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-88",
+      "native": "vi-88",
+      "dolphin_vi": 88,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-89",
+      "native": "vi-89",
+      "dolphin_vi": 89,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-90",
+      "native": "vi-90",
+      "dolphin_vi": 90,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-91",
+      "native": "vi-91",
+      "dolphin_vi": 91,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-92",
+      "native": "vi-92",
+      "dolphin_vi": 92,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-93",
+      "native": "vi-93",
+      "dolphin_vi": 93,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-94",
+      "native": "vi-94",
+      "dolphin_vi": 94,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-95",
+      "native": "vi-95",
+      "dolphin_vi": 95,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-96",
+      "native": "vi-96",
+      "dolphin_vi": 96,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-100",
+      "native": "vi-100",
+      "dolphin_vi": 100,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-110",
+      "native": "vi-110",
+      "dolphin_vi": 110,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-115",
+      "native": "vi-115",
+      "dolphin_vi": 115,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-116",
+      "native": "vi-116",
+      "dolphin_vi": 116,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-117",
+      "native": "vi-117",
+      "dolphin_vi": 117,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-118",
+      "native": "vi-118",
+      "dolphin_vi": 118,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-119",
+      "native": "vi-119",
+      "dolphin_vi": 119,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-120",
+      "native": "vi-120",
+      "dolphin_vi": 120,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-121",
+      "native": "vi-121",
+      "dolphin_vi": 121,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-122",
+      "native": "vi-122",
+      "dolphin_vi": 122,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-123",
+      "native": "vi-123",
+      "dolphin_vi": 123,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-124",
+      "native": "vi-124",
+      "dolphin_vi": 124,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-129",
+      "native": "vi-129",
+      "dolphin_vi": 129,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-130",
+      "native": "vi-130",
+      "dolphin_vi": 130,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-131",
+      "native": "vi-131",
+      "dolphin_vi": 131,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-132",
+      "native": "vi-132",
+      "dolphin_vi": 132,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-150",
+      "native": "vi-150",
+      "dolphin_vi": 150,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-180",
+      "native": "vi-180",
+      "dolphin_vi": 180,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-210",
+      "native": "vi-210",
+      "dolphin_vi": 210,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-240",
+      "native": "vi-240",
+      "dolphin_vi": 240,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    },
+    {
+      "name": "wander-266",
+      "native": "vi-266",
+      "dolphin_vi": 266,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "ambient_actors": [
+        1,
+        209,
+        210,
+        211,
+        90020
+      ],
+      "effect_state": true
+    }
+  ],
+  "audio": []
+}

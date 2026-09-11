@@ -1,0 +1,589 @@
+{
+  "version": 1,
+  "updates": 680,
+  "inputs": [
+    {
+      "update": 76,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 77,
+      "keys": []
+    },
+    {
+      "update": 155,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 156,
+      "keys": []
+    },
+    {
+      "update": 235,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 236,
+      "keys": []
+    },
+    {
+      "update": 285,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 286,
+      "keys": []
+    },
+    {
+      "update": 315,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 316,
+      "keys": []
+    },
+    {
+      "update": 355,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 356,
+      "keys": []
+    },
+    {
+      "update": 385,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 386,
+      "keys": []
+    },
+    {
+      "update": 445,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 446,
+      "keys": []
+    },
+    {
+      "update": 475,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 476,
+      "keys": []
+    },
+    {
+      "update": 505,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 506,
+      "keys": []
+    },
+    {
+      "update": 525,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 526,
+      "keys": []
+    },
+    {
+      "update": 545,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 546,
+      "keys": []
+    },
+    {
+      "update": 575,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 576,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "64": "origin-0",
+    "299": "list-0",
+    "315": "open-0",
+    "316": "open-1",
+    "317": "open-2",
+    "318": "open-3",
+    "319": "open-4",
+    "320": "open-5",
+    "321": "open-6",
+    "322": "open-7",
+    "323": "open-8",
+    "324": "open-9",
+    "325": "open-10",
+    "326": "open-11",
+    "327": "open-12",
+    "328": "open-13",
+    "329": "open-14",
+    "330": "open-15",
+    "355": "result-0",
+    "356": "result-1",
+    "357": "result-2",
+    "385": "empty-close-0",
+    "386": "empty-close-1",
+    "387": "empty-close-2",
+    "388": "empty-close-3",
+    "389": "empty-close-4",
+    "390": "empty-close-5",
+    "391": "empty-close-6",
+    "392": "empty-close-7",
+    "393": "empty-close-8",
+    "394": "empty-close-9",
+    "395": "empty-close-10",
+    "396": "empty-close-11",
+    "397": "empty-close-12",
+    "398": "empty-close-13",
+    "399": "empty-close-14",
+    "400": "empty-close-15",
+    "401": "empty-close-16",
+    "402": "empty-close-17",
+    "403": "empty-close-18",
+    "404": "empty-close-19",
+    "405": "empty-close-20",
+    "406": "empty-close-21",
+    "445": "empty-reject-0",
+    "446": "empty-reject-1",
+    "447": "empty-reject-2",
+    "475": "empty-ack-0",
+    "476": "empty-ack-1",
+    "477": "empty-ack-2",
+    "478": "empty-ack-3",
+    "479": "empty-ack-4",
+    "480": "empty-ack-5",
+    "481": "empty-ack-6",
+    "482": "empty-ack-7",
+    "483": "empty-ack-8",
+    "484": "empty-ack-9",
+    "485": "empty-ack-10",
+    "486": "empty-ack-11",
+    "487": "empty-ack-12",
+    "488": "empty-ack-13",
+    "489": "empty-ack-14",
+    "490": "empty-ack-15",
+    "534": "recent-0",
+    "545": "recent-reject-0",
+    "546": "recent-reject-1",
+    "547": "recent-reject-2",
+    "575": "recent-ack-0",
+    "576": "recent-ack-1",
+    "577": "recent-ack-2",
+    "578": "recent-ack-3",
+    "579": "recent-ack-4",
+    "580": "recent-ack-5",
+    "581": "recent-ack-6",
+    "582": "recent-ack-7",
+    "583": "recent-ack-8",
+    "584": "recent-ack-9",
+    "585": "recent-ack-10",
+    "586": "recent-ack-11",
+    "587": "recent-ack-12",
+    "588": "recent-ack-13",
+    "589": "recent-ack-14",
+    "590": "recent-ack-15"
+  },
+  "session_origin": 34519,
+  "ambient_origin": {
+    "update": 64,
+    "samples": {
+      "999980": 76,
+      "999996": 76,
+      "999998": 1076,
+      "-2147483648": 115.29785
+    },
+    "effect_tick": 37551,
+    "random_state": 667551397,
+    "eyes": {
+      "1": {
+        "frame": 0,
+        "tick": 34
+      },
+      "209": {
+        "frame": 0,
+        "tick": 73
+      },
+      "210": {
+        "frame": 0,
+        "tick": 46
+      }
+    },
+    "actors": {
+      "1": {
+        "autonomy": {
+          "behavior": "player",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 129,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1968.5965576171875,
+          1005.5621948242188,
+          0
+        ],
+        "heading": 276,
+        "target_heading": 276,
+        "animation_slot": 12,
+        "animation_sample": 58,
+        "animation_repeat": true
+      },
+      "209": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 4,
+          "home": [
+            1715,
+            1316,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 87,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1311.25830078125,
+          1539.6483154296875,
+          0
+        ],
+        "heading": 30,
+        "target_heading": 30,
+        "animation_slot": 12,
+        "animation_sample": 4,
+        "animation_repeat": true
+      },
+      "210": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 2,
+          "home": [
+            1472,
+            1507,
+            0
+          ],
+          "radius": 600,
+          "activity": "walk",
+          "remaining": 29,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1557.2791748046875,
+          1834.7120361328125,
+          0
+        ],
+        "heading": 64,
+        "target_heading": 64,
+        "animation_slot": 36,
+        "animation_sample": 30,
+        "animation_repeat": true
+      },
+      "211": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 14,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": 84,
+        "animation_sample": 500,
+        "animation_repeat": false
+      },
+      "90020": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            1,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 119,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      }
+    },
+    "flutters": [
+      {
+        "kind": 25,
+        "age": 112,
+        "lifetime": 150,
+        "position": [
+          2893.152099609375,
+          878.3523559570312,
+          72.08041381835938
+        ],
+        "size": 25,
+        "rgba": [
+          13,
+          60,
+          4,
+          255
+        ],
+        "motion": {
+          "rotation": [
+            23037,
+            18576,
+            25591.51171875
+          ],
+          "fall_speed": 1.840000033378601,
+          "spin": 0.2,
+          "heading": -49,
+          "turn_after": 9
+        }
+      }
+    ],
+    "background_waits": [
+      {
+        "key": 5000,
+        "pc": 7678,
+        "remaining": 157,
+        "require_control": false
+      },
+      {
+        "key": 5100,
+        "pc": 7786,
+        "remaining": 122,
+        "require_control": false
+      }
+    ],
+    "save_sparks": [
+      {
+        "save_point": 0,
+        "age": 7,
+        "offset": [
+          -29,
+          -19
+        ],
+        "size": 35,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 31,
+        "offset": [
+          -9,
+          -6
+        ],
+        "size": 37,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 59,
+        "offset": [
+          8,
+          22
+        ],
+        "size": 32,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 55,
+        "offset": [
+          24,
+          4
+        ],
+        "size": 41,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 51,
+        "offset": [
+          16,
+          -29
+        ],
+        "size": 40,
+        "speed_eighths": 29
+      },
+      {
+        "save_point": 0,
+        "age": 47,
+        "offset": [
+          -3,
+          -18
+        ],
+        "size": 41,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 43,
+        "offset": [
+          6,
+          8
+        ],
+        "size": 42,
+        "speed_eighths": 44
+      },
+      {
+        "save_point": 0,
+        "age": 39,
+        "offset": [
+          15,
+          -19
+        ],
+        "size": 41,
+        "speed_eighths": 27
+      },
+      {
+        "save_point": 0,
+        "age": 35,
+        "offset": [
+          17,
+          25
+        ],
+        "size": 34,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 27,
+        "offset": [
+          -14,
+          -7
+        ],
+        "size": 43,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 23,
+        "offset": [
+          5,
+          19
+        ],
+        "size": 36,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 19,
+        "offset": [
+          21,
+          9
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      },
+      {
+        "save_point": 0,
+        "age": 15,
+        "offset": [
+          -3,
+          -29
+        ],
+        "size": 41,
+        "speed_eighths": 30
+      },
+      {
+        "save_point": 0,
+        "age": 11,
+        "offset": [
+          22,
+          31
+        ],
+        "size": 35,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 3,
+        "offset": [
+          -11,
+          14
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      }
+    ],
+    "skit": {
+      "id": 600,
+      "control_ticks": 7501,
+      "remaining": 1498,
+      "opacity": 255,
+      "text_opacity": 255
+    },
+    "gameplay_random": "uninitialized",
+    "poison_puffs": []
+  },
+  "presentation_origin": 38020
+}

@@ -1,5 +1,9 @@
 //! Repeatable Dolphin input fixtures and explicit image comparisons.
 mod audio;
+mod dialogue;
+mod inventory_fixture;
+mod pair;
+mod video;
 use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand};
 use image::{Rgb, RgbImage};
@@ -18,6 +22,56 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Render dialogue appearance variants through real scripts and compare pinned windows.
+    Dialogue {
+        case: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        native: Option<PathBuf>,
+    },
+    /// Prepare matched menu-test inventory in copies of a Dolphin state and native save.
+    InventoryFixture {
+        dolphin_state: PathBuf,
+        native_save: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[command(flatten)]
+        changes: Box<inventory_fixture::Changes>,
+        #[arg(long, default_value = "local/cooked")]
+        cooked: PathBuf,
+    },
+    /// Index lossless Dolphin video by VI timestamp and extract requested frames.
+    VideoFrames {
+        video: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        /// VI observation corresponding to the first presentation; negative for preroll.
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        first_vi: i64,
+        #[arg(long, num_args = 1..)]
+        vi: Vec<u32>,
+    },
+    /// Replay a field save and paired Dolphin state, then compare registered frames/audio.
+    Pair {
+        case: PathBuf,
+        #[arg(long)]
+        disc: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        cooked: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value = "target/debug/examples/checkpoint_replay")]
+        native: PathBuf,
+        #[arg(long, default_value = "dolphin-emu")]
+        dolphin: String,
+        /// Reuse a completed Dolphin capture directory with the same input, state and profile.
+        #[arg(long)]
+        reference: Option<PathBuf>,
+        /// Recompare an existing paired native recording with identical save/replay fixtures.
+        #[arg(long, requires = "reference")]
+        native_reference: Option<PathBuf>,
+    },
     /// Diagnose reference-only zero gaps. Reports timing mismatch even when content matches.
     AnalyzeAudioGaps {
         reference: PathBuf,
@@ -57,6 +111,12 @@ enum Command {
         case: PathBuf,
         #[arg(long)]
         output: PathBuf,
+        /// Recorded DTM accompanying the starting Dolphin savestate.
+        #[arg(long, requires = "start_poll")]
+        prefix: Option<PathBuf>,
+        /// Consumed controller polls at the checkpoint; case polls are relative.
+        #[arg(long, requires = "prefix")]
+        start_poll: Option<u32>,
     },
     /// Compare equal-size images; writes metrics and an amplified difference.
     Compare {
@@ -88,14 +148,35 @@ struct ReplayCase {
 fn default_rtc() -> u64 {
     1_700_000_000
 }
+// DTM controller bits, excluding the separate connected-controller flag.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[repr(u16)]
+enum Button {
+    Start = 1,
+    A = 2,
+    B = 4,
+    X = 8,
+    Y = 16,
+    Z = 32,
+    Up = 64,
+    Down = 128,
+    Left = 256,
+    Right = 512,
+    L = 1024,
+    R = 2048,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PollInput {
     poll: u32,
     duration: u32,
-    buttons: Vec<String>,
+    buttons: Vec<Button>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stick: Option<[u8; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    c_stick: Option<[u8; 2]>,
 }
 
 fn encode_dtm(case: &ReplayCase) -> Result<Vec<u8>> {
@@ -109,6 +190,7 @@ fn encode_dtm(case: &ReplayCase) -> Result<Vec<u8>> {
     );
     let mut buttons = vec![0x4000u16; case.polls as usize]; // Controller connected.
     let mut sticks = vec![[128u8; 2]; case.polls as usize];
+    let mut c_sticks = vec![[128u8; 2]; case.polls as usize];
     for input in &case.inputs {
         let end = input
             .poll
@@ -118,29 +200,18 @@ fn encode_dtm(case: &ReplayCase) -> Result<Vec<u8>> {
             input.duration > 0 && end <= case.polls,
             "input exceeds replay"
         );
-        let mut bits = 0;
-        for button in &input.buttons {
-            bits |= match button.as_str() {
-                "start" => 1,
-                "a" => 2,
-                "b" => 4,
-                "x" => 8,
-                "y" => 16,
-                "z" => 32,
-                "up" => 64,
-                "down" => 128,
-                "left" => 256,
-                "right" => 512,
-                "l" => 1024,
-                "r" => 2048,
-                _ => anyhow::bail!("unknown button {button}"),
-            };
-        }
+        let bits = input
+            .buttons
+            .iter()
+            .fold(0, |bits, button| bits | *button as u16);
         for state in &mut buttons[input.poll as usize..end as usize] {
             *state |= bits;
         }
         if let Some(stick) = input.stick {
             sticks[input.poll as usize..end as usize].fill(stick);
+        }
+        if let Some(stick) = input.c_stick {
+            c_sticks[input.poll as usize..end as usize].fill(stick);
         }
     }
     let mut bytes = vec![0u8; 256];
@@ -158,10 +229,39 @@ fn encode_dtm(case: &ReplayCase) -> Result<Vec<u8>> {
     // No measured CPU tick endpoint for authored fixtures. End at the final
     // input record; zero here would terminate playback after its first poll.
     bytes[237..245].copy_from_slice(&u64::MAX.to_le_bytes());
-    for (state, stick) in buttons.into_iter().zip(sticks) {
+    for ((state, stick), c_stick) in buttons.into_iter().zip(sticks).zip(c_sticks) {
         bytes.extend(state.to_le_bytes());
-        bytes.extend([0, 0, stick[0], stick[1], 128, 128]);
+        bytes.extend([0, 0, stick[0], stick[1], c_stick[0], c_stick[1]]);
     }
+    Ok(bytes)
+}
+
+fn append_dtm(case: &ReplayCase, prefix: &[u8], start_poll: u32) -> Result<Vec<u8>> {
+    ensure!(
+        prefix.len() >= 256
+            && &prefix[..10] == b"DTM\x1aGQSEAF"
+            && prefix[10] == 0
+            && prefix[11] == 1,
+        "checkpoint replay must be a GQSEAF GameCube DTM with only controller 1"
+    );
+    let count = start_poll
+        .checked_add(case.polls)
+        .context("poll count overflow")?;
+    ensure!(count <= 1_000_000, "combined replay exceeds 1000000 polls");
+    let end = 256 + start_poll as usize * 8;
+    ensure!(
+        end <= prefix.len(),
+        "checkpoint exceeds recorded input history"
+    );
+    let tail = encode_dtm(case)?;
+    let mut bytes = Vec::with_capacity(256 + count as usize * 8);
+    bytes.extend_from_slice(&prefix[..end]);
+    bytes.extend_from_slice(&tail[256..]);
+    bytes[12] = 1;
+    for offset in [13, 21] {
+        bytes[offset..offset + 8].copy_from_slice(&u64::from(count).to_le_bytes());
+    }
+    bytes[237..245].copy_from_slice(&u64::MAX.to_le_bytes());
     Ok(bytes)
 }
 
@@ -173,6 +273,9 @@ struct Comparison {
     height: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     region: Option<[u32; 4]>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    excluded_regions: Vec<[u32; 4]>,
+    compared_pixels: u64,
     tolerance: u8,
     changed_pixels: u64,
     changed_fraction: f64,
@@ -191,6 +294,18 @@ fn compare(
     limit: f64,
     region: Option<[u32; 4]>,
 ) -> Result<bool> {
+    compare_excluding(reference, actual, output, tolerance, limit, region, &[])
+}
+
+fn compare_excluding(
+    reference: &Path,
+    actual: &Path,
+    output: &Path,
+    tolerance: u8,
+    limit: f64,
+    region: Option<[u32; 4]>,
+    excluded_regions: &[[u32; 4]],
+) -> Result<bool> {
     ensure!(
         limit.is_finite() && (0.0..=1.0).contains(&limit),
         "changed fraction must be 0..=1"
@@ -206,12 +321,19 @@ fn compare(
         actual.dimensions()
     );
     let (width, height) = reference.dimensions();
+    let inside_image = |[x, y, w, h]: [u32; 4]| {
+        w > 0
+            && h > 0
+            && x.checked_add(w).is_some_and(|right| right <= width)
+            && y.checked_add(h).is_some_and(|bottom| bottom <= height)
+    };
+    ensure!(
+        excluded_regions.iter().copied().all(inside_image),
+        "excluded regions must be nonempty and inside both images"
+    );
     let (reference, actual) = if let Some([x, y, w, h]) = region {
         ensure!(
-            w > 0
-                && h > 0
-                && x.checked_add(w).is_some_and(|right| right <= width)
-                && y.checked_add(h).is_some_and(|bottom| bottom <= height),
+            inside_image([x, y, w, h]),
             "comparison region must be nonempty and inside both images"
         );
         (
@@ -226,21 +348,34 @@ fn compare(
     let mut total = 0u64;
     let mut squared = 0u64;
     let mut maximum = 0u8;
-    for ((r, a), d) in reference
+    let mut pixels = 0u64;
+    let [origin_x, origin_y, ..] = region.unwrap_or([0; 4]);
+    for (index, ((r, a), d)) in reference
         .pixels()
         .zip(actual.pixels())
         .zip(difference.pixels_mut())
+        .enumerate()
     {
         let errors: [u8; 3] = std::array::from_fn(|i| r[i].abs_diff(a[i]));
+        // Keep every difference visible, including explicitly excluded I/O telemetry.
+        *d = Rgb(errors.map(|v| v.saturating_mul(4)));
+        let x = index as u32 % reference.width() + origin_x;
+        let y = index as u32 / reference.width() + origin_y;
+        if excluded_regions
+            .iter()
+            .any(|&[left, top, w, h]| (left..left + w).contains(&x) && (top..top + h).contains(&y))
+        {
+            continue;
+        }
+        pixels += 1;
         changed += u64::from(errors.iter().any(|e| *e > tolerance));
         for error in errors {
             total += u64::from(error);
             squared += u64::from(error).pow(2);
             maximum = maximum.max(error);
         }
-        *d = Rgb(errors.map(|v| v.saturating_mul(4)));
     }
-    let pixels = u64::from(reference.width()) * u64::from(reference.height());
+    ensure!(pixels > 0, "exclusions leave no pixels to compare");
     let fraction = changed as f64 / pixels as f64;
     let report = Comparison {
         reference_sha256: format!("{:x}", Sha256::digest(reference_bytes)),
@@ -248,6 +383,8 @@ fn compare(
         width,
         height,
         region,
+        excluded_regions: excluded_regions.to_vec(),
+        compared_pixels: pixels,
         tolerance,
         changed_pixels: changed,
         changed_fraction: fraction,
@@ -267,6 +404,49 @@ fn compare(
 
 fn main() -> Result<()> {
     match Args::parse().command {
+        Command::Dialogue {
+            case,
+            output,
+            native,
+        } => dialogue::run(&case, &output, native.as_deref())?,
+        Command::InventoryFixture {
+            dolphin_state,
+            native_save,
+            output,
+            changes,
+            cooked,
+        } => {
+            inventory_fixture::run(&dolphin_state, &native_save, &output, &changes, &cooked)?;
+        }
+        Command::VideoFrames {
+            video,
+            output,
+            first_vi,
+            vi,
+        } => {
+            video::run(&video, &output, first_vi, &vi)?;
+        }
+        Command::Pair {
+            case,
+            disc,
+            cooked,
+            output,
+            native,
+            dolphin,
+            reference,
+            native_reference,
+        } => pair::run(
+            &case,
+            &disc,
+            &cooked,
+            &output,
+            &native,
+            &dolphin,
+            pair::References {
+                dolphin: reference.as_deref(),
+                native: native_reference.as_deref(),
+            },
+        )?,
         Command::AnalyzeAudioGaps {
             reference,
             actual,
@@ -333,18 +513,23 @@ fn main() -> Result<()> {
                 output.display()
             );
         }
-        Command::Dtm { case, output } => {
+        Command::Dtm {
+            case,
+            output,
+            prefix,
+            start_poll,
+        } => {
             let case: ReplayCase = serde_json::from_slice(&fs::read(case)?)?;
-            let bytes = encode_dtm(&case)?;
+            let bytes = match prefix {
+                Some(prefix) => append_dtm(&case, &fs::read(prefix)?, start_poll.unwrap())?,
+                None => encode_dtm(&case)?,
+            };
+            let polls = (bytes.len() - 256) / 8;
             if let Some(parent) = output.parent() {
                 fs::create_dir_all(parent)?;
             }
             fs::write(&output, bytes)?;
-            println!(
-                "Wrote {} controller polls to {}",
-                case.polls,
-                output.display()
-            );
+            println!("Wrote {} controller polls to {}", polls, output.display());
         }
         Command::Compare {
             reference,
@@ -380,6 +565,43 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn checkpoint_replay_preserves_history_and_replaces_only_future_input() {
+        let mut case = ReplayCase {
+            game_id: "GQSEAF".into(),
+            polls: 6,
+            rtc: 123,
+            from_save_state: false,
+            inputs: vec![PollInput {
+                poll: 0,
+                duration: 6,
+                buttons: vec![Button::A],
+                stick: Some([12, 234]),
+                c_stick: None,
+            }],
+        };
+        let prefix = encode_dtm(&case).unwrap();
+        case.polls = 3;
+        case.rtc = 456;
+        case.inputs = vec![PollInput {
+            poll: 1,
+            duration: 1,
+            buttons: vec![Button::Y],
+            stick: None,
+            c_stick: None,
+        }];
+        let resumed = append_dtm(&case, &prefix, 4).unwrap();
+        assert_eq!(&resumed[256..288], &prefix[256..288]);
+        assert_eq!(&resumed[288..], &encode_dtm(&case).unwrap()[256..]);
+        assert_eq!(&resumed[129..137], &123u64.to_le_bytes());
+        assert_eq!(&resumed[21..29], &7u64.to_le_bytes());
+        assert_eq!(resumed[12], 1);
+        assert!(append_dtm(&case, &prefix, 7).is_err());
+        assert!(append_dtm(&case, &prefix[..12], 0).is_err());
+        let mut wrong = prefix;
+        wrong[11] = 3;
+        assert!(append_dtm(&case, &wrong, 4).is_err());
+    }
+    #[test]
     fn region_comparison_detects_small_details_and_rejects_invalid_bounds() {
         let root =
             std::env::temp_dir().join(format!("resonance-image-region-{}", std::process::id()));
@@ -404,7 +626,47 @@ mod tests {
         );
         for region in [[20, 0, 1, 1], [0, 0, 0, 1], [u32::MAX, 0, 2, 1]] {
             assert!(compare(&reference, &actual, &output, 8, 0.01, Some(region)).is_err());
+            assert!(
+                compare_excluding(&reference, &actual, &output, 8, 0.01, None, &[region]).is_err()
+            );
         }
+        assert!(
+            compare_excluding(&reference, &actual, &output, 8, 0., None, &[[10, 10, 1, 1]])
+                .unwrap()
+        );
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.join("comparison.json")).unwrap()).unwrap();
+        assert_eq!(report["compared_pixels"], 399);
+        assert_eq!(report["changed_pixels"], 0);
+        let difference = image::open(output.join("difference.png"))
+            .unwrap()
+            .to_rgb8();
+        assert_eq!(difference.get_pixel(10, 10), &Rgb([80, 0, 0]));
+        // A discrepancy outside the exception still fails, even inside a crop.
+        assert!(
+            !compare_excluding(
+                &reference,
+                &actual,
+                &output,
+                8,
+                0.,
+                Some([9, 9, 3, 3]),
+                &[[9, 9, 1, 1]]
+            )
+            .unwrap()
+        );
+        assert!(
+            compare_excluding(
+                &reference,
+                &actual,
+                &output,
+                8,
+                0.01,
+                None,
+                &[[0, 0, 20, 20]]
+            )
+            .is_err()
+        );
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -417,8 +679,9 @@ mod tests {
             inputs: vec![PollInput {
                 poll: 1,
                 duration: 2,
-                buttons: vec!["start".into(), "down".into()],
+                buttons: vec![Button::Start, Button::Down],
                 stick: Some([0, 255]),
+                c_stick: Some([128, 0]),
             }],
         };
         let bytes = encode_dtm(&case).unwrap();
@@ -433,27 +696,26 @@ mod tests {
         assert_eq!(&bytes[264..266], &0x4081u16.to_le_bytes());
         assert_eq!(&bytes[280..282], &0x4000u16.to_le_bytes());
         assert_eq!(&bytes[260..264], &[128, 128, 128, 128]);
-        assert_eq!(&bytes[268..272], &[0, 255, 128, 128]);
-        assert_eq!(&bytes[276..280], &[0, 255, 128, 128]);
+        assert_eq!(&bytes[268..272], &[0, 255, 128, 0]);
+        assert_eq!(&bytes[276..280], &[0, 255, 128, 0]);
         assert_eq!(&bytes[284..288], &[128, 128, 128, 128]);
     }
     #[test]
     fn rejects_unknown_buttons_and_out_of_range_inputs() {
-        let mut case = ReplayCase {
+        assert!(serde_json::from_str::<Button>(r#""strat""#).is_err());
+        let case = ReplayCase {
             game_id: "GQSEAF".into(),
             polls: 4,
             rtc: default_rtc(),
             from_save_state: false,
             inputs: vec![PollInput {
-                poll: 0,
+                poll: 4,
                 duration: 1,
-                buttons: vec!["strat".into()],
+                buttons: vec![Button::A],
                 stick: None,
+                c_stick: None,
             }],
         };
-        assert!(encode_dtm(&case).is_err());
-        case.inputs[0].buttons = vec!["a".into()];
-        case.inputs[0].poll = 4;
         assert!(encode_dtm(&case).is_err());
     }
 }

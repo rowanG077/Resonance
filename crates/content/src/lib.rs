@@ -4,10 +4,16 @@ pub mod effect;
 pub mod field;
 pub mod field_audio;
 pub mod field_preload;
+pub mod figurine;
 pub mod font;
+pub mod menu;
+pub mod menu_data;
+pub mod model_preview;
+pub mod monster;
 pub mod prepared;
 pub mod secondary_motion;
 pub mod session;
+pub mod skit;
 
 pub const CONTENT_VERSION: u32 = 5;
 pub const WIDTH: u32 = 640;

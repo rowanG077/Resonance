@@ -1,0 +1,439 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Items single-target picker: two-column party layout, reserve navigation and healing, condition portraits, rejection, item exhaustion, revival and petrification cure.",
+  "registration": "Controlled fixture grants one Panacea Bottle to matched copies of tech-conditions-fixture-v1. The five-member formation and artificial combined statuses test the target layout and portrait priority, not recruitment or natural damage. Every use runs through ordinary menu input. Inventory state checks every item count, all nine members' vitals, conditions and equipment, target, focus, row and scroll; images remain full-frame at tolerance 8 and 1%. Menu opens at native update 40 and source poll 20; subsequent inputs and observations use source poll/2 with the existing clock origins. Settled captures do not test popup fades, group-item previews or equipment overlays. The revival observation moves native update and source VI together from 1750 to the next recorded presentation at 1751; clock origins and acceptance tolerances are unchanged.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/items-targets-fixture-v1/native.json",
+    "sha256": "fb8d00084837a937ea155abde9b67dfb89121d236e8bdb32e3f8e63d0b64730c"
+  },
+  "native_replay": {
+    "path": "items-targets-keyboard.json",
+    "sha256": "6e9d4b98038a7a22f53cfe9bd0581b1d20ced19bdfb7ceba7665eb22663ee8fa"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/items-targets-fixture-v1/GQSEAF.s01",
+      "sha256": "35eae70c58e9581da955da96f38e2793d63bb7366b439b31c77e59b85808566c"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 5120,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "items-list",
+      "native": "vi-230",
+      "dolphin_vi": 230,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "apple-targets",
+      "native": "vi-310",
+      "dolphin_vi": 310,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "reserve-target",
+      "native": "vi-390",
+      "dolphin_vi": 390,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "reserve-bound",
+      "native": "vi-470",
+      "dolphin_vi": 470,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "reserve-healed",
+      "native": "vi-550",
+      "dolphin_vi": 550,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "lloyd-target",
+      "native": "vi-630",
+      "dolphin_vi": 630,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "knockout-target",
+      "native": "vi-710",
+      "dolphin_vi": 710,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "missing-column-bound",
+      "native": "vi-790",
+      "dolphin_vi": 790,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "knockout-heal-rejected",
+      "native": "vi-870",
+      "dolphin_vi": 870,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "lloyd-healed",
+      "native": "vi-1030",
+      "dolphin_vi": 1030,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "last-apple-used",
+      "native": "vi-1110",
+      "dolphin_vi": 1110,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "orange-target",
+      "native": "vi-1190",
+      "dolphin_vi": 1190,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "full-tp-rejected",
+      "native": "vi-1270",
+      "dolphin_vi": 1270,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "knockout-tp-rejected",
+      "native": "vi-1430",
+      "dolphin_vi": 1430,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "return-list",
+      "native": "vi-1510",
+      "dolphin_vi": 1510,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "life-bottle",
+      "native": "vi-1590",
+      "dolphin_vi": 1590,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "revive-target",
+      "native": "vi-1670",
+      "dolphin_vi": 1670,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "revived",
+      "native": "vi-1751",
+      "dolphin_vi": 1751,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "panacea-target",
+      "native": "vi-1830",
+      "dolphin_vi": 1830,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "healthy-cure-rejected",
+      "native": "vi-1910",
+      "dolphin_vi": 1910,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "cure-column-bound",
+      "native": "vi-1990",
+      "dolphin_vi": 1990,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "petrified-reserve",
+      "native": "vi-2230",
+      "dolphin_vi": 2230,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "reserve-cured",
+      "native": "vi-2310",
+      "dolphin_vi": 2310,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "category-return",
+      "native": "vi-2390",
+      "dolphin_vi": 2390,
+      "inventory_state": true,
+      "party_state": true
+    }
+  ],
+  "audio": []
+}

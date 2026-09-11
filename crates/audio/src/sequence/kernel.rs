@@ -135,6 +135,7 @@ impl<'a> Kernel<'a> {
                 let input = live_controls(frame);
                 for (channel, initial) in self.controls.iter_mut().zip(song.controls) {
                     channel.group_volume = input.volume;
+                    channel.mono = input.mono;
                     if let Some(pan) = input.pan {
                         channel.pan =
                             (i16::from(initial.pan) + i16::from(pan) - 64).clamp(0, 127) as u8;

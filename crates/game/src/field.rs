@@ -1,5 +1,5 @@
 //! Scene setup supplies the original script with cooked resource bindings.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use resonance_content::field::FieldAssets;
 use resonance_content::field::SCENERY_RESOURCE_BASE;
 use resonance_events::{
@@ -7,18 +7,32 @@ use resonance_events::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 use symphonia_script::Program;
+mod checkpoint;
+mod conditions;
 pub mod navigation;
+mod prompt;
 pub mod replay;
+mod save_point;
+mod skit;
+pub use checkpoint::FieldCheckpoint;
+pub use prompt::{ActionPrompt, FieldAction};
+pub use skit::Playback as SkitPlayback;
+pub use skit::SkitPrompt;
 
 /// Typed field-entry data; a transition carries state, never old scene handles.
 #[derive(Default)]
 pub struct FieldEntry {
+    pub play_time: crate::clock::PlayTime,
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
+    pub menu_data: Option<Arc<resonance_content::menu_data::MenuData>>,
+    pub skits: Option<Arc<resonance_content::skit::SkitCatalog>>,
+    pub text: Arc<resonance_content::session::GameText>,
     pub available_fields: std::collections::BTreeSet<u32>,
     pub position: [f32; 3],
     pub heading: f32,
     pub idle_animation: Option<u16>,
+    pub camera: Option<resonance_events::camera::EntryCamera>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -27,13 +41,30 @@ pub struct FieldInput {
     pub direction: [f32; 2],
     pub run: bool,
     pub interact: bool,
+    /// Open the currently announced skit (GameCube Z / keyboard Z).
+    pub skit: bool,
     pub cancel: bool,
+    pub menu: bool,
+    pub start: bool,
+    pub alternate: bool,
+    pub previous_page: bool,
+    pub next_page: bool,
+    /// Held page-scroll direction: up +1, down -1 (right stick / Page Up/Down).
+    pub scroll_direction: i8,
+    /// Held model-viewer controls: rotation and zoom (right stick).
+    pub preview_direction: [f32; 2],
 }
 
 /// Owns one field's gameplay and event lifetime. Presentation consumes the
 /// resulting actors and operations without needing to understand bytecode.
 pub struct FieldSession {
+    pub play_time: crate::clock::PlayTime,
+    /// Effect births keep their phase through menus; particle age uses field time.
+    pub effect_clock: crate::clock::PresentationClock,
+    pub map_id: u32,
     pub events: EventRuntime,
+    pub menu: Option<crate::menu::Menu>,
+    menu_resources: Option<Arc<crate::menu::Resources>>,
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
     choices: crate::choice::ChoicePlayer,
     walkmesh: navigation::WalkMesh,
@@ -41,12 +72,72 @@ pub struct FieldSession {
     lighting: BTreeMap<i32, resonance_events::effect::CharacterLight>,
     conversation_facing: Option<(i32, f32, f32)>,
     active_triggers: std::collections::BTreeSet<u32>,
+    save_points: save_point::SavePoints,
+    action_hints: prompt::ActionHints,
+    skits: skit::Skits,
+    pub active_skit: Option<SkitPlayback>,
+    skit_programs: BTreeMap<u16, skit::Prepared>,
     pub voice_durations: Arc<BTreeMap<u32, u32>>,
     pub voice_feedback: Option<Arc<dyn crate::dialogue::VoiceFeedback>>,
     /// Actor -> first update of its current continuous dialogue mouth cycle.
     pub talking: BTreeMap<i32, u32>,
 }
 impl FieldSession {
+    pub fn dialogue_scene(
+        &self,
+    ) -> (
+        &resonance_events::GameWorld,
+        &BTreeMap<u8, crate::dialogue::DialoguePlayer>,
+    ) {
+        self.active_skit
+            .as_ref()
+            .map_or((&self.events.world, &self.dialogue), |s| {
+                (&s.events.world, &s.dialogue)
+            })
+    }
+    /// Whether field input belongs to the player. Transient UI notifications
+    /// do not take control and are intentionally excluded from this query.
+    pub fn player_has_control(&self) -> bool {
+        self.menu.is_none()
+            && self.active_skit.is_none()
+            && self.events.world.skit_request.is_none()
+            && self.events.player_has_control()
+    }
+    pub fn skit_prompt(&self) -> Option<SkitPrompt<'_>> {
+        if !self.player_has_control() {
+            return None;
+        }
+        let mut prompt = self.skits.prompt()?;
+        prompt.title_visible = self
+            .events
+            .world
+            .party
+            .as_ref()
+            .is_none_or(|party| party.settings.preferences.skit_notifications);
+        Some(prompt)
+    }
+
+    /// Preserve ambient clocks across field changes, dismissing the skit title.
+    /// Quickloads restart ambient services through ordinary field initialization.
+    pub fn continue_ambient(&mut self, previous: &Self) {
+        self.skits = previous.skits.next_field();
+        self.effect_clock = previous.effect_clock;
+    }
+    pub fn apply_skit_origin(
+        &mut self,
+        id: u16,
+        control_ticks: u32,
+        remaining: u16,
+        opacity: u8,
+        text_opacity: u8,
+    ) -> Result<()> {
+        self.skits
+            .apply_origin(id, control_ticks, remaining, opacity, text_opacity)
+    }
+    pub fn action_prompt(&self) -> Option<ActionPrompt> {
+        self.action_hints.prompt.filter(|_| self.menu.is_none())
+    }
+
     pub fn story_progress(&self) -> Result<i32> {
         Ok(self
             .events
@@ -71,13 +162,41 @@ impl FieldSession {
             format!("{:x}", Sha256::digest(script)) == assets.script.sha256,
             "field script digest mismatch"
         );
+        let skits = skit::Skits::new(entry.skits.clone());
+        let menu_resources = entry
+            .data
+            .clone()
+            .zip(entry.menu_data.clone())
+            .map(|(session, data)| Arc::new(crate::menu::Resources { session, data }));
+        if let Some(resources) = &menu_resources {
+            resources.data.validate()?;
+            ensure!(
+                resources
+                    .session
+                    .characters
+                    .iter()
+                    .flat_map(|c| &c.allowed_techniques)
+                    .all(|id| usize::from(*id) < resources.data.techniques.len()),
+                "character references an uncooked technique"
+            );
+        }
         Ok(Self {
+            menu_resources,
+            skits,
+            active_skit: None,
+            skit_programs: BTreeMap::new(),
+            play_time: entry.play_time,
+            effect_clock: crate::clock::PresentationClock::new(entry.persistent.tick),
+            map_id: assets.map_id,
             events: start_with_entry(script, messages, assets, entry)?,
+            menu: None,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
             lighting: BTreeMap::new(),
             conversation_facing: None,
             active_triggers: Default::default(),
+            save_points: save_point::SavePoints::new(assets.save_point_tutorial.clone()),
+            action_hints: Default::default(),
             voice_durations: Default::default(),
             voice_feedback: None,
             talking: Default::default(),
@@ -88,83 +207,243 @@ impl FieldSession {
         })
     }
     pub fn step(&mut self, input: FieldInput) -> Result<()> {
+        self.play_time.advance();
+        self.effect_clock.advance();
+        if self.player_has_control() && self.events.world.party.is_some() {
+            self.events.restore_field_leader()?;
+        }
+        if self.active_skit.is_some() {
+            return self.step_skit(input);
+        }
+        if let Some(request) = self.events.world.skit_request.take() {
+            self.start_skit(
+                request.id,
+                request.skippable,
+                request.preview,
+                Some(request.operation),
+            )?;
+            return Ok(());
+        }
+        if let Some(menu) = &mut self.menu {
+            menu.set_play_time(self.play_time);
+            let cue = menu.step(input);
+            if let Some((party, gameplay_random)) = menu.take_party_changes() {
+                self.events.world.party = Some(party);
+                self.events.world.gameplay_random = gameplay_random;
+            }
+            if menu.closed {
+                self.events.restore_field_leader()?;
+                self.menu = None;
+                self.events.world.input_enabled = true;
+            }
+            self.menu_sound(cue);
+            return Ok(());
+        }
+        let at_circle = self.events.world.save_points.iter().any(|p| p.active);
+        if (input.menu || input.interact && at_circle)
+            && let Ok(checkpoint) = self.checkpoint()
+        {
+            let page = if input.menu {
+                crate::menu::Page::Main
+            } else {
+                crate::menu::Page::Slots(crate::menu::Mode::Save)
+            };
+            let mut menu = crate::menu::Menu::new(page, Some(checkpoint), at_circle);
+            menu.begin_opening();
+            menu.resources = self.menu_resources.clone();
+            menu.set_play_time(self.play_time);
+            self.menu = Some(menu);
+            self.events.world.input_enabled = false;
+            self.menu_sound(Some(0x21));
+            return Ok(());
+        }
+        if input.skit && self.player_has_control() {
+            let skit_id = self.skits.prompt().map(|prompt| prompt.id);
+            if let Some(id) = skit_id {
+                self.start_skit(id, true, false, None)?;
+                self.skits.open();
+                return Ok(());
+            }
+        }
         let talking = self.step_dialogue(input)?;
+        self.save_points.finish_notice(&mut self.events.world)?;
         let can_trigger = self.events.world.input_enabled && !talking;
-        if self.events.world.input_enabled && !talking {
-            let id = self.events.world.controlled_actor;
-            if let Some(actor) = self.events.world.actors.get(&id) {
-                let start = actor.position;
-                let mut stick = input
-                    .direction
-                    .map(|v| if v.is_finite() { v.clamp(-1., 1.) } else { 0. });
-                let length = stick[0].hypot(stick[1]);
-                if length > 1. {
-                    stick = stick.map(|v| v / length);
-                }
-                let forward = self
-                    .events
-                    .world
-                    .field_camera
-                    .as_ref()
-                    .map_or([0., 1.], |c| {
-                        [c.target[0] - c.position[0], c.target[1] - c.position[1]]
-                    });
-                let norm = forward[0].hypot(forward[1]).max(0.001);
-                let forward = forward.map(|v| v / norm);
-                let speed = if input.run { 8. } else { 4. };
-                let delta = [
-                    (forward[1] * stick[0] + forward[0] * stick[1]) * speed,
-                    (-forward[0] * stick[0] + forward[1] * stick[1]) * speed,
-                ];
-                let target = self.walkmesh.move_by(start, delta, 15., |p| {
-                    self.events.world.actors.iter().any(|(other, a)| {
-                        *other != id
-                            && a.visible
-                            && a.collidable
-                            && a.resource < SCENERY_RESOURCE_BASE
-                            && a.resource != 24
-                            && (p[2] - a.position[2]).abs() < 60.
-                            && (p[0] - a.position[0]).hypot(p[1] - a.position[1]) < 35.
-                    })
-                });
-                let actor = self.events.world.actors.get_mut(&id).unwrap();
-                actor.motion = if (target[0] - start[0]).hypot(target[1] - start[1]) >= 0.01 {
-                    Some(resonance_events::ActorMotion { target, speed })
-                } else {
-                    None
-                };
-                if input.interact
-                    && let Some(target) = self.interaction_target()
-                    && self.events.interact(target)?
-                {
-                    // Ordinary field conversations turn the selected person
-                    // toward Lloyd while leaving the player's facing alone.
-                    // Independent NPC 304/305 oracle checkpoints verify this.
-                    let other = self.events.world.actors.get_mut(&target).unwrap();
-                    let previous_heading = other.target_heading;
-                    other.target_heading = (start[0] - other.position[0])
-                        .atan2(other.position[1] - start[1])
-                        .to_degrees()
-                        .rem_euclid(360.)
-                        .trunc();
-                    self.conversation_facing =
-                        Some((target, previous_heading, other.target_heading));
-                }
-            }
-        }
+        let interaction_target = input.interact.then(|| self.interaction_target()).flatten();
+        let walkmesh = &self.walkmesh;
+        let controlled_actor = self.events.world.controlled_actor;
+        let obstacles: Vec<_> = self
+            .events
+            .world
+            .actors
+            .iter()
+            .filter(|(_, a)| {
+                a.visible && a.collidable && a.resource < SCENERY_RESOURCE_BASE && a.resource != 24
+            })
+            .map(|(&id, a)| (id, a.position))
+            .collect();
+        let conversation_facing = &mut self.conversation_facing;
         let mut resolved = BTreeMap::new();
-        self.events.step_with_motion(|id, actor, previous| {
-            if actor.grounded && actor.resource < SCENERY_RESOURCE_BASE && actor.resource != 24 {
-                actor.position = self
-                    .walkmesh
-                    .resolve_motion(previous, actor.position)
-                    .unwrap_or(previous);
-            }
-            resolved.insert(id, actor.position);
-        })?;
-        if can_trigger && self.events.world.input_enabled {
-            self.step_triggers(input.interact)?;
-        }
+        self.events.step_with_motion(
+            self.effect_clock.tick(),
+            |events| {
+                let mut player_destination = None;
+                if can_trigger {
+                    let id = events.world.controlled_actor;
+                    if let Some(actor) = events.world.actors.get(&id) {
+                        let start = actor.position;
+                        let mut stick = input
+                            .direction
+                            .map(|v| if v.is_finite() { v.clamp(-1., 1.) } else { 0. });
+                        let length = stick[0].hypot(stick[1]);
+                        if length > 1. {
+                            stick = stick.map(|v| v / length);
+                        }
+                        let forward = events.world.field_camera.as_ref().map_or([0., 1.], |c| {
+                            [c.target[0] - c.position[0], c.target[1] - c.position[1]]
+                        });
+                        // Field controls rotate in whole degrees relative to the view.
+                        let angle = (-forward[0].atan2(forward[1]).to_degrees())
+                            .trunc()
+                            .to_radians();
+                        let forward = [-angle.sin(), angle.cos()];
+                        let speed = if input.run { 8. } else { 4. };
+                        let delta = [
+                            (forward[1] * stick[0] + forward[0] * stick[1]) * speed,
+                            (-forward[0] * stick[0] + forward[1] * stick[1]) * speed,
+                        ];
+                        const FLOOR_CLEARANCE: f32 = 40.;
+                        let target = walkmesh.move_by(start, delta, FLOOR_CLEARANCE, |p| {
+                            events.world.actors.iter().any(|(other, a)| {
+                                *other != id
+                                    && a.visible
+                                    && a.collidable
+                                    && a.resource < SCENERY_RESOURCE_BASE
+                                    && a.resource != 24
+                                    && (p[2] - a.position[2]).abs() < 60.
+                                    && (p[0] - a.position[0]).hypot(p[1] - a.position[1]) < 35.
+                            })
+                        });
+                        // Derive facing before adding world coordinates: subtracting
+                        // rounded positions can push a whole-degree angle across its boundary.
+                        let heading = (delta != [0.; 2]).then(|| {
+                            (delta[1].atan2(delta[0]).to_degrees() + 90.).rem_euclid(360.)
+                        });
+                        player_destination = Some((id, target, heading));
+                        let actor = events.world.actors.get_mut(&id).unwrap();
+                        // Facing and locomotion follow input, even when a wall blocks
+                        // part of the step. Apply collision after advancing that intent;
+                        // a short wall slide is not a completed scripted move.
+                        actor.motion = if delta[0] != 0. || delta[1] != 0. {
+                            Some(resonance_events::ActorMotion {
+                                target: [start[0] + delta[0], start[1] + delta[1], start[2]],
+                                speed,
+                            })
+                        } else {
+                            None
+                        };
+                        if input.interact
+                            && let Some(target) = interaction_target
+                            && events.interact(target)?
+                        {
+                            // Ordinary field conversations turn the selected person
+                            // toward Lloyd while leaving the player's facing alone.
+                            // Independent NPC 304/305 oracle checkpoints verify this.
+                            let other = events.world.actors.get_mut(&target).unwrap();
+                            if let Some(autonomy) = &mut other.autonomy {
+                                autonomy.begin_conversation();
+                            }
+                            let previous_heading = other.target_heading;
+                            other.target_heading = (start[0] - other.position[0])
+                                .atan2(other.position[1] - start[1])
+                                .to_degrees()
+                                .rem_euclid(360.)
+                                .trunc();
+                            *conversation_facing =
+                                Some((target, previous_heading, other.target_heading));
+                        }
+                    }
+                }
+                Ok(player_destination)
+            },
+            |player_destination, id, actor, previous| {
+                if let Some((player, target, heading)) = *player_destination
+                    && id == player
+                {
+                    actor.position = target;
+                    if let Some(heading) = heading {
+                        actor.target_heading = heading;
+                    }
+                }
+                if actor.grounded && actor.resource < SCENERY_RESOURCE_BASE && actor.resource != 24
+                {
+                    if id != controlled_actor
+                        && actor.collidable
+                        && actor.motion.is_none()
+                        && actor
+                            .autonomy
+                            .is_some_and(|a| a.activity == resonance_events::Activity::Walk)
+                    {
+                        const BODY_SEPARATION: f32 = 35.;
+                        const BODY_HEIGHT: f32 = 60.;
+                        for &(other, position) in &obstacles {
+                            let position = resolved.get(&other).copied().unwrap_or(position);
+                            if other == id || (previous[2] - position[2]).abs() >= BODY_HEIGHT {
+                                continue;
+                            }
+                            let mut candidate = previous;
+                            for axis in 0..2 {
+                                candidate[axis] = actor.position[axis];
+                                if (candidate[0] - position[0]).hypot(candidate[1] - position[1])
+                                    < BODY_SEPARATION
+                                {
+                                    actor.position[axis] = previous[axis];
+                                    candidate[axis] = previous[axis];
+                                }
+                            }
+                        }
+                    }
+                    let position =
+                        walkmesh.resolve_motion(previous, actor.position, id == controlled_actor);
+                    if let Some(autonomy) = &mut actor.autonomy {
+                        autonomy.resolve_floor(position.is_some());
+                    }
+                    actor.position = position.unwrap_or(previous);
+                }
+                resolved.insert(id, actor.position);
+            },
+            |world| {
+                conditions::step(world, self.effect_clock.tick())?;
+                self.save_points
+                    .step_effects(world, self.effect_clock.tick())
+            },
+        )?;
+        let action = if can_trigger && self.events.world.input_enabled {
+            self.step_triggers(input.interact)?
+        } else {
+            None
+        };
+        let free_control = !talking && self.events.player_has_control();
+        self.save_points
+            .step(&mut self.events.world, free_control)?;
+        let world = &self.events.world;
+        self.action_hints.step(
+            action.or_else(|| {
+                world
+                    .save_points
+                    .iter()
+                    .any(|p| p.active)
+                    .then_some(FieldAction::Save)
+            }),
+            free_control
+                && world.input_enabled
+                && world.field_transition.is_none()
+                && !world.blocked_by_movie()
+                && world
+                    .fade
+                    .as_ref()
+                    .is_none_or(|f| world.tick >= f.start_tick.saturating_add(f.duration)),
+        );
+        self.skits.step(&self.events, self.map_id, free_control)?;
         if self.events.world.input_enabled
             && let Some((id, heading, automatic_heading)) = self.conversation_facing.take()
             && let Some(actor) = self.events.world.actors.get_mut(&id)
@@ -203,20 +482,53 @@ impl FieldSession {
         }
         Ok(())
     }
-    fn step_triggers(&mut self, confirm: bool) -> Result<()> {
+
+    fn menu_sound(&mut self, cue: Option<i16>) {
+        if let Some(id) = cue {
+            self.events
+                .world
+                .audio_commands
+                .push(resonance_events::AudioCommand::Sound {
+                    id,
+                    volume: 127,
+                    pan: 64,
+                    slot: None,
+                });
+        }
+    }
+    fn step_triggers(&mut self, confirm: bool) -> Result<Option<FieldAction>> {
         let world = &self.events.world;
         let Some(actor) = world.actors.get(&world.controlled_actor) else {
-            return Ok(());
+            return Ok(None);
         };
-        // Trigger contact uses the actor’s radius and the line’s vertical span.
+        const RADIUS: f32 = 42.;
+        let angle = actor.target_heading.to_radians();
+        let ahead = [
+            actor.position[0] + angle.sin() * RADIUS,
+            actor.position[1] - angle.cos() * RADIUS,
+            actor.position[2],
+        ];
+        // Touch events use body contact. Confirmed interactions also reach one
+        // player radius forward, so a door can be used before walking into it.
         let touching: Vec<_> = world
             .triggers
             .iter()
-            .filter(|trigger| navigation::touches_trigger(trigger, actor.position, 42.))
+            .filter(|trigger| {
+                navigation::touches_trigger(trigger, actor.position, RADIUS)
+                    || trigger.transition.is_some()
+                        && navigation::touches_trigger(trigger, ahead, RADIUS)
+            })
             .cloned()
             .collect();
         self.active_triggers
             .retain(|key| touching.iter().any(|t| t.key == *key));
+        let action = touching
+            .iter()
+            .filter_map(|t| t.transition.map(|v| v[0]))
+            .find(|id| *id != 0)
+            .map(FieldAction::from_id)
+            .transpose()?
+            .flatten();
         for trigger in touching {
             let confirmed = trigger.transition.is_some();
             if (confirmed && !confirm) || self.active_triggers.contains(&trigger.key) {
@@ -227,7 +539,7 @@ impl FieldSession {
                 break;
             }
         }
-        Ok(())
+        Ok(action)
     }
     fn step_dialogue(&mut self, input: FieldInput) -> Result<bool> {
         self.dialogue.retain(|slot, player| {
@@ -238,15 +550,25 @@ impl FieldSession {
                 .is_some_and(|d| d.operation.id() == player.operation.id())
         });
         for (&slot, request) in &self.events.world.dialogue {
+            if let Some(player) = self.dialogue.get_mut(&slot) {
+                player.sync_flags(request);
+            }
             if request.opening_actor.is_none()
                 && request.operation.is_pending()
                 && !self.dialogue.contains_key(&slot)
             {
                 self.dialogue.insert(
                     slot,
-                    crate::dialogue::DialoguePlayer::new(request, 3)?
-                        .with_voice_durations(self.voice_durations.clone())
-                        .with_voice_feedback(self.voice_feedback.clone()),
+                    crate::dialogue::DialoguePlayer::new(
+                        request,
+                        self.events
+                            .world
+                            .party
+                            .as_ref()
+                            .map_or(3, |p| u16::from(p.settings.preferences.message_speed)),
+                    )?
+                    .with_voice_durations(self.voice_durations.clone())
+                    .with_voice_feedback(self.voice_feedback.clone()),
                 );
             }
         }
@@ -374,7 +696,9 @@ impl FieldSession {
             .actors
             .iter()
             .filter_map(|(id, actor)| {
-                if !actor.visible || !self.events.has_interaction(*id) {
+                if (!actor.visible && !actor.interaction_anchor)
+                    || !self.events.has_interaction(*id)
+                {
                     return None;
                 }
                 let dx = actor.position[0] - player.position[0];
@@ -430,24 +754,45 @@ fn start_with_entry(
     script: &[u8],
     messages: Vec<symphonia_script::message::Message>,
     assets: &FieldAssets,
-    entry: FieldEntry,
+    mut entry: FieldEntry,
 ) -> Result<EventRuntime> {
     assets.validate()?;
-    ensure!(
-        matches!(assets.map_id, 5 | 340),
-        "field entry setup has not been defined for this map"
-    );
+    if let (Some(data), Some(menu)) = (&mut entry.data, &entry.menu_data) {
+        if data.ex_skills.is_none() {
+            Arc::make_mut(data).ex_skills = Some(Arc::new(menu.ex_skills.clone()));
+        }
+        if let Some(party) = &mut entry.persistent.party {
+            party.bind_ex_skills(data);
+        }
+    }
     let mut resources = ResourceLibrary {
+        blink: Some(assets.blink.clone()),
+        menu_data: entry.menu_data,
+        text: entry.text,
+        skits: entry.skits.clone(),
+        doors: assets.doors.clone(),
+        particles: assets
+            .particles
+            .iter()
+            .map(|(&kind, recipe)| {
+                (
+                    kind,
+                    resonance_events::ParticleKind::Flutter(recipe.clone()),
+                )
+            })
+            .collect(),
         messages,
         session_data: entry.data,
         fields: entry.available_fields,
-        actor_names: [(1, "Lloyd"), (2, "Colette"), (3, "Genis"), (4, "Raine")]
-            .into_iter()
-            .map(|(id, name)| (id, name.into()))
-            .collect(),
+        actor_names: ResourceLibrary::character_names(),
         ..Default::default()
     };
     resources.movies.insert(1);
+    for &resource in assets.captions.keys() {
+        resources
+            .bindings
+            .insert(resource, (ResourceKind::Overlay, resource as u32));
+    }
     resources.locators.insert(24);
     for character in &assets.actors {
         let model = character
@@ -461,6 +806,7 @@ fn start_with_entry(
         resources.models.insert(
             resource,
             ModelResource {
+                has_eyes: model.appearance.as_ref().is_some_and(|a| a.eyes.is_some()),
                 names: model.bone_names.clone(),
                 hidden_nodes: character.hidden_nodes.iter().copied().collect(),
                 clips: BTreeMap::new(),
@@ -480,30 +826,62 @@ fn start_with_entry(
         }
     }
     let (mut world, memory) = entry.persistent.into_world();
-    world.controlled_actor = 1;
+    if let Some((party, menu)) = world.party.as_mut().zip(resources.menu_data.as_ref()) {
+        party.travel.enter_field(&menu.world_map, assets.map_id);
+    }
+    let leader = world.party.as_ref().map_or(1, |p| p.field_leader);
+    world.controlled_actor = i32::from(leader);
     // Both the camera orbit anchor and look target follow the player; updating
     // only the target leaves the eye orbiting the wrong point.
     let mut camera = resonance_events::camera::CameraRig::default();
     camera.current_mut().follow = true;
     camera.current_mut().anchor_to_actor = true;
+    camera.current_mut().actor = world.controlled_actor;
+    if let Some(entry) = entry.camera {
+        camera.angles = entry.camera.angles;
+        camera.distance = entry.camera.distance;
+        camera.position_rate = entry.position_rate;
+        camera.target_rate = entry.target_rate;
+        *camera.current_mut() = entry.camera;
+    }
     world.field_camera = Some(camera);
-    ensure!(resources.models.contains_key(&1), "Lloyd is not cooked");
-    let mut lloyd = Actor::new(1, entry.position);
-    lloyd.face(entry.heading);
+    let resource = u32::from(leader);
+    let model = resources
+        .models
+        .get(&resource)
+        .context("field leader is not cooked")?;
+    let mut player = Actor::new(resource, entry.position);
+    player.autonomy = Some(resonance_events::Autonomy::new(
+        resonance_events::Behavior::Player,
+        0.,
+        [0.; 3],
+    ));
+    player.face(entry.heading);
     if let Some(slot) = entry.idle_animation {
         ensure!(
-            resources.models[&1].clips.contains_key(&slot),
+            model.clips.contains_key(&slot),
             "field entry idle animation is missing"
         );
-        lloyd.idle_animation = slot;
+        player.idle_animation = slot;
     }
-    lloyd
+    player
         .appearance
         .hidden_nodes
-        .clone_from(&resources.models[&1].hidden_nodes);
-    world.actors.insert(1, lloyd);
-    for (part, actor) in assets.parts.iter().zip([0xF423C, 0xF423D]) {
+        .clone_from(&model.hidden_nodes);
+    world.insert_actor(world.controlled_actor, player);
+    world.insert_actor(
+        resonance_events::camera::ANCHOR_ACTOR,
+        resonance_events::camera::anchor(),
+    );
+    for part in &assets.parts {
         let resource = SCENERY_RESOURCE_BASE + u32::from(part.resource);
+        // Reserved script actor IDs address the scenery layers directly.
+        let actor = match part.resource {
+            0 => 0xF423C,
+            2 => 0xF423E,
+            12 => 0xF422C,
+            _ => -(resource as i32),
+        };
         resources.models.insert(
             resource,
             ModelResource {
@@ -533,7 +911,7 @@ fn start_with_entry(
                 world.tick,
             ));
         }
-        world.actors.insert(actor, instance);
+        world.insert_actor(actor, instance);
     }
     EventRuntime::with_state(
         Arc::new(Program::decode(script)?),
@@ -585,8 +963,18 @@ mod tests {
             ..Default::default()
         };
         FieldSession {
+            map_id: 0,
+            menu_resources: None,
+            play_time: Default::default(),
+            effect_clock: Default::default(),
+            menu: None,
             conversation_facing: None,
             active_triggers: Default::default(),
+            save_points: Default::default(),
+            action_hints: Default::default(),
+            skits: Default::default(),
+            active_skit: None,
+            skit_programs: BTreeMap::new(),
             voice_durations: Default::default(),
             voice_feedback: None,
             talking: Default::default(),

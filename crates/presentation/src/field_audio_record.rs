@@ -13,6 +13,8 @@ pub fn record_field_audio(
     output: &Path,
     frames: u64,
     events: &[(u64, AudioCommand)],
+    stereo: bool,
+    levels: [u8; 3],
 ) -> Result<()> {
     ensure!(
         (1..=u64::from(RATE) * 300).contains(&frames),
@@ -27,24 +29,18 @@ pub fn record_field_audio(
         "audio request is outside the recording"
     );
     ensure!(!output.exists(), "audio recording already exists");
-    let (source, control) = Assets::load(root)?.session();
+    let (source, mut control) = Assets::load(root)?.session();
+    control.stereo(stereo)?;
+    control.levels(levels)?;
     let mut stream = source.decoder();
     if let Some(parent) = output.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    let mut wave = hound::WavWriter::create(
-        output,
-        hound::WavSpec {
-            channels: 2,
-            sample_rate: RATE,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )?;
+    let mut wave = hound::WavWriter::create(output, super::PCM_SPEC)?;
     let mut events = events.iter().peekable();
     for frame in 0..frames {
-        while events.peek().is_some_and(|(at, _)| *at == frame) {
-            control.send(events.next().unwrap().1.clone())?;
+        while let Some((_, command)) = events.next_if(|(at, _)| *at == frame) {
+            control.send(command.clone())?;
         }
         for sample in stream
             .frame()?

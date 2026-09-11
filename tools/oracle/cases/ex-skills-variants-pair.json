@@ -1,0 +1,469 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "EX Skills: replacing gems, cancellation, Max choices, duplicates, button text, HP/TP bonuses and character switching.",
+  "registration": "Controlled ex-skill-fixture-v1 grants one of each EX gem in copies of matched checkpoints. Native menu opens at update 40; subsequent inputs use source poll/2. Frames use timestamped video and compare whole images, navigation, inventories, all characters EX selections and learned compounds, and the selected character statistics.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/ex-skill-fixture-v1/native.json",
+    "sha256": "0969eb58631f77496e01f5098c84e9ce33291f038040fc7c79388b6f69e2ec1c"
+  },
+  "native_replay": {
+    "path": "ex-skills-variants-keyboard.json",
+    "sha256": "e2ffce6eff754070488431550588d8a65ed9e764c57273de0a449150cd964a2d"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/ex-skill-fixture-v1/GQSEAF.s01",
+      "sha256": "1f68897d7833ea7596fed2c0d4030a375c5a738d007ebdda4535b98eab1a16bc"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 10420,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3140,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5060,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5540,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 5780,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7220,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 7460,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 7700,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 7940,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8900,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 9140,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 9380,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 9620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9860,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 10100,
+        "duration": 4,
+        "buttons": [
+          "l"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "current-skill-preview",
+      "native": "vi-1180",
+      "dolphin_vi": 1180,
+      "ex_state": true
+    },
+    {
+      "name": "current-skill-rejected",
+      "native": "vi-1300",
+      "dolphin_vi": 1300,
+      "ex_state": true
+    },
+    {
+      "name": "tough-preview",
+      "native": "vi-1420",
+      "dolphin_vi": 1420,
+      "ex_state": true
+    },
+    {
+      "name": "tough-equipped",
+      "native": "vi-1540",
+      "dolphin_vi": 1540,
+      "ex_state": true
+    },
+    {
+      "name": "replace-confirmation",
+      "native": "vi-1900",
+      "dolphin_vi": 1900,
+      "ex_state": true
+    },
+    {
+      "name": "replace-no",
+      "native": "vi-2020",
+      "dolphin_vi": 2020,
+      "ex_state": true
+    },
+    {
+      "name": "replace-cancelled",
+      "native": "vi-2140",
+      "dolphin_vi": 2140,
+      "ex_state": true
+    },
+    {
+      "name": "level-two-preview",
+      "native": "vi-2380",
+      "dolphin_vi": 2380,
+      "ex_state": true
+    },
+    {
+      "name": "vitality-preview",
+      "native": "vi-2620",
+      "dolphin_vi": 2620,
+      "ex_state": true
+    },
+    {
+      "name": "vitality-equipped",
+      "native": "vi-2740",
+      "dolphin_vi": 2740,
+      "ex_state": true
+    },
+    {
+      "name": "max-gem-preview",
+      "native": "vi-3340",
+      "dolphin_vi": 3340,
+      "ex_state": true
+    },
+    {
+      "name": "max-skill-list",
+      "native": "vi-3580",
+      "dolphin_vi": 3580,
+      "ex_state": true
+    },
+    {
+      "name": "taunt-button",
+      "native": "vi-3820",
+      "dolphin_vi": 3820,
+      "ex_state": true
+    },
+    {
+      "name": "max-list-scroll",
+      "native": "vi-4060",
+      "dolphin_vi": 4060,
+      "ex_state": true
+    },
+    {
+      "name": "duplicate-vitality-rejected",
+      "native": "vi-4420",
+      "dolphin_vi": 4420,
+      "ex_state": true
+    },
+    {
+      "name": "spirit-preview",
+      "native": "vi-4780",
+      "dolphin_vi": 4780,
+      "ex_state": true
+    },
+    {
+      "name": "spirit-equipped",
+      "native": "vi-4900",
+      "dolphin_vi": 4900,
+      "ex_state": true
+    },
+    {
+      "name": "colette-selected",
+      "native": "vi-5020",
+      "dolphin_vi": 5020,
+      "ex_state": true
+    },
+    {
+      "name": "lloyd-again",
+      "native": "vi-5140",
+      "dolphin_vi": 5140,
+      "ex_state": true
+    }
+  ],
+  "audio": []
+}

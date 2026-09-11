@@ -28,6 +28,7 @@ use resonance_content::{
     ANIMATION_HZ, HEIGHT, SCENE_HEIGHT, ScenePart, TextureBinding, WIDTH,
     field::{FieldAssets, SCENERY_RESOURCE_BASE},
 };
+use resonance_events::{Face, effect::LightPosition};
 use resonance_game::field::{FieldInput, FieldSession};
 pub use sequence::{FieldMovement, FieldSequence};
 use std::{
@@ -65,6 +66,7 @@ impl Plugin for FieldPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FieldRendering)
             .init_resource::<Controls>()
+            .init_resource::<RetainedFields>()
             .add_systems(
                 Update,
                 super::field_ui::subtitles
@@ -93,6 +95,9 @@ impl Plugin for FieldPlugin {
 struct FieldRendering;
 impl Plugin for FieldRendering {
     fn build(&self, app: &mut App) {
+        super::field_refraction::install(app);
+        super::menu_backdrop::install(app);
+        super::model_preview::install(app);
         app.add_plugins(Material2dPlugin::<super::field_ui::Surface>::default())
             .init_resource::<Applied>()
             .init_resource::<super::field_pose::Authored>()
@@ -152,8 +157,32 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
 pub(super) struct Controls {
     input: FieldInput,
     held_accept: bool,
+    held_skit: bool,
     held_cancel: bool,
+    held_menu: bool,
 }
+impl Controls {
+    fn clear_actions(&mut self) {
+        self.input.interact = false;
+        self.input.skit = false;
+        self.input.cancel = false;
+        self.input.menu = false;
+    }
+
+    pub(super) fn consume(&mut self) -> FieldInput {
+        let input = self.input;
+        self.clear_actions();
+        self.input.start = false;
+        self.input.alternate = false;
+        self.input.previous_page = false;
+        self.input.next_page = false;
+        input
+    }
+}
+#[derive(Resource, Default)]
+struct RetainedFields(
+    BTreeMap<u32, (Art, super::field_ui::Artwork, super::field_effects::Artwork)>,
+);
 #[derive(Resource)]
 pub(super) struct Art {
     pub(super) map: u32,
@@ -187,6 +216,7 @@ pub(super) struct ActorPart {
     pub(super) actor: i32,
     pub(super) resource: u32,
     pub(super) part: usize,
+    pass: u8,
     materials: Vec<Handle<TitleSurface>>,
     pub(super) prepared: bool,
     instantiated: bool,
@@ -212,7 +242,6 @@ impl Art {
                 (
                     material.template.id(),
                     TitleSurface {
-                        color: super::scene::sampled_image(material.color.clone(), images, sampled),
                         multiply: super::scene::sampled_image(
                             material.multiply.clone(),
                             images,
@@ -225,9 +254,19 @@ impl Art {
                         .then(|| self.toon_ramp.clone()),
                         constant_color: part.spec.outline_color.is_some(),
                         blend: spec.blend,
+                        additive: resource == resonance_content::field::SAVE_POINT_RESOURCE,
                         depth_write: spec.depth_write,
-                        cull: spec.cull,
-                        ..default()
+                        // The circle's translucent shell is visible from both sides.
+                        cull: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
+                            resonance_content::CullFace::None
+                        } else {
+                            spec.cull
+                        },
+                        ..TitleSurface::textured(super::scene::sampled_image(
+                            material.color.clone(),
+                            images,
+                            sampled,
+                        ))
                     },
                 )
             })
@@ -252,9 +291,14 @@ impl Art {
             .and_then(|part| part.spec.appearance.as_ref())
             .is_some_and(|a| a.mouth.is_some())
     }
+    pub(super) fn has_eyes(&self, resource: u32) -> bool {
+        self.models
+            .get(&resource)
+            .and_then(|parts| parts.first())
+            .and_then(|part| part.spec.appearance.as_ref())
+            .is_some_and(|a| a.eyes.is_some())
+    }
 }
-#[derive(Component)]
-struct View;
 #[derive(Resource)]
 struct Checkpoint {
     output: PathBuf,
@@ -278,6 +322,37 @@ pub(super) fn has_live_shadows(world: &mut World) -> bool {
         .is_some()
 }
 
+/// A warm restart keeps meshes, clips, textures and compiled materials alive.
+pub(super) fn reset_live(world: &mut World) {
+    if let Some(mut art) = world.get_resource_mut::<Art>() {
+        let instances = std::mem::take(&mut art.instances);
+        for entity in instances.into_values().flatten() {
+            world.despawn(entity);
+        }
+    }
+    if let Some(mut controls) = world.get_resource_mut::<Controls>() {
+        controls.input = Default::default();
+    }
+}
+
+pub(super) fn ready(world: &mut World) -> bool {
+    let Some(session) = world.get_resource::<super::new_game::Session>() else {
+        return false;
+    };
+    let Some(art) = world.get_resource::<Art>() else {
+        return false;
+    };
+    art.ready
+        && art.map == session.assets.map_id
+        && session.field.events.world.actors.iter().all(|(id, actor)| {
+            !art.models.contains_key(&actor.resource) || art.instances.contains_key(id)
+        })
+        && world
+            .query::<&ActorPart>()
+            .iter(world)
+            .all(|part| part.prepared)
+}
+
 fn retire_live(world: &mut World) {
     if world.contains_resource::<Session>() {
         return;
@@ -289,17 +364,20 @@ fn retire_live(world: &mut World) {
     {
         return;
     }
-    if let Some(art) = world.remove_resource::<Art>() {
+    let art = world.remove_resource::<Art>();
+    let ui = world.remove_resource::<super::field_ui::Artwork>();
+    let effects = world.remove_resource::<super::field_effects::Artwork>();
+    if let (Some(mut art), Some(mut ui), Some(mut effects)) = (art, ui, effects) {
         art.shadows.despawn(world);
-        for entity in art.instances.into_values().flatten() {
+        for entity in std::mem::take(&mut art.instances).into_values().flatten() {
             world.despawn(entity);
         }
-    }
-    if let Some(ui) = world.remove_resource::<super::field_ui::Artwork>() {
         ui.despawn(world);
-    }
-    if let Some(effects) = world.remove_resource::<super::field_effects::Artwork>() {
         effects.despawn(world);
+        world
+            .resource_mut::<RetainedFields>()
+            .0
+            .insert(art.map, (art, ui, effects));
     }
 }
 
@@ -315,6 +393,7 @@ fn load_live(
     mut surfaces: ResMut<Assets<TitleSurface>>,
     resident: Res<super::loading::Resident>,
     mut controls: ResMut<Controls>,
+    mut retained: ResMut<RetainedFields>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Some(session) = session else {
@@ -323,40 +402,50 @@ fn load_live(
     if art.is_some() {
         return;
     }
+    if let Some((art, mut ui, mut effects)) = retained.0.remove(&session.assets.map_id) {
+        ui.prepare(&mut commands, &mut meshes, &mut materials);
+        effects.prepare(&mut commands, &mut meshes, &mut surfaces);
+        commands.insert_resource(art);
+        commands.insert_resource(ui);
+        commands.insert_resource(effects);
+        controls.input = Default::default();
+        return;
+    }
     let files = resident.files.read().unwrap().clone();
-    match super::field_ui::Artwork::load_with(
+    let mut ui = match super::field_ui::Artwork::load_with(
         &root.assets,
+        &session.assets,
         &server,
         &mut materials,
         files.as_deref(),
     ) {
-        Ok(mut ui) => {
-            ui.prepare(&mut commands, &mut meshes, &mut materials);
-            let mut effects = match super::field_effects::Artwork::load_with(
-                &root.assets,
-                &session.assets.effects,
-                &server,
-                files.as_deref(),
-            ) {
-                Ok(effects) => effects,
-                Err(error) => {
-                    error!("Could not prepare field effects: {error:#}");
-                    exit.write(AppExit::error());
-                    return;
-                }
-            };
-            effects.prepare(&mut commands, &mut meshes, &mut surfaces);
-            commands.insert_resource(effects);
-            commands.insert_resource(ui);
-            commands.insert_resource(load_art(&session.assets, &server));
-            controls.input.interact = false;
-            controls.input.cancel = false;
-        }
+        Ok(ui) => ui,
         Err(error) => {
             error!("Could not prepare field presentation: {error:#}");
             exit.write(AppExit::error());
+            return;
         }
-    }
+    };
+    ui.prepare(&mut commands, &mut meshes, &mut materials);
+    let mut effects = match super::field_effects::Artwork::load_with(
+        &root.assets,
+        &session.assets,
+        &server,
+        files.as_deref(),
+    ) {
+        Ok(effects) => effects,
+        Err(error) => {
+            error!("Could not prepare field effects: {error:#}");
+            exit.write(AppExit::error());
+            return;
+        }
+    };
+    effects.prepare(&mut commands, &mut meshes, &mut surfaces);
+    commands.insert_resource(effects);
+    commands.insert_resource(ui);
+    commands.insert_resource(load_art(&session.assets, &server));
+    controls.input.interact = false;
+    controls.input.cancel = false;
 }
 
 pub(super) fn gather_controls(
@@ -364,10 +453,24 @@ pub(super) fn gather_controls(
     pads: Query<&Gamepad>,
     mut controls: ResMut<Controls>,
 ) {
+    use GamepadButton::*;
     let axis = |positive: [KeyCode; 2], negative: [KeyCode; 2]| {
         f32::from(positive.into_iter().any(|key| input.pressed(key)))
             - f32::from(negative.into_iter().any(|key| input.pressed(key)))
     };
+    controls.input.scroll_direction = i8::from(
+        input.pressed(KeyCode::PageUp) || pads.iter().any(|pad| pad.right_stick().y > 0.5),
+    ) - i8::from(
+        input.pressed(KeyCode::PageDown) || pads.iter().any(|pad| pad.right_stick().y < -0.5),
+    );
+    let mut preview = Vec2::new(
+        axis([KeyCode::BracketRight; 2], [KeyCode::BracketLeft; 2]),
+        axis([KeyCode::PageUp; 2], [KeyCode::PageDown; 2]),
+    );
+    for pad in &pads {
+        preview += pad.right_stick();
+    }
+    controls.input.preview_direction = preview.clamp(Vec2::NEG_ONE, Vec2::ONE).to_array();
     let mut direction = Vec2::new(
         axis(
             [KeyCode::ArrowRight, KeyCode::KeyD],
@@ -384,36 +487,43 @@ pub(super) fn gather_controls(
             direction += stick;
         }
         direction += Vec2::new(
-            f32::from(pad.pressed(GamepadButton::DPadRight))
-                - f32::from(pad.pressed(GamepadButton::DPadLeft)),
-            f32::from(pad.pressed(GamepadButton::DPadUp))
-                - f32::from(pad.pressed(GamepadButton::DPadDown)),
+            f32::from(pad.pressed(DPadRight)) - f32::from(pad.pressed(DPadLeft)),
+            f32::from(pad.pressed(DPadUp)) - f32::from(pad.pressed(DPadDown)),
         );
     }
     controls.input.direction = direction.clamp_length_max(1.).to_array();
-    controls.input.run = input.pressed(KeyCode::ShiftLeft)
-        || input.pressed(KeyCode::ShiftRight)
-        || pads.iter().any(|pad| pad.pressed(GamepadButton::East));
-    let accept = input.pressed(KeyCode::Enter)
-        || input.pressed(KeyCode::Space)
-        || pads.iter().any(|pad| pad.pressed(GamepadButton::South));
-    controls.input.interact |= accept && !controls.held_accept
-        || input.just_pressed(KeyCode::Enter)
-        || input.just_pressed(KeyCode::Space)
-        || pads
-            .iter()
-            .any(|pad| pad.just_pressed(GamepadButton::South));
-    controls.held_accept = accept;
-    let cancel =
-        input.pressed(KeyCode::Escape) || pads.iter().any(|pad| pad.pressed(GamepadButton::East));
-    controls.input.cancel |= cancel && !controls.held_cancel
-        || input.just_pressed(KeyCode::Escape)
-        || pads.iter().any(|pad| pad.just_pressed(GamepadButton::East));
-    controls.held_cancel = cancel;
+    let pressed = |keys: &[KeyCode], button| {
+        keys.iter().any(|&key| input.pressed(key)) || pads.iter().any(|pad| pad.pressed(button))
+    };
+    let just_pressed = |keys: &[KeyCode], button| {
+        keys.iter().any(|&key| input.just_pressed(key))
+            || pads.iter().any(|pad| pad.just_pressed(button))
+    };
+    // Preserve edges between fixed updates, including devices newly reporting a held button.
+    let latch = |keys: &[KeyCode], button, held: &mut bool| {
+        let down = pressed(keys, button);
+        let edge = down && !*held || just_pressed(keys, button);
+        *held = down;
+        edge
+    };
+    let controls = &mut *controls;
+    controls.input.run = pressed(&[KeyCode::ShiftLeft, KeyCode::ShiftRight], East);
+    controls.input.interact |= latch(
+        &[KeyCode::Enter, KeyCode::Space],
+        South,
+        &mut controls.held_accept,
+    );
+    controls.input.skit |= latch(&[KeyCode::KeyZ], Z, &mut controls.held_skit);
+    controls.input.cancel |= latch(&[KeyCode::Escape], East, &mut controls.held_cancel);
+    controls.input.menu |= latch(&[KeyCode::Tab], North, &mut controls.held_menu);
+    controls.input.start |= just_pressed(&[KeyCode::Home], Start);
+    controls.input.alternate |= just_pressed(&[KeyCode::KeyX], West);
+    controls.input.previous_page |= just_pressed(&[KeyCode::KeyQ], LeftTrigger);
+    controls.input.next_page |= just_pressed(&[KeyCode::KeyE], RightTrigger);
 }
 
 #[allow(clippy::too_many_arguments)] // The fixed update waits for CPU and GPU preparation.
-fn advance_live(
+pub(super) fn advance_live(
     mut session: Option<ResMut<super::new_game::Session>>,
     art: Option<Res<Art>>,
     ui: Option<Res<super::field_ui::Artwork>>,
@@ -422,18 +532,21 @@ fn advance_live(
     mut controls: ResMut<Controls>,
     mut exit: MessageWriter<AppExit>,
     resident: Res<super::loading::Resident>,
+    options: Res<super::RunOptions>,
 ) {
     let Some(session) = &mut session else {
-        controls.input.interact = false;
-        controls.input.cancel = false;
+        controls.clear_actions();
         return;
     };
+    if options.saves.load.is_some() && options.capture.is_some() {
+        return;
+    }
     if !resident.active.load(std::sync::atomic::Ordering::Acquire)
         || !session.ready_for_field
+        || session.audio.is_some()
         || session.field.events.world.field_transition.is_some()
     {
-        controls.input.interact = false;
-        controls.input.cancel = false;
+        controls.clear_actions();
         return;
     }
     let Some(art) = art.filter(|a| a.ready && a.map == session.assets.map_id) else {
@@ -447,9 +560,7 @@ fn advance_live(
     {
         return;
     }
-    let input = controls.input;
-    controls.input.interact = false;
-    controls.input.cancel = false;
+    let input = controls.consume();
     if let Err(error) = session.field.step(input) {
         error!("Field update failed: {error:#}");
         session.field.events.cancel();
@@ -457,14 +568,10 @@ fn advance_live(
     }
 }
 
-#[allow(clippy::type_complexity)] // Both the live camera and isolated capture use this adapter.
 fn camera(
     state: State,
     display: Option<Res<super::display::Display>>,
-    mut cameras: Query<
-        (&mut Transform, &mut Projection),
-        Or<(With<View>, With<super::FieldCamera>)>,
-    >,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
     mut applied: ResMut<Applied>,
 ) {
@@ -474,6 +581,23 @@ fn camera(
     let Some(camera) = &state.get().events.world.field_camera else {
         return;
     };
+    let field = state.get();
+    let preferences = field
+        .menu
+        .as_ref()
+        .and_then(resonance_game::menu::Menu::preferences)
+        .or_else(|| {
+            field
+                .events
+                .world
+                .party
+                .as_ref()
+                .map(|p| &p.settings.preferences)
+        });
+    TitleOutput::position(
+        &mut outputs,
+        preferences.map_or([0; 2], |p| p.screen_position),
+    );
     for (mut transform, mut projection) in &mut cameras {
         *transform = Transform::from_translation(Vec3::from_array(camera.position))
             .looking_at(Vec3::from_array(camera.target), Vec3::Z);
@@ -518,12 +642,16 @@ fn ui(
     bones: Query<(&Name, &GlobalTransform)>,
     mut exit: MessageWriter<AppExit>,
     mut applied: ResMut<Applied>,
+    clock: Option<Res<super::Clock>>,
 ) {
     art.resolution = display.map_or(super::Resolution::default(), |d| d.0);
     if state.live.as_ref().is_some_and(|s| !s.ready_for_field) {
         return;
     }
     if !art.ready(&images) {
+        if state.get().menu.is_some() {
+            applied.loading(Request::Menu);
+        }
         for &slot in state.get().events.world.dialogue.keys() {
             applied.loading(Request::Dialogue(slot));
             applied.loading(Request::Choice(slot));
@@ -543,8 +671,30 @@ fn ui(
                 .map(|(_, transform)| (part.actor, transform.translation()))
         })
         .collect();
+    match art.render_captions(&state.get().events.world, &mut commands, &mut meshes) {
+        Ok(handled) => {
+            for id in handled {
+                applied.ack(Request::Overlay(id));
+                applied.ack(Request::Actor(id, 0));
+            }
+        }
+        Err(error) => {
+            error!("Field overlay rendering failed: {error:#}");
+            exit.write(AppExit::error());
+        }
+    }
     if let Err(error) = art.render(
         state.get(),
+        // Standalone captures advance or freeze their checkpoint explicitly.
+        // Live play keeps UI time independent of paused field scripts.
+        if state.checkpoint.is_some() {
+            state.get().events.tick()
+        } else {
+            clock
+                .expect("live field needs a presentation clock")
+                .0
+                .tick()
+        },
         &heads,
         &mut commands,
         &mut meshes,
@@ -553,16 +703,21 @@ fn ui(
         error!("Field dialogue rendering failed: {error:#}");
         exit.write(AppExit::error());
     } else {
-        for (&slot, request) in &state.get().events.world.dialogue {
+        if state.get().menu.is_some() {
+            applied.ack(Request::Menu);
+        }
+        if state.get().active_skit.is_some() {
+            applied.ack(Request::Skit);
+        }
+        let (world, dialogue) = state.get().dialogue_scene();
+        for (&slot, request) in &world.dialogue {
             if request.operation.is_pending() {
                 if request.opening_actor.is_some() {
                     // The original attached window intentionally stays hidden
                     // until its speaker finishes turning. Text/voice playback
                     // is deferred by the same request, not dropped by the UI.
                     applied.ack(Request::Dialogue(slot));
-                } else if state
-                    .get()
-                    .dialogue
+                } else if dialogue
                     .get(&slot)
                     .is_some_and(|p| !p.closed && p.operation.id() == request.operation.id())
                 {
@@ -612,16 +767,31 @@ pub fn capture_field_sequence(root: &Path, output: &Path, sequence: &FieldSequen
     capture_field(root, output, CaptureTarget::Sequence(sequence))
 }
 /// Setup prompt checkpoint, using the normal fresh-game entry.
-pub fn capture_setup(root: &Path, output: &Path, tick: u32) -> Result<()> {
-    capture_field(root, output, CaptureTarget::Setup(tick))
+pub fn capture_setup(
+    root: &Path,
+    output: &Path,
+    tick: u32,
+    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
+) -> Result<()> {
+    capture_field(root, output, CaptureTarget::Setup(tick, preferences))
 }
-pub fn capture_dialogue(root: &Path, output: &Path, prefix: &str, hold_ticks: u32) -> Result<()> {
+pub fn capture_dialogue(
+    root: &Path,
+    output: &Path,
+    prefix: &str,
+    hold_ticks: u32,
+    preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
+) -> Result<()> {
     ensure!(
         !prefix.is_empty(),
         "dialogue checkpoint needs a text prefix"
     );
     ensure!(hold_ticks <= 3600, "dialogue hold exceeds one minute");
-    capture_field(root, output, CaptureTarget::Dialogue(prefix, hold_ticks))
+    capture_field(
+        root,
+        output,
+        CaptureTarget::Dialogue(prefix, hold_ticks, preferences),
+    )
 }
 #[derive(Clone, Copy)]
 enum CaptureTarget<'a> {
@@ -629,13 +799,20 @@ enum CaptureTarget<'a> {
     Probe(&'a super::ClassroomProbe),
     Particles(&'a super::ParticleProbe),
     Sequence(&'a FieldSequence),
-    Setup(u32),
-    Dialogue(&'a str, u32),
+    Setup(
+        u32,
+        Option<&'a resonance_content::menu_data::CustomizeSettings>,
+    ),
+    Dialogue(
+        &'a str,
+        u32,
+        Option<&'a resonance_content::menu_data::CustomizeSettings>,
+    ),
 }
 fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Result<()> {
-    let setup_prompt = matches!(target, CaptureTarget::Setup(_));
+    let setup_prompt = matches!(target, CaptureTarget::Setup(..));
     let (dialogue_prefix, dialogue_hold_ticks) = match target {
-        CaptureTarget::Dialogue(prefix, hold) => (Some(prefix), hold),
+        CaptureTarget::Dialogue(prefix, hold, _) => (Some(prefix), hold),
         _ => (None, 0),
     };
     let probe = match target {
@@ -644,18 +821,38 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         _ => None,
     };
     let root = fs::canonicalize(root)?;
+    let checkpoint = match target {
+        CaptureTarget::Sequence(sequence) => sequence.checkpoint.as_ref(),
+        _ => None,
+    };
     let (assets, mut session) = if setup_prompt {
         let entry = super::new_game::Session::load(&root)?;
         (entry.assets, entry.field)
     } else {
-        let assets: FieldAssets =
-            serde_json::from_slice(&fs::read(root.join("fields/iselia-classroom.json"))?)?;
+        let path = match checkpoint.map(|c| c.map_id) {
+            None | Some(340) => "fields/iselia-classroom.json".to_owned(),
+            Some(id @ (330 | 332)) => format!("fields/map-{id}.json"),
+            Some(id) => anyhow::bail!("field {id} is outside the oracle route"),
+        };
+        let assets: FieldAssets = serde_json::from_slice(&fs::read(root.join(path))?)?;
         let messages = serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?;
-        let session = FieldSession::new(
+        let entry = if let Some(checkpoint) = checkpoint {
+            let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
+            checkpoint
+                .clone()
+                .entry(&assets, std::sync::Arc::new(data), [330, 332, 340].into())?
+        } else {
+            Default::default()
+        };
+        let mut session = FieldSession::enter(
             &fs::read(root.join(&assets.script.path))?,
             messages,
             &assets,
+            entry,
         )?;
+        if let Some(checkpoint) = checkpoint {
+            super::new_game::initialize_checkpoint(&mut session, checkpoint)?;
+        }
         (assets, session)
     };
     session.voice_durations = super::field_audio::Assets::load(&root)?.voice_durations();
@@ -675,7 +872,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
                 .any(|p| target_dialogue(p) && p.fully_revealed() && p.accepts_input())
         } else {
             match target {
-                CaptureTarget::Tick(Some(tick)) | CaptureTarget::Setup(tick) => {
+                CaptureTarget::Tick(Some(tick)) | CaptureTarget::Setup(tick, _) => {
                     session.events.tick() >= tick
                 }
                 CaptureTarget::Tick(None)
@@ -742,7 +939,27 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     if let Some(probe) = probe {
         probe.apply(&mut session)?;
     }
+    let preferences = match target {
+        CaptureTarget::Dialogue(_, _, preferences) | CaptureTarget::Setup(_, preferences) => {
+            preferences
+        }
+        _ => probe.and_then(|p| p.preferences.as_ref()),
+    };
+    if let Some(preferences) = preferences {
+        preferences.validate()?;
+        let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
+        let party = session
+            .events
+            .world
+            .party
+            .get_or_insert(resonance_events::party::Party::new(
+                &data,
+                Default::default(),
+            )?);
+        party.settings.preferences = preferences.clone();
+    }
     let mut app = App::new();
+    super::model_preview::register(&mut app, &root);
     app.add_plugins(
         DefaultPlugins
             .set(AssetPlugin {
@@ -827,11 +1044,11 @@ fn setup(
     mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
 ) {
-    let mut effects = super::field_effects::Artwork::load(&root.0, &manifest.0.effects, &server)
+    let mut effects = super::field_effects::Artwork::load(&root.0, &manifest.0, &server)
         .expect("validated cooked field effects");
     effects.prepare(&mut commands, &mut meshes, &mut surfaces);
     commands.insert_resource(effects);
-    let mut ui = super::field_ui::Artwork::load(&root.0, &server, &mut ui_materials)
+    let mut ui = super::field_ui::Artwork::load(&root.0, &manifest.0, &server, &mut ui_materials)
         .expect("validated cooked dialogue artwork");
     ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
     commands.insert_resource(ui);
@@ -845,6 +1062,7 @@ fn setup(
     let mut source =
         Image::new_target_texture(WIDTH, SCENE_HEIGHT, TextureFormat::Bgra8Unorm, None);
     source.sampler = ImageSampler::linear();
+    source.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let source = images.add(source);
     commands.spawn((
         Camera2d,
@@ -870,6 +1088,7 @@ fn setup(
         MeshMaterial2d(outputs.add(TitleOutput {
             source: source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
+            screen_offset: Vec2::ZERO,
         })),
         RenderLayers::layer(2),
     ));
@@ -893,11 +1112,16 @@ fn setup(
     ));
     let camera = session.0.events.world.field_camera.as_ref().unwrap();
     commands.spawn((
-        Camera3d::default(),
+        Camera3d {
+            depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::TEXTURE_BINDING)
+                .into(),
+            ..default()
+        },
         Tonemapping::None,
         Msaa::Off,
         RenderTarget::Image(source.into()),
-        View,
+        super::FieldCamera,
         Camera {
             order: -1,
             ..default()
@@ -1132,7 +1356,15 @@ fn instances(
         let entities = parts
             .iter()
             .enumerate()
-            .map(|(index, part)| {
+            .flat_map(|(index, part)| {
+                (0..if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
+                    2
+                } else {
+                    1
+                })
+                    .map(move |pass| (index, part, pass))
+            })
+            .map(|(index, part, pass)| {
                 let materials = art
                     .surfaces(actor.resource, index, &mut images, &mut sampled)
                     .map(|(_, surface)| surfaces.add(surface))
@@ -1145,6 +1377,7 @@ fn instances(
                             actor: id,
                             resource: actor.resource,
                             part: index,
+                            pass,
                             materials,
                             prepared: false,
                             instantiated: false,
@@ -1215,31 +1448,71 @@ fn pose(
     effects: Res<super::field_effects::Artwork>,
 ) {
     let session = session.get();
+    let world = &session.events.world;
+    let tick = session.events.tick();
     for (root, mut instance, mut transform, mut visibility) in &mut roots {
         if !instance.instantiated {
+            if let Some(index) = world
+                .save_points
+                .iter()
+                .position(|p| p.actor == instance.actor)
+            {
+                applied.loading(Request::SavePoint(index, instance.pass));
+            }
             applied.loading(Request::SecondaryMotion(instance.actor, instance.part));
             if instance.part == 0 {
                 applied.loading(Request::Mouth(instance.actor));
+                applied.loading(Request::Eyes(instance.actor));
             }
             applied.loading(Request::Actor(instance.actor, instance.part));
-            if let Some(actor) = session.events.world.actors.get(&instance.actor) {
+            if let Some(actor) = world.actors.get(&instance.actor) {
                 for request in audit::actor_requests(instance.actor, instance.part, actor) {
                     applied.loading(request);
                 }
             }
             continue;
         }
-        let Some(actor) = session.events.world.actors.get(&instance.actor) else {
+        let Some(actor) = world.actors.get(&instance.actor) else {
             continue;
         };
         debug_assert_eq!(
-            instance.resource,
-            actor.resource,
+            instance.resource, actor.resource,
             "VM actor {} changed its model without replacing the scene instance at tick {}",
-            instance.actor,
-            session.events.tick()
+            instance.actor, tick
         );
         let part = &art.models[&instance.resource][instance.part];
+        let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
+        let brightness = world.brightness();
+        let tint = Vec4::new(brightness, brightness, brightness, 1.)
+            * part.spec.outline_color.map_or(Vec4::ONE, |color| {
+                Vec4::from_array(color.map(|c| f32::from(c) / 255.))
+            })
+            * if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
+                if instance.pass == 0 {
+                    Vec4::new(4. / 64., 4. / 64., 255. / 64., 1.)
+                } else {
+                    Vec4::new(1., 1., 1., 128. / 255.)
+                }
+            } else {
+                Vec4::ONE
+            };
+        let light = session.character_light(instance.actor);
+        let light_position = match light.position {
+            LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
+            LightPosition::World(p) => Vec3::from_array(p),
+            LightPosition::Actor { id, height } => world.actors.get(&id).map_or(Vec3::ZERO, |a| {
+                Vec3::from_array(a.position) + Vec3::Z * height
+            }),
+        }
+        .extend(f32::from(light.strength));
+        // Quantize light colors to five bits per channel before shading.
+        let shades = [light.shade, light.bright].map(|c| {
+            Vec3::from_array(c.map(|v| {
+                let v = v >> 3;
+                f32::from((v << 3) | (v >> 2)) / 255.
+            }))
+            .extend(1.)
+        });
         for (index, material) in part.spec.materials.iter().enumerate() {
             let mut offset = [0.; 2];
             if let Some(channels) = &part.spec.appearance
@@ -1251,23 +1524,21 @@ fn pose(
                     offset[1] += f32::from(actor.appearance.expression % variant.frames)
                         / f32::from(variant.frames);
                 }
-                if channels.eyes == Some(binding.texture)
-                    && let resonance_events::Face::Frame(frame) = actor.appearance.face
-                {
+                if channels.eyes == Some(binding.texture) {
+                    let frame = match actor.appearance.face {
+                        Face::Frame(frame) => frame,
+                        Face::Blink => actor.appearance.eyes.map_or(0, |eyes| eyes.frame),
+                        Face::Disabled => 0,
+                    };
                     offset[1] += f32::from(frame) / 16.;
+                    applied.ack(Request::Eyes(instance.actor));
                 }
                 if channels.mouth == Some(binding.texture) {
                     let frame = match actor.appearance.mouth {
-                        Some(resonance_events::Face::Frame(frame)) => frame,
-                        _ if session.talking.contains_key(&instance.actor) => effects.mouth_frame(
-                            session
-                                .events
-                                .tick()
-                                .saturating_sub(session.talking[&instance.actor]),
-                        ),
-                        Some(resonance_events::Face::Blink) => {
-                            effects.mouth_frame(session.events.tick())
-                        }
+                        Some(Face::Frame(frame)) => frame,
+                        _ if session.talking.contains_key(&instance.actor) => effects
+                            .mouth_frame(tick.saturating_sub(session.talking[&instance.actor])),
+                        Some(Face::Blink) => effects.mouth_frame(tick),
                         _ => 0,
                     };
                     offset[1] += f32::from(frame) / 8.;
@@ -1284,38 +1555,18 @@ fn pose(
                 }
             }
             let offsets = Vec4::new(offset[0], offset[1], 0., 0.);
-            let brightness = session.events.world.brightness();
-            let tint = Vec4::new(brightness, brightness, brightness, 1.)
-                * part.spec.outline_color.map_or(Vec4::ONE, |color| {
-                    Vec4::from_array(color.map(|c| f32::from(c) / 255.))
-                });
-            let depth_write = material.depth_write && actor.depth_write;
-            let light = session.character_light(instance.actor);
-            let light_position = match light.position {
-                resonance_events::effect::LightPosition::Relative(p) => {
-                    Vec3::from_array(p) + Vec3::from_array(actor.position)
+            let scales = [&material.color, &material.multiply].map(|binding| {
+                if binding.as_ref().is_some_and(|b| b.texture == 1) {
+                    save_point.map_or(1., |p| p.glow_scale)
+                } else {
+                    1.
                 }
-                resonance_events::effect::LightPosition::World(p) => Vec3::from_array(p),
-                resonance_events::effect::LightPosition::Actor { id, height } => session
-                    .events
-                    .world
-                    .actors
-                    .get(&id)
-                    .map_or(Vec3::ZERO, |a| {
-                        Vec3::from_array(a.position) + Vec3::Z * height
-                    }),
-            }
-            .extend(f32::from(light.strength));
-            // Quantize light colors to five bits per channel before shading.
-            let shades = [light.shade, light.bright].map(|c| {
-                Vec3::from_array(c.map(|v| {
-                    let v = v >> 3;
-                    f32::from((v << 3) | (v >> 2)) / 255.
-                }))
-                .extend(1.)
             });
+            let uv_scales = Vec4::new(1., scales[0], 1., scales[1]);
+            let depth_write = material.depth_write && actor.depth_write;
             if surfaces.get(&instance.materials[index]).is_some_and(|s| {
                 s.uv_offsets != offsets
+                    || s.uv_scales != uv_scales
                     || s.tint != tint
                     || s.depth_write != depth_write
                     || s.field_light != light_position
@@ -1323,6 +1574,7 @@ fn pose(
             }) {
                 let mut surface = surfaces.get_mut(&instance.materials[index]).unwrap();
                 surface.uv_offsets = offsets;
+                surface.uv_scales = uv_scales;
                 surface.tint = tint;
                 surface.depth_write = depth_write;
                 surface.field_light = light_position;
@@ -1380,7 +1632,17 @@ fn pose(
                         .remove::<MeshMaterial3d<StandardMaterial>>()
                         .insert((
                             MeshMaterial3d(instance.materials[index].clone()),
-                            DrawOrder(part.spec.materials[index].draw_order),
+                            // Translucent circle passes follow scenery and actors;
+                            // drawing them among opaque model parts clips the glow.
+                            DrawOrder(
+                                part.spec.materials[index].draw_order
+                                    + u32::from(instance.pass) * (1 << 16)
+                                    + if save_point.is_some() {
+                                        super::draw_order::FIELD_TRANSLUCENCY
+                                    } else {
+                                        0
+                                    },
+                            ),
                         ));
                 }
                 if let Ok((_, graph)) = players.get_mut(entity) {
@@ -1425,7 +1687,7 @@ fn pose(
                 player
                     .play(part.nodes[index])
                     .pause()
-                    .set_seek_time(a.sample(session.events.tick(), 0, duration) / ANIMATION_HZ);
+                    .set_seek_time(a.sample(tick, 0, duration) / ANIMATION_HZ);
                 applied.ack(Request::Animation {
                     actor: instance.actor,
                     part: instance.part,
@@ -1444,6 +1706,13 @@ fn pose(
             })
         {
             applied.ack(Request::Actor(instance.actor, instance.part));
+            if let Some(index) = world
+                .save_points
+                .iter()
+                .position(|p| p.actor == instance.actor)
+            {
+                applied.ack(Request::SavePoint(index, instance.pass));
+            }
         }
     }
 }
@@ -1455,6 +1724,7 @@ fn capture(
     parts: Query<&ActorPart>,
     framebuffer: Res<super::Framebuffer>,
     ready: Res<super::RenderReady>,
+    refraction: Res<super::field_refraction::Ready>,
     session: Res<Session>,
     dialogue_art: Res<super::field_ui::Artwork>,
     mut exit: MessageWriter<AppExit>,
@@ -1474,6 +1744,7 @@ fn capture(
         || parts.is_empty()
         || parts.iter().any(|p| !p.prepared)
         || !ready.0.load(std::sync::atomic::Ordering::Relaxed)
+        || !refraction.get()
     {
         checkpoint.settled = 0;
         return;
@@ -1492,6 +1763,7 @@ fn capture(
         "registered_particle_probe":checkpoint.particle_probe,
         "billboards":session.0.events.world.billboards.iter().map(|(id,p)|serde_json::json!({"id":id,"age":session.0.events.tick()-p.born,"position":p.position,"size":p.size,"size_delta":p.size_delta,"rotation":p.rotation,"angular_velocity":p.angular_velocity,"alpha":p.alpha(session.0.events.tick())})).collect::<Vec<_>>(),
         "dialogue_hold_ticks":checkpoint.dialogue_hold_ticks,
+        "dialogue_preferences":session.0.events.world.party.as_ref().map(|p|&p.settings.preferences),
         "dialogue_layouts":dialogue_art.diagnostic_layouts(&session.0),
         "actor_poses":actor_poses,
         "controlled_pose":pose_nodes,

@@ -22,3 +22,17 @@ fn registry_overlay_is_valid_executable_code() {
     assert_eq!(program.entry(), 4);
     assert_eq!(program.event(1, 0x20ff0000), Some(4));
 }
+
+#[test]
+fn duplicate_registry_keys_keep_the_first_entry() {
+    let data = bytes(&[
+        16, 0, 0, 2, 0, 2, 0, 3000, 0, 1, 0, 2, 0, 3000, 0, 2, 0x20ff, 0x20ff, 0x20ff,
+    ]);
+    assert_eq!(Program::decode(&data).unwrap().event(2, 3000), Some(1));
+    let mut invalid = data;
+    invalid[30..32].copy_from_slice(&100u16.to_be_bytes());
+    assert!(
+        Program::decode(&invalid).is_err(),
+        "unreachable duplicates must still have valid targets"
+    );
+}

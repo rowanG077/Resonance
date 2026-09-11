@@ -1,6 +1,8 @@
 //! Convert instrument and group gains using cooked volume tables.
 use anyhow::{Result, ensure};
 
+pub const CENTER_PAN: u8 = 64;
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Tables {
     #[serde(with = "crate::package::array")]

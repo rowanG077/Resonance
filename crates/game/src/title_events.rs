@@ -66,6 +66,8 @@ fn resources(scene: &TitleScene) -> ResourceLibrary {
     library
         .bindings
         .insert(-1179645, (ResourceKind::Overlay, 19));
-    library.particle_kinds.insert(10);
+    library
+        .particles
+        .insert(10, resonance_events::ParticleKind::Glow);
     library
 }

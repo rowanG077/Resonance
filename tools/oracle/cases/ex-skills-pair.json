@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "EX Skills: equip a level-one gem, confirm consumption, preview and select Strong.",
+  "registration": "Controlled ex-skill-fixture-v1 grants one of each EX gem in copies of matched checkpoints. Native menu opens at update 40; subsequent inputs use source poll/2. Frames use timestamped video and compare whole images, navigation, inventories, all characters EX selections and learned compounds, and the selected character statistics.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/ex-skill-fixture-v1/native.json",
+    "sha256": "0969eb58631f77496e01f5098c84e9ce33291f038040fc7c79388b6f69e2ec1c"
+  },
+  "native_replay": {
+    "path": "ex-skills-keyboard.json",
+    "sha256": "9d5a02c4d2fcf78f5230bb949dbb975719bb3b3917f9411feddb7ce8e6a32cb7"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/ex-skill-fixture-v1/GQSEAF.s01",
+      "sha256": "1f68897d7833ea7596fed2c0d4030a375c5a738d007ebdda4535b98eab1a16bc"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 2300,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "empty-slots",
+      "native": "vi-580",
+      "dolphin_vi": 580,
+      "ex_state": true
+    },
+    {
+      "name": "gem-list",
+      "native": "vi-700",
+      "dolphin_vi": 700,
+      "ex_state": true
+    },
+    {
+      "name": "confirmation",
+      "native": "vi-820",
+      "dolphin_vi": 820,
+      "ex_state": true
+    },
+    {
+      "name": "skill-preview",
+      "native": "vi-940",
+      "dolphin_vi": 940,
+      "ex_state": true
+    },
+    {
+      "name": "equipped",
+      "native": "vi-1060",
+      "dolphin_vi": 1060,
+      "ex_state": true
+    }
+  ],
+  "audio": []
+}

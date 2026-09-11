@@ -30,11 +30,11 @@ class Remote:
         while len(result) < size:
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError("startup trace exceeded its deadline")
+                raise TimeoutError("oracle trace exceeded its deadline")
             self.connection.settimeout(remaining)
             chunk = self.connection.recv(size - len(result))
             if not chunk:
-                raise RuntimeError("Dolphin disconnected during startup trace")
+                raise RuntimeError("Dolphin disconnected during oracle trace")
             result.extend(chunk)
         return bytes(result)
 
@@ -105,7 +105,8 @@ def observe(remote):
     }
 
 
-def trace(path, output, process, timeout):
+def trace(path, output, process, timeout, random_calls=None):
+    breakpoints = {0x80124BF4: "random"} if random_calls else BREAKPOINTS
     deadline = time.monotonic() + timeout
     while not Path(path).exists():
         if process.poll() is not None:
@@ -119,25 +120,53 @@ def trace(path, output, process, timeout):
         # Dolphin starts the emulated CPU paused for this connection.
         if not remote.query("?").startswith("T"):
             raise RuntimeError("Dolphin did not report its initial stop")
-        for address in BREAKPOINTS:
+        for address in breakpoints:
             remote.breakpoint(address, True)
         with output.open("x") as log:
             for index in range(4096):
                 if not remote.query("c").startswith("T"):
                     raise RuntimeError("Dolphin did not stop at an execute breakpoint")
-                row = {"index": index, **observe(remote)}
+                if random_calls:
+                    if int(remote.query("p40"), 16) != 0x80124BF4:
+                        raise RuntimeError("unexpected random trace breakpoint")
+                    word = lambda address: int.from_bytes(remote.memory(address, 4), "big")
+                    row = {"index": index, "function": "random",
+                           "lr": f"{int(remote.query('p43'), 16):08x}",
+                           "presentation_counter": word(0x8035A628),
+                           "ui_clock": word(0x8035AA1C),
+                           "random_state": word(0x8035A340)}
+                    if row["lr"] == "8004e194":
+                        context = int(remote.query("p1f"), 16)
+                        row["script"] = {
+                            "context_address": f"{context:08x}",
+                            "divisor": int(remote.query("p1e"), 16),
+                            "header": list(struct.unpack(">8I", remote.memory(context, 32))),
+                        }
+                    elif row["lr"] in ("80022d4c", "80022a38", "80022a50", "80022abc"):
+                        actor = int(remote.query("p1f"), 16)
+                        row["actor"] = {"address": f"{actor:08x}", "id": word(actor + 0xB8)}
+                    elif row["lr"] in ("80086fe8", "80087108"):
+                        particle = int(remote.query("p1f"), 16)
+                        row["particle"] = {
+                            "slot": (particle - word(0x8035A4FC)) // 0x6C,
+                            "position": list(struct.unpack(">3f", remote.memory(particle + 4, 12))),
+                            "turn_after": struct.unpack(">f", remote.memory(particle + 0x54, 4))[0],
+                        }
+                else:
+                    row = {"index": index, **observe(remote)}
                 log.write(json.dumps(row) + "\n")
                 log.flush()
-                if row["state_flags"] & 0x80 and row["movie"]["presented_frames"] >= 12:
+                if (index + 1 == random_calls if random_calls else
+                        row["state_flags"] & 0x80 and row["movie"]["presented_frames"] >= 12):
                     break
             else:
                 raise RuntimeError("startup trace reached its observation limit")
-        for address in BREAKPOINTS:
+        for address in breakpoints:
             remote.breakpoint(address, False)
         # Continue the untouched replay. The next GDB event sees EOF and removes
         # the connection; no breakpoint remains and no emulated state is reset.
         remote.send("c")
     return {"observations": index + 1, "complete": True,
             "diagnostic": True, "game_memory_modified": False, "debugger_enabled": True,
-            "breakpoints": {f"0x{k:08x}": v for k, v in BREAKPOINTS.items()},
+            "breakpoints": {f"0x{k:08x}": v for k, v in breakpoints.items()},
             "notes": "Execution was paused to read state. Compare with an ordinary replay before accepting timing."}

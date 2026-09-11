@@ -1,5 +1,5 @@
 //! Diagnostic Rust synthesis with separate voice buses and a studio mix.
-use super::{Workspace, hash_file, write_json};
+use super::{Workspace, hash_file, write_json, write_pcm16};
 use anyhow::{Result, ensure};
 use resonance_audio_cook::{bank::Bank, mix::Tables, render, reverb::mix_studio};
 use serde_json::json;
@@ -130,19 +130,12 @@ pub fn render_sound_buses(extracted: &Path, bank: &Path, id: u16, output: &Path)
         let name = format!("sound-{id}-{name}.wav");
         let path = workspace.output.join(&name);
         let temporary = path.with_extension("partial.wav");
-        let mut writer = hound::WavWriter::create(
+        write_pcm16(
             &temporary,
-            hound::WavSpec {
-                channels: 2,
-                sample_rate: render::PLAYBACK_RATE,
-                bits_per_sample: 16,
-                sample_format: hound::SampleFormat::Int,
-            },
+            2,
+            render::PLAYBACK_RATE,
+            samples.iter().copied(),
         )?;
-        for sample in samples {
-            writer.write_sample(*sample)?;
-        }
-        writer.finalize()?;
         fs::rename(temporary, &path)?;
         buses.insert(
             name,

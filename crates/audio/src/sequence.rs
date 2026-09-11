@@ -24,6 +24,7 @@ enum ClockStart {
 pub struct LiveControls {
     pub volume: f32,
     pub pan: Option<u8>,
+    pub mono: bool,
     pub release: bool,
 }
 impl Default for LiveControls {
@@ -31,6 +32,7 @@ impl Default for LiveControls {
         Self {
             volume: 1.0,
             pan: None,
+            mono: false,
             release: false,
         }
     }
@@ -98,108 +100,24 @@ pub fn render_preview_with_volume(
         "music preview exceeds 120 seconds"
     );
     let mut pcm = Vec::with_capacity(frames as usize * 2);
-    let mut result = render(
-        bank,
-        song,
-        tables,
-        reverbs,
-        Some(frames),
-        true,
-        |frame| LiveControls {
-            volume: group_volume(frame as u32),
-            ..Default::default()
-        },
-        |block| {
-            pcm.extend_from_slice(block);
-            true
-        },
-    )?
-    .unwrap();
-    result.pcm = pcm;
-    Ok(result)
-}
-
-/// Continuously render stereo PCM in five-millisecond blocks on the caller's
-/// thread, starting from freshly initialized driver clocks as at the title.
-/// Return `false` from the sink to stop. A bounded channel sink supplies
-/// backpressure and cancellation without opening a device or growing a PCM log.
-/// Pause the consumer to pause production; clocks advance only with samples.
-pub fn render_stream(
-    bank: &Resources,
-    song: &Score,
-    tables: &Tables,
-    reverbs: [[f32; 5]; 2],
-    mut group_volume: impl FnMut(u64) -> f32,
-    sink: impl FnMut(&[i16]) -> bool,
-) -> Result<()> {
-    render(
-        bank,
-        song,
-        tables,
-        reverbs,
-        None,
-        true,
-        |frame| LiveControls {
-            volume: group_volume(frame),
-            ..Default::default()
-        },
-        sink,
-    )?;
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn render(
-    bank: &Resources,
-    song: &Score,
-    tables: &Tables,
-    reverbs: [[f32; 5]; 2],
-    frames: Option<u32>,
-    looping: bool,
-    live_controls: impl FnMut(u64) -> LiveControls,
-    mut sink: impl FnMut(&[i16]) -> bool,
-) -> Result<Option<Preview>> {
     let mut studio = Studio::new(reverbs)?;
-    render_buses(
-        bank,
-        song,
-        tables,
-        frames,
-        looping,
-        ClockStart::Cold,
-        live_controls,
-        |block| {
-            let mut pcm = [0; 320];
-            for (output, buses) in pcm.chunks_exact_mut(2).zip(block) {
-                output.copy_from_slice(
-                    &studio
-                        .process(*buses)
-                        .map(|s| s.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16),
-                );
-            }
-            sink(&pcm[..block.len() * 2])
-        },
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn render_buses(
-    bank: &Resources,
-    song: &Score,
-    tables: &Tables,
-    frames: Option<u32>,
-    looping: bool,
-    clock_start: ClockStart,
-    mut live_controls: impl FnMut(u64) -> LiveControls,
-    mut sink: impl FnMut(&[BusFrame]) -> bool,
-) -> Result<Option<Preview>> {
-    let mut kernel = kernel::Kernel::new(bank, song, tables, frames, looping, clock_start)?;
+    let mut kernel = kernel::Kernel::new(bank, song, tables, Some(frames), true, ClockStart::Cold)?;
+    let mut live_controls = |frame| LiveControls {
+        volume: group_volume(frame as u32),
+        ..Default::default()
+    };
     while let Some(block) = kernel.next_block(&mut live_controls)? {
-        if !sink(block) {
-            break;
+        for buses in block {
+            pcm.extend(
+                studio
+                    .process(*buses)
+                    .map(|sample| sample.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16),
+            );
         }
     }
-    Ok(kernel.finish())
+    let mut result = kernel.finish().unwrap();
+    result.pcm = pcm;
+    Ok(result)
 }
 
 #[cfg(test)]

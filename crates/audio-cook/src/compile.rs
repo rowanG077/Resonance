@@ -123,7 +123,7 @@ fn command(bank: &Bank<'_>, a: u32, b: u32) -> Result<Command> {
             from_velocity: a >> 24 != 0,
             factor: (a >> 8) as u16,
         },
-        0x0d | 0x0f => {
+        0x0d | 0x0f | 0x14 => {
             ensure!(
                 ((a >> 24) | ((b & 255) << 8)) == 65535,
                 "custom volume curves are not implemented"
@@ -145,6 +145,7 @@ fn command(bank: &Bank<'_>, a: u32, b: u32) -> Result<Command> {
                     factor,
                     offset,
                     milliseconds: (b >> 16) as u16,
+                    from_silence: a as u8 == 0x14,
                 }
             }
         }
@@ -280,7 +281,7 @@ fn command(bank: &Bank<'_>, a: u32, b: u32) -> Result<Command> {
 }
 
 pub fn music(bank: &Bank<'_>, song: &song::Song, setup: &MusicSetup) -> Result<(Resources, Score)> {
-    let (loop_start_tick, end_tick) = song.loop_interval()?;
+    let (loop_start_tick, end_tick) = song.playback_interval()?;
     let mut programs = setup.channels.map(|c| c.program);
     let first_events = events(bank, setup, &song.events(), &mut programs)?;
     let loop_events = events(bank, setup, &song.loop_events()?, &mut programs)?;

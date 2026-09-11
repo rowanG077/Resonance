@@ -1,0 +1,413 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Discard every Bread through the Items menu, then reject cooking without ingredients from both header selections. Verify notices, dismissal, retained selection and unchanged cooking progress.",
+  "registration": "Use the school-grounds party, inventory, scenario record and clocks observed in the paired Dolphin state. Native replay registers the existing skit notification and source session clock once at initialization. Input updates follow the declared poll-to-update mapping; frames are captured between input edges after menus settle. Compare whole frames without changing the existing image tolerance. Native E/Q map to the original C-stick down/up for recipe paging. The UI clock starts at the observed source value 38084. Discard confirmation starts at No; the first acceptance declines, then Up explicitly selects Yes for each deletion.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "cooking-missing-keyboard.json",
+    "sha256": "f7e4eecb71dd3b3e25cccf665ae97cd27872c93524804801cd93a163bdcd4f98"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3360,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 420,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 580,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 740,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 900,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 940,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1060,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 1180,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1380,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 1420,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1540,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1860,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 2440,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2520,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2680,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2760,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 2840,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2920,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3000,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "items",
+      "native": "items",
+      "dolphin_vi": 160,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "bread",
+      "native": "bread",
+      "dolphin_vi": 350,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "confirm-no",
+      "native": "confirm-no",
+      "dolphin_vi": 390,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "declined",
+      "native": "declined",
+      "dolphin_vi": 430,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "confirm-yes",
+      "native": "confirm-yes",
+      "dolphin_vi": 480,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "discard-one",
+      "native": "discard-one",
+      "dolphin_vi": 510,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "discard-two",
+      "native": "discard-two",
+      "dolphin_vi": 630,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "discard-last",
+      "native": "discard-last",
+      "dolphin_vi": 750,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "empty",
+      "native": "empty",
+      "dolphin_vi": 790,
+      "cooking_state": true,
+      "inventory_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "no-ingredients",
+      "native": "no-ingredients",
+      "dolphin_vi": 1070,
+      "cooking_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "missing",
+      "native": "missing",
+      "dolphin_vi": 1180,
+      "cooking_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "missing-held",
+      "native": "missing-held",
+      "dolphin_vi": 1240,
+      "cooking_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "dismissed",
+      "native": "dismissed",
+      "dolphin_vi": 1300,
+      "cooking_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "missing-recipe-header",
+      "native": "missing-recipe-header",
+      "dolphin_vi": 1410,
+      "cooking_state": true,
+      "gameplay_random_state": true
+    }
+  ],
+  "audio": []
+}

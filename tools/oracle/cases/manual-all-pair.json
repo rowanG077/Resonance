@@ -1,0 +1,2422 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Training Manual: all 115 reading paragraphs across 30 learned topics and nine chapters, lower page bounds, navigation wrap and return to Items.",
+  "registration": "Controlled manual-full-fixture-v1 grants item 73 and all 30 learned topic flags in matched checkpoint copies. Native menu opens at update 40; later inputs use source poll/2. Every chapter and reading paragraph is captured after settling, plus each topic's lower page bound. Desired captures advance only to the next timestamped source presentation when the video omits that VI (at most three VIs and before the next input); both engines use that same VI. Registration uses the full manual-all-source-v1 video timestamp index, never image similarity. All Manual captures compare whole images and chapter/topic/paragraph state; the final Items capture compares the whole image and field state.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/manual-full-fixture-v1/native.json",
+    "sha256": "70819df914386229ab9fa54ce865f8b3bf94dedcab192c7e9cc6364e72d1855f"
+  },
+  "native_replay": {
+    "path": "manual-all-keyboard.json",
+    "sha256": "fbdce4ce4a99f68aa06f2840bcbc49211ce7ad2530eb17f5d2c85f817cfe5f66"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/manual-full-fixture-v1/GQSEAF.s01",
+      "sha256": "5c0ad268e228b5e577f280c6a66577e286b473928e03009b45c71b1b1fd59949"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 14260,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1060,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1380,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1540,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1860,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2020,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2180,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2340,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2660,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2820,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2980,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3140,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3300,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3460,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3780,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3940,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4260,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4420,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4580,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4900,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5060,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5140,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5220,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5380,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5460,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5540,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5620,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5700,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5780,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5860,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6020,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6100,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6180,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6260,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6340,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6420,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6500,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6580,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 6660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6820,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6900,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6980,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7060,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 7140,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7220,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7300,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7380,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7460,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7540,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 7700,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7780,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 7860,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 7940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8020,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8100,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8180,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8340,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8420,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8500,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 8580,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8740,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8820,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8900,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 8980,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9060,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9140,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9220,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 9300,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9380,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9460,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9540,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9620,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9700,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9780,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9860,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 9940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10020,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 10100,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 10180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 10260,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 10420,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10500,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10580,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10660,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10740,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10820,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10900,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 10980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 11060,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11140,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11220,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 11300,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11380,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11460,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 11540,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11620,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11700,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11780,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11860,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 11940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 12020,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 12100,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 12180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 12260,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 12340,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 12420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 12500,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 12580,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 12660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 12740,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 12820,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 12900,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 12980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 13060,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 13140,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 13220,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 13300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 13380,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 13460,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 13540,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 13620,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 13700,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 13780,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 13860,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 13940,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 14020,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 14100,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "chapter-0",
+      "native": "chapter-0",
+      "dolphin_vi": 470,
+      "manual_state": true
+    },
+    {
+      "name": "topic-104-0",
+      "native": "topic-104-0",
+      "dolphin_vi": 520,
+      "manual_state": true
+    },
+    {
+      "name": "topic-104-1",
+      "native": "topic-104-1",
+      "dolphin_vi": 560,
+      "manual_state": true
+    },
+    {
+      "name": "topic-104-end",
+      "native": "topic-104-end",
+      "dolphin_vi": 600,
+      "manual_state": true
+    },
+    {
+      "name": "topic-105-0",
+      "native": "topic-105-0",
+      "dolphin_vi": 640,
+      "manual_state": true
+    },
+    {
+      "name": "topic-105-1",
+      "native": "topic-105-1",
+      "dolphin_vi": 680,
+      "manual_state": true
+    },
+    {
+      "name": "topic-105-end",
+      "native": "topic-105-end",
+      "dolphin_vi": 720,
+      "manual_state": true
+    },
+    {
+      "name": "topic-106-0",
+      "native": "topic-106-0",
+      "dolphin_vi": 760,
+      "manual_state": true
+    },
+    {
+      "name": "topic-106-1",
+      "native": "topic-106-1",
+      "dolphin_vi": 800,
+      "manual_state": true
+    },
+    {
+      "name": "topic-106-2",
+      "native": "topic-106-2",
+      "dolphin_vi": 840,
+      "manual_state": true
+    },
+    {
+      "name": "topic-106-end",
+      "native": "topic-106-end",
+      "dolphin_vi": 880,
+      "manual_state": true
+    },
+    {
+      "name": "topic-107-0",
+      "native": "topic-107-0",
+      "dolphin_vi": 920,
+      "manual_state": true
+    },
+    {
+      "name": "topic-107-1",
+      "native": "topic-107-1",
+      "dolphin_vi": 960,
+      "manual_state": true
+    },
+    {
+      "name": "topic-107-2",
+      "native": "topic-107-2",
+      "dolphin_vi": 1000,
+      "manual_state": true
+    },
+    {
+      "name": "topic-107-3",
+      "native": "topic-107-3",
+      "dolphin_vi": 1040,
+      "manual_state": true
+    },
+    {
+      "name": "topic-107-4",
+      "native": "topic-107-4",
+      "dolphin_vi": 1080,
+      "manual_state": true
+    },
+    {
+      "name": "topic-107-end",
+      "native": "topic-107-end",
+      "dolphin_vi": 1120,
+      "manual_state": true
+    },
+    {
+      "name": "topic-108-0",
+      "native": "topic-108-0",
+      "dolphin_vi": 1160,
+      "manual_state": true
+    },
+    {
+      "name": "topic-108-end",
+      "native": "topic-108-end",
+      "dolphin_vi": 1200,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-1",
+      "native": "chapter-1",
+      "dolphin_vi": 1280,
+      "manual_state": true
+    },
+    {
+      "name": "topic-109-0",
+      "native": "topic-109-0",
+      "dolphin_vi": 1320,
+      "manual_state": true
+    },
+    {
+      "name": "topic-109-1",
+      "native": "topic-109-1",
+      "dolphin_vi": 1360,
+      "manual_state": true
+    },
+    {
+      "name": "topic-109-2",
+      "native": "topic-109-2",
+      "dolphin_vi": 1400,
+      "manual_state": true
+    },
+    {
+      "name": "topic-109-3",
+      "native": "topic-109-3",
+      "dolphin_vi": 1440,
+      "manual_state": true
+    },
+    {
+      "name": "topic-109-4",
+      "native": "topic-109-4",
+      "dolphin_vi": 1480,
+      "manual_state": true
+    },
+    {
+      "name": "topic-109-5",
+      "native": "topic-109-5",
+      "dolphin_vi": 1520,
+      "manual_state": true
+    },
+    {
+      "name": "topic-109-end",
+      "native": "topic-109-end",
+      "dolphin_vi": 1560,
+      "manual_state": true
+    },
+    {
+      "name": "topic-110-0",
+      "native": "topic-110-0",
+      "dolphin_vi": 1600,
+      "manual_state": true
+    },
+    {
+      "name": "topic-110-1",
+      "native": "topic-110-1",
+      "dolphin_vi": 1640,
+      "manual_state": true
+    },
+    {
+      "name": "topic-110-2",
+      "native": "topic-110-2",
+      "dolphin_vi": 1680,
+      "manual_state": true
+    },
+    {
+      "name": "topic-110-3",
+      "native": "topic-110-3",
+      "dolphin_vi": 1720,
+      "manual_state": true
+    },
+    {
+      "name": "topic-110-4",
+      "native": "topic-110-4",
+      "dolphin_vi": 1760,
+      "manual_state": true
+    },
+    {
+      "name": "topic-110-end",
+      "native": "topic-110-end",
+      "dolphin_vi": 1800,
+      "manual_state": true
+    },
+    {
+      "name": "topic-111-0",
+      "native": "topic-111-0",
+      "dolphin_vi": 1840,
+      "manual_state": true
+    },
+    {
+      "name": "topic-111-1",
+      "native": "topic-111-1",
+      "dolphin_vi": 1880,
+      "manual_state": true
+    },
+    {
+      "name": "topic-111-2",
+      "native": "topic-111-2",
+      "dolphin_vi": 1920,
+      "manual_state": true
+    },
+    {
+      "name": "topic-111-end",
+      "native": "topic-111-end",
+      "dolphin_vi": 1960,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-2",
+      "native": "chapter-2",
+      "dolphin_vi": 2040,
+      "manual_state": true
+    },
+    {
+      "name": "topic-112-0",
+      "native": "topic-112-0",
+      "dolphin_vi": 2080,
+      "manual_state": true
+    },
+    {
+      "name": "topic-112-1",
+      "native": "topic-112-1",
+      "dolphin_vi": 2120,
+      "manual_state": true
+    },
+    {
+      "name": "topic-112-end",
+      "native": "topic-112-end",
+      "dolphin_vi": 2160,
+      "manual_state": true
+    },
+    {
+      "name": "topic-113-0",
+      "native": "topic-113-0",
+      "dolphin_vi": 2200,
+      "manual_state": true
+    },
+    {
+      "name": "topic-113-1",
+      "native": "topic-113-1",
+      "dolphin_vi": 2240,
+      "manual_state": true
+    },
+    {
+      "name": "topic-113-end",
+      "native": "topic-113-end",
+      "dolphin_vi": 2280,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-3",
+      "native": "chapter-3",
+      "dolphin_vi": 2360,
+      "manual_state": true
+    },
+    {
+      "name": "topic-114-0",
+      "native": "topic-114-0",
+      "dolphin_vi": 2400,
+      "manual_state": true
+    },
+    {
+      "name": "topic-114-1",
+      "native": "topic-114-1",
+      "dolphin_vi": 2440,
+      "manual_state": true
+    },
+    {
+      "name": "topic-114-2",
+      "native": "topic-114-2",
+      "dolphin_vi": 2480,
+      "manual_state": true
+    },
+    {
+      "name": "topic-114-3",
+      "native": "topic-114-3",
+      "dolphin_vi": 2520,
+      "manual_state": true
+    },
+    {
+      "name": "topic-114-4",
+      "native": "topic-114-4",
+      "dolphin_vi": 2560,
+      "manual_state": true
+    },
+    {
+      "name": "topic-114-5",
+      "native": "topic-114-5",
+      "dolphin_vi": 2600,
+      "manual_state": true
+    },
+    {
+      "name": "topic-114-6",
+      "native": "topic-114-6",
+      "dolphin_vi": 2640,
+      "manual_state": true
+    },
+    {
+      "name": "topic-114-end",
+      "native": "topic-114-end",
+      "dolphin_vi": 2680,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-0",
+      "native": "topic-115-0",
+      "dolphin_vi": 2720,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-1",
+      "native": "topic-115-1",
+      "dolphin_vi": 2761,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-2",
+      "native": "topic-115-2",
+      "dolphin_vi": 2800,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-3",
+      "native": "topic-115-3",
+      "dolphin_vi": 2840,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-4",
+      "native": "topic-115-4",
+      "dolphin_vi": 2880,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-5",
+      "native": "topic-115-5",
+      "dolphin_vi": 2920,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-6",
+      "native": "topic-115-6",
+      "dolphin_vi": 2960,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-7",
+      "native": "topic-115-7",
+      "dolphin_vi": 3000,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-8",
+      "native": "topic-115-8",
+      "dolphin_vi": 3040,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-9",
+      "native": "topic-115-9",
+      "dolphin_vi": 3080,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-10",
+      "native": "topic-115-10",
+      "dolphin_vi": 3120,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-11",
+      "native": "topic-115-11",
+      "dolphin_vi": 3160,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-12",
+      "native": "topic-115-12",
+      "dolphin_vi": 3200,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-13",
+      "native": "topic-115-13",
+      "dolphin_vi": 3240,
+      "manual_state": true
+    },
+    {
+      "name": "topic-115-end",
+      "native": "topic-115-end",
+      "dolphin_vi": 3280,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-4",
+      "native": "chapter-4",
+      "dolphin_vi": 3360,
+      "manual_state": true
+    },
+    {
+      "name": "topic-116-0",
+      "native": "topic-116-0",
+      "dolphin_vi": 3400,
+      "manual_state": true
+    },
+    {
+      "name": "topic-116-1",
+      "native": "topic-116-1",
+      "dolphin_vi": 3440,
+      "manual_state": true
+    },
+    {
+      "name": "topic-116-2",
+      "native": "topic-116-2",
+      "dolphin_vi": 3480,
+      "manual_state": true
+    },
+    {
+      "name": "topic-116-end",
+      "native": "topic-116-end",
+      "dolphin_vi": 3520,
+      "manual_state": true
+    },
+    {
+      "name": "topic-117-0",
+      "native": "topic-117-0",
+      "dolphin_vi": 3560,
+      "manual_state": true
+    },
+    {
+      "name": "topic-117-1",
+      "native": "topic-117-1",
+      "dolphin_vi": 3600,
+      "manual_state": true
+    },
+    {
+      "name": "topic-117-2",
+      "native": "topic-117-2",
+      "dolphin_vi": 3640,
+      "manual_state": true
+    },
+    {
+      "name": "topic-117-3",
+      "native": "topic-117-3",
+      "dolphin_vi": 3680,
+      "manual_state": true
+    },
+    {
+      "name": "topic-117-4",
+      "native": "topic-117-4",
+      "dolphin_vi": 3720,
+      "manual_state": true
+    },
+    {
+      "name": "topic-117-5",
+      "native": "topic-117-5",
+      "dolphin_vi": 3760,
+      "manual_state": true
+    },
+    {
+      "name": "topic-117-end",
+      "native": "topic-117-end",
+      "dolphin_vi": 3800,
+      "manual_state": true
+    },
+    {
+      "name": "topic-118-0",
+      "native": "topic-118-0",
+      "dolphin_vi": 3840,
+      "manual_state": true
+    },
+    {
+      "name": "topic-118-1",
+      "native": "topic-118-1",
+      "dolphin_vi": 3880,
+      "manual_state": true
+    },
+    {
+      "name": "topic-118-end",
+      "native": "topic-118-end",
+      "dolphin_vi": 3920,
+      "manual_state": true
+    },
+    {
+      "name": "topic-119-0",
+      "native": "topic-119-0",
+      "dolphin_vi": 3960,
+      "manual_state": true
+    },
+    {
+      "name": "topic-119-1",
+      "native": "topic-119-1",
+      "dolphin_vi": 4000,
+      "manual_state": true
+    },
+    {
+      "name": "topic-119-2",
+      "native": "topic-119-2",
+      "dolphin_vi": 4040,
+      "manual_state": true
+    },
+    {
+      "name": "topic-119-3",
+      "native": "topic-119-3",
+      "dolphin_vi": 4080,
+      "manual_state": true
+    },
+    {
+      "name": "topic-119-end",
+      "native": "topic-119-end",
+      "dolphin_vi": 4120,
+      "manual_state": true
+    },
+    {
+      "name": "topic-133-0",
+      "native": "topic-133-0",
+      "dolphin_vi": 4160,
+      "manual_state": true
+    },
+    {
+      "name": "topic-133-1",
+      "native": "topic-133-1",
+      "dolphin_vi": 4200,
+      "manual_state": true
+    },
+    {
+      "name": "topic-133-end",
+      "native": "topic-133-end",
+      "dolphin_vi": 4240,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-5",
+      "native": "chapter-5",
+      "dolphin_vi": 4320,
+      "manual_state": true
+    },
+    {
+      "name": "topic-120-0",
+      "native": "topic-120-0",
+      "dolphin_vi": 4360,
+      "manual_state": true
+    },
+    {
+      "name": "topic-120-1",
+      "native": "topic-120-1",
+      "dolphin_vi": 4400,
+      "manual_state": true
+    },
+    {
+      "name": "topic-120-2",
+      "native": "topic-120-2",
+      "dolphin_vi": 4440,
+      "manual_state": true
+    },
+    {
+      "name": "topic-120-3",
+      "native": "topic-120-3",
+      "dolphin_vi": 4480,
+      "manual_state": true
+    },
+    {
+      "name": "topic-120-4",
+      "native": "topic-120-4",
+      "dolphin_vi": 4520,
+      "manual_state": true
+    },
+    {
+      "name": "topic-120-5",
+      "native": "topic-120-5",
+      "dolphin_vi": 4560,
+      "manual_state": true
+    },
+    {
+      "name": "topic-120-end",
+      "native": "topic-120-end",
+      "dolphin_vi": 4600,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-0",
+      "native": "topic-121-0",
+      "dolphin_vi": 4640,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-1",
+      "native": "topic-121-1",
+      "dolphin_vi": 4680,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-2",
+      "native": "topic-121-2",
+      "dolphin_vi": 4720,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-3",
+      "native": "topic-121-3",
+      "dolphin_vi": 4760,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-4",
+      "native": "topic-121-4",
+      "dolphin_vi": 4800,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-5",
+      "native": "topic-121-5",
+      "dolphin_vi": 4840,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-6",
+      "native": "topic-121-6",
+      "dolphin_vi": 4880,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-7",
+      "native": "topic-121-7",
+      "dolphin_vi": 4920,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-8",
+      "native": "topic-121-8",
+      "dolphin_vi": 4960,
+      "manual_state": true
+    },
+    {
+      "name": "topic-121-end",
+      "native": "topic-121-end",
+      "dolphin_vi": 5000,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-6",
+      "native": "chapter-6",
+      "dolphin_vi": 5080,
+      "manual_state": true
+    },
+    {
+      "name": "topic-122-0",
+      "native": "topic-122-0",
+      "dolphin_vi": 5120,
+      "manual_state": true
+    },
+    {
+      "name": "topic-122-end",
+      "native": "topic-122-end",
+      "dolphin_vi": 5160,
+      "manual_state": true
+    },
+    {
+      "name": "topic-123-0",
+      "native": "topic-123-0",
+      "dolphin_vi": 5200,
+      "manual_state": true
+    },
+    {
+      "name": "topic-123-1",
+      "native": "topic-123-1",
+      "dolphin_vi": 5240,
+      "manual_state": true
+    },
+    {
+      "name": "topic-123-2",
+      "native": "topic-123-2",
+      "dolphin_vi": 5280,
+      "manual_state": true
+    },
+    {
+      "name": "topic-123-3",
+      "native": "topic-123-3",
+      "dolphin_vi": 5320,
+      "manual_state": true
+    },
+    {
+      "name": "topic-123-4",
+      "native": "topic-123-4",
+      "dolphin_vi": 5360,
+      "manual_state": true
+    },
+    {
+      "name": "topic-123-5",
+      "native": "topic-123-5",
+      "dolphin_vi": 5400,
+      "manual_state": true
+    },
+    {
+      "name": "topic-123-6",
+      "native": "topic-123-6",
+      "dolphin_vi": 5440,
+      "manual_state": true
+    },
+    {
+      "name": "topic-123-end",
+      "native": "topic-123-end",
+      "dolphin_vi": 5480,
+      "manual_state": true
+    },
+    {
+      "name": "topic-124-0",
+      "native": "topic-124-0",
+      "dolphin_vi": 5520,
+      "manual_state": true
+    },
+    {
+      "name": "topic-124-1",
+      "native": "topic-124-1",
+      "dolphin_vi": 5560,
+      "manual_state": true
+    },
+    {
+      "name": "topic-124-end",
+      "native": "topic-124-end",
+      "dolphin_vi": 5600,
+      "manual_state": true
+    },
+    {
+      "name": "topic-125-0",
+      "native": "topic-125-0",
+      "dolphin_vi": 5640,
+      "manual_state": true
+    },
+    {
+      "name": "topic-125-1",
+      "native": "topic-125-1",
+      "dolphin_vi": 5680,
+      "manual_state": true
+    },
+    {
+      "name": "topic-125-end",
+      "native": "topic-125-end",
+      "dolphin_vi": 5720,
+      "manual_state": true
+    },
+    {
+      "name": "topic-126-0",
+      "native": "topic-126-0",
+      "dolphin_vi": 5760,
+      "manual_state": true
+    },
+    {
+      "name": "topic-126-1",
+      "native": "topic-126-1",
+      "dolphin_vi": 5800,
+      "manual_state": true
+    },
+    {
+      "name": "topic-126-2",
+      "native": "topic-126-2",
+      "dolphin_vi": 5840,
+      "manual_state": true
+    },
+    {
+      "name": "topic-126-3",
+      "native": "topic-126-3",
+      "dolphin_vi": 5880,
+      "manual_state": true
+    },
+    {
+      "name": "topic-126-4",
+      "native": "topic-126-4",
+      "dolphin_vi": 5920,
+      "manual_state": true
+    },
+    {
+      "name": "topic-126-5",
+      "native": "topic-126-5",
+      "dolphin_vi": 5960,
+      "manual_state": true
+    },
+    {
+      "name": "topic-126-end",
+      "native": "topic-126-end",
+      "dolphin_vi": 6000,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-7",
+      "native": "chapter-7",
+      "dolphin_vi": 6080,
+      "manual_state": true
+    },
+    {
+      "name": "topic-127-0",
+      "native": "topic-127-0",
+      "dolphin_vi": 6120,
+      "manual_state": true
+    },
+    {
+      "name": "topic-127-1",
+      "native": "topic-127-1",
+      "dolphin_vi": 6160,
+      "manual_state": true
+    },
+    {
+      "name": "topic-127-end",
+      "native": "topic-127-end",
+      "dolphin_vi": 6200,
+      "manual_state": true
+    },
+    {
+      "name": "topic-128-0",
+      "native": "topic-128-0",
+      "dolphin_vi": 6240,
+      "manual_state": true
+    },
+    {
+      "name": "topic-128-1",
+      "native": "topic-128-1",
+      "dolphin_vi": 6280,
+      "manual_state": true
+    },
+    {
+      "name": "topic-128-end",
+      "native": "topic-128-end",
+      "dolphin_vi": 6320,
+      "manual_state": true
+    },
+    {
+      "name": "topic-129-0",
+      "native": "topic-129-0",
+      "dolphin_vi": 6360,
+      "manual_state": true
+    },
+    {
+      "name": "topic-129-1",
+      "native": "topic-129-1",
+      "dolphin_vi": 6400,
+      "manual_state": true
+    },
+    {
+      "name": "topic-129-2",
+      "native": "topic-129-2",
+      "dolphin_vi": 6440,
+      "manual_state": true
+    },
+    {
+      "name": "topic-129-end",
+      "native": "topic-129-end",
+      "dolphin_vi": 6480,
+      "manual_state": true
+    },
+    {
+      "name": "topic-130-0",
+      "native": "topic-130-0",
+      "dolphin_vi": 6520,
+      "manual_state": true
+    },
+    {
+      "name": "topic-130-end",
+      "native": "topic-130-end",
+      "dolphin_vi": 6560,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-8",
+      "native": "chapter-8",
+      "dolphin_vi": 6640,
+      "manual_state": true
+    },
+    {
+      "name": "topic-131-0",
+      "native": "topic-131-0",
+      "dolphin_vi": 6680,
+      "manual_state": true
+    },
+    {
+      "name": "topic-131-end",
+      "native": "topic-131-end",
+      "dolphin_vi": 6720,
+      "manual_state": true
+    },
+    {
+      "name": "topic-132-0",
+      "native": "topic-132-0",
+      "dolphin_vi": 6760,
+      "manual_state": true
+    },
+    {
+      "name": "topic-132-1",
+      "native": "topic-132-1",
+      "dolphin_vi": 6800,
+      "manual_state": true
+    },
+    {
+      "name": "topic-132-2",
+      "native": "topic-132-2",
+      "dolphin_vi": 6840,
+      "manual_state": true
+    },
+    {
+      "name": "topic-132-3",
+      "native": "topic-132-3",
+      "dolphin_vi": 6880,
+      "manual_state": true
+    },
+    {
+      "name": "topic-132-end",
+      "native": "topic-132-end",
+      "dolphin_vi": 6920,
+      "manual_state": true
+    },
+    {
+      "name": "topic-wrap",
+      "native": "topic-wrap",
+      "dolphin_vi": 6960,
+      "manual_state": true
+    },
+    {
+      "name": "chapter-wrap",
+      "native": "chapter-wrap",
+      "dolphin_vi": 7040,
+      "manual_state": true
+    },
+    {
+      "name": "items",
+      "native": "items",
+      "dolphin_vi": 7080
+    }
+  ],
+  "audio": []
+}

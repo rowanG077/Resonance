@@ -1,0 +1,762 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Load confirmation opening, settled cursor cycle and dismissal; empty-load error feedback.",
+  "registration": "The source starts at a populated Save list; native creates its own slot from the ordinary field checkpoint using keyboard input. Native Main opens on Tech at update 680; Left at 740 selects System, matching source Left at poll 460. The original fn_800C2C98 instructions at 0x800C2F7C..0x800C2FA8 wrap only index 0 to 9; all other Left inputs decrement. Remove the stale native Down at 710, which selected Items and made Left select Synopsis. Native System closes from updates 831 through 838, Main slides through 848, and Load bank is published at 849; bank confirmation at 869 remains unchanged. Register confirmation opening at native update 1013 and source VI 611; both menu clocks have phase 21 modulo 24. Dismiss after 32 updates, then capture the complete fade and returned list. The populated-menu savestate creates an unused startup video header; select contiguous video segment 1, whose presentation queue begins two VIs before the memory-observation origin (video_first_vi = -2). The opening alpha 32 at observed VI 611 is presented at video timestamp tick 613, and dismissal alpha 223 at VI 643 at timestamp tick 645; this single offset applies to every compared frame. All segment hashes remain in capture.json. Every frame checks the whole image and logical/displayed popup state. The opaque popup additionally has a tight region; randomized HP/TP and recorded play times differ in the underlying slot card, so translucent/absent popup crops would also measure those fixture differences. The separate save-popup case checks all fade phases with a tight region over identical empty-slot content. Audio remains file-only. Select the next empty slot and confirm; eight consecutive frames must retain the list without a popup. Set the shared UI presentation origin once to 38992: observed source VI 611 has UI clock 40005 and pairs native update 1013. Every one of this case's 56 frame observations yields the same source-UI-minus-native-update constant. The runtime already used the shared UI clock before the first cleanup; the former fixture registered only the local menu clock. No per-frame clock adjustment, capture movement, source substitution or relaxed gate is applied.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/paired-school-grounds.json",
+    "sha256": "f085ba361bd4f26cfd982ace70f9f2dd86e574803a927439fa614607745278e8"
+  },
+  "native_replay": {
+    "path": "load-popup-keyboard.json",
+    "sha256": "5917eed734ac954ce33d261c85e9632b32b969f08b95ab9a5579bff783ec276a"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-saved-slot/user/StateSaves/GQSEAF.s01",
+      "sha256": "c6054789283a390bdd3922ab509890e2c670b090c568b24d8d551a8cf7a92916"
+    },
+    "prefix_sha256": "31c39e5fbf6d455deb2b25672659f96ec0235ac95e2216b66921c1f82b8912c3",
+    "start_poll": 78789,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": -2,
+    "video_segment": 1
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 1450,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 120,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 300,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 460,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 520,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 600,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 920,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1284,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1320,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1360,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "popup-00",
+      "native": "popup-00",
+      "dolphin_vi": 611,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-01",
+      "native": "popup-01",
+      "dolphin_vi": 612,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-02",
+      "native": "popup-02",
+      "dolphin_vi": 613,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-03",
+      "native": "popup-03",
+      "dolphin_vi": 614,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-04",
+      "native": "popup-04",
+      "dolphin_vi": 615,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-05",
+      "native": "popup-05",
+      "dolphin_vi": 616,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-06",
+      "native": "popup-06",
+      "dolphin_vi": 617,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-07",
+      "native": "popup-07",
+      "dolphin_vi": 618,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-08",
+      "native": "popup-08",
+      "dolphin_vi": 619,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-09",
+      "native": "popup-09",
+      "dolphin_vi": 620,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-10",
+      "native": "popup-10",
+      "dolphin_vi": 621,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-11",
+      "native": "popup-11",
+      "dolphin_vi": 622,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-12",
+      "native": "popup-12",
+      "dolphin_vi": 623,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-13",
+      "native": "popup-13",
+      "dolphin_vi": 624,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-14",
+      "native": "popup-14",
+      "dolphin_vi": 625,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-15",
+      "native": "popup-15",
+      "dolphin_vi": 626,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-16",
+      "native": "popup-16",
+      "dolphin_vi": 627,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-17",
+      "native": "popup-17",
+      "dolphin_vi": 628,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-18",
+      "native": "popup-18",
+      "dolphin_vi": 629,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-19",
+      "native": "popup-19",
+      "dolphin_vi": 630,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-20",
+      "native": "popup-20",
+      "dolphin_vi": 631,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-21",
+      "native": "popup-21",
+      "dolphin_vi": 632,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-22",
+      "native": "popup-22",
+      "dolphin_vi": 633,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-23",
+      "native": "popup-23",
+      "dolphin_vi": 634,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-24",
+      "native": "popup-24",
+      "dolphin_vi": 635,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-25",
+      "native": "popup-25",
+      "dolphin_vi": 636,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-26",
+      "native": "popup-26",
+      "dolphin_vi": 637,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-27",
+      "native": "popup-27",
+      "dolphin_vi": 638,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-28",
+      "native": "popup-28",
+      "dolphin_vi": 639,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-29",
+      "native": "popup-29",
+      "dolphin_vi": 640,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-30",
+      "native": "popup-30",
+      "dolphin_vi": 641,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-31",
+      "native": "popup-31",
+      "dolphin_vi": 642,
+      "regions": [
+        [
+          124,
+          154,
+          392,
+          174
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-32",
+      "native": "popup-32",
+      "dolphin_vi": 643,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-33",
+      "native": "popup-33",
+      "dolphin_vi": 644,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-34",
+      "native": "popup-34",
+      "dolphin_vi": 645,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-35",
+      "native": "popup-35",
+      "dolphin_vi": 646,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-36",
+      "native": "popup-36",
+      "dolphin_vi": 647,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-37",
+      "native": "popup-37",
+      "dolphin_vi": 648,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-38",
+      "native": "popup-38",
+      "dolphin_vi": 649,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-39",
+      "native": "popup-39",
+      "dolphin_vi": 650,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-40",
+      "native": "popup-40",
+      "dolphin_vi": 651,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-41",
+      "native": "popup-41",
+      "dolphin_vi": 652,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-42",
+      "native": "popup-42",
+      "dolphin_vi": 653,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-43",
+      "native": "popup-43",
+      "dolphin_vi": 654,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-44",
+      "native": "popup-44",
+      "dolphin_vi": 655,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-45",
+      "native": "popup-45",
+      "dolphin_vi": 656,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-46",
+      "native": "popup-46",
+      "dolphin_vi": 657,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "popup-47",
+      "native": "popup-47",
+      "dolphin_vi": 658,
+      "regions": [],
+      "slot_popup": true
+    },
+    {
+      "name": "empty-error-00",
+      "native": "empty-error-00",
+      "dolphin_vi": 681,
+      "regions": [
+        [
+          6,
+          136,
+          104,
+          68
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "empty-error-01",
+      "native": "empty-error-01",
+      "dolphin_vi": 682,
+      "regions": [
+        [
+          6,
+          136,
+          104,
+          68
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "empty-error-02",
+      "native": "empty-error-02",
+      "dolphin_vi": 683,
+      "regions": [
+        [
+          6,
+          136,
+          104,
+          68
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "empty-error-03",
+      "native": "empty-error-03",
+      "dolphin_vi": 684,
+      "regions": [
+        [
+          6,
+          136,
+          104,
+          68
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "empty-error-04",
+      "native": "empty-error-04",
+      "dolphin_vi": 685,
+      "regions": [
+        [
+          6,
+          136,
+          104,
+          68
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "empty-error-05",
+      "native": "empty-error-05",
+      "dolphin_vi": 686,
+      "regions": [
+        [
+          6,
+          136,
+          104,
+          68
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "empty-error-06",
+      "native": "empty-error-06",
+      "dolphin_vi": 687,
+      "regions": [
+        [
+          6,
+          136,
+          104,
+          68
+        ]
+      ],
+      "slot_popup": true
+    },
+    {
+      "name": "empty-error-07",
+      "native": "empty-error-07",
+      "dolphin_vi": 688,
+      "regions": [
+        [
+          6,
+          136,
+          104,
+          68
+        ]
+      ],
+      "slot_popup": true
+    }
+  ],
+  "audio": []
+}

@@ -1,5 +1,5 @@
 //! Cooked cue PCM and controls mixed through live group gain and shared effects.
-use crate::{mix, reverb::StandardReverb};
+use crate::{mix, reverb};
 use anyhow::{Result, ensure};
 use std::sync::Arc;
 
@@ -13,6 +13,10 @@ pub struct Cue {
 
 enum Data {
     Buses(Vec<Frame>),
+    Program {
+        package: Arc<crate::package::Loaded>,
+        frames: usize,
+    },
     Controlled {
         pcm: Vec<i16>,
         controls: Vec<Control>,
@@ -45,6 +49,12 @@ impl Control {
 }
 
 impl Cue {
+    pub fn program(package: Arc<crate::package::Loaded>, frames: usize) -> Result<Self> {
+        ensure!((1..=320_000).contains(&frames), "invalid cue duration");
+        Ok(Self {
+            data: Data::Program { package, frames },
+        })
+    }
     pub fn new(frames: Vec<Frame>) -> Result<Self> {
         ensure!(
             !frames.is_empty() && frames.len() <= 320_000,
@@ -92,11 +102,17 @@ struct Voice {
     cue: Arc<Cue>,
     frame: usize,
     gains: Option<[[mix::GainRamp; 2]; 3]>,
+    program: Option<Program>,
+}
+struct Program {
+    stream: crate::sequence::stream::Stream,
+    block: Box<[crate::sequence::BusFrame; 160]>,
+    length: usize,
 }
 
 pub struct Studio {
     voices: Vec<Voice>,
-    effects: [StandardReverb; 2],
+    effects: reverb::Studio,
     group_volume: f32,
 }
 
@@ -105,19 +121,25 @@ impl Studio {
         Ok(Self {
             voices: Vec::with_capacity(64),
             group_volume: 1.0,
-            effects: [
-                StandardReverb::new(parameters[0])?,
-                StandardReverb::new(parameters[1])?,
-            ],
+            effects: reverb::Studio::new(parameters)?,
         })
     }
 
     pub fn play(&mut self, cue: Arc<Cue>) -> Result<()> {
         ensure!(self.voices.len() < 64, "cue voice budget exhausted");
+        let program = match &cue.data {
+            Data::Program { package, .. } => Some(Program {
+                stream: crate::sequence::stream::Stream::new(package.clone(), false)?,
+                block: Box::new([[[0; 2]; 3]; 160]),
+                length: 0,
+            }),
+            _ => None,
+        };
         self.voices.push(Voice {
             cue,
             frame: 0,
             gains: None,
+            program,
         });
         Ok(())
     }
@@ -137,7 +159,29 @@ impl Studio {
         let mut buses = [[0i32; 2]; 3];
         self.voices.retain_mut(|voice| {
             let (input, length) = match &voice.cue.data {
-                Data::Buses(frames) => (frames[voice.frame], frames.len()),
+                Data::Buses(frames) => (
+                    frames[voice.frame].map(|bus| bus.map(i32::from)),
+                    frames.len(),
+                ),
+                Data::Program { frames, .. } => {
+                    let program = voice.program.as_mut().unwrap();
+                    let index = voice.frame % 160;
+                    if index == 0 {
+                        let control = crate::sequence::LiveControls {
+                            volume: self.group_volume,
+                            pan: Some(64),
+                            ..Default::default()
+                        };
+                        program.length = program
+                            .stream
+                            .render_block([control; 5], &mut program.block)
+                            .expect("cooked cue program failed");
+                    }
+                    if index >= program.length {
+                        return false;
+                    }
+                    (program.block[index], *frames)
+                }
                 Data::Controlled {
                     pcm,
                     controls,
@@ -162,24 +206,20 @@ impl Studio {
                                 as i16
                         })
                     });
-                    (input, pcm.len())
+                    (input.map(|bus| bus.map(i32::from)), pcm.len())
                 }
             };
             for (target, input) in buses.iter_mut().zip(input) {
                 for (channel, sample) in target.iter_mut().zip(input) {
-                    *channel += i32::from(sample);
+                    *channel += sample;
                 }
             }
             voice.frame += 1;
             voice.frame < length
         });
-        let mut output = buses[0];
-        for (effect, input) in self.effects.iter_mut().zip(&buses[1..]) {
-            for (channel, sample) in output.iter_mut().zip(effect.process(*input)) {
-                *channel += sample;
-            }
-        }
-        output.map(|sample| sample.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16)
+        self.effects
+            .process(buses)
+            .map(|sample| sample.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16)
     }
 }
 

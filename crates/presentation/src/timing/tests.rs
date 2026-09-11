@@ -35,6 +35,7 @@ fn fixture() -> App {
             images: Vec::new(),
         })
         .insert_resource(RunOptions {
+            saves: Default::default(),
             assets: PathBuf::new(),
             tick: None,
             presentation_start: Some(2365),

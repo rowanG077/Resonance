@@ -8,17 +8,48 @@ pub enum ResourceKind {
 }
 #[derive(Default)]
 pub struct ResourceLibrary {
+    pub blink: Option<resonance_content::effect::BlinkCycle>,
+    pub menu_data: Option<std::sync::Arc<resonance_content::menu_data::MenuData>>,
+    pub skits: Option<std::sync::Arc<resonance_content::skit::SkitCatalog>>,
     pub bindings: BTreeMap<i32, (ResourceKind, u32)>,
     pub models: BTreeMap<u32, ModelResource>,
-    pub particle_kinds: BTreeSet<i32>,
+    pub particles: BTreeMap<i32, ParticleKind>,
     pub messages: Vec<symphonia_script::message::Message>,
     pub actor_names: BTreeMap<i32, String>,
+    pub text: std::sync::Arc<resonance_content::session::GameText>,
     pub movies: BTreeSet<u32>,
     pub locators: BTreeSet<i32>,
     pub session_data: Option<std::sync::Arc<resonance_content::session::SessionData>>,
     pub fields: BTreeSet<u32>,
+    pub doors: Vec<resonance_content::field::Door>,
+}
+pub enum ParticleKind {
+    Glow,
+    Flutter(resonance_content::effect::FlutterRecipe),
 }
 impl ResourceLibrary {
+    pub fn names(&self, party: Option<&crate::party::Party>) -> BTreeMap<i32, String> {
+        let mut names = self.actor_names.clone();
+        if let Some(party) = party {
+            names.extend(
+                party
+                    .members
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, m)| m.name.as_ref().map(|name| (i as i32 + 1, name.clone()))),
+            );
+        }
+        names
+    }
+    pub fn character_names() -> BTreeMap<i32, String> {
+        [
+            "Lloyd", "Colette", "Genis", "Raine", "Sheena", "Zelos", "Presea", "Regal", "Kratos",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, name)| (i as i32 + 1, name.into()))
+        .collect()
+    }
     pub fn resolve(&self, script_id: i32, kind: ResourceKind) -> Result<u32, String> {
         self.bindings
             .get(&script_id)
@@ -32,6 +63,7 @@ impl ResourceLibrary {
 }
 #[derive(Default)]
 pub struct ModelResource {
+    pub has_eyes: bool,
     pub names: Vec<String>,
     pub hidden_nodes: BTreeSet<u16>,
     pub clips: BTreeMap<u16, AnimationClip>,

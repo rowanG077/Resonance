@@ -6,20 +6,31 @@ use crate::{
     dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, Movie, flags},
     operation::Wait,
 };
-use std::collections::BTreeMap;
 use symphonia_script::{NativeCall, Program};
 use symphonia_script_vm::{Memory, NativeResult};
 mod bindings;
 mod camera_path;
 mod field;
 mod party;
+mod skit;
+mod wait;
+
+pub(crate) struct EventCommand {
+    pub handle: i32,
+    pub action: EventAction,
+}
+pub(crate) enum EventAction {
+    Spawn(u32),
+    Pause(bool),
+    ControlGate(bool),
+}
 
 pub(crate) struct NativeHost<'a> {
     pub world: &'a mut GameWorld,
     pub resources: &'a ResourceLibrary,
     pub program: &'a Program,
     pub registers: &'a mut [i32; 6],
-    pub spawns: &'a mut Vec<(i32, u32)>,
+    pub events: &'a mut Vec<EventCommand>,
     pub next_handle: &'a mut i32,
     pub wait: &'a mut Option<Wait>,
 }
@@ -88,6 +99,28 @@ impl NativeHost<'_> {
     ) -> Result<NativeResult, String> {
         let mut value = None;
         match op {
+            NativeCall::ActorExists => {
+                value = Some(i32::from(self.world.skit.as_ref().map_or_else(
+                    || self.world.actors.contains_key(&a[0]),
+                    |s| s.portraits.values().any(|p| p.id == a[0]),
+                )))
+            }
+            NativeCall::SetDialogueSlotFlag => {
+                let mask = match a[1] {
+                    0 => flags::PERSISTENT,
+                    1 => flags::AUTO_PAGES,
+                    _ => return Err("unsupported dialogue flag selector".into()),
+                };
+                if (0..i32::from(DIALOGUE_SLOTS)).contains(&a[0])
+                    && let Some(dialogue) = self.world.dialogue.get_mut(&(a[0] as u8))
+                {
+                    dialogue.flags = if a[2] != 0 {
+                        dialogue.flags | mask
+                    } else {
+                        dialogue.flags & !mask
+                    };
+                }
+            }
             NativeCall::CloseDialogue => {
                 if let Some(choice) = self.world.choices.remove(&(a[0] as u8)) {
                     choice.operation.cancel();
@@ -113,16 +146,19 @@ impl NativeHost<'_> {
                         .cloned()
                         .ok_or("missing cooked message")
                 };
+                let names = self.resources.names(self.world.party.as_ref());
                 let speaker = crate::dialogue::resolve(
                     &message(a[6])?,
                     memory,
-                    &self.resources.actor_names,
+                    &names,
+                    &self.resources.text,
                     self.world.controlled_actor,
                 )?;
                 let body = crate::dialogue::resolve(
                     &message(a[7])?,
                     memory,
-                    &self.resources.actor_names,
+                    &names,
+                    &self.resources.text,
                     self.world.controlled_actor,
                 )?;
                 let anchor = match a[2] {
@@ -182,7 +218,7 @@ impl NativeHost<'_> {
                     actor.position = [a[1] as f32, a[2] as f32, a[3] as f32];
                 }
             }
-            NativeCall::SetActorProperty => {
+            NativeCall::GetActorProperty | NativeCall::SetActorProperty => {
                 // Property writes return the previous value.
                 require(
                     matches!(a[1], 1..=4 | 7..=13 | 16 | 17 | 46),
@@ -193,98 +229,83 @@ impl NativeHost<'_> {
                 } else {
                     a[0]
                 };
-                let previous = if let Some(actor) = self.world.actors.get_mut(&id) {
+                let Some(actor) = self.world.actors.get_mut(&id) else {
+                    return Ok(NativeResult::Continue(Some(0)));
+                };
+                let previous = match a[1] {
+                    1..=3 => actor.position[(a[1] - 1) as usize] as i32,
+                    4 => actor.heading as i32,
+                    7 => actor.properties.get(&7).copied().unwrap_or(0),
+                    8 => actor.properties.get(&8).copied().unwrap_or(255),
+                    9 => i32::from(!actor.collidable),
+                    10 => i32::from(!actor.grounded),
+                    11 => i32::from(!actor.casts_shadow),
+                    12 => i32::from(actor.appearance.model_hidden),
+                    13 => i32::from(!actor.cull_outside_view),
+                    16 => i32::from(actor.appearance.expression),
+                    17 => actor.properties.get(&17).copied().unwrap_or(2),
+                    46 => i32::from(!actor.depth_write),
+                    _ => unreachable!(),
+                };
+                if op == NativeCall::SetActorProperty {
                     match a[1] {
                         7 => {
                             let flags = a[2] & 15;
-                            let old = actor.properties.insert(7, flags).unwrap_or(0);
+                            actor.properties.insert(7, flags);
                             if flags == 0 {
                                 actor.appearance.fixed_heading = None;
-                            } else if old == 0 {
+                            } else if previous == 0 {
                                 actor.appearance.fixed_heading = Some(actor.heading);
                             }
-                            old
                         }
-                        4 => {
-                            let old = actor.heading as i32;
-                            actor.target_heading = (a[2] as f32).rem_euclid(360.);
-                            old
-                        }
-                        1..=3 => {
-                            let index = (a[1] - 1) as usize;
-                            let old = actor.position[index] as i32;
-                            actor.position[index] = a[2] as f32;
-                            old
-                        }
+                        4 => actor.target_heading = (a[2] as f32).rem_euclid(360.),
+                        1..=3 => actor.position[(a[1] - 1) as usize] = a[2] as f32,
                         8 => {
-                            let old = actor
-                                .properties
-                                .insert(8, i32::from(a[2] as u8))
-                                .unwrap_or(255);
+                            actor.properties.insert(8, i32::from(a[2] as u8));
                             actor.visible = a[2] as u8 != 0;
-                            old
                         }
-                        46 => {
-                            // This flag requests strict depth testing without depth writes.
-                            let old = i32::from(!actor.depth_write);
-                            actor.depth_write = a[2] & 1 == 0;
-                            old
+                        9 => actor.collidable = a[2] & 1 == 0,
+                        10 => actor.grounded = a[2] & 1 == 0,
+                        11 => actor.casts_shadow = a[2] & 1 == 0,
+                        12 => actor.appearance.model_hidden = a[2] & 1 != 0,
+                        13 => actor.cull_outside_view = a[2] & 1 == 0,
+                        16 => actor.appearance.expression = a[2] as u8,
+                        17 => {
+                            actor.properties.insert(17, i32::from(a[2] as i16));
                         }
-                        9 => {
-                            let old = i32::from(!actor.collidable);
-                            actor.collidable = a[2] & 1 == 0;
-                            old
-                        }
-                        11 => {
-                            let old = i32::from(!actor.casts_shadow);
-                            actor.casts_shadow = a[2] & 1 == 0;
-                            old
-                        }
-                        10 => {
-                            let old = i32::from(!actor.grounded);
-                            actor.grounded = a[2] & 1 == 0;
-                            old
-                        }
-                        16 => {
-                            let old = actor.appearance.expression;
-                            actor.appearance.expression = a[2] as u8;
-                            i32::from(old)
-                        }
-                        12 => {
-                            let old = i32::from(actor.appearance.model_hidden);
-                            actor.appearance.model_hidden = a[2] & 1 != 0;
-                            old
-                        }
-                        13 => {
-                            // Keep the actor visible even when its origin is offscreen.
-                            let old = i32::from(!actor.cull_outside_view);
-                            actor.cull_outside_view = a[2] & 1 == 0;
-                            old
-                        }
-                        17 => actor
-                            .properties
-                            .insert(17, i32::from(a[2] as i16))
-                            .unwrap_or(2),
+                        46 => actor.depth_write = a[2] & 1 == 0,
                         _ => unreachable!(),
                     }
-                } else {
-                    0
-                };
+                }
                 value = Some(previous);
             }
             NativeCall::SpawnEvent => {
-                require(self.spawns.len() < 32, "event spawn limit exceeded")?;
+                require(self.events.len() < 32, "event command limit exceeded")?;
                 let key = u32::try_from(a[0]).map_err(|_| "invalid event key")?;
                 require(
                     self.program.event(2, key).is_some(),
                     "missing event resource",
                 )?;
                 value = Some(*self.next_handle);
-                self.spawns.push((*self.next_handle, key));
+                self.events.push(EventCommand {
+                    handle: *self.next_handle,
+                    action: EventAction::Spawn(key),
+                });
                 *self.next_handle = self
                     .next_handle
                     .checked_add(1)
                     .ok_or("event handle overflow")?;
+            }
+            NativeCall::ControlEvent => {
+                require(self.events.len() < 32, "event command limit exceeded")?;
+                self.events.push(EventCommand {
+                    handle: a[0],
+                    action: match a[1] as u8 {
+                        0 | 1 => EventAction::Pause(a[1] as u8 == 1),
+                        50 | 51 => EventAction::ControlGate(a[1] as u8 == 51),
+                        _ => return Err("unknown event control command".into()),
+                    },
+                });
             }
             NativeCall::ConfigureRendering => match a[0] {
                 0..=7 => {
@@ -300,37 +321,31 @@ impl NativeHost<'_> {
             },
             NativeCall::CreateOverlay => {
                 let resource = self.resources.resolve(a[1], ResourceKind::Overlay)?;
-                self.world.actors.insert(
+                self.world.insert_actor(
                     a[0],
                     Actor {
-                        resource,
-                        position: [a[2] as f32, a[3] as f32, 0.],
-                        visible: true,
-                        depth_write: true,
-                        animation: None,
-                        properties: BTreeMap::new(),
-                        heading: 0.,
-                        target_heading: 0.,
-                        turn_speed: 5.,
-                        appearance: Default::default(),
                         cull_outside_view: false,
                         grounded: false,
                         collidable: false,
                         casts_shadow: false,
-                        attachment: None,
-                        motion: None,
-                        scripted_animation: false,
-                        idle_animation: 12,
+                        ..Actor::new(resource, [a[2] as f32, a[3] as f32, 0.])
                     },
                 );
                 self.world.overlays.insert(
                     a[0],
                     Overlay {
+                        born: self.world.tick,
                         size: [a[4], a[5]],
                         angle: a[6],
                         rgba: [a[7] as u8, a[8] as u8, a[9] as u8, a[10] as u8],
                         duration: a[11].max(0) as u32,
-                        mode: a[12],
+                        kind: if a[0] == 999_989 {
+                            crate::world::OverlayKind::LocationCaption {
+                                hold_ticks: a[12].max(0) as u32,
+                            }
+                        } else {
+                            crate::world::OverlayKind::Sprite { depth: a[12] }
+                        },
                     },
                 );
             }
@@ -439,81 +454,7 @@ impl NativeHost<'_> {
                     white: a[0] >= 2,
                 });
             }
-            NativeCall::YieldCommand => {
-                // Install the wait after decoding both service arguments.
-                let wait = match a[0] {
-                    1 => {
-                        require(
-                            self.world.loaded_resources.contains_key(&a[1]),
-                            "wait refers to an unloaded resource",
-                        )?;
-                        // Scene readiness gates execution until all cooked
-                        // dependencies are resident, so this load is complete.
-                        return Ok(NativeResult::Continue(None));
-                    }
-                    0 => {
-                        require(a[1] >= 0, "negative wait duration")?;
-                        Wait::Tick(
-                            self.world
-                                .tick
-                                .checked_add((a[1] as u32).max(1))
-                                .ok_or("wait clock overflow")?,
-                        )
-                    }
-                    2 | 3 => {
-                        let Some(dialogue) = self.world.dialogue.get(&(a[1] as u8)) else {
-                            return self.yield_update();
-                        };
-                        if a[0] == 2 {
-                            Wait::Complete(dialogue.operation.clone())
-                        } else {
-                            Wait::Ready(dialogue.operation.clone())
-                        }
-                    }
-                    8 => Wait::Camera {
-                        after: self.world.tick,
-                    },
-                    4 => Wait::ActorMotion(a[1]),
-                    7 => Wait::ActorAnimation(a[1]),
-                    18 => Wait::ActorHeading(a[1]),
-                    9..=13 => Wait::CameraPath {
-                        after: self.world.tick,
-                        channel: a[0] as u8,
-                    },
-                    14..=16 if self.world.voice.is_some() => {
-                        // Voices are ready immediately; media-completion waits still
-                        // wait for playback to end.
-                        if a[0] != 15 {
-                            return self.yield_update();
-                        }
-                        Wait::Voice
-                    }
-                    14..=16 | 19 => {
-                        let Some(movie) = &self.world.movie else {
-                            return self.yield_update();
-                        };
-                        match a[0] {
-                            14 | 16 => Wait::Ready(movie.operation.clone()),
-                            19 if a[1] >= 0 => Wait::Position(movie.operation.clone(), a[1] as u32),
-                            _ => Wait::Complete(movie.operation.clone()),
-                        }
-                    }
-                    _ => return Err(format!("unsupported wait condition {}", a[0])),
-                };
-                let mut wait = if matches!(wait, Wait::Tick(_)) {
-                    wait
-                } else {
-                    Wait::Service {
-                        condition: Box::new(wait),
-                        ready_at: None,
-                    }
-                };
-                if wait.poll(self.world)? {
-                    return Ok(NativeResult::Continue(None));
-                }
-                *self.wait = Some(wait);
-                return Ok(NativeResult::Suspend);
-            }
+            NativeCall::YieldCommand => return self.yield_command(a[0], a[1]),
             // This command only consumes its argument; the VM has already done that.
             NativeCall::DiscardValue => {}
             NativeCall::ConfigureActorAnimation => {
@@ -583,27 +524,14 @@ impl NativeHost<'_> {
                 let resource = self.resources.resolve(a[5], ResourceKind::Model)?;
                 require(!self.world.actors.contains_key(&a[0]), "duplicate actor ID")?;
                 require(self.world.actors.len() < 4096, "actor limit exceeded")?;
-                self.world.actors.insert(
+                self.world.insert_actor(
                     a[0],
                     Actor {
-                        resource,
-                        position: [a[1] as f32, a[2] as f32, a[3] as f32],
-                        visible: true,
-                        depth_write: true,
-                        animation: None,
-                        properties: BTreeMap::new(),
-                        heading: 0.,
-                        target_heading: 0.,
-                        turn_speed: 5.,
-                        appearance: Default::default(),
                         cull_outside_view: false,
                         grounded: false,
                         collidable: false,
                         casts_shadow: false,
-                        attachment: None,
-                        motion: None,
-                        scripted_animation: false,
-                        idle_animation: 12,
+                        ..Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32])
                     },
                 );
             }
@@ -633,33 +561,43 @@ impl NativeHost<'_> {
                 self.registers[..3].copy_from_slice(&point);
             }
             NativeCall::CreateParticle => {
+                let kind = self
+                    .resources
+                    .particles
+                    .get(&a[0])
+                    .ok_or("particle kind is not cooked")?;
                 require(
-                    self.resources.particle_kinds.contains(&a[0]),
-                    "particle kind is not cooked",
-                )?;
-                require(
-                    a[1] >= 0 && a[11..] == [0, 0],
+                    (0..=0x7fff).contains(&a[1]) && a[12] == 0,
                     "particle lifetime/color mode is not implemented",
                 )?;
-                require(self.world.particles.len() < 2048, "particle pool exhausted")?;
-                self.world.next_particle = self
-                    .world
-                    .next_particle
-                    .checked_add(1)
-                    .ok_or("particle handle overflow")?;
-                let handle = self.world.next_particle;
-                self.world.particles.push(Particle {
+                let (rgba, flutter) = match kind {
+                    crate::ParticleKind::Glow => {
+                        require(a[11] == 0, "particle color is not cooked")?;
+                        ([255., 255., 255., a[9] as f32], None)
+                    }
+                    crate::ParticleKind::Flutter(recipe) => {
+                        let mut rgba = recipe
+                            .palette
+                            .get(a[11] as usize)
+                            .ok_or("particle color is not cooked")?
+                            .map(f32::from);
+                        rgba[3] = f32::from(a[9] as u8);
+                        (rgba, Some(crate::effect::Flutter::new(recipe)))
+                    }
+                };
+                let handle = self.world.emit_particle(Particle {
                     kind: a[0],
-                    handle,
+                    handle: 0,
                     born: self.world.tick,
                     lifetime: a[1] as u32,
                     position: [a[2] as f32, a[3] as f32, a[4] as f32],
                     velocity: [a[5] as f32, a[6] as f32, a[7] as f32],
                     size: a[8] as f32,
                     size_delta: 0.,
-                    rgba: [255., 255., 255., a[9] as f32],
+                    rgba,
                     alpha_delta: a[10] as f32,
-                });
+                    flutter,
+                })?;
                 value = Some(handle);
             }
             NativeCall::SetEffectProperty => {
@@ -692,12 +630,28 @@ impl NativeHost<'_> {
         memory: &mut Memory,
         handler: fn(&mut Self, NativeCall, &[i32], &mut Memory) -> Result<NativeResult, String>,
     ) -> Result<NativeResult, String> {
+        if self.world.skit.is_some()
+            && matches!(
+                call,
+                NativeCall::DespawnActor
+                    | NativeCall::PlayMovie
+                    | NativeCall::YieldCommand
+                    | NativeCall::SetActorProperty
+                    | NativeCall::GetActorProperty
+            )
+        {
+            return self
+                .skit(call, arguments, memory)
+                .map_err(|e| format!("{call:?} ({:#04x}) {arguments:?}: {e}", call as u8));
+        }
         // Resolve the controlled-actor alias before adapting actor-service arguments.
         let mut adapted;
         let values = if arguments.first() == Some(&crate::CONTROLLED_ACTOR)
             && matches!(
                 call,
                 NativeCall::SetActorHeading
+                    | NativeCall::ActorExists
+                    | NativeCall::SelectActor
                     | NativeCall::MoveActor
                     | NativeCall::SetActorPosition
                     | NativeCall::SetActorOrientation
@@ -705,6 +659,8 @@ impl NativeHost<'_> {
                     | NativeCall::SetActorAnimationProperty
                     | NativeCall::FindActorNode
                     | NativeCall::SetActorAnimation
+                    | NativeCall::SetActorFace
+                    | NativeCall::SetActorMouth
                     | NativeCall::ReadActorAttachment
             ) {
             adapted = arguments.to_vec();

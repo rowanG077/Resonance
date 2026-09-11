@@ -118,7 +118,7 @@ pub fn inspect_title_audio(extracted: &Path, output: &Path) -> Result<()> {
             "version":1,"reader":"resonance-audio-cook","audio_device":false,
             "song_sha256":crate::digest(&bytes),"bank_sha256":crate::digest(&bank_bytes),
             "group":0,"setup":1,"initial_bpm_1024":song.initial_bpm_1024,
-            "loop_ticks":song.loop_interval()?,"tempos":tempos,"channels":channels,
+            "loop_ticks":song.playback_interval()?,"tempos":tempos,"channels":channels,
             "tracks":tracks,"notes":notes,"objects":objects,"macros":macro_programs,"samples":samples,"events":events,
         }),
     )?;

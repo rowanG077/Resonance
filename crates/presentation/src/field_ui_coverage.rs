@@ -53,6 +53,16 @@ impl Coverage {
         result.append(batch, art, 0, opening)?;
         Ok(result)
     }
+    pub(super) fn with_solid(
+        &self,
+        batch: &Batch,
+        art: &DialogueArt,
+        opening: bool,
+    ) -> Result<Self> {
+        let mut result = self.clone();
+        result.append(batch, art, 2, opening)?;
+        Ok(result)
+    }
     fn append(
         &mut self,
         batch: &Batch,

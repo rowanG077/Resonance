@@ -7,18 +7,24 @@ fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let root = args
         .next()
-        .context("ASSETS PACKAGE OUTPUT FRAMES required")?;
+        .context("ASSETS PACKAGE OUTPUT FRAMES [VOLUME] required")?;
     let package = args.next().context("PACKAGE required")?;
     let output = args.next().context("OUTPUT required")?;
     let frames: u32 = args.next().context("FRAMES required")?.parse()?;
+    let volume: u8 = args.next().map_or(Ok(127), |v| v.parse())?;
+    ensure!(
+        volume <= 127 && args.next().is_none(),
+        "invalid volume or extra arguments"
+    );
     ensure!(!Path::new(&output).exists(), "recording already exists");
     let data = Package::load(Path::new(&root), &package)?;
-    let preview = sequence::render_preview(
+    let preview = sequence::render_preview_with_volume(
         &data.resources,
         &data.score,
         &data.tables,
         data.reverbs,
         frames,
+        |_| f32::from(volume) / 127.,
     )?;
     if let Some(parent) = Path::new(&output).parent() {
         fs::create_dir_all(parent)?;

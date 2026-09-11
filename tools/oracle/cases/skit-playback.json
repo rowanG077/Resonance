@@ -1,0 +1,6 @@
+{
+  "game_id": "GQSEAF",
+  "polls": 3000,
+  "rtc": 1700000000,
+  "inputs": [{ "poll": 20, "duration": 2, "buttons": ["z"] }]
+}

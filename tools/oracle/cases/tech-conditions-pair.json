@@ -1,0 +1,717 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Menu status portraits: curse/paralysis animations, petrification, knockout precedence and cures across party/menu pages.",
+  "registration": "Controlled fixture changes only vitals/condition flags in matched copies of tech-groups-fixture-v1: Lloyd has curse plus deadly poison, Genis paralysis plus poison, Sheena petrification plus those conditions, and knocked-out Colette also has the lesser conditions. These combinations test visual priority; they do not claim natural status acquisition. Raine retains the learned cure spells and 90 TP. Menu opens at native update 40 and source poll 20; later inputs and captures use source poll/2 with established clock origins. Two-tick animation samples cover a full 40-tick curse/paralysis cycle. Cures are actual menu actions and check every party member against source state. Status receives an additional 40 idle updates before its first settled portrait observation on both sides. The v1 comparison records a separate unimplemented Status entrance transition at update 520; this case tests settled pages and the condition animation cycle, not page entrances. The petrified Status capture moves native update and source VI together from 720 to the next actual video presentation at 721, preserving the clock origin and tolerance.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/tech-conditions-fixture-v1/native.json",
+    "sha256": "78cb250745c927b8130d0aab1e8b227048cb2cf9d2c57b2c4d0e349d2dae4011"
+  },
+  "native_replay": {
+    "path": "tech-conditions-keyboard.json",
+    "sha256": "5b1bf3a9b0b7b7157de2b5f286f87d324c2c0a85a3bd186368eac5dc6d14338c"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/tech-conditions-fixture-v1/GQSEAF.s01",
+      "sha256": "5877d929d13528737a17eb7cdf2940588931c97d897c02e07217774b56b5a5fc"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 5360,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 420,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 580,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 740,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1380,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1540,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2020,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2340,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2500,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2660,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3140,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 3300,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3460,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3780,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3940,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4740,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4900,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 5060,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "main-conditions",
+      "native": "vi-70",
+      "dolphin_vi": 70,
+      "party_state": true
+    },
+    {
+      "name": "swap-curse",
+      "native": "vi-200",
+      "dolphin_vi": 200,
+      "party_state": true
+    },
+    {
+      "name": "status-curse",
+      "native": "vi-560",
+      "dolphin_vi": 560,
+      "statistics_state": true
+    },
+    {
+      "name": "status-knockout",
+      "native": "vi-600",
+      "dolphin_vi": 600,
+      "statistics_state": true
+    },
+    {
+      "name": "status-paralysis",
+      "native": "vi-640",
+      "dolphin_vi": 640,
+      "statistics_state": true
+    },
+    {
+      "name": "status-petrified",
+      "native": "vi-721",
+      "dolphin_vi": 721,
+      "statistics_state": true
+    },
+    {
+      "name": "equipment-curse",
+      "native": "vi-960",
+      "dolphin_vi": 960
+    },
+    {
+      "name": "ex-curse",
+      "native": "vi-1160",
+      "dolphin_vi": 1160,
+      "ex_state": true
+    },
+    {
+      "name": "strategy-conditions",
+      "native": "vi-1320",
+      "dolphin_vi": 1320
+    },
+    {
+      "name": "cooking-curse",
+      "native": "vi-1480",
+      "dolphin_vi": 1480
+    },
+    {
+      "name": "cook-conditions",
+      "native": "vi-1520",
+      "dolphin_vi": 1520
+    },
+    {
+      "name": "healer-list",
+      "native": "vi-1960",
+      "dolphin_vi": 1960,
+      "tech_state": true
+    },
+    {
+      "name": "condition-targets",
+      "native": "vi-2080",
+      "dolphin_vi": 2080,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-2",
+      "native": "vi-2082",
+      "dolphin_vi": 2082,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-4",
+      "native": "vi-2084",
+      "dolphin_vi": 2084,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-6",
+      "native": "vi-2086",
+      "dolphin_vi": 2086,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-8",
+      "native": "vi-2088",
+      "dolphin_vi": 2088,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-10",
+      "native": "vi-2090",
+      "dolphin_vi": 2090,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-12",
+      "native": "vi-2092",
+      "dolphin_vi": 2092,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-14",
+      "native": "vi-2094",
+      "dolphin_vi": 2094,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-16",
+      "native": "vi-2096",
+      "dolphin_vi": 2096,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-18",
+      "native": "vi-2098",
+      "dolphin_vi": 2098,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-20",
+      "native": "vi-2100",
+      "dolphin_vi": 2100,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-22",
+      "native": "vi-2102",
+      "dolphin_vi": 2102,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-24",
+      "native": "vi-2104",
+      "dolphin_vi": 2104,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-26",
+      "native": "vi-2106",
+      "dolphin_vi": 2106,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-28",
+      "native": "vi-2108",
+      "dolphin_vi": 2108,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-30",
+      "native": "vi-2110",
+      "dolphin_vi": 2110,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-32",
+      "native": "vi-2112",
+      "dolphin_vi": 2112,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-34",
+      "native": "vi-2114",
+      "dolphin_vi": 2114,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-36",
+      "native": "vi-2116",
+      "dolphin_vi": 2116,
+      "tech_state": true
+    },
+    {
+      "name": "condition-animation-38",
+      "native": "vi-2118",
+      "dolphin_vi": 2118,
+      "tech_state": true
+    },
+    {
+      "name": "curse-cured",
+      "native": "vi-2160",
+      "dolphin_vi": 2160,
+      "tech_state": true
+    },
+    {
+      "name": "knockout-target",
+      "native": "vi-2200",
+      "dolphin_vi": 2200,
+      "tech_state": true
+    },
+    {
+      "name": "knockout-cure-rejected",
+      "native": "vi-2240",
+      "dolphin_vi": 2240,
+      "tech_state": true
+    },
+    {
+      "name": "paralysis-target",
+      "native": "vi-2280",
+      "dolphin_vi": 2280,
+      "tech_state": true
+    },
+    {
+      "name": "paralysis-cured",
+      "native": "vi-2320",
+      "dolphin_vi": 2320,
+      "tech_state": true
+    },
+    {
+      "name": "petrified-target",
+      "native": "vi-2400",
+      "dolphin_vi": 2400,
+      "tech_state": true
+    },
+    {
+      "name": "petrification-cured",
+      "native": "vi-2440",
+      "dolphin_vi": 2440,
+      "tech_state": true
+    },
+    {
+      "name": "return-list",
+      "native": "vi-2480",
+      "dolphin_vi": 2480,
+      "tech_state": true
+    }
+  ],
+  "audio": []
+}

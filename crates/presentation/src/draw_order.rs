@@ -14,6 +14,10 @@ use std::collections::HashMap;
 #[derive(Component, Clone, Copy, ExtractComponent)]
 pub(super) struct DrawOrder(pub u32);
 
+pub(super) const FIELD_TRANSLUCENCY: u32 = 1 << 21;
+pub(super) const CONTACT_SHADOWS: u32 = 3 << 20;
+pub(super) const EFFECTS: u32 = 1 << 22;
+
 pub(super) struct DrawOrderPlugin;
 impl Plugin for DrawOrderPlugin {
     fn build(&self, app: &mut App) {

@@ -167,10 +167,7 @@ pub fn mix_studio(buses: &[Vec<i16>; 3], parameters: [[f32; 5]; 2]) -> Result<Ve
         length.is_multiple_of(2) && buses.iter().all(|bus| bus.len() == length),
         "studio buses must have matching stereo lengths"
     );
-    let mut effects = [
-        StandardReverb::new(parameters[0])?,
-        StandardReverb::new(parameters[1])?,
-    ];
+    let mut studio = Studio::new(parameters)?;
     let tail_seconds = parameters
         .into_iter()
         .enumerate()
@@ -180,25 +177,15 @@ pub fn mix_studio(buses: &[Vec<i16>; 3], parameters: [[f32; 5]; 2]) -> Result<Ve
     let frames = length / 2 + (tail_seconds * 32000.0).ceil() as usize + 320;
     let mut output = Vec::with_capacity(frames * 2);
     for frame in 0..frames {
-        let mut mixed = std::array::from_fn::<_, 2, _>(|channel| {
-            i32::from(buses[0].get(frame * 2 + channel).copied().unwrap_or(0))
+        let input = buses.each_ref().map(|bus| {
+            std::array::from_fn(|channel| {
+                i32::from(bus.get(frame * 2 + channel).copied().unwrap_or(0))
+            })
         });
-        for (bus, effect) in effects.iter_mut().enumerate() {
-            let input = std::array::from_fn(|channel| {
-                i32::from(
-                    buses[bus + 1]
-                        .get(frame * 2 + channel)
-                        .copied()
-                        .unwrap_or(0),
-                )
-            });
-            let wet = effect.process(input);
-            for channel in 0..2 {
-                mixed[channel] += wet[channel];
-            }
-        }
         output.extend(
-            mixed.map(|sample| sample.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16),
+            studio
+                .process(input)
+                .map(|sample| sample.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16),
         );
     }
     let audible = output

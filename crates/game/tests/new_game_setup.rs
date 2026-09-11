@@ -1,30 +1,27 @@
 //! Original setup scenario; all retail dependencies remain in ignored cooked assets.
+mod common;
+use common::{asset_root, cooked};
 use resonance_content::{field::FieldAssets, session::SessionData};
 use resonance_events::{
     Actor, EventRuntime, GameWorld, ResourceLibrary, camera::CameraRig, dialogue::ChoiceExit,
     party::Party,
 };
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{fs, sync::Arc};
 use symphonia_script::Program;
 use symphonia_script_vm::Memory;
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF setup scenario/session data; no devices"]
 fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
-    let root = std::env::var_os("RESONANCE_TEST_ASSETS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"));
-    let assets: FieldAssets =
-        serde_json::from_slice(&fs::read(root.join("fields/new-game-setup.json")).unwrap())
-            .unwrap();
+    let root = asset_root();
+    let assets: FieldAssets = cooked("fields/new-game-setup.json");
     assets.validate().unwrap();
-    let data: SessionData =
-        serde_json::from_slice(&fs::read(root.join("game/session-data.json")).unwrap()).unwrap();
+    let data: SessionData = cooked("game/session-data.json");
     let data = Arc::new(data);
     let program =
         Arc::new(Program::decode(&fs::read(root.join(&assets.script.path)).unwrap()).unwrap());
     let resources = Arc::new(ResourceLibrary {
-        messages: serde_json::from_slice(&fs::read(root.join(&assets.messages)).unwrap()).unwrap(),
+        messages: cooked(&assets.messages),
         session_data: Some(data.clone()),
         fields: [340].into(),
         ..Default::default()
@@ -88,9 +85,8 @@ fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
         assert_eq!(party.items.get(&121), Some(&3));
         assert_eq!(party.members[0].equipment[0], 135);
         assert!(party.members[8].techniques.contains(&34));
-        assert!(party.settings.skit_titles);
-        assert_eq!(party.settings.rumble, !change_settings);
-        assert_eq!(party.settings.stereo, !change_settings);
+        assert_eq!(party.settings.preferences.rumble, !change_settings);
+        assert_eq!(party.settings.preferences.stereo, !change_settings);
         assert_eq!(
             party.settings.battle_controls[0],
             u8::from(!change_settings)

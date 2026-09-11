@@ -1,0 +1,309 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Main-menu party controls: choose Colette, exchange her with Lloyd, cancel an exchange, choose Genis, then return to the field.",
+  "registration": "Warm the ordinary field for 64 updates, then register the source scenery samples, fifteen spark births, running effect counter, RNG, eye phases, actor controllers, leaf motion and timed leaf-script waits once at the first capture. Native update 64 is source VI 0. Open the native menu at update 76: Dolphin advances the field through VI 11 and freezes its animations from VI 12. All menu captures use native update = source VI + 64. Source memory keeps the field frozen until VI 1234 and shows eleven VIs without a completed draw during return. Skip those loading updates in the native timeline: start closing at update 1275, finish the eleven animation updates at 1286, and compare the returned field at native update 1383 to source VI 1330. Running effect phase and field samples are independently checked. UI time includes the skipped source loading interval; it is not the effect clock. Actor and leaf origins are observed from the same source checkpoint as the NPC wandering case. Timed waits require an existing matching native script PC; registration never seeks a VM or skips random draws. Return-to-field image and RNG checks remain mandatory.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "party-keyboard.json",
+    "sha256": "73728bf506456f746479a844db778f484c7553a1d3e4a6060a7d231f076e7e32"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 2700,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "initial-field",
+      "native": "vi-0",
+      "dolphin_vi": 0,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "party-controls",
+      "native": "vi-210",
+      "dolphin_vi": 210,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "colette-leads",
+      "native": "vi-450",
+      "dolphin_vi": 450,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "swap-colette",
+      "native": "vi-530",
+      "dolphin_vi": 530,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "swap-target",
+      "native": "vi-610",
+      "dolphin_vi": 610,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "exchanged",
+      "native": "vi-690",
+      "dolphin_vi": 690,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "cancel-target",
+      "native": "vi-850",
+      "dolphin_vi": 850,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "cancelled",
+      "native": "vi-930",
+      "dolphin_vi": 930,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "genis-leads",
+      "native": "vi-1090",
+      "dolphin_vi": 1090,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-order",
+      "native": "vi-1170",
+      "dolphin_vi": 1170,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "field-genis",
+      "native": "vi-1330",
+      "dolphin_vi": 1330,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    }
+  ],
+  "audio": []
+}

@@ -1,0 +1,869 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Field eye animation: two blink cycles for Lloyd and the school-grounds NPCs.",
+  "registration": "After 64 ordinary warm-up updates, native update 64 pairs with source VI 0. Register scenery, spark births, RNG, effect phase and the three source-observed eye phases once. Eye origins are checked against the sequence and channel timers in the source savestate. Normal field updates drive every subsequent blink; source MemoryWatcher runs without the debugger. Compare rendered blink frames and next samples at open/closing/closed/rest transitions and across two cycles. Ambient animation and full-frame image gates remain enabled; actor controllers, leaf motion and timed leaf-script waits are registered from the same source checkpoint as the NPC wandering case. All subsequent updates use normal runtime behavior.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "eye-blink-keyboard.json",
+    "sha256": "7c7edb295ff76eb78f6369e7d4cce7625e7bb36dbcb9e063bc659ca97ba9729e"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 700,
+    "rtc": 1700000000,
+    "inputs": []
+  },
+  "frames": [
+    {
+      "name": "blink-0",
+      "native": "vi-0",
+      "dolphin_vi": 0,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-59",
+      "native": "vi-59",
+      "dolphin_vi": 59,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-60",
+      "native": "vi-60",
+      "dolphin_vi": 60,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-61",
+      "native": "vi-61",
+      "dolphin_vi": 61,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-63",
+      "native": "vi-63",
+      "dolphin_vi": 63,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-64",
+      "native": "vi-64",
+      "dolphin_vi": 64,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-65",
+      "native": "vi-65",
+      "dolphin_vi": 65,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-67",
+      "native": "vi-67",
+      "dolphin_vi": 67,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-68",
+      "native": "vi-68",
+      "dolphin_vi": 68,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-69",
+      "native": "vi-69",
+      "dolphin_vi": 69,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-71",
+      "native": "vi-71",
+      "dolphin_vi": 71,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-72",
+      "native": "vi-72",
+      "dolphin_vi": 72,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-73",
+      "native": "vi-73",
+      "dolphin_vi": 73,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-85",
+      "native": "vi-85",
+      "dolphin_vi": 85,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-86",
+      "native": "vi-86",
+      "dolphin_vi": 86,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-87",
+      "native": "vi-87",
+      "dolphin_vi": 87,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-88",
+      "native": "vi-88",
+      "dolphin_vi": 88,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-90",
+      "native": "vi-90",
+      "dolphin_vi": 90,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-91",
+      "native": "vi-91",
+      "dolphin_vi": 91,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-92",
+      "native": "vi-92",
+      "dolphin_vi": 92,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-94",
+      "native": "vi-94",
+      "dolphin_vi": 94,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-95",
+      "native": "vi-95",
+      "dolphin_vi": 95,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-96",
+      "native": "vi-96",
+      "dolphin_vi": 96,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-98",
+      "native": "vi-98",
+      "dolphin_vi": 98,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-99",
+      "native": "vi-99",
+      "dolphin_vi": 99,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-100",
+      "native": "vi-100",
+      "dolphin_vi": 100,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-102",
+      "native": "vi-102",
+      "dolphin_vi": 102,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-103",
+      "native": "vi-103",
+      "dolphin_vi": 103,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-104",
+      "native": "vi-104",
+      "dolphin_vi": 104,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-106",
+      "native": "vi-106",
+      "dolphin_vi": 106,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-107",
+      "native": "vi-107",
+      "dolphin_vi": 107,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-108",
+      "native": "vi-108",
+      "dolphin_vi": 108,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-110",
+      "native": "vi-110",
+      "dolphin_vi": 110,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-111",
+      "native": "vi-111",
+      "dolphin_vi": 111,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-112",
+      "native": "vi-112",
+      "dolphin_vi": 112,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-113",
+      "native": "vi-113",
+      "dolphin_vi": 113,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-132",
+      "native": "vi-132",
+      "dolphin_vi": 132,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-133",
+      "native": "vi-133",
+      "dolphin_vi": 133,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-134",
+      "native": "vi-134",
+      "dolphin_vi": 134,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-191",
+      "native": "vi-191",
+      "dolphin_vi": 191,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-192",
+      "native": "vi-192",
+      "dolphin_vi": 192,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-193",
+      "native": "vi-193",
+      "dolphin_vi": 193,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-196",
+      "native": "vi-196",
+      "dolphin_vi": 196,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-197",
+      "native": "vi-197",
+      "dolphin_vi": 197,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-200",
+      "native": "vi-200",
+      "dolphin_vi": 200,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-201",
+      "native": "vi-201",
+      "dolphin_vi": 201,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-204",
+      "native": "vi-204",
+      "dolphin_vi": 204,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-205",
+      "native": "vi-205",
+      "dolphin_vi": 205,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-264",
+      "native": "vi-264",
+      "dolphin_vi": 264,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-265",
+      "native": "vi-265",
+      "dolphin_vi": 265,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "blink-266",
+      "native": "vi-266",
+      "dolphin_vi": 266,
+      "eye_actors": [
+        1,
+        209,
+        210
+      ],
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    }
+  ],
+  "audio": []
+}

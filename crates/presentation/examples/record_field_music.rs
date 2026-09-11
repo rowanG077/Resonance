@@ -7,12 +7,17 @@ fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let root = args
         .next()
-        .context("ASSETS OUTPUT MUSIC SECONDS [VOLUME FADE_TICKS] required")?;
+        .context("ASSETS OUTPUT MUSIC SECONDS [VOLUME FADE_TICKS MODE] required")?;
     let output = args.next().context("OUTPUT required")?;
     let music = args.next().context("MUSIC required")?.parse()?;
     let seconds: u64 = args.next().context("SECONDS required")?.parse()?;
     let volume: u8 = args.next().map(|s| s.parse()).transpose()?.unwrap_or(127);
     let fade_ticks = args.next().map(|s| s.parse()).transpose()?.unwrap_or(6);
+    let stereo = match args.next().as_deref() {
+        None | Some("stereo") => true,
+        Some("mono") => false,
+        _ => anyhow::bail!("mode must be stereo or mono"),
+    };
     ensure!(args.next().is_none(), "unexpected arguments");
     ensure!(
         (1..=300).contains(&seconds),
@@ -34,6 +39,8 @@ fn main() -> Result<()> {
                 },
             ),
         ],
+        stereo,
+        [127; 3],
     )?;
     println!("Recorded {seconds} seconds to {output}; no audio device");
     Ok(())

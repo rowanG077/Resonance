@@ -252,6 +252,76 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     #[test]
+    #[ignore = "requires cooked menu programs and pinned muted Dolphin recordings; never opens a device"]
+    fn program_cues_match_dolphin_and_respect_live_group_volume() {
+        use resonance_audio::cue::{Studio, package::Manifest};
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let cooked = root.join("local/cooked");
+        let metadata: resonance_content::TitleSounds =
+            serde_json::from_slice(&fs::read(cooked.join("title-sounds.json")).unwrap()).unwrap();
+        let bank = Manifest::load(&cooked, &metadata.path, &metadata.sha256).unwrap();
+        let cases: serde_json::Value = serde_json::from_slice(
+            &fs::read(root.join("tools/oracle/cases/menu-program-audio.json")).unwrap(),
+        )
+        .unwrap();
+        for case in cases["cases"].as_array().unwrap() {
+            let name = case["cue"].as_str().unwrap();
+            let label = case["id"].as_str().unwrap_or(name);
+            let volume = case["volume"].as_u64().unwrap_or(127);
+            assert!(volume <= 127);
+            let start = case["window"]["reference_start_frame"].as_u64().unwrap() as u32;
+            let frames = case["window"]["frames"].as_u64().unwrap() as u32;
+            let read = |key: &str| {
+                let fixture = &case[key];
+                let bytes = fs::read(root.join(fixture["path"].as_str().unwrap())).unwrap();
+                assert_eq!(
+                    format!("{:x}", Sha256::digest(&bytes)),
+                    fixture["sha256"].as_str().unwrap()
+                );
+                let mut wave = hound::WavReader::new(std::io::Cursor::new(bytes)).unwrap();
+                assert_eq!((wave.spec().sample_rate, wave.spec().channels), (32028, 2));
+                assert!(frames > 0 && wave.duration() >= start + frames);
+                wave.seek(start).unwrap();
+                wave.samples::<i16>()
+                    .take(frames as usize * 2)
+                    .map(Result::unwrap)
+                    .collect::<Vec<_>>()
+            };
+            let reference = read("reference");
+            let baseline = read("baseline");
+            assert_ne!(reference, baseline, "{name} reference contains no cue");
+            let cue = bank.cues[name].clone();
+            let mut studio = Studio::new(bank.reverbs).unwrap();
+            studio.set_group_volume(volume as f32 / 127.).unwrap();
+            studio.play(cue.clone()).unwrap();
+            for frame in 0..frames as usize {
+                for (channel, actual) in studio.next_frame().into_iter().enumerate() {
+                    let index = frame * 2 + channel;
+                    let expected = i32::from(reference[index]) - i32::from(baseline[index]);
+                    assert!(
+                        (i32::from(actual) - expected).abs() <= 1,
+                        "{label} frame {frame}, channel {channel}: {actual} != {expected}"
+                    );
+                }
+            }
+            if case["volume"].is_number() {
+                continue;
+            }
+            let mut muted = Studio::new(bank.reverbs).unwrap();
+            muted.set_group_volume(0.).unwrap();
+            muted.play(cue).unwrap();
+            for _ in 0..320 {
+                assert_eq!(muted.next_frame(), [0; 2]);
+            }
+            muted.set_group_volume(1.).unwrap();
+            assert!(
+                (0..3200).any(|_| muted.next_frame() != [0; 2]),
+                "{name} did not resume after the group gain changed"
+            );
+        }
+    }
+
+    #[test]
     #[ignore = "requires local cooked audio and the pinned silent Dolphin recording; never opens a device"]
     fn music_and_menu_cues_match_the_independent_dolphin_mix() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");

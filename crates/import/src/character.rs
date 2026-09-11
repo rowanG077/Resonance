@@ -43,16 +43,65 @@ fn section<'a>(bytes: &'a [u8], ranges: &[Option<Range<usize>>], index: usize) -
     Ok(&bytes[range.clone()])
 }
 
+/// A field's model bank starts with an offset table. Its first section maps
+/// model indices to script IDs; remaining sections are complete actor packages.
+fn field_models(bytes: &[u8]) -> Result<Vec<(u16, &[u8])>> {
+    let count = word(bytes, 0)?;
+    ensure!((1..=512).contains(&count), "invalid field model count");
+    let header = 4 + count * 4;
+    let offsets = (0..count)
+        .map(|i| word(bytes, 4 + i * 4).map(|v| v & !3))
+        .collect::<Result<Vec<_>>>()?;
+    if count == 1 && offsets[0] == 0 {
+        return Ok(Vec::new());
+    }
+    ensure!(
+        offsets.iter().all(|v| (header..bytes.len()).contains(v)),
+        "invalid field model offset"
+    );
+    let end = |start| {
+        offsets
+            .iter()
+            .copied()
+            .filter(|v| *v > start)
+            .min()
+            .unwrap_or(bytes.len())
+    };
+    let names = &bytes[offsets[0]..end(offsets[0])];
+    ensure!((count - 1) * 2 <= names.len(), "truncated field model IDs");
+    let mut models = Vec::new();
+    let mut ids = std::collections::BTreeSet::new();
+    for (i, &offset) in offsets.iter().enumerate().skip(1) {
+        let id = crate::read::u16(names, (i - 1) * 2)?;
+        ensure!(
+            id > 9 && id != 24 && ids.insert(id),
+            "duplicate or reserved field model ID {id}"
+        );
+        models.push((id, &bytes[offset..end(offset)]));
+    }
+    Ok(models)
+}
+
 /// A secondary mesh layer can share the primary layer's texture palette.
 /// Assemble an offline source view for the existing geometry decoder; all GPL
 /// and model-relative offsets remain unchanged.
-fn texture_palette(primary: &[u8], secondary: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn texture_palette(primary: &[u8], secondary: &[u8]) -> Result<Vec<u8>> {
     if word(secondary, 0)? != 0 {
         return Ok(secondary.to_vec());
     }
-    let texture = primary
-        .get(word(primary, 0)?..word(primary, 4)?)
-        .context("invalid primary texture palette")?;
+    const EMPTY_PALETTE: [u8; 12] = [0, 0x20, 0xaf, 0x30, 0, 0, 0, 0, 0, 0, 0, 12];
+    let texture = if word(primary, 0)? == 0 {
+        // Attachment placeholders can contain a skeleton and no geometry or palette.
+        ensure!(
+            word(primary, 0x2c)? == 0,
+            "model geometry has no texture palette"
+        );
+        &EMPTY_PALETTE[..]
+    } else {
+        primary
+            .get(word(primary, 0)?..word(primary, 4)?)
+            .context("invalid primary texture palette")?
+    };
     let end = word(secondary, 4)?;
     ensure!(
         (0x20..=secondary.len()).contains(&end),
@@ -66,10 +115,12 @@ fn texture_palette(primary: &[u8], secondary: &[u8]) -> Result<Vec<u8>> {
     Ok(data)
 }
 
-pub(crate) fn cook_classroom(
+pub(crate) fn cook_field(
     extracted: &Path,
     output: &Path,
     ktx: &Path,
+    map_id: u32,
+    map: &crate::field::MapArchive,
 ) -> Result<Vec<ActorAssets>> {
     let files = extracted.join("files");
     let npc = fs::read(files.join("npc_all.bin"))?;
@@ -77,12 +128,24 @@ pub(crate) fn cook_classroom(
     let colette_clips = fs::read(files.join("col_all.bin"))?;
     let lloyd_clips = fs::read(files.join("llo_all.bin"))?;
     let genis_clips = fs::read(files.join("gen_all.bin"))?;
+    let declarations = crate::field_resources::declarations(map.section(6)?)?;
+    let mut model_resources = declarations.resources.clone();
     let mut assets = Vec::new();
+    let package = |id, name: &str, data: &[u8]| cook(id, name, data, data, &[], output, ktx);
     for (id, name) in [(1, "lloyd"), (2, "collet"), (3, "genius"), (4, "refill")] {
         let model = fs::read(files.join(format!("{name}000.bin")))?;
         let animation = fs::read(files.join(format!("{name}.bin")))?;
+        let service = fs::read(files.join(format!("{name}_ex.bin")))?;
+        let service_ranges = sections(&service)?;
+        let doors = [20, 24]
+            .into_iter()
+            .map(|slot| -> Result<_> {
+                let bytes = section(&service, &service_ranges, (slot - 4) / 4)?;
+                Ok((slot as u16, decode_clip(bytes)?))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let mut extra: Vec<_> = match id {
-            1 => &[18, 19][..],
+            1 => &[18, 19, 22][..],
             3 => &[518, 519][..],
             _ => &[],
         }
@@ -96,6 +159,11 @@ pub(crate) fn cook_classroom(
             })
         })
         .collect::<Result<_>>()?;
+        extra.extend(doors.iter().map(|(slot, bytes)| SourceClip {
+            slot: *slot,
+            resource: Some(resonance_content::field::DOOR_MOTION_RESOURCE_BASE + id),
+            bytes,
+        }));
         let (archive, family, indices): (&[u8], u32, &[usize]) = match id {
             1 => (&lloyd_clips, 3, &[48, 103, 117, 118]),
             2 => (&colette_clips, 4, &[47, 48, 117, 118]),
@@ -121,31 +189,102 @@ pub(crate) fn cook_classroom(
         }
         assets.push(cook(id, name, &model, &animation, &extra, output, ktx)?);
     }
-    for index in [65, 101, 102, 103, 104] {
+    for index in declarations
+        .resources
+        .iter()
+        .filter(|id| **id >> 16 == 2)
+        .map(|id| (*id & 0xffff) as usize)
+    {
         let data = archive_entry(&npc, index)?;
-        assets.push(cook(
+        assets.push(package(
             0x20000 + index as u32,
             &format!("npc-{index}"),
             data,
-            data,
-            &[],
-            output,
-            ktx,
         )?);
     }
-    for index in 2660..=2661 {
+    let executable = fs::read(extracted.join("sys/main.dol"))?;
+    for &id in declarations.resources.range(..=u32::from(u16::MAX)) {
+        let path = crate::field_resources::source_path(&executable, &files, id)?;
+        let data = fs::read(files.join(&path))?;
+        if word(&data, 0)? == 0x0020af30 {
+            crate::tpl::parse_tpl(&data)?;
+            model_resources.remove(&id);
+            eprintln!(
+                "Field {map_id}: texture resource {id:#x} ({path}) requires an overlay recipe; not a character package"
+            );
+            continue;
+        }
+        ensure!(
+            word(&data, 0)? == 31,
+            "resource {id:#x} ({path}) needs a cooking recipe"
+        );
+        ensure!(
+            !assets.iter().any(|a| a.resource == id),
+            "resource {id:#x} conflicts with an actor binding"
+        );
+        assets.push(package(id, &format!("resource-{id}"), &data)?);
+    }
+    for index in (2660..=2661).filter(|_| map_id == 340) {
         let data = archive_entry(&special, index)?;
-        assets.push(cook(
+        assets.push(package(
             0x10000 + index as u32,
             &format!("classroom-prop-{index}"),
             data,
-            data,
-            &[],
-            output,
-            ktx,
         )?);
     }
+    if map_id != 340 {
+        for (id, data) in field_models(map.section(7)?)? {
+            assets.push(package(
+                u32::from(id),
+                &format!("field-{map_id}-npc-{id}"),
+                data,
+            )?);
+        }
+        // MAP-local model handles address slots starting at section 16. A
+        // model's own wrapper holds its mesh layers and animation table.
+        for index in 16..map.sections.len() {
+            let Ok(data) = map.section(index) else {
+                continue;
+            };
+            if data.get(..4) != Some(&31u32.to_be_bytes()) {
+                continue;
+            }
+            assets.push(package(
+                0xffee0000 + (index - 16) as u32,
+                &format!("field-{map_id}-object-{}", index - 16),
+                data,
+            )?);
+        }
+        if declarations.save_point {
+            let save_point = crate::field::MapArchive::open(&files.join("mahou.cab"))?;
+            assets.push(package(
+                resonance_content::field::SAVE_POINT_RESOURCE,
+                "save-point",
+                &save_point.bytes,
+            )?);
+        }
+    }
+    crate::field_resources::validate_cooked(
+        &model_resources,
+        assets.iter().flat_map(|actor| {
+            std::iter::once(actor.resource).chain(
+                actor
+                    .parts
+                    .iter()
+                    .flat_map(|part| &part.clips)
+                    .filter_map(|clip| clip.animation_resource),
+            )
+        }),
+    )?;
     Ok(assets)
+}
+
+fn decode_clip(bytes: &[u8]) -> Result<Vec<u8>> {
+    if bytes.get(..4) == Some(&0x007b7960u32.to_be_bytes()) {
+        Ok(bytes.to_vec())
+    } else {
+        crate::compression::decode(bytes)
+    }
 }
 
 fn cook(
@@ -163,12 +302,8 @@ fn cook(
     for (index, range) in sections(animation)?.into_iter().enumerate().skip(2) {
         if let Some(range) = range {
             let bytes = &animation[range];
-            let bytes = if bytes.get(..4) == Some(&0x007b7960u32.to_be_bytes()) {
-                bytes.to_vec()
-            } else {
-                crate::compression::decode(bytes)
-                    .with_context(|| format!("decode {name} slot {}", 4 + index * 4))?
-            };
+            let bytes = decode_clip(bytes)
+                .with_context(|| format!("decode {name} slot {}", 4 + index * 4))?;
             decoded.push(((4 + index * 4) as u16, bytes));
         }
     }
@@ -278,6 +413,27 @@ fn cook(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn field_model_bank_uses_its_id_table_and_checks_aliases_and_ranges() {
+        // ID order differs from ID value; offsets can alias the same package.
+        let mut data: Vec<_> = [4u32, 20, 28, 36, 28, 0x014a0030, 0x00350000, 31, 7, 31, 9]
+            .into_iter()
+            .flat_map(u32::to_be_bytes)
+            .collect();
+        let models = field_models(&data).unwrap();
+        assert_eq!(
+            models.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            [330, 48, 53]
+        );
+        assert_eq!(models[0].1, models[2].1);
+        assert_eq!(word(models[1].1, 4).unwrap(), 9);
+        data[16..20].copy_from_slice(&0xfffcu32.to_be_bytes());
+        assert!(field_models(&data).is_err());
+        data[16..20].copy_from_slice(&28u32.to_be_bytes());
+        data[24..26].copy_from_slice(&330u16.to_be_bytes());
+        assert!(field_models(&data).is_err());
+        assert!(field_models(&[0, 0, 0, 1, 0, 0, 0, 0]).unwrap().is_empty());
+    }
     #[test]
     fn archive_fallback_checks_counts_and_payload_ranges() {
         let data: Vec<u8> = [2u32, 20, 4, 0, 0, 0x12345678]

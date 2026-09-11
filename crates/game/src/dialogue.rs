@@ -69,6 +69,11 @@ pub struct DialoguePlayer {
     instant_glyphs: bool,
 }
 impl DialoguePlayer {
+    /// Scripts can release a persistent notice after its text has appeared.
+    pub fn sync_flags(&mut self, dialogue: &Dialogue) {
+        self.persistent = dialogue.persistent();
+        self.auto_pages = dialogue.flags & flags::AUTO_PAGES != 0;
+    }
     pub fn fully_revealed(&self) -> bool {
         self.visible == self.current().glyphs.len()
     }
@@ -243,6 +248,50 @@ impl DialoguePlayer {
         }
         Ok(voices)
     }
+}
+
+/// Advance scene-owned notices through the ordinary text reveal and close rules.
+pub fn step_requests(
+    world: &mut resonance_events::GameWorld,
+    players: &mut std::collections::BTreeMap<u8, DialoguePlayer>,
+    confirm: bool,
+) -> Result<()> {
+    players.retain(|slot, p| {
+        world
+            .dialogue
+            .get(slot)
+            .is_some_and(|d| d.operation.id() == p.operation.id())
+    });
+    for (&slot, request) in &world.dialogue {
+        if request.operation.is_pending() && !players.contains_key(&slot) {
+            players.insert(
+                slot,
+                DialoguePlayer::new(
+                    request,
+                    world
+                        .party
+                        .as_ref()
+                        .map_or(3, |p| u16::from(p.settings.preferences.message_speed)),
+                )?,
+            );
+        }
+        if let Some(player) = players.get_mut(&slot) {
+            player.sync_flags(request);
+        }
+    }
+    let focus = players
+        .iter()
+        .find(|(_, p)| !p.closed && !p.persistent && p.operation.is_pending())
+        .map(|(&slot, _)| slot);
+    for (&slot, player) in players.iter_mut() {
+        for voice in player.step(confirm && focus == Some(slot))? {
+            world.audio_commands.push(match voice {
+                VoiceAction::Play(id) => resonance_events::AudioCommand::Voice(id),
+                VoiceAction::Stop => resonance_events::AudioCommand::StopVoice,
+            });
+        }
+    }
+    Ok(())
 }
 pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>> {
     ensure!(default_delay <= 120, "text delay exceeds supported range");

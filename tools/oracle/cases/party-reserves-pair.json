@@ -1,0 +1,378 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Eight-member main-menu party controls: active/reserve exchanges, paging bounds, reserve-only swaps, cancellation and choosing a reserve field leader.",
+  "registration": "Controlled party-reserves-fixture-v1 supplies formation 1/2/3/4/5/6/7/8 in both copies; story, skits, statistics and the original input prefix remain unchanged. Apply source-observed ambient origins once at native update 64. First menu presentation is native 76/source VI 12; later menu inputs and images use source VI + 64. Exchange Colette into reserve, choose her as field leader, cancel a cross-page exchange, then swap two reserves. The recording keeps the field frozen through VI 952, with the effect counter unchanged from VI 943 through 953 (ten skipped effect updates). Compare native update 1029 to source VI 975 after omitting those loading updates. Closing still begins at native update 995/source VI 931; field simulation resumes at native 1007/source VI 953. Effect phase, random state, leader and four scenery samples must match on return. Native previous/next-page keys correspond to the original C-stick up/down, not its shoulder-button shortcuts.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/party-reserves-fixture-v1/native.json",
+    "sha256": "939e41da2d0eae432676f363242c779ab7deb210d0ff9ccdda1b374d0c1d1dfa"
+  },
+  "native_replay": {
+    "path": "party-reserves-keyboard.json",
+    "sha256": "190e95e941425807cdb44a7588c6a29494024ebc3c78452d4cc43ffa978d1d9c"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/party-reserves-fixture-v1/GQSEAF.s01",
+      "sha256": "1d640bf440efd32512374afd01bf9d1fe95996a38fbbbbb05163e7e232cb6ad0"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 2000,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 420,
+        "duration": 2,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 580,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 740,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 900,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1060,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 2,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1380,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1540,
+        "duration": 2,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1860,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "party",
+      "native": "party",
+      "dolphin_vi": 151,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "colette",
+      "native": "colette",
+      "dolphin_vi": 191,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "exchange-start",
+      "native": "exchange-start",
+      "dolphin_vi": 231,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reserve-page",
+      "native": "reserve-page",
+      "dolphin_vi": 271,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "seventh-member",
+      "native": "seventh-member",
+      "dolphin_vi": 311,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-member",
+      "native": "last-member",
+      "dolphin_vi": 351,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "colette-reserve",
+      "native": "colette-reserve",
+      "dolphin_vi": 391,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reserve-leader",
+      "native": "reserve-leader",
+      "dolphin_vi": 431,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-page-bound",
+      "native": "last-page-bound",
+      "dolphin_vi": 471,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "active-page",
+      "native": "active-page",
+      "dolphin_vi": 511,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "first-reserve",
+      "native": "first-reserve",
+      "dolphin_vi": 551,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reserve-exchange-start",
+      "native": "reserve-exchange-start",
+      "dolphin_vi": 591,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "exchange-across-pages",
+      "native": "exchange-across-pages",
+      "dolphin_vi": 631,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "exchange-cancelled",
+      "native": "exchange-cancelled",
+      "dolphin_vi": 671,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reserve-page-return",
+      "native": "reserve-page-return",
+      "dolphin_vi": 711,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reserve-origin",
+      "native": "reserve-origin",
+      "dolphin_vi": 751,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reserve-pair-start",
+      "native": "reserve-pair-start",
+      "dolphin_vi": 791,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reserve-pair-target",
+      "native": "reserve-pair-target",
+      "dolphin_vi": 831,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reserves-exchanged",
+      "native": "reserves-exchanged",
+      "dolphin_vi": 871,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "main-return",
+      "native": "main-return",
+      "dolphin_vi": 911,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "field-return",
+      "native": "field-return",
+      "dolphin_vi": 975,
+      "party_state": true,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    }
+  ],
+  "audio": []
+}

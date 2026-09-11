@@ -1,15 +1,17 @@
-//! Title-to-game ownership and cooked field transitions. Field presentation
-//! updates the active scenario and yields to its movie operations.
+//! Scene ownership, field preparation and checkpoint entry.
+mod fields;
 use super::audio_output::Player as AudioPlayer;
 use super::{Events, PendingAudio, PendingInput, RunOptions, audio, movie};
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
-use resonance_content::{MovieAsset, field::FieldAssets};
-use resonance_game::field::{FieldEntry, FieldSession};
+use fields::PLAYABLE_FIELDS;
+pub(super) use fields::{FieldPackage, manifest_path};
+use resonance_content::{MovieAsset, field::FieldAssets, prepared::Files};
+use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldSession};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 #[derive(Resource)]
-pub(super) struct Request;
+pub(super) struct Request(pub Option<Vec<u8>>);
 
 #[derive(Resource)]
 pub(super) struct Session {
@@ -17,131 +19,99 @@ pub(super) struct Session {
     pub assets: FieldAssets,
     pub ready_for_field: bool,
     pub audio: Option<super::field_audio::Assets>,
-    story_movie: MovieAsset,
+    pub identity: resonance_persistence::Identity,
+    story_movie: Option<MovieAsset>,
     pub(super) prepared_movie: Option<movie::Prepared>,
     movie_started: bool,
     data: Arc<resonance_content::session::SessionData>,
-    fields: BTreeMap<u32, FieldPackage>,
-}
-
-struct FieldPackage {
-    assets: FieldAssets,
-    script: Vec<u8>,
-    messages: Vec<u8>,
-}
-impl FieldPackage {
-    fn load(files: &resonance_content::prepared::Files, path: &str) -> Result<Self> {
-        let assets: FieldAssets = files.json(path)?;
-        assets.validate()?;
-        Ok(Self {
-            script: files.read(&assets.script.path)?.to_vec(),
-            messages: files.read(&assets.messages)?.to_vec(),
-            assets,
-        })
-    }
+    skits: Arc<resonance_content::skit::SkitCatalog>,
+    fields: BTreeMap<u32, Arc<FieldPackage>>,
 }
 
 impl Session {
     pub(super) fn movie_owns_audio(&self) -> bool {
-        // The new-session story presentation owns the bus from field entry,
-        // including the script updates before it requests the decoder.
         self.assets.map_id != 5 && (!self.movie_started || !self.ready_for_field)
     }
 
     pub(super) fn load(root: &Path) -> Result<Self> {
-        let files = resonance_content::prepared::Files::load(
+        let mut cache = super::loading::Cache::default();
+        let files = Arc::new(Files::load(
             root,
-            &[
-                "fields/new-game-setup.preload.json",
-                "fields/iselia-classroom.preload.json",
-            ],
-            &mut Default::default(),
+            &[&manifest_path(5)?, &manifest_path(340)?],
+            &mut cache.bytes,
             || false,
-        )?;
-        Self::load_prepared(root, &files)
+        )?);
+        Self::load_prepared(root, files, None, &mut cache.audio)
+    }
+
+    pub(super) fn identity(root: &Path) -> Result<resonance_persistence::Identity> {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(b"Resonance/GQSEAF/rev0/field-checkpoint/1");
+        hash.update(std::fs::read(root.join("game/session-data.json"))?);
+        for map in std::iter::once(5).chain(PLAYABLE_FIELDS) {
+            let path = manifest_path(map)?.replace(".preload.json", ".json");
+            let field: FieldAssets = serde_json::from_slice(&std::fs::read(root.join(path))?)?;
+            field.validate()?;
+            ensure!(
+                field.map_id == map,
+                "save content has the wrong field binding"
+            );
+            let script = std::fs::read(root.join(&field.script.path))?;
+            ensure!(
+                format!("{:x}", Sha256::digest(&script)) == field.script.sha256,
+                "field {map} script identity differs"
+            );
+            hash.update(map.to_be_bytes());
+            hash.update(Sha256::digest(script));
+        }
+        let mut content: [u8; 32] = hash.finalize().into();
+        // Correcting four equipment-owner permissions leaves the saved layout
+        // unchanged. Preserve its identity only for this exact content revision;
+        // other data or script changes still produce an incompatible identity.
+        if content
+            == [
+                0xfd, 0x25, 0x6c, 0x03, 0x98, 0xd5, 0xc8, 0x07, 0x7d, 0x31, 0x94, 0xf2, 0xdd, 0x79,
+                0x12, 0x00, 0x35, 0xe2, 0x98, 0x5b, 0xb0, 0xdf, 0x9c, 0xd1, 0x3f, 0xe8, 0xe7, 0x8b,
+                0x64, 0xce, 0xeb, 0xfd,
+            ]
+        {
+            content = [
+                0x71, 0xe4, 0x84, 0xac, 0xda, 0x23, 0xd9, 0x5c, 0x3a, 0xc0, 0xb6, 0x66, 0xa8, 0x47,
+                0x73, 0x19, 0x98, 0xaf, 0x87, 0x73, 0x5b, 0xdf, 0x06, 0x12, 0x65, 0x16, 0x97, 0xc4,
+                0x1e, 0x93, 0x41, 0xac,
+            ];
+        }
+        Ok(resonance_persistence::Identity { schema: 1, content })
     }
 
     pub(super) fn load_prepared(
         root: &Path,
-        files: &resonance_content::prepared::Files,
+        files: Arc<Files>,
+        saved: Option<FieldCheckpoint>,
+        audio: &mut super::field_audio::Cache,
     ) -> Result<Self> {
-        let classroom = FieldPackage::load(files, "fields/iselia-classroom.json")
-            .context("New Game needs cooked classroom assets; run cook-classroom")?;
-        let assets = &classroom.assets;
-        for (path, expected) in &assets.files {
-            ensure!(
-                files
-                    .manifests
-                    .values()
-                    .any(|m| m.files.get(path).is_some_and(|f| f.sha256 == *expected)),
-                "cooked field dependency changed: {path}; run cook-classroom"
-            );
-        }
-        for part in assets
-            .parts
-            .iter()
-            .chain(assets.actors.iter().flat_map(|actor| &actor.parts))
-        {
-            for path in std::iter::once(&part.mesh).chain(&part.textures) {
-                ensure!(
-                    files.bytes.contains_key(path),
-                    "New Game asset is missing: {path}; run cook-classroom"
-                );
-            }
-        }
-        let ui: resonance_content::font::DialogueArt = files
-            .json("ui/dialogue.json")
-            .context("New Game needs cooked dialogue art; run cook-classroom")?;
-        ui.validate()?;
-        ensure!(
-            assets.files.contains_key(&ui.font)
-                && assets.files.contains_key(&ui.cursor.path)
-                && ui
-                    .textures
-                    .iter()
-                    .all(|texture| assets.files.contains_key(&texture.path)),
-            "dialogue artwork is missing from field dependency inventory; run cook-classroom"
-        );
-        let font: resonance_content::font::BitmapFont = files.json(&ui.font)?;
-        font.validate()?;
-        ensure!(
-            assets.files.contains_key(&font.texture),
-            "dialogue font is missing from field dependency inventory; run cook-classroom"
-        );
-        ensure!(
-            files.bytes.contains_key(&font.texture)
-                && ui
-                    .textures
-                    .iter()
-                    .all(|t| files.bytes.contains_key(&t.path)),
-            "New Game dialogue textures are missing; run cook-classroom"
-        );
-        ensure!(
-            assets.files.contains_key("fields/new-game-setup.json")
-                && assets.files.contains_key("game/session-data.json"),
-            "New Game setup assets are missing; run cook-classroom"
-        );
-        let setup = FieldPackage::load(files, "fields/new-game-setup.json")?;
-        ensure!(
-            setup.assets.map_id == 5 && classroom.assets.map_id == 340,
-            "incorrect New Game map bindings"
-        );
-        ensure!(
-            setup
-                .assets
-                .files
-                .iter()
-                .all(|(path, hash)| assets.files.get(path) == Some(hash)),
-            "New Game setup dependency inventory differs from the verified package"
-        );
-        let data: resonance_content::session::SessionData = files.json("game/session-data.json")?;
+        let mut data: resonance_content::session::SessionData =
+            files.json("game/session-data.json")?;
+        let menu: resonance_content::menu_data::MenuData = files.json("game/menu-data.json")?;
+        menu.validate()?;
+        data.ex_skills = Some(Arc::new(menu.ex_skills));
         data.validate()?;
         let data = Arc::new(data);
-        let mut field = FieldSession::enter(
-            &setup.script,
-            serde_json::from_slice(&setup.messages)?,
-            &setup.assets,
+        let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
+        skits.validate()?;
+        let skits = Arc::new(skits);
+        let identity = Self::identity(root)?;
+        let map = saved.as_ref().map_or(5, |c| c.map_id);
+        let initial = Arc::new(FieldPackage::load(root, files.clone(), map, audio)?);
+        let mut entry = if let Some(checkpoint) = &saved {
+            checkpoint
+                .clone()
+                .entry(&initial.assets, data.clone(), PLAYABLE_FIELDS.into())?
+        } else {
             FieldEntry {
+                menu_data: None,
+                play_time: Default::default(),
                 persistent: resonance_events::PersistentState {
                     party: Some(resonance_events::party::Party::new(
                         &data,
@@ -150,35 +120,119 @@ impl Session {
                     ..Default::default()
                 },
                 data: Some(data.clone()),
-                available_fields: [340].into(),
-                // Fresh-game camera offsets are relative to the player, as on later field entries.
+                skits: None,
+                text: Default::default(),
+                available_fields: PLAYABLE_FIELDS.into(),
                 position: [-719., -371., 0.],
                 heading: 0.,
-                // Fresh-game idle pose; no wait is inherited from an earlier scene.
                 idle_animation: Some(116),
-            },
-        )?;
-        let movie: MovieAsset = files
-            .json("story-intro.json")
-            .context("New Game needs its cooked story movie; run cook-story-intro")?;
-        movie.validate()?;
-        ensure!(
-            root.join(&movie.path).is_file(),
-            "New Game story movie is missing"
-        );
-        let audio = super::field_audio::Assets::load_with(root, Some(files))?;
-        field.voice_durations = audio.voice_durations();
+                camera: None,
+            }
+        };
+        entry.skits = Some(skits.clone());
+        let mut field = initial.enter(entry)?;
+        if let Some(checkpoint) = &saved {
+            initialize_checkpoint(&mut field, checkpoint)?;
+        }
+        let story_movie = if saved.is_none() {
+            let movie: MovieAsset = files.json("story-intro.json")?;
+            movie.validate()?;
+            ensure!(
+                root.join(&movie.path).is_file(),
+                "New Game story movie is missing"
+            );
+            Some(movie)
+        } else {
+            None
+        };
+        let mut fields = BTreeMap::new();
+        if map == 5 {
+            fields.insert(340, Arc::new(FieldPackage::load(root, files, 340, audio)?));
+        }
+        fields.insert(map, initial.clone());
         Ok(Self {
             field,
-            assets: setup.assets,
+            assets: initial.assets.clone(),
             ready_for_field: true,
-            audio: Some(audio),
-            story_movie: movie,
+            audio: Some((*initial.audio).clone()),
+            identity,
+            story_movie,
             prepared_movie: None,
-            movie_started: false,
+            movie_started: saved.is_some(),
             data,
-            fields: [(classroom.assets.map_id, classroom)].into(),
+            skits,
+            fields,
         })
+    }
+
+    pub(super) fn files(&self) -> Arc<Files> {
+        self.fields[&self.assets.map_id].files.clone()
+    }
+
+    pub(super) fn replace_loaded(&mut self, mut candidate: Self) {
+        self.field.events.cancel();
+        for (id, package) in std::mem::take(&mut self.fields) {
+            candidate.fields.entry(id).or_insert(package);
+        }
+        *self = candidate;
+    }
+
+    /// Validate and initialize a candidate before touching the current scene.
+    pub(super) fn restore(&mut self, checkpoint: FieldCheckpoint) -> Result<()> {
+        let package = self
+            .fields
+            .get(&checkpoint.map_id)
+            .context("saved field is not prepared")?
+            .clone();
+        let mut entry =
+            checkpoint
+                .clone()
+                .entry(&package.assets, self.data.clone(), PLAYABLE_FIELDS.into())?;
+        entry.skits = Some(self.skits.clone());
+        let mut field = package.enter(entry)?;
+        initialize_checkpoint(&mut field, &checkpoint)?;
+        self.activate(field, &package, false);
+        self.prepared_movie = None;
+        Ok(())
+    }
+
+    fn activate(&mut self, field: FieldSession, package: &FieldPackage, starting_story: bool) {
+        self.field.events.cancel();
+        self.field = field;
+        self.assets = package.assets.clone();
+        self.ready_for_field = true;
+        self.movie_started = !starting_story;
+        self.audio = Some((*package.audio).clone());
+    }
+
+    fn change_field(&mut self, package: Arc<FieldPackage>) -> Result<()> {
+        let request = self
+            .field
+            .events
+            .world
+            .field_transition
+            .as_ref()
+            .context("field transition is missing")?;
+        ensure!(
+            package.assets.map_id == request.map,
+            "prepared field differs from the requested destination"
+        );
+        let starting_story = self.assets.map_id == 5 && request.map == 340;
+        let mut field = package.enter(FieldEntry {
+            play_time: self.field.play_time,
+            persistent: self.field.events.persistent_state()?,
+            data: Some(self.data.clone()),
+            skits: Some(self.skits.clone()),
+            available_fields: PLAYABLE_FIELDS.into(),
+            position: request.position,
+            heading: request.heading,
+            camera: request.camera.clone(),
+            ..Default::default()
+        })?;
+        field.continue_ambient(&self.field);
+        self.activate(field, &package, starting_story);
+        self.fields.insert(package.assets.map_id, package);
+        Ok(())
     }
 
     pub(super) fn prepare_movie(
@@ -186,10 +240,75 @@ impl Session {
         root: &Path,
         cancelled: impl Fn() -> bool,
     ) -> Result<()> {
-        self.prepared_movie = Some(movie::Prepared::load(root, &self.story_movie, cancelled)?);
+        self.prepared_movie = Some(movie::Prepared::load(
+            root,
+            self.story_movie
+                .as_ref()
+                .context("session has no startup movie")?,
+            cancelled,
+        )?);
         Ok(())
     }
 }
+
+pub(super) fn initialize_checkpoint(
+    field: &mut FieldSession,
+    checkpoint: &FieldCheckpoint,
+) -> Result<()> {
+    // Field setup may yield; never confirm dialogue to make a checkpoint loadable.
+    for _ in 0..120 {
+        if field.checkpoint().is_ok() {
+            break;
+        }
+        ensure!(
+            !field.events.world.blocked_by_movie()
+                && field
+                    .events
+                    .world
+                    .dialogue
+                    .values()
+                    .all(|d| !d.operation.is_pending())
+                && field
+                    .events
+                    .world
+                    .choices
+                    .values()
+                    .all(|c| !c.operation.is_pending())
+                && field.events.world.field_transition.is_none(),
+            "saved progression restarts a foreground event"
+        );
+        field.step(Default::default())?;
+    }
+    // Input release happens after actor updates. Evaluate the normal player
+    // pose once, then discard its blend from the temporary setup pose.
+    field.step(Default::default())?;
+    field
+        .checkpoint()
+        .context("saved field did not return player control")?;
+    let world = &mut field.events.world;
+    let player = world
+        .actors
+        .get_mut(&world.controlled_actor)
+        .context("saved field has no controlled actor")?;
+    // Setup advances ground correction. A save made while walking on a slope
+    // must resume at its captured pose, before the next ordinary physics step.
+    player.position = checkpoint.position;
+    player.face(checkpoint.heading);
+    player.motion = None;
+    if let Some(animation) = &mut player.animation {
+        animation.blend_ticks = 0;
+    }
+    world
+        .field_camera
+        .as_mut()
+        .context("saved field has no camera")?
+        .snap_follow_view(&world.actors);
+    field.play_time = resonance_game::clock::PlayTime::resume(checkpoint.played_ticks());
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;
 
 /// Exclusive access makes replacement atomic: validate first, then cancel
 /// the old scene. A missing asset leaves the title usable for another attempt.
@@ -197,10 +316,14 @@ pub(super) fn enter(world: &mut World) {
     if world.contains_resource::<Session>() {
         return;
     }
-    if world.remove_resource::<Request>().is_some()
+    if let Some(request) = world.remove_resource::<Request>()
         && !world.contains_resource::<super::loading::Pending>()
     {
-        match super::loading::Pending::new(world.resource::<RunOptions>().assets.clone()) {
+        match super::loading::Pending::start(
+            world.resource::<RunOptions>().assets.clone(),
+            request.0,
+            world.resource::<super::loading::Resident>(),
+        ) {
             Ok(pending) => world.insert_resource(pending),
             Err(error) => {
                 error!("Could not prepare New Game: {error:#}");
@@ -219,30 +342,37 @@ pub(super) fn enter(world: &mut World) {
     };
     let elapsed = pending.started.elapsed();
     world.remove_resource::<super::loading::Pending>();
-    let prepared = match result {
-        Ok(prepared) => prepared,
+    let session = match result {
+        Ok(session) => session,
         Err(error) => {
             error!("Could not start New Game: {error:#}");
             world.write_message(AppExit::error());
             return;
         }
     };
+    let files = session.files();
     info!(
         "Field bytes verified in {:.3}s: {} bytes read, {} bytes reused",
         elapsed.as_secs_f64(),
-        prepared.files.disk_bytes,
-        prepared.files.reused_bytes
+        files.disk_bytes,
+        files.reused_bytes
     );
+    activate(world, session);
+}
+
+/// A fully validated candidate can replace the title only after preparation succeeds.
+pub(super) fn activate(world: &mut World, session: Session) {
+    super::saves::title::retire(world);
+    let files = session.files();
     *world
         .resource::<super::loading::Resident>()
         .files
         .write()
-        .unwrap() = Some(prepared.files);
+        .unwrap() = Some(files);
     world
         .resource::<super::loading::Resident>()
         .active
         .store(false, std::sync::atomic::Ordering::Release);
-    let session = prepared.session;
     if let Some(mut events) = world.remove_resource::<Events>() {
         events.0.cancel();
     }
@@ -277,61 +407,58 @@ pub(super) fn enter(world: &mut World) {
         ..Default::default()
     });
     world.insert_resource(session);
-    info!("New Game: running the original setup scenario");
+    info!(
+        "Started field {}",
+        world.resource::<Session>().assets.map_id
+    );
 }
 
 /// The VM requests a field; the scene owner replaces it after validating its
 /// cooked package. Outstanding callbacks are cancelled before actors retire.
-pub(super) fn transition(
-    mut session: Option<ResMut<Session>>,
-    resident: Res<super::loading::Resident>,
-    mut exit: MessageWriter<AppExit>,
-) {
-    let Some(session) = &mut session else {
+pub(super) fn transition(world: &mut World) {
+    let Some(session) = world.get_resource::<Session>() else {
         return;
     };
     let Some(request) = session.field.events.world.field_transition.clone() else {
         return;
     };
-    resident
+    world
+        .resource::<super::loading::Resident>()
         .active
         .store(false, std::sync::atomic::Ordering::Release);
     let result = (|| -> Result<()> {
-        let next = session
-            .fields
-            .remove(&request.map)
-            .context("requested field is not prepared")?;
-        ensure!(
-            next.assets.map_id == request.map,
-            "requested field binding differs"
-        );
-        let persistent = session.field.events.take_persistent()?;
-        let mut field = FieldSession::enter(
-            &next.script,
-            serde_json::from_slice(&next.messages)?,
-            &next.assets,
-            FieldEntry {
-                persistent,
-                data: Some(session.data.clone()),
-                available_fields: Default::default(),
-                position: request.position,
-                heading: request.heading,
-                idle_animation: None,
-            },
-        )?;
-        field.voice_durations = session.field.voice_durations.clone();
-        field.voice_feedback = session.field.voice_feedback.clone();
-        session.field = field;
-        session.assets = next.assets;
-        session.ready_for_field = true;
-        session.movie_started = false;
+        super::field_audio::leave_field(world)?;
+        let next = if let Some(pending) = world.get_resource::<super::loading::FieldPending>() {
+            let Some(result) = pending.poll()? else {
+                return Ok(());
+            };
+            world.remove_resource::<super::loading::FieldPending>();
+            Arc::new(result?)
+        } else if let Some(package) = world.resource::<Session>().fields.get(&request.map) {
+            package.clone()
+        } else {
+            let pending = super::loading::FieldPending::field(
+                world.resource::<RunOptions>().assets.clone(),
+                request.map,
+                world.resource::<super::loading::Resident>(),
+            )?;
+            world.insert_resource(pending);
+            return Ok(());
+        };
+        world.resource_mut::<Session>().change_field(next)?;
+        let files = world.resource::<Session>().files();
+        *world
+            .resource::<super::loading::Resident>()
+            .files
+            .write()
+            .unwrap() = Some(files);
         info!("Entered field {} through SymphoniaScript", request.map);
         Ok(())
     })();
     if let Err(error) = result {
         error!("Field transition failed: {error:#}");
-        session.field.events.cancel();
-        exit.write(AppExit::error());
+        world.resource_mut::<Session>().field.events.cancel();
+        world.write_message(AppExit::error());
     }
 }
 
@@ -357,7 +484,10 @@ pub(super) fn advance(
                     .prepared_movie
                     .take()
                     .context("script requested an unprepared movie")?,
-                session.story_movie.clone(),
+                session
+                    .story_movie
+                    .clone()
+                    .context("script movie is unavailable in this session")?,
                 request.operation.clone(),
                 &mut images,
             )?;
@@ -368,7 +498,7 @@ pub(super) fn advance(
                 .world
                 .party
                 .as_ref()
-                .is_some_and(|party| !party.settings.stereo);
+                .is_some_and(|party| !party.settings.preferences.stereo);
             session.ready_for_field = false;
         }
         Ok(())

@@ -1,0 +1,2204 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Synopsis with 25 source-matched history records: progress variants, recorded dates/levels, both worlds, long and short texts, page bounds and list scrolling.",
+  "registration": "A controlled Rust inventory-fixture changes only 25 scenario records in both copies, with matching progress values, saved levels and UTC timestamps including leap day. Live story stays 2500, party and skit history are unchanged, and the original DTM prefix is retained. This tests menu history presentation, not story progression. Native update 64 registers observed school-grounds ambient origins once. Menu entry is native 76/source VI 12; subsequent input and captures use native update = source VI + 64. There are no loading stalls or later phase adjustments. Synopsis gates compare the complete recorded history, eligible list, selected row and reading mode; party and field effects remain checked. Native page keys match the original C-stick vertically. Source page-up from the final long-text page takes two VIs: VI 1611 starts the operation, VI 1612 presents it without another effect update. Omit that one computation wait thereafter (native = source VI + 63), retaining source-observed effect/RNG checks. The source has no presentation at VI 1791, so the settled return uses VI 1792 on both timelines. Consecutive captures check scrolling and reading-panel fades, including ignored input during both. Source scroll counters advance after drawing; the gate maps native visible poses to that observation. Reopening Synopsis within the main menu retains the selected entry and list page; second and final pages are checked separately. The Main/Synopsis handoff now has consecutive image and fade-state gates in both directions, including ignored transition input; the shaded field copy remains opaque between menu pages. The omitted source VI still advanced the UI clock: add that single UI tick at native update 1675 without advancing gameplay, effects, scripts or random state. UI clock and effect clock have independent state gates, preserving cursor-trail history through later menu transitions.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/synopsis-later-fixture-v1/native.json",
+    "sha256": "45b0c68b7425fe0b33e2abb1850ce1b3fbf5ec16a6c8beda1e34407d70403b33"
+  },
+  "native_replay": {
+    "path": "synopsis-later-keyboard.json",
+    "sha256": "5ddb43d3683f40050d38626356f3487adf7ebfa570f630874f732654170dddee"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/synopsis-later-fixture-v1/GQSEAF.s01",
+      "sha256": "0bba10f6606ebe8c67c3c9c7ca4a8801b19249e56c3a773545437906cb527868"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 5570,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 100,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 140,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 220,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 264,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 288,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 380,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 460,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 464,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 540,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 620,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 700,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 780,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 860,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 864,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 940,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 944,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1020,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1100,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1380,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1540,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1700,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1860,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2020,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2180,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2340,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2460,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2500,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2540,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2660,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2820,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 2980,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3140,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 3300,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3460,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3620,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3780,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 3940,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4060,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4100,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4140,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4220,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4260,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4364,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4388,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4412,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4436,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4460,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4484,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4508,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4532,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4556,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4580,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4604,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4608,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4684,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4708,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4732,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4756,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4780,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4804,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4828,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4852,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4876,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4900,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4924,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 4928,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5020,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5060,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 5064,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5088,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 5140,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5168,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5220,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 5380,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5460,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "enter-synopsis-0",
+      "native": "enter-synopsis-0",
+      "dolphin_vi": 131,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-1",
+      "native": "enter-synopsis-1",
+      "dolphin_vi": 132,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-2",
+      "native": "enter-synopsis-2",
+      "dolphin_vi": 133,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-3",
+      "native": "enter-synopsis-3",
+      "dolphin_vi": 134,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-4",
+      "native": "enter-synopsis-4",
+      "dolphin_vi": 135,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-5",
+      "native": "enter-synopsis-5",
+      "dolphin_vi": 136,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-6",
+      "native": "enter-synopsis-6",
+      "dolphin_vi": 137,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-7",
+      "native": "enter-synopsis-7",
+      "dolphin_vi": 138,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-8",
+      "native": "enter-synopsis-8",
+      "dolphin_vi": 139,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-9",
+      "native": "enter-synopsis-9",
+      "dolphin_vi": 140,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-10",
+      "native": "enter-synopsis-10",
+      "dolphin_vi": 141,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-11",
+      "native": "enter-synopsis-11",
+      "dolphin_vi": 142,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "enter-synopsis-12",
+      "native": "enter-synopsis-12",
+      "dolphin_vi": 143,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-13",
+      "native": "enter-synopsis-13",
+      "dolphin_vi": 144,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-14",
+      "native": "enter-synopsis-14",
+      "dolphin_vi": 145,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-15",
+      "native": "enter-synopsis-15",
+      "dolphin_vi": 146,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-16",
+      "native": "enter-synopsis-16",
+      "dolphin_vi": 147,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-17",
+      "native": "enter-synopsis-17",
+      "dolphin_vi": 148,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-18",
+      "native": "enter-synopsis-18",
+      "dolphin_vi": 149,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-19",
+      "native": "enter-synopsis-19",
+      "dolphin_vi": 150,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-20",
+      "native": "enter-synopsis-20",
+      "dolphin_vi": 151,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "enter-synopsis-21",
+      "native": "enter-synopsis-21",
+      "dolphin_vi": 152,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "initial-list",
+      "native": "initial-list",
+      "dolphin_vi": 160,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "forest-variant-2",
+      "native": "forest-variant-2",
+      "dolphin_vi": 211,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-0",
+      "native": "text-opening-0",
+      "dolphin_vi": 231,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-1",
+      "native": "text-opening-1",
+      "dolphin_vi": 232,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-2",
+      "native": "text-opening-2",
+      "dolphin_vi": 233,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-3",
+      "native": "text-opening-3",
+      "dolphin_vi": 234,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-4",
+      "native": "text-opening-4",
+      "dolphin_vi": 235,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-5",
+      "native": "text-opening-5",
+      "dolphin_vi": 236,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-6",
+      "native": "text-opening-6",
+      "dolphin_vi": 237,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-7",
+      "native": "text-opening-7",
+      "dolphin_vi": 238,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-8",
+      "native": "text-opening-8",
+      "dolphin_vi": 239,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-9",
+      "native": "text-opening-9",
+      "dolphin_vi": 240,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-10",
+      "native": "text-opening-10",
+      "dolphin_vi": 241,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-11",
+      "native": "text-opening-11",
+      "dolphin_vi": 242,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-12",
+      "native": "text-opening-12",
+      "dolphin_vi": 243,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-opening-13",
+      "native": "text-opening-13",
+      "dolphin_vi": 244,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "forest-reading",
+      "native": "forest-reading",
+      "dolphin_vi": 251,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "forest-page-2",
+      "native": "forest-page-2",
+      "dolphin_vi": 291,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "forest-last-page",
+      "native": "forest-last-page",
+      "dolphin_vi": 331,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "forest-bottom-bound",
+      "native": "forest-bottom-bound",
+      "dolphin_vi": 371,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "forest-page-up",
+      "native": "forest-page-up",
+      "dolphin_vi": 411,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-scroll-up-0",
+      "native": "text-scroll-up-0",
+      "dolphin_vi": 431,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-scroll-up-1",
+      "native": "text-scroll-up-1",
+      "dolphin_vi": 432,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-scroll-up-2",
+      "native": "text-scroll-up-2",
+      "dolphin_vi": 433,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-scroll-up-3",
+      "native": "text-scroll-up-3",
+      "dolphin_vi": 434,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-scroll-up-4",
+      "native": "text-scroll-up-4",
+      "dolphin_vi": 435,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-scroll-up-5",
+      "native": "text-scroll-up-5",
+      "dolphin_vi": 436,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "forest-line-up",
+      "native": "forest-line-up",
+      "dolphin_vi": 451,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-0",
+      "native": "text-closing-0",
+      "dolphin_vi": 471,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-1",
+      "native": "text-closing-1",
+      "dolphin_vi": 472,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-2",
+      "native": "text-closing-2",
+      "dolphin_vi": 473,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-3",
+      "native": "text-closing-3",
+      "dolphin_vi": 474,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-4",
+      "native": "text-closing-4",
+      "dolphin_vi": 475,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-5",
+      "native": "text-closing-5",
+      "dolphin_vi": 476,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-6",
+      "native": "text-closing-6",
+      "dolphin_vi": 477,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-7",
+      "native": "text-closing-7",
+      "dolphin_vi": 478,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-8",
+      "native": "text-closing-8",
+      "dolphin_vi": 479,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-9",
+      "native": "text-closing-9",
+      "dolphin_vi": 480,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-10",
+      "native": "text-closing-10",
+      "dolphin_vi": 481,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-11",
+      "native": "text-closing-11",
+      "dolphin_vi": 482,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-12",
+      "native": "text-closing-12",
+      "dolphin_vi": 483,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "text-closing-13",
+      "native": "text-closing-13",
+      "dolphin_vi": 484,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "forest-list",
+      "native": "forest-list",
+      "dolphin_vi": 491,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "departure-variant-3",
+      "native": "departure-variant-3",
+      "dolphin_vi": 531,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "massacre-short",
+      "native": "massacre-short",
+      "dolphin_vi": 571,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "short-reading",
+      "native": "short-reading",
+      "dolphin_vi": 591,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "short-bottom-bound",
+      "native": "short-bottom-bound",
+      "dolphin_vi": 631,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "short-list",
+      "native": "short-list",
+      "dolphin_vi": 671,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "other-chosen-variant-3",
+      "native": "other-chosen-variant-3",
+      "dolphin_vi": 711,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "chosen-reading",
+      "native": "chosen-reading",
+      "dolphin_vi": 751,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "chosen-page-2",
+      "native": "chosen-page-2",
+      "dolphin_vi": 791,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "chosen-page-3",
+      "native": "chosen-page-3",
+      "dolphin_vi": 831,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "chosen-last-page",
+      "native": "chosen-last-page",
+      "dolphin_vi": 871,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "chosen-bottom-bound",
+      "native": "chosen-bottom-bound",
+      "dolphin_vi": 911,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "chosen-page-up",
+      "native": "chosen-page-up",
+      "dolphin_vi": 951,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "chosen-list",
+      "native": "chosen-list",
+      "dolphin_vi": 991,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-entry",
+      "native": "last-entry",
+      "dolphin_vi": 1031,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-entry-reading",
+      "native": "last-entry-reading",
+      "dolphin_vi": 1071,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-entry-list",
+      "native": "last-entry-list",
+      "dolphin_vi": 1111,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "last-list-bound",
+      "native": "last-list-bound",
+      "dolphin_vi": 1151,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tethealla-list",
+      "native": "tethealla-list",
+      "dolphin_vi": 1191,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-list",
+      "native": "half-elves-list",
+      "dolphin_vi": 1311,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-reading",
+      "native": "half-elves-reading",
+      "dolphin_vi": 1351,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-page-2",
+      "native": "half-elves-page-2",
+      "dolphin_vi": 1391,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-page-3",
+      "native": "half-elves-page-3",
+      "dolphin_vi": 1431,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-page-4",
+      "native": "half-elves-page-4",
+      "dolphin_vi": 1471,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-page-5",
+      "native": "half-elves-page-5",
+      "dolphin_vi": 1511,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-page-6",
+      "native": "half-elves-page-6",
+      "dolphin_vi": 1551,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-bottom-bound",
+      "native": "half-elves-bottom-bound",
+      "dolphin_vi": 1591,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-page-up",
+      "native": "half-elves-page-up",
+      "dolphin_vi": 1631,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "half-elves-return",
+      "native": "half-elves-return",
+      "dolphin_vi": 1671,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "world-without-marker",
+      "native": "world-without-marker",
+      "dolphin_vi": 1711,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "world-reading",
+      "native": "world-reading",
+      "dolphin_vi": 1751,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "world-return",
+      "native": "world-return",
+      "dolphin_vi": 1792,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "efreet-fallback",
+      "native": "efreet-fallback",
+      "dolphin_vi": 1831,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "efreet-reading",
+      "native": "efreet-reading",
+      "dolphin_vi": 1871,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "efreet-return",
+      "native": "efreet-return",
+      "dolphin_vi": 1911,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "first-list-page",
+      "native": "first-list-page",
+      "dolphin_vi": 1951,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "first-list-bound",
+      "native": "first-list-bound",
+      "dolphin_vi": 1991,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "first-entry-return",
+      "native": "first-entry-return",
+      "dolphin_vi": 2151,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-down-0",
+      "native": "list-scroll-down-0",
+      "dolphin_vi": 2303,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-down-1",
+      "native": "list-scroll-down-1",
+      "dolphin_vi": 2304,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-down-2",
+      "native": "list-scroll-down-2",
+      "dolphin_vi": 2305,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-down-3",
+      "native": "list-scroll-down-3",
+      "dolphin_vi": 2306,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-down-4",
+      "native": "list-scroll-down-4",
+      "dolphin_vi": 2307,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-down-5",
+      "native": "list-scroll-down-5",
+      "dolphin_vi": 2308,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-up-0",
+      "native": "list-scroll-up-0",
+      "dolphin_vi": 2463,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-up-1",
+      "native": "list-scroll-up-1",
+      "dolphin_vi": 2464,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-up-2",
+      "native": "list-scroll-up-2",
+      "dolphin_vi": 2465,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-up-3",
+      "native": "list-scroll-up-3",
+      "dolphin_vi": 2466,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-up-4",
+      "native": "list-scroll-up-4",
+      "dolphin_vi": 2467,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-scroll-up-5",
+      "native": "list-scroll-up-5",
+      "dolphin_vi": 2468,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "remember-second-page",
+      "native": "remember-second-page",
+      "dolphin_vi": 2521,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "return-main-0",
+      "native": "return-main-0",
+      "dolphin_vi": 2531,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-1",
+      "native": "return-main-1",
+      "dolphin_vi": 2532,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-2",
+      "native": "return-main-2",
+      "dolphin_vi": 2533,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-3",
+      "native": "return-main-3",
+      "dolphin_vi": 2534,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-4",
+      "native": "return-main-4",
+      "dolphin_vi": 2535,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-5",
+      "native": "return-main-5",
+      "dolphin_vi": 2536,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-6",
+      "native": "return-main-6",
+      "dolphin_vi": 2537,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-7",
+      "native": "return-main-7",
+      "dolphin_vi": 2538,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-8",
+      "native": "return-main-8",
+      "dolphin_vi": 2539,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-9",
+      "native": "return-main-9",
+      "dolphin_vi": 2540,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-10",
+      "native": "return-main-10",
+      "dolphin_vi": 2541,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-11",
+      "native": "return-main-11",
+      "dolphin_vi": 2542,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "return-main-12",
+      "native": "return-main-12",
+      "dolphin_vi": 2543,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "return-main-13",
+      "native": "return-main-13",
+      "dolphin_vi": 2544,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "return-main-14",
+      "native": "return-main-14",
+      "dolphin_vi": 2545,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "return-main-15",
+      "native": "return-main-15",
+      "dolphin_vi": 2546,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "return-main-16",
+      "native": "return-main-16",
+      "dolphin_vi": 2547,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "return-main-17",
+      "native": "return-main-17",
+      "dolphin_vi": 2548,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "return-main-18",
+      "native": "return-main-18",
+      "dolphin_vi": 2549,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "return-main-19",
+      "native": "return-main-19",
+      "dolphin_vi": 2550,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "main-between-pages",
+      "native": "main-between-pages",
+      "dolphin_vi": 2551,
+      "synopsis_state": false,
+      "party_state": true,
+      "effect_state": true,
+      "main_menu_state": true
+    },
+    {
+      "name": "return-main-21",
+      "native": "return-main-21",
+      "dolphin_vi": 2552,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-0",
+      "native": "reopen-synopsis-0",
+      "dolphin_vi": 2571,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-1",
+      "native": "reopen-synopsis-1",
+      "dolphin_vi": 2572,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-2",
+      "native": "reopen-synopsis-2",
+      "dolphin_vi": 2573,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-3",
+      "native": "reopen-synopsis-3",
+      "dolphin_vi": 2574,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-4",
+      "native": "reopen-synopsis-4",
+      "dolphin_vi": 2575,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-5",
+      "native": "reopen-synopsis-5",
+      "dolphin_vi": 2576,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-6",
+      "native": "reopen-synopsis-6",
+      "dolphin_vi": 2577,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-7",
+      "native": "reopen-synopsis-7",
+      "dolphin_vi": 2578,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-8",
+      "native": "reopen-synopsis-8",
+      "dolphin_vi": 2579,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-9",
+      "native": "reopen-synopsis-9",
+      "dolphin_vi": 2580,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-10",
+      "native": "reopen-synopsis-10",
+      "dolphin_vi": 2581,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-11",
+      "native": "reopen-synopsis-11",
+      "dolphin_vi": 2582,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": false,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-synopsis-12",
+      "native": "reopen-synopsis-12",
+      "dolphin_vi": 2583,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-synopsis-13",
+      "native": "reopen-synopsis-13",
+      "dolphin_vi": 2584,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-synopsis-14",
+      "native": "reopen-synopsis-14",
+      "dolphin_vi": 2585,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-synopsis-15",
+      "native": "reopen-synopsis-15",
+      "dolphin_vi": 2586,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-synopsis-16",
+      "native": "reopen-synopsis-16",
+      "dolphin_vi": 2587,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-synopsis-17",
+      "native": "reopen-synopsis-17",
+      "dolphin_vi": 2588,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-synopsis-18",
+      "native": "reopen-synopsis-18",
+      "dolphin_vi": 2589,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-synopsis-19",
+      "native": "reopen-synopsis-19",
+      "dolphin_vi": 2590,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-second-page",
+      "native": "reopen-second-page",
+      "dolphin_vi": 2591,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "reopen-synopsis-21",
+      "native": "reopen-synopsis-21",
+      "dolphin_vi": 2592,
+      "party_state": true,
+      "effect_state": true,
+      "synopsis_state": true,
+      "main_menu_state": false
+    },
+    {
+      "name": "remember-last-page",
+      "native": "remember-last-page",
+      "dolphin_vi": 2631,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "main-before-last",
+      "native": "main-before-last",
+      "dolphin_vi": 2671,
+      "synopsis_state": false,
+      "party_state": true,
+      "effect_state": true,
+      "main_menu_state": true
+    },
+    {
+      "name": "reopen-last-page",
+      "native": "reopen-last-page",
+      "dolphin_vi": 2711,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "reopened-reading",
+      "native": "reopened-reading",
+      "dolphin_vi": 2751,
+      "synopsis_state": true,
+      "party_state": true,
+      "effect_state": true
+    }
+  ],
+  "audio": []
+}

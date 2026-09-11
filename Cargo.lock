@@ -4431,6 +4431,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "resonance-content",
+ "serde",
+ "serde_json",
  "symphonia-script",
  "symphonia-script-vm",
 ]
@@ -4502,9 +4504,21 @@ dependencies = [
  "clap",
  "hound",
  "image",
+ "libloading",
+ "resonance-content",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "resonance-persistence"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -4528,10 +4542,12 @@ dependencies = [
  "resonance-events",
  "resonance-game",
  "resonance-media",
+ "resonance-persistence",
  "resonance-playback",
  "serde",
  "serde_json",
  "sha2",
+ "time",
 ]
 
 [[package]]
@@ -4929,6 +4945,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom 0.4.3",
+ "once_cell",
+ "rustix 1.1.4",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

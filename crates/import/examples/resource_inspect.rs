@@ -17,12 +17,7 @@ fn main() -> Result<()> {
             if id == 0x801e76b0 {
                 for index in 0..17 {
                     let ptr = word(dol::slice(&executable, id + index * 4, 4)?, 0)?;
-                    let bytes = dol::slice(&executable, ptr, 64)?;
-                    let end = bytes
-                        .iter()
-                        .position(|b| *b == 0)
-                        .context("name terminator")?;
-                    println!("bone {index}: {}", std::str::from_utf8(&bytes[..end])?);
+                    println!("bone {index}: {}", dol::text(&executable, ptr)?);
                 }
             }
             let bytes = dol::slice(&executable, id, 16)?;
@@ -40,14 +35,8 @@ fn main() -> Result<()> {
             .checked_sub(1)
             .context("not a grouped resource")?;
         let ptr = word(dol::slice(&executable, 0x801f86b8 + group * 12, 4)?, 0)?;
-        let path = dol::slice(&executable, ptr, 128)?;
-        let path = std::str::from_utf8(
-            &path[..path
-                .iter()
-                .position(|b| *b == 0)
-                .context("path terminator")?],
-        )?;
-        let data = fs::read(root.join("files").join(path))?;
+        let path = dol::text(&executable, ptr)?;
+        let data = fs::read(root.join("files").join(&path))?;
         let index = (id & 0xffff) as usize;
         let offset = word(&data, 4 + index * 8)? as usize;
         let size = word(&data, 8 + index * 8)? as usize;
