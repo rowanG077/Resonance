@@ -93,6 +93,36 @@ pub fn build(root: &Path, inputs: Inputs) -> Result<Manifest> {
     for texture in ui.textures.iter().chain([&ui.cursor]) {
         inventory.add(&texture.path, None, Role::Texture)?;
     }
+    let menu: resonance_content::menu::MenuArt =
+        inventory.json("ui/menu.json", None, Role::Data)?;
+    menu.validate()?;
+    for texture in menu.textures {
+        inventory.add(&texture.path, None, Role::Texture)?;
+    }
+    let data: resonance_content::menu_data::MenuData =
+        inventory.json("game/menu-data.json", None, Role::Data)?;
+    data.validate()?;
+    for c in data.texts().flat_map(str::chars).filter(|c| *c != '\n') {
+        ensure!(font.glyphs.contains_key(&c), "uncooked menu glyph {c:?}");
+    }
+    if inventory.files.contains_key("game/skits.json") {
+        let skits: resonance_content::skit::SkitCatalog =
+            inventory.json("game/skits.json", None, Role::Data)?;
+        skits.validate()?;
+        for resource in skits.resources.values() {
+            inventory.add(&resource.script, None, Role::Script)?;
+            inventory.add(&resource.messages, None, Role::Data)?;
+            let messages: Vec<symphonia_script::message::Message> =
+                serde_json::from_slice(&fs::read(root.join(&resource.messages))?)?;
+            crate::font::validate_messages(&font, &messages)?;
+        }
+        for portrait in skits.portraits.values() {
+            inventory.add(&portrait.texture, None, Role::Texture)?;
+        }
+        for voice in skits.media.values().filter_map(|m| m.voice.as_ref()) {
+            inventory.add(&voice.asset.path, Some(&voice.asset.sha256), Role::Voice)?;
+        }
+    }
     manifest
         .features
         .extend([Feature::Dialogue, Feature::Choices]);
@@ -101,8 +131,22 @@ pub fn build(root: &Path, inputs: Inputs) -> Result<Manifest> {
     }
     let effects: FieldEffects = inventory.json(&field.effects, None, Role::Data)?;
     effects.validate()?;
-    inventory.add(&effects.dust_texture, None, Role::Texture)?;
+    for sprite in effects.sprites.values().chain([&effects.refraction.sprite]) {
+        inventory.add(&sprite.texture, None, Role::Texture)?;
+    }
     inventory.add(&effects.emote_texture, None, Role::Texture)?;
+    inventory.add(&effects.status_texture, None, Role::Texture)?;
+    for recipe in field.particles.values() {
+        inventory.add(&recipe.texture, None, Role::Texture)?;
+    }
+    for path in field.captions.values() {
+        let caption: resonance_content::effect::LocationCaption =
+            inventory.json(path, None, Role::Data)?;
+        caption.validate()?;
+        for texture in caption.textures {
+            inventory.add(&texture.path, None, Role::Texture)?;
+        }
+    }
     manifest
         .features
         .extend([Feature::Billboards, Feature::Emotes]);

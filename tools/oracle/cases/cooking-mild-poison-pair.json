@@ -1,0 +1,378 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Colette cooks Cream Stew for an injured party with ordinary poison: verify its smaller, slower puff emission, then curing and revival.",
+  "registration": "Controlled paired copies learn recipe 15, grant the ingredients and set member vitals listed in cooking-mild-poison-fixture-v1/fixture.json. No story progression or recipe acquisition is claimed. Use the unchanged source-observed school-grounds ambient and gameplay RNG origins at native update 64; inputs and captures are source VI + 64. The source fixture has no poison puffs yet: clear native preparation puffs once at the registered initial frame, then observe source particle slot 3 through the menu. Source poison timers remain frozen through VI 1562 and first advance at VI 1563 after menu dismissal. Start the native closing animation at update 1615, corresponding to the source close press at VI 1551. Its eleven updates complete at 1626, so field resumption matches without postponing the close input. Captures retain native update = source VI + 64; the main-menu-transitions case separately checks the intervening images.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/cooking-mild-poison-fixture-v1/native.json",
+    "sha256": "bff7b3a4da6da444343fbc80f253c293e9797165a9adde97797ef18ed0b565a1"
+  },
+  "native_replay": {
+    "path": "cooking-mild-poison-keyboard.json",
+    "sha256": "d1e91ed6109b3b0e2ae02695690fa14aeb617de06e8be0670bee2e2abecc579a"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/cooking-mild-poison-fixture-v1/GQSEAF.s01",
+      "sha256": "f3e0a0eee32f3983d2ca066ed50109dc3b905e019e1c2067754a28dc0c7b540d"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3600,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 800,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1100,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1400,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1600,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1680,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1760,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1920,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 2400,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2600,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2800,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3100,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "poison-first",
+      "native": "poison-first",
+      "dolphin_vi": 2,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ],
+      "regions": [
+        [
+          295,
+          175,
+          36,
+          36
+        ]
+      ]
+    },
+    {
+      "name": "poison-second",
+      "native": "poison-second",
+      "dolphin_vi": 6,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ],
+      "regions": [
+        [
+          295,
+          175,
+          36,
+          36
+        ]
+      ]
+    },
+    {
+      "name": "poison-third",
+      "native": "poison-third",
+      "dolphin_vi": 10,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ],
+      "regions": [
+        [
+          295,
+          175,
+          36,
+          36
+        ]
+      ]
+    },
+    {
+      "name": "overview",
+      "native": "overview",
+      "dolphin_vi": 350,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "cooks",
+      "native": "cooks",
+      "dolphin_vi": 500,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "colette",
+      "native": "colette",
+      "dolphin_vi": 650,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "selected-chef",
+      "native": "selected-chef",
+      "dolphin_vi": 750,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "recipe-navigation",
+      "native": "recipe-navigation",
+      "dolphin_vi": 900,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "recipe-preview",
+      "native": "recipe-preview",
+      "dolphin_vi": 980,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "selected-recipe",
+      "native": "selected-recipe",
+      "dolphin_vi": 1050,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "result",
+      "native": "result",
+      "dolphin_vi": 1180,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "result-held",
+      "native": "result-held",
+      "dolphin_vi": 1250,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "return",
+      "native": "return",
+      "dolphin_vi": 1350,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "main",
+      "native": "main",
+      "dolphin_vi": 1470,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    },
+    {
+      "name": "field-cured",
+      "native": "field",
+      "dolphin_vi": 1620,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "poison_particles": [
+        3
+      ]
+    }
+  ],
+  "audio": []
+}

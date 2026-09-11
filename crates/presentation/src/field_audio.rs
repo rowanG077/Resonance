@@ -4,6 +4,9 @@ use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
 use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
 #[path = "field_audio_record.rs"]
 mod record;
+#[cfg(test)]
+#[path = "field_voice_tests.rs"]
+mod voice_tests;
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
 pub use record::record_field_audio;
@@ -30,6 +33,12 @@ use std::{
 };
 
 const RATE: u32 = 32028;
+pub(super) const PCM_SPEC: hound::WavSpec = hound::WavSpec {
+    channels: 2,
+    sample_rate: RATE,
+    bits_per_sample: 16,
+    sample_format: hound::SampleFormat::Int,
+};
 struct Clip {
     pcm: Vec<i16>,
     rate: u32,
@@ -40,7 +49,38 @@ pub(super) struct Assets {
     music: BTreeMap<i16, Arc<Loaded>>,
     sounds: BTreeMap<i16, Arc<Loaded>>,
     voices: BTreeMap<u32, Arc<Clip>>,
+    voice_gains: [f32; 128],
     reverbs: [[f32; 5]; 2],
+}
+
+#[derive(Default)]
+pub(super) struct Cache {
+    banks: BTreeMap<String, Arc<Assets>>,
+    samples: resonance_audio::package::SampleCache,
+}
+impl Cache {
+    pub fn load(
+        &mut self,
+        root: &Path,
+        manifest: &str,
+        files: &resonance_content::prepared::Files,
+    ) -> Result<Arc<Assets>> {
+        let mut identity = Sha256::new();
+        identity.update(files.read(manifest)?);
+        identity.update(files.read("game/skits.json")?);
+        let hash = format!("{:x}", identity.finalize());
+        if let Some(bank) = self.banks.get(&hash) {
+            return Ok(bank.clone());
+        }
+        let bank = Arc::new(Assets::load_manifest(
+            root,
+            manifest,
+            Some(files),
+            &mut self.samples,
+        )?);
+        self.banks.insert(hash, bank.clone());
+        Ok(bank)
+    }
 }
 fn read(
     root: &Path,
@@ -88,18 +128,37 @@ impl Assets {
         root: &Path,
         files: Option<&resonance_content::prepared::Files>,
     ) -> Result<Self> {
+        Self::load_manifest(
+            root,
+            "fields/iselia-classroom-audio.json",
+            files,
+            &mut Default::default(),
+        )
+    }
+
+    fn load_manifest(
+        root: &Path,
+        manifest: &str,
+        files: Option<&resonance_content::prepared::Files>,
+        sample_cache: &mut resonance_audio::package::SampleCache,
+    ) -> Result<Self> {
         let read_file = |path: &str| -> Result<Vec<u8>> {
             files.map_or_else(
                 || Ok(fs::read(root.join(path))?),
                 |f| Ok(f.read(path)?.to_vec()),
             )
         };
-        let manifest: FieldAudio = serde_json::from_slice(
-            &read_file("fields/iselia-classroom-audio.json")
-                .context("New Game needs cooked field audio; run cook-classroom-audio")?,
-        )?;
+        let mut manifest: FieldAudio = serde_json::from_slice(&read_file(manifest)?)?;
         manifest.validate()?;
-        let mut sample_cache = resonance_audio::package::SampleCache::default();
+        if let Some(files) = files {
+            let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
+            manifest.voices.extend(
+                skits
+                    .media
+                    .into_iter()
+                    .filter_map(|(id, media)| media.voice.map(|voice| (id, voice))),
+            );
+        }
         let mut packages =
             |references: BTreeMap<i16, Reference>| -> Result<BTreeMap<i16, Arc<Loaded>>> {
                 references
@@ -118,7 +177,7 @@ impl Assets {
                                     );
                                     Ok(bytes)
                                 },
-                                &mut sample_cache,
+                                sample_cache,
                             )?),
                         ))
                     })
@@ -176,6 +235,7 @@ impl Assets {
             music,
             sounds,
             voices,
+            voice_gains: manifest.voice_gains.try_into().unwrap(),
             reverbs,
         })
     }
@@ -192,6 +252,8 @@ impl Assets {
             rendered: rendered.clone(),
             movie_active: false,
             stereo: true,
+            levels: [127; 3],
+            in_field: true,
         };
         (
             FieldSource {
@@ -215,6 +277,8 @@ pub(super) struct Control {
     rendered: Arc<AtomicU64>,
     movie_active: bool,
     stereo: bool,
+    levels: [u8; 3],
+    in_field: bool,
 }
 type Completions = Arc<Mutex<VecDeque<(u64, Arc<AtomicBool>)>>>;
 type VoiceRequests = Arc<Mutex<VecDeque<(u32, Arc<AtomicBool>)>>>;
@@ -233,22 +297,58 @@ impl resonance_game::dialogue::VoiceFeedback for Control {
 }
 
 enum Message {
+    LeaveField,
+    EnterField(Arc<Assets>),
     Voice(u32, Arc<AtomicBool>),
     Script(AudioCommand),
     Movie(bool),
     Stereo(bool),
+    Levels([u8; 3]),
 }
 
 /// Optional development evidence; the normal player retains no event log.
 #[derive(Resource, Default)]
 pub(super) struct Trace(pub Vec<serde_json::Value>);
 impl Control {
+    fn enqueue(&self, message: Message) -> Result<()> {
+        self.send
+            .try_send(message)
+            .context("field audio queue is full or stopped")
+    }
+    fn leave_field(&mut self) -> Result<()> {
+        if self.in_field {
+            self.enqueue(Message::LeaveField)?;
+            self.voice_requests
+                .lock()
+                .expect("voice request queue poisoned")
+                .clear();
+            self.in_field = false;
+        }
+        Ok(())
+    }
+    fn enter_field(&mut self, assets: Assets) -> Result<()> {
+        self.enqueue(Message::EnterField(Arc::new(assets)))?;
+        self.in_field = true;
+        Ok(())
+    }
+    pub(super) fn settings(&self) -> serde_json::Value {
+        serde_json::json!({"stereo":self.stereo,"levels":self.levels})
+    }
     fn stereo(&mut self, stereo: bool) -> Result<()> {
         if self.stereo != stereo {
-            self.send
-                .try_send(Message::Stereo(stereo))
-                .context("field audio settings queue is full or stopped")?;
+            self.enqueue(Message::Stereo(stereo))?;
             self.stereo = stereo;
+        }
+        Ok(())
+    }
+    fn levels(&mut self, levels: [u8; 3]) -> Result<()> {
+        ensure!(
+            levels.iter().all(|&v| v <= 127),
+            "invalid field volume settings"
+        );
+        if self.levels != levels {
+            self.enqueue(Message::Levels(levels))?;
+            self.levels = levels;
         }
         Ok(())
     }
@@ -264,22 +364,15 @@ impl Control {
                 .is_some_and(|(resource, _)| *resource == id)
             {
                 let (_, complete) = requests.pop_front().unwrap();
-                return self
-                    .send
-                    .try_send(Message::Voice(id, complete))
-                    .context("voice command queue is full or stopped");
+                return self.enqueue(Message::Voice(id, complete));
             }
         }
-        self.send
-            .try_send(Message::Script(command))
-            .context("field audio queue is full or stopped")
+        self.enqueue(Message::Script(command))
     }
     fn movie(&mut self, active: bool) -> Result<()> {
         if active != self.movie_active {
             // Scores keep advancing while muted; movie completion restores their gain over two seconds.
-            self.send
-                .try_send(Message::Movie(active))
-                .context("field movie audio transition queue is full or stopped")?;
+            self.enqueue(Message::Movie(active))?;
             self.movie_active = active;
         }
         Ok(())
@@ -311,6 +404,7 @@ pub(super) struct FieldSource {
 
 struct ScorePlayer {
     stream: Stream,
+    looping: bool,
     controls: LiveControls,
     samples: [BusFrame; 160],
     cursor: usize,
@@ -320,8 +414,11 @@ struct ScorePlayer {
 }
 impl ScorePlayer {
     fn new(package: Arc<Loaded>, looping: bool) -> Result<Self> {
+        // One-shot music has no repeat traversal, just like a sound cue.
+        let looping = looping && !package.score.loop_events.is_empty();
         Ok(Self {
             stream: Stream::new(package, looping)?,
+            looping,
             controls: LiveControls::default(),
             samples: [[[0; 2]; 3]; 160],
             cursor: 0,
@@ -396,26 +493,26 @@ pub(super) struct Frames {
     channel: usize,
     output: [f32; 2],
     stereo: bool,
+    levels: [u8; 3],
 }
 impl Frames {
     fn command(&mut self, command: AudioCommand) -> Result<()> {
         match command {
             AudioCommand::Music(id) => {
-                if self.music_id == (id >= 0).then_some(id) {
-                    return Ok(());
-                }
-                self.music = if id < 0 {
-                    None
-                } else {
-                    Some(ScorePlayer::new(
+                let package = (id >= 0)
+                    .then(|| {
                         self.assets
                             .music
                             .get(&id)
-                            .with_context(|| format!("uncooked field music {id}"))?
-                            .clone(),
-                        true,
-                    )?)
-                };
+                            .with_context(|| format!("uncooked field music {id}"))
+                    })
+                    .transpose()?;
+                if self.music_id == (id >= 0).then_some(id) {
+                    return Ok(());
+                }
+                self.music = package
+                    .map(|package| ScorePlayer::new(package.clone(), true))
+                    .transpose()?;
                 self.music_id = (id >= 0).then_some(id);
                 // New scores fade from silence to the user’s volume over 100 ms,
                 // independently of the previous track’s scripted fade.
@@ -505,6 +602,20 @@ impl Frames {
         }
         loop {
             match self.receive.as_ref().unwrap().try_recv() {
+                Ok(Message::LeaveField) => {
+                    self.sounds.clear();
+                    self.voice = None;
+                    self.completions
+                        .lock()
+                        .expect("voice completion queue poisoned")
+                        .clear();
+                }
+                Ok(Message::EnterField(assets)) => {
+                    if self.assets.reverbs != assets.reverbs {
+                        self.studio = Studio::new(assets.reverbs)?;
+                    }
+                    self.assets = assets;
+                }
                 Ok(Message::Script(command)) => self.command(command)?,
                 Ok(Message::Voice(id, complete)) => {
                     self.command(AudioCommand::Voice(id))?;
@@ -519,6 +630,7 @@ impl Frames {
                     completions.push_back((self.frame + frames, complete));
                 }
                 Ok(Message::Stereo(stereo)) => self.stereo = stereo,
+                Ok(Message::Levels(levels)) => self.levels = levels,
                 Ok(Message::Movie(active)) => {
                     self.movie_active = active;
                     self.master = Fade::new(
@@ -541,29 +653,40 @@ impl Frames {
         let master = self.master;
         let fade = self.fade;
         let source_frame = self.frame;
+        let [music_level, effects_level, _] = self.levels.map(|v| f32::from(v) * (1. / 127.));
+        let voice_level = self.assets.voice_gains[usize::from(self.levels[2])];
         if let Some(music) = &mut self.music {
-            buses = music
-                .frame(|| block_gains(source_frame, master, Some(fade)))?
-                .context("looping field music ended unexpectedly")?;
+            music.controls.mono = !self.stereo;
+            if let Some(frame) = music
+                .frame(|| block_gains(source_frame, master, Some(fade)).map(|v| v * music_level))?
+            {
+                buses = frame;
+            } else {
+                ensure!(!music.looping, "looping field music ended unexpectedly");
+                self.music = None;
+            }
         }
         if self.frame.is_multiple_of(160) {
             self.fade.advance_block();
             self.master.advance_block();
         }
-        let mut finished = Vec::new();
-        for (index, sound) in self.sounds.iter_mut().enumerate() {
-            if let Some(frame) = sound.frame(|| block_gains(source_frame, master, None))? {
+        let mut index = 0;
+        while index < self.sounds.len() {
+            let sound = &mut self.sounds[index];
+            sound.controls.mono = !self.stereo;
+            if let Some(frame) = sound
+                .frame(|| block_gains(source_frame, master, None).map(|v| v * effects_level))?
+            {
                 for (bus, source) in buses.iter_mut().zip(frame) {
                     for (target, sample) in bus.iter_mut().zip(source) {
                         *target += sample;
                     }
                 }
             } else {
-                finished.push(index);
+                self.sounds.remove(index);
+                continue;
             }
-        }
-        for index in finished.into_iter().rev() {
-            self.sounds.remove(index);
+            index += 1;
         }
         // Speech resumes immediately after a movie, while music and effects fade in.
         // Mix scores and effects through one shared studio so track changes preserve
@@ -575,7 +698,7 @@ impl Frames {
         if let Some(voice) = &mut self.voice {
             if let Some(frame) = voice.next() {
                 for (target, value) in output.iter_mut().zip(frame) {
-                    *target += value;
+                    *target += value * voice_level;
                 }
             } else {
                 self.voice = None;
@@ -676,56 +799,87 @@ impl Decodable for FieldSource {
             channel: 0,
             output: [0.; 2],
             stereo: true,
+            levels: [127; 3],
         }
     }
 }
 
 pub(super) fn update(world: &mut World) {
     if !world.contains_resource::<super::new_game::Session>() {
-        world.remove_resource::<Control>();
-        let retired: Vec<_> = world
-            .query_filtered::<Entity, With<AudioPlayer<FieldSource>>>()
-            .iter(world)
-            .collect();
-        for entity in retired {
-            world.despawn(entity);
-        }
+        retire(world);
         return;
     }
-    if let Some(assets) = world
-        .resource_mut::<super::new_game::Session>()
-        .audio
-        .take()
+    // Keep the current music running through loading. The destination's opening
+    // cues wait for its prepared scene, then use the new bank on the same mixer.
+    if !world
+        .resource::<super::loading::Resident>()
+        .active
+        .load(Ordering::Acquire)
+        || world.resource::<super::new_game::Session>().audio.is_some()
+            && !super::field_view::ready(world)
     {
-        let (source, control) = assets.session();
-        let handle = world
-            .resource_mut::<bevy::asset::Assets<FieldSource>>()
-            .add(source);
-        world.spawn((AudioPlayer(handle), PlaybackSettings::ONCE));
-        world
-            .resource_mut::<super::new_game::Session>()
-            .field
-            .voice_feedback = Some(Arc::new(control.clone()));
-        world.insert_resource(control);
+        return;
     }
-    let commands = std::mem::take(
-        &mut world
-            .resource_mut::<super::new_game::Session>()
-            .field
-            .events
-            .world
-            .audio_commands,
-    );
     let result = (|| -> Result<()> {
-        let stereo = world
-            .resource::<super::new_game::Session>()
-            .field
+        if let Some(assets) = world
+            .resource_mut::<super::new_game::Session>()
+            .audio
+            .take()
+        {
+            if let Some(mut control) = world.get_resource_mut::<Control>() {
+                control.enter_field(assets)?;
+            } else {
+                let (source, control) = assets.session();
+                let handle = world
+                    .resource_mut::<bevy::asset::Assets<FieldSource>>()
+                    .add(source);
+                world.spawn((AudioPlayer(handle), PlaybackSettings::ONCE));
+                world.insert_resource(control);
+            }
+            let control = world.resource::<Control>().clone();
+            world
+                .resource_mut::<super::new_game::Session>()
+                .field
+                .voice_feedback = Some(Arc::new(control));
+        }
+        let commands = std::mem::take(
+            &mut world
+                .resource_mut::<super::new_game::Session>()
+                .field
+                .events
+                .world
+                .audio_commands,
+        );
+        let field = &world.resource::<super::new_game::Session>().field;
+        let preferences = field
             .events
             .world
             .party
             .as_ref()
-            .is_none_or(|party| party.settings.stereo);
+            .map(|p| &p.settings.preferences);
+        let stereo = preferences.is_none_or(|p| p.stereo);
+        let mut levels = preferences.map_or([127; 3], |p| {
+            [
+                p.volumes.music,
+                p.volumes.effects,
+                if p.event_voiceover {
+                    p.volumes.voice
+                } else {
+                    0
+                },
+            ]
+        });
+        // Music previews while editing. New cues and stereo use the committed
+        // settings, including the Back cue emitted when Customize commits.
+        if let Some(preview) = field
+            .menu
+            .as_ref()
+            .and_then(resonance_game::menu::Menu::preferences)
+        {
+            levels[0] = preview.volumes.music;
+        }
         world.resource_mut::<Control>().stereo(stereo)?;
+        world.resource_mut::<Control>().levels(levels)?;
         let session = world.resource::<super::new_game::Session>();
         let movie_active =
             session.movie_owns_audio() || session.field.events.world.blocked_by_movie();
@@ -766,6 +920,25 @@ pub(super) fn update(world: &mut World) {
     }
 }
 
+/// Field effects and dialogue end at the boundary; music and its clock survive.
+pub(super) fn leave_field(world: &mut World) -> Result<()> {
+    if let Some(mut control) = world.get_resource_mut::<Control>() {
+        control.leave_field()?;
+    }
+    Ok(())
+}
+
+pub(super) fn retire(world: &mut World) {
+    world.remove_resource::<Control>();
+    let retired: Vec<_> = world
+        .query_filtered::<Entity, With<AudioPlayer<FieldSource>>>()
+        .iter(world)
+        .collect();
+    for entity in retired {
+        world.despawn(entity);
+    }
+}
+
 pub(super) fn acknowledge(world: &mut World) {
     let Some(control) = world.get_resource::<Control>().cloned() else {
         return;
@@ -795,6 +968,136 @@ pub(super) fn acknowledge(world: &mut World) {
 mod tests {
     use super::*;
 
+    fn synthetic_assets() -> Assets {
+        Assets {
+            reverbs: [[0.5, 0.5, 1., 0.5, 0.]; 2],
+            music: BTreeMap::new(),
+            sounds: BTreeMap::new(),
+            voices: BTreeMap::new(),
+            voice_gains: [1.; 128],
+        }
+    }
+
+    #[test]
+    #[ignore = "requires cooked Iselia fields; no window or audio device"]
+    fn field_handoffs_preserve_music_pcm_and_retire_scene_voices() {
+        use resonance_game::dialogue::VoiceFeedback;
+
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+            || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
+            Into::into,
+        );
+        let mut samples = Default::default();
+        let mut banks = [
+            "fields/map-332-audio.json",
+            "fields/map-330-audio.json",
+            "fields/iselia-classroom-audio.json",
+        ]
+        .into_iter()
+        .map(|manifest| Assets::load_manifest(&root, manifest, None, &mut samples).unwrap())
+        .collect::<Vec<_>>();
+        // A pending line belongs to the old scene even when its ID is reused.
+        banks[0].voices.insert(
+            1,
+            Arc::new(Clip {
+                pcm: vec![16384; 1000],
+                rate: RATE,
+                channels: 1,
+            }),
+        );
+        let (reference, reference_control) = banks[0].clone().session();
+        let (source, mut control) = banks[0].clone().session();
+        let mut reference = reference.decoder();
+        let mut frames = source.decoder();
+        reference_control.send(AudioCommand::Music(7)).unwrap();
+        control.send(AudioCommand::Music(7)).unwrap();
+        let mut audible = false;
+        for bank in banks.into_iter().skip(1) {
+            // Cross score block boundaries and leave a live reverb tail.
+            for _ in 0..RATE + 31 {
+                let expected = reference.frame().unwrap().unwrap();
+                assert_eq!(frames.frame().unwrap().unwrap(), expected);
+                audible |= expected.iter().any(|sample| sample.abs() > 0.001);
+            }
+            let completion = control.begin(1);
+            if frames.assets.voices.contains_key(&1) {
+                control.send(AudioCommand::Voice(1)).unwrap();
+            }
+            let sound = *frames.assets.sounds.keys().next().unwrap();
+            control
+                .send(AudioCommand::Sound {
+                    id: sound,
+                    pan: 64,
+                    volume: 127,
+                    slot: Some(1),
+                })
+                .unwrap();
+            control.leave_field().unwrap();
+            control.leave_field().unwrap();
+            assert!(control.voice_requests.lock().unwrap().is_empty());
+            // Loading can last arbitrarily long without pausing the music.
+            for _ in 0..913 {
+                assert_eq!(frames.frame().unwrap(), reference.frame().unwrap());
+            }
+            assert!(frames.voice.is_none() && frames.sounds.is_empty());
+            assert!(control.completions.lock().unwrap().is_empty());
+            assert!(!completion.load(Ordering::Acquire));
+            control.enter_field(bank).unwrap();
+            control.send(AudioCommand::Music(7)).unwrap();
+        }
+        for _ in 0..RATE {
+            assert_eq!(frames.frame().unwrap(), reference.frame().unwrap());
+        }
+        assert!(audible);
+        assert_eq!(
+            control.rendered_frames(),
+            reference_control.rendered_frames()
+        );
+        // A destination request resolves against its bank, including speech.
+        let voice = *frames.assets.voices.keys().next().unwrap();
+        let complete = control.begin(voice);
+        control.send(AudioCommand::Voice(voice)).unwrap();
+        frames.frame().unwrap();
+        assert_eq!(frames.voice.as_ref().unwrap().frame, 1);
+        assert_eq!(control.completions.lock().unwrap().len(), 1);
+        assert!(!complete.load(Ordering::Acquire));
+        control.check().unwrap();
+        drop(control);
+        assert!(frames.frame().unwrap().is_none());
+    }
+
+    #[test]
+    #[ignore = "requires cooked outdoor music 77; no window or audio device"]
+    fn one_shot_music_finishes_and_the_field_mixer_keeps_running() {
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+            || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
+            Into::into,
+        );
+        let music = Arc::new(Package::load(&root, "audio/field-music-77.json").unwrap());
+        assert!(music.score.loop_events.is_empty());
+        let assets = Assets {
+            reverbs: music.reverbs,
+            music: [(77, music)].into(),
+            sounds: BTreeMap::new(),
+            voices: BTreeMap::new(),
+            voice_gains: [1.; 128],
+        };
+        let (source, _control) = assets.session();
+        let mut frames = source.decoder();
+        frames.command(AudioCommand::Music(77)).unwrap();
+        let mut audible = false;
+        let mut count = 0;
+        while frames.music.is_some() {
+            assert!(count < RATE * 120, "one-shot music did not finish");
+            let frame = frames.frame().unwrap().expect("mixer stopped");
+            audible |= frame.iter().any(|sample| sample.abs() > 0.001);
+            count += 1;
+        }
+        assert!(audible);
+        assert!(frames.frame().unwrap().is_some());
+        eprintln!("Music 77 completed after {count} source frames; field mixer remains live");
+    }
+
     #[test]
     fn score_blocks_preserve_the_fade_change_after_the_first_millisecond() {
         // The envelope advances after the first control job; later millisecond jobs
@@ -819,12 +1122,7 @@ mod tests {
 
     #[test]
     fn script_volume_commands_match_observed_short_and_long_music_fades() {
-        let assets = Assets {
-            reverbs: [[0.5, 0.5, 1., 0.5, 0.]; 2],
-            music: BTreeMap::new(),
-            sounds: BTreeMap::new(),
-            voices: BTreeMap::new(),
-        };
+        let assets = synthetic_assets();
         let (source, _control) = assets.session();
         let mut frames = source.decoder();
         frames
@@ -862,10 +1160,11 @@ mod tests {
 
     #[test]
     fn sound_mode_changes_the_mixed_channels_without_restarting_sources() {
+        let mut voice_gains = [1.; 128];
+        voice_gains[0] = 0.;
+        voice_gains[64] = 0.25;
         let assets = Assets {
-            reverbs: [[0.5, 0.5, 1., 0.5, 0.]; 2],
-            music: BTreeMap::new(),
-            sounds: BTreeMap::new(),
+            voice_gains,
             voices: [(
                 1,
                 Arc::new(Clip {
@@ -875,6 +1174,7 @@ mod tests {
                 }),
             )]
             .into(),
+            ..synthetic_assets()
         };
         let (source, mut control) = assets.session();
         let mut frames = source.decoder();
@@ -884,15 +1184,19 @@ mod tests {
         control.stereo(true).unwrap();
         assert_eq!([frames.next(), frames.next()], [Some(0.5), Some(-0.25)]);
         assert_eq!(frames.voice.as_ref().unwrap().frame, 2);
+        control.levels([0, 0, 127]).unwrap();
+        assert_eq!([frames.next(), frames.next()], [Some(0.5), Some(-0.25)]);
+        control.levels([127, 127, 0]).unwrap();
+        assert_eq!([frames.next(), frames.next()], [Some(0.); 2]);
+        assert_eq!(frames.voice.as_ref().unwrap().frame, 4);
+        control.levels([127, 127, 64]).unwrap();
+        assert_eq!([frames.next(), frames.next()], [Some(0.125), Some(-0.0625)]);
         control.check().unwrap();
     }
 
     #[test]
     fn movie_mutes_the_game_bus_without_pausing_sources_and_teardown_disconnects() {
         let assets = Assets {
-            reverbs: [[0.5, 0.5, 1., 0.5, 0.]; 2],
-            music: BTreeMap::new(),
-            sounds: BTreeMap::new(),
             voices: [(
                 1,
                 Arc::new(Clip {
@@ -902,6 +1206,7 @@ mod tests {
                 }),
             )]
             .into(),
+            ..synthetic_assets()
         };
         let (source, mut control) = assets.session();
         let mut frames = source.decoder();

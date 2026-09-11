@@ -5,6 +5,8 @@ pub struct Actor {
     pub resource: u32,
     pub position: [f32; 3],
     pub visible: bool,
+    /// A non-rendered scene marker can still own a scenery interaction.
+    pub interaction_anchor: bool,
     /// Read-only actors use a strict depth test; ordinary actors test and write
     /// depth, including equal-depth fragments. This is presentation state.
     pub depth_write: bool,
@@ -20,6 +22,7 @@ pub struct Actor {
     pub casts_shadow: bool,
     pub attachment: Option<Attachment>,
     pub motion: Option<ActorMotion>,
+    pub autonomy: Option<crate::Autonomy>,
     pub scripted_animation: bool,
     pub idle_animation: u16,
 }
@@ -29,6 +32,7 @@ impl Actor {
             resource,
             position,
             visible: true,
+            interaction_anchor: false,
             depth_write: true,
             animation: None,
             properties: BTreeMap::new(),
@@ -42,6 +46,7 @@ impl Actor {
             casts_shadow: true,
             attachment: None,
             motion: None,
+            autonomy: None,
             scripted_animation: false,
             idle_animation: slot::IDLE,
         }
@@ -50,28 +55,33 @@ impl Actor {
         self.heading = heading.rem_euclid(360.);
         self.target_heading = self.heading;
     }
-    pub(crate) fn step_heading(&mut self, controlled: bool) {
-        // Settle model facing to whole degrees without quantizing the movement vector.
-        self.target_heading = self.target_heading.trunc().rem_euclid(360.);
+    pub(crate) fn step_heading(&mut self, controlled: bool, moving: bool) {
+        // A new direction can cross a full turn. Choose the turn before wrapping
+        // the target, then stop when the new heading reaches its angular sector.
+        let direction = self.turn_direction();
         let speed = if controlled {
             20.
         } else {
-            self.turn_speed * if self.motion.is_some() { 2. } else { 1. }
+            self.turn_speed * if moving { 2. } else { 1. }
         };
-        if speed <= 0. || self.heading == self.target_heading {
+        self.target_heading = self.target_heading.trunc().rem_euclid(360.);
+        if speed <= 0. {
             return;
         }
-        let delta = (self.target_heading - self.heading + 180.).rem_euclid(360.) - 180.;
-        let next = self.heading + self.turn_direction() * speed.min(delta.abs());
-        // Stop within the target’s angular sector, preserving fractional turn speeds.
+        let current = if self.heading < 0. {
+            360. + self.heading
+        } else {
+            self.heading
+        };
+        let next = self.heading + direction * speed.min((self.target_heading - current).abs());
         let sectors = (360. / speed) as i32;
         let same_sector = sectors > 0
             && ((360. + next.trunc().rem_euclid(360.)) / speed) as i32 % sectors
                 == ((360. + self.target_heading) / speed) as i32 % sectors;
-        self.heading = if same_sector || delta.abs() <= speed {
+        self.heading = if same_sector {
             self.target_heading
         } else {
-            next.trunc().rem_euclid(360.)
+            next
         };
     }
     pub(crate) fn turn_direction(&self) -> f32 {
@@ -116,6 +126,7 @@ pub struct Attachment {
 pub struct Appearance {
     pub fixed_heading: Option<f32>,
     pub face: Face,
+    pub eyes: Option<crate::EyeBlink>,
     pub mouth: Option<Face>,
     pub expression: u8,
     pub model_hidden: bool,
@@ -162,19 +173,31 @@ pub struct Particle {
     pub size_delta: f32,
     pub rgba: [f32; 4],
     pub alpha_delta: f32,
+    pub flutter: Option<crate::effect::Flutter>,
 }
 impl Particle {
     pub fn alive(&self, tick: u32) -> bool {
         tick - self.born <= self.lifetime && self.alpha(tick) >= 0.
     }
     pub fn alpha(&self, tick: u32) -> f32 {
-        self.rgba[3] + self.alpha_delta * (tick - self.born) as f32
+        let age = tick.saturating_sub(self.born);
+        if self.flutter.is_some() && self.alpha_delta == 0. {
+            // A zero fade rate selects the automatic fade over the final 32 ticks.
+            let steps = age.saturating_sub(self.lifetime.saturating_sub(31));
+            let maximum = (self.rgba[3] as u8).saturating_sub(1) / 8;
+            self.rgba[3] - steps.min(u32::from(maximum)) as f32 * 8.
+        } else {
+            self.rgba[3] + self.alpha_delta * age as f32
+        }
     }
 }
 #[derive(Default)]
 pub struct GameWorld {
     pub tick: u32,
+    pub skit: Option<crate::skit::Scene>,
+    pub skit_request: Option<crate::skit::Request>,
     pub actors: BTreeMap<i32, Actor>,
+    pub(crate) actor_order: Vec<i32>,
     pub camera: Option<CameraTrack>,
     pub particles: Vec<Particle>,
     pub fade: Option<Fade>,
@@ -186,6 +209,7 @@ pub struct GameWorld {
     pub choices: BTreeMap<u8, crate::dialogue::Choice>,
     pub party: Option<crate::party::Party>,
     pub field_transition: Option<FieldTransition>,
+    pub(crate) field_exit: Option<crate::field_exit::DoorExit>,
     pub preload_field: Option<u32>,
     pub movie: Option<crate::dialogue::Movie>,
     /// The original external-media service also owns spoken dialogue. The
@@ -196,11 +220,19 @@ pub struct GameWorld {
     pub controlled_actor: i32,
     pub event_flags: std::collections::BTreeSet<u16>,
     pub event_records: BTreeMap<u8, EventRecord>,
+    /// Optional Unix time supplied by a replay; live events use the system clock.
+    pub calendar_time: Option<i64>,
     pub triggers: Vec<Trigger>,
+    pub save_points: Vec<SavePoint>,
+    /// Search distance for automatic scenery-door interactions; absent uses 250.
+    pub door_interaction_radius: Option<f32>,
     pub audio_commands: Vec<AudioCommand>,
     pub emotes: BTreeMap<i32, Emote>,
+    pub paralysis: Option<crate::effect::Paralysis>,
     pub billboards: BTreeMap<i32, crate::effect::BillboardEffect>,
+    pub refractions: BTreeMap<i32, crate::effect::RefractionPulse>,
     pub random_state: u32,
+    pub gameplay_random: crate::GameplayRandom,
     pub(crate) pending_animation_bindings: std::collections::BTreeSet<i32>,
     pub(crate) loaded_resources: BTreeMap<i32, (crate::ResourceKind, u32)>,
     pub(crate) operations: crate::operation::OperationScope,
@@ -214,18 +246,35 @@ pub struct VoicePlayback {
 }
 
 #[derive(Debug, Clone)]
+pub struct SavePoint {
+    pub actor: i32,
+    pub position: [f32; 3],
+    pub resource: u32,
+    pub born: u32,
+    pub active: bool,
+    /// Vertical texture scale of the glow; the circle's geometry stays unchanged.
+    pub glow_scale: f32,
+}
+
+#[derive(Debug, Clone)]
 pub struct FieldTransition {
     pub map: u32,
     pub position: [f32; 3],
     pub heading: f32,
+    pub camera: Option<crate::camera::EntryCamera>,
     pub operation: crate::Operation,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EventRecord {
     pub value: u8,
     pub extra: u8,
     pub tick: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<u8>,
+    /// UTC seconds at the script write, independent of saved play time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recorded_at: Option<i64>,
 }
 #[derive(Debug, Clone)]
 pub struct Emote {
@@ -264,21 +313,43 @@ pub enum AudioCommand {
 #[derive(Debug, Clone)]
 pub struct Trigger {
     pub key: u32,
-    pub segment: [[f32; 3]; 2],
+    pub shape: TriggerShape,
     /// Vertical extent above the line, not a horizontal activation radius.
     pub height: f32,
     /// Confirmed trigger records contain an interaction indicator followed by
     /// destination/preload hints.
     pub transition: Option<[u32; 3]>,
 }
+#[derive(Debug, Clone)]
+pub enum TriggerShape {
+    Line([[f32; 3]; 2]),
+    Quad([[f32; 3]; 4]),
+}
 impl GameWorld {
+    pub fn insert_actor(&mut self, id: i32, actor: Actor) {
+        if !self.actor_order.contains(&id) {
+            self.actor_order.push(id);
+        }
+        self.actors.insert(id, actor);
+    }
+    pub(crate) fn sync_actor_order(&mut self) {
+        self.actor_order.retain(|id| self.actors.contains_key(id));
+        for &id in self.actors.keys() {
+            if !self.actor_order.contains(&id) {
+                self.actor_order.push(id);
+            }
+        }
+        if let Some(index) = self
+            .actor_order
+            .iter()
+            .position(|id| *id == self.controlled_actor)
+        {
+            self.actor_order[..=index].rotate_right(1);
+        }
+    }
     pub fn random(&mut self) -> u32 {
         // Scene state owns the random seed, independent of rendering.
-        self.random_state = self
-            .random_state
-            .wrapping_mul(0x41c64e6d)
-            .wrapping_add(0x3039);
-        (self.random_state >> 16) & 0x7fff
+        random(&mut self.random_state)
     }
     pub fn blocked_by_movie(&self) -> bool {
         self.movie
@@ -293,6 +364,11 @@ impl GameWorld {
     }
 }
 
+pub(crate) fn random(state: &mut u32) -> u32 {
+    *state = state.wrapping_mul(0x41c64e6d).wrapping_add(0x3039);
+    (*state >> 16) & 0x7fff
+}
+
 #[derive(Debug, Clone)]
 pub struct Fade {
     pub start_tick: u32,
@@ -303,16 +379,34 @@ pub struct Fade {
 }
 impl Fade {
     pub fn alpha(&self, tick: u32) -> f32 {
-        self.from
+        (self.from
             + (self.to - self.from) * (tick - self.start_tick).min(self.duration) as f32
-                / self.duration as f32
+                / self.duration as f32)
+            .clamp(0., 255.)
     }
 }
 #[derive(Debug, Clone)]
 pub struct Overlay {
+    pub born: u32,
     pub size: [i32; 2],
     pub angle: i32,
     pub rgba: [u8; 4],
     pub duration: u32,
-    pub mode: i32,
+    pub kind: OverlayKind,
+}
+#[derive(Debug, Clone)]
+pub enum OverlayKind {
+    Sprite { depth: i32 },
+    LocationCaption { hold_ticks: u32 },
+}
+impl Overlay {
+    pub fn alpha(&self, tick: u32) -> u8 {
+        match self.kind {
+            OverlayKind::Sprite { .. } => self.rgba[3],
+            OverlayKind::LocationCaption { hold_ticks } => {
+                let fade = tick.saturating_sub(self.born).saturating_sub(hold_ticks);
+                self.rgba[3].saturating_sub(fade.saturating_mul(4).min(255) as u8)
+            }
+        }
+    }
 }

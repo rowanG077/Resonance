@@ -42,6 +42,7 @@ fn fixture() -> App {
         PathBuf::from,
     );
     let options = RunOptions {
+        saves: Default::default(),
         assets: root.clone(),
         tick: None,
         presentation_start: None,
@@ -112,6 +113,47 @@ fn fixture() -> App {
     app.world_mut().spawn((Camera::default(), MovieCamera));
     crate::audio::validate_startup(&app, true, true).unwrap();
     app
+}
+
+#[test]
+#[ignore = "requires locally cooked field/movie assets; no window or audio device"]
+fn movie_play_time_excludes_preparation_and_pause() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = fixture();
+    let root = app.world().resource::<RunOptions>().assets.clone();
+    app.insert_resource(crate::new_game::Session::load(&root).unwrap());
+    let started = app
+        .world()
+        .resource::<crate::new_game::Session>()
+        .field
+        .events
+        .tick();
+    for (ready, resident, active, presenting, paused, expected) in [
+        (false, true, true, true, false, 0),
+        (true, false, true, true, false, 0),
+        (true, true, true, false, false, 0),
+        (true, true, true, true, false, 60),
+        (true, true, true, true, true, 60),
+        (true, true, false, false, false, 60),
+    ] {
+        app.world_mut().resource_mut::<crate::timing::Ready>().0 = ready;
+        app.world()
+            .resource::<crate::loading::Resident>()
+            .active
+            .store(resident, std::sync::atomic::Ordering::Release);
+        let mut movie = app.world_mut().resource_mut::<Playback>();
+        movie.active = active;
+        movie.started = presenting.then(Instant::now);
+        movie.paused = paused;
+        for _ in 0..60 {
+            app.world_mut()
+                .run_system_once(crate::timing::advance_clock)
+                .unwrap();
+        }
+        let field = &app.world().resource::<crate::new_game::Session>().field;
+        assert_eq!(field.play_time.total(), expected);
+        assert_eq!(field.events.tick(), started);
+    }
 }
 
 #[test]

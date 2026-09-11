@@ -36,6 +36,24 @@ pub fn record_new_game_until(
         stop_at,
         input_replay,
         Resolution::default(),
+        None,
+    )
+}
+
+/// Continue from the completed classroom exit scene through real keyboard input.
+pub fn record_new_game_exploration(
+    root: &Path,
+    output: &Path,
+    replay: &crate::CheckpointReplay,
+) -> Result<()> {
+    record(
+        root,
+        output,
+        false,
+        None,
+        None,
+        Resolution::default(),
+        Some(replay),
     )
 }
 
@@ -46,7 +64,7 @@ pub fn record_new_game_display(
     resolution: Resolution,
     stop_at: &str,
 ) -> Result<()> {
-    record(root, output, false, Some(stop_at), None, resolution)
+    record(root, output, false, Some(stop_at), None, resolution, None)
 }
 
 fn record(
@@ -56,8 +74,12 @@ fn record(
     stop_at: Option<&str>,
     input_replay: Option<&resonance_game::field::replay::InputReplay>,
     resolution: Resolution,
+    exploration: Option<&crate::CheckpointReplay>,
 ) -> Result<()> {
     if let Some(replay) = input_replay {
+        replay.validate()?;
+    }
+    if let Some(replay) = exploration {
         replay.validate()?;
     }
     anyhow::ensure!(
@@ -74,6 +96,10 @@ fn record(
     fs::create_dir_all(output)?;
     let (mut app, _) = build_app_with_display(
         RunOptions {
+            saves: crate::SaveOptions {
+                directory: Some(output.join("slots")),
+                ..Default::default()
+            },
             assets: root.into(),
             tick: None,
             presentation_start: None,
@@ -138,15 +164,8 @@ fn record(
         resonance_game::clock::UPDATE_STEP,
     ));
     let (mixer, mut audio) = resonance_playback::Offline::new();
-    let mut wave = hound::WavWriter::create(
-        output.join("audio.partial.wav"),
-        hound::WavSpec {
-            channels: 2,
-            sample_rate: 32028,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )?;
+    let mut wave =
+        hound::WavWriter::create(output.join("audio.partial.wav"), field_audio::PCM_SPEC)?;
     let mut frames = 0;
     let mut shots = BTreeSet::new();
     let failure = Arc::new(AtomicBool::new(false));
@@ -229,15 +248,8 @@ fn record(
                             colette_interaction = Some(dialogue.operation.clone());
                         }
                     } else {
-                        if field.dialogue.values().any(|p| {
-                            !p.closed
-                                && p.fully_revealed()
-                                && tick
-                                    - *readable_since
-                                        .entry((p.operation.id(), p.page))
-                                        .or_insert(tick)
-                                    >= 60
-                        }) && !previous_keys.contains(&KeyCode::Enter)
+                        if dialogue_ready(field, &mut readable_since, DialogueWait::Text)
+                            && !previous_keys.contains(&KeyCode::Enter)
                         {
                             keys.push(KeyCode::Enter);
                         }
@@ -273,17 +285,8 @@ fn record(
                         } else {
                             keys.push(KeyCode::ArrowLeft);
                         }
-                    } else if field.dialogue.values().any(|p| {
-                        !p.closed
-                            && !p.persistent
-                            && p.fully_revealed()
-                            && p.voice_finished()
-                            && tick
-                                - *readable_since
-                                    .entry((p.operation.id(), p.page))
-                                    .or_insert(tick)
-                                >= 60
-                    }) && !previous_keys.contains(&KeyCode::Enter)
+                    } else if dialogue_ready(field, &mut readable_since, DialogueWait::Speech)
+                        && !previous_keys.contains(&KeyCode::Enter)
                     {
                         keys.push(KeyCode::Enter);
                     }
@@ -323,15 +326,8 @@ fn record(
                                 (actor.heading - actor.target_heading).abs() < 0.01
                             });
                     }
-                } else if field.dialogue.values().any(|p| {
-                    if p.closed || p.persistent || !p.fully_revealed() || !p.voice_finished() {
-                        return false;
-                    }
-                    tick - *readable_since
-                        .entry((p.operation.id(), p.page))
-                        .or_insert(tick)
-                        >= 60
-                }) && !previous_keys.contains(&KeyCode::Enter)
+                } else if dialogue_ready(field, &mut readable_since, DialogueWait::Speech)
+                    && !previous_keys.contains(&KeyCode::Enter)
                 {
                     keys.push(KeyCode::Enter);
                 }
@@ -350,15 +346,16 @@ fn record(
                 "title_tick":title_tick,"field_tick":app.world().get_resource::<new_game::Session>().map(|s|s.field.events.tick())}));
             previous_keys.clone_from(&keys);
         }
+        const BUTTONS: [(KeyCode, GamepadButton); 5] = [
+            (KeyCode::Enter, GamepadButton::South),
+            (KeyCode::ArrowLeft, GamepadButton::DPadLeft),
+            (KeyCode::ArrowRight, GamepadButton::DPadRight),
+            (KeyCode::ArrowUp, GamepadButton::DPadUp),
+            (KeyCode::ArrowDown, GamepadButton::DPadDown),
+        ];
         if let Some(pad) = pad {
             let mut events = app.world_mut().resource_mut::<Messages<RawGamepadEvent>>();
-            for (key, button) in [
-                (KeyCode::Enter, GamepadButton::South),
-                (KeyCode::ArrowLeft, GamepadButton::DPadLeft),
-                (KeyCode::ArrowRight, GamepadButton::DPadRight),
-                (KeyCode::ArrowUp, GamepadButton::DPadUp),
-                (KeyCode::ArrowDown, GamepadButton::DPadDown),
-            ] {
+            for (key, button) in BUTTONS {
                 events.write(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(
                     pad,
                     button,
@@ -367,13 +364,7 @@ fn record(
             }
         } else {
             let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-            for key in [
-                KeyCode::Enter,
-                KeyCode::ArrowLeft,
-                KeyCode::ArrowRight,
-                KeyCode::ArrowUp,
-                KeyCode::ArrowDown,
-            ] {
+            for (key, _) in BUTTONS {
                 if keys.contains(&key) {
                     input.press(key);
                 } else {
@@ -790,6 +781,20 @@ fn record(
         "field_audio_events_sha256":digest_file(&output.join("field-audio-events.json"))?,
         "scene_teardown_checked":true,
     });
+    if let Some(replay) = exploration {
+        crate::saves::record_live(
+            &mut app,
+            &output.join("exploration"),
+            replay,
+            &mixer,
+            &mut audio,
+        )?;
+        metadata["exploration"] = serde_json::json!({
+            "continued_same_session":true,
+            "recording":"exploration/recording.json",
+            "save_directory":"slots",
+        });
+    }
     app.world_mut().remove_resource::<new_game::Session>();
     app.update();
     playthrough::check_exit(&app)?;
@@ -836,7 +841,7 @@ fn record(
     // Restore the supported fresh-session entry in the same application and
     // mixer. This catches retained actors/input/audio that a process restart
     // would conceal. The ordinary New Game service owns initialization.
-    app.insert_resource(new_game::Request);
+    app.insert_resource(new_game::Request(None));
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         resonance_game::clock::UPDATE_STEP,
     ));
@@ -880,7 +885,7 @@ fn record(
                 .keys()
                 .copied()
                 .collect::<Vec<_>>()
-                == [1, 999996]
+                == [1, resonance_events::camera::ANCHOR_ACTOR, 999996]
             && field
                 .events
                 .world
@@ -890,7 +895,8 @@ fn record(
             && field.events.world.voice.is_none()
             && field.events.world.movie.is_none()
             && !field.events.world.input_enabled,
-        "fresh New Game retained prior scene state or stale confirmation input"
+        "fresh New Game retained prior scene state or stale confirmation input; actors: {:?}",
+        field.events.world.actors.keys().collect::<Vec<_>>()
     );
     metadata["restart_validation"] = serde_json::json!({
         "same_application_and_mixer":true,
@@ -906,12 +912,31 @@ fn record(
         output.join("recording.json"),
         serde_json::to_vec_pretty(&metadata)?,
     )?;
-    info!(
-        "New Game reached and completed the classroom interaction; record: {}",
-        output.display()
-    );
+    info!("New Game recording completed: {}", output.display());
     Ok(())
 }
+enum DialogueWait {
+    Text,
+    Speech,
+}
+fn dialogue_ready(
+    field: &resonance_game::field::FieldSession,
+    readable_since: &mut std::collections::BTreeMap<(u64, usize), u32>,
+    wait: DialogueWait,
+) -> bool {
+    let tick = field.events.tick();
+    field.dialogue.values().any(|page| {
+        !page.closed
+            && page.fully_revealed()
+            && (matches!(wait, DialogueWait::Text) || (!page.persistent && page.voice_finished()))
+            && tick
+                - *readable_since
+                    .entry((page.operation.id(), page.page))
+                    .or_insert(tick)
+                >= 60
+    })
+}
+
 fn digest_file(path: &Path) -> Result<String> {
     use std::io::Read;
     let mut file =
@@ -927,7 +952,7 @@ fn digest_file(path: &Path) -> Result<String> {
     }
     Ok(format!("{:x}", hash.finalize()))
 }
-fn screenshot(
+pub(super) fn screenshot(
     app: &mut App,
     path: PathBuf,
     failed: Arc<AtomicBool>,

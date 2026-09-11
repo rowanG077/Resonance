@@ -17,6 +17,63 @@ impl NativeHost<'_> {
     ) -> Result<NativeResult, String> {
         let mut value = None;
         match op {
+            NativeCall::CreateSavePoint => {
+                let resource = resonance_content::field::SAVE_POINT_RESOURCE;
+                require(
+                    self.resources.model(resource).is_some_and(|model| {
+                        model.clips.contains_key(&crate::animation::slot::IDLE)
+                    }),
+                    "save-point model or animation is not cooked",
+                )?;
+                require(
+                    self.world.save_points.len() < 16,
+                    "save-point limit exceeded",
+                )?;
+                // Field services own a reserved actor range, separate from script IDs.
+                let id = i32::MIN + self.world.save_points.len() as i32;
+                require(
+                    !self.world.actors.contains_key(&id),
+                    "save-point actor ID is occupied",
+                )?;
+                let position = [a[0] as f32, a[1] as f32, a[2] as f32];
+                let model = self.resources.model(resource).unwrap();
+                let mut actor = Actor::new(resource, [position[0], position[1], position[2] + 10.]);
+                actor.grounded = false;
+                actor.collidable = false;
+                actor.casts_shadow = false;
+                actor.depth_write = false;
+                actor.scripted_animation = true;
+                actor.appearance.hidden_nodes = model
+                    .names
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, name)| name.starts_with("HID_"))
+                    .map(|(i, _)| i as u16)
+                    .collect();
+                let mut animation = Animation::new(
+                    resource,
+                    crate::animation::slot::IDLE,
+                    model.clips[&crate::animation::slot::IDLE].duration_ticks,
+                    self.world.tick,
+                );
+                animation.rate = 0.1; // Cooked poses use two ticks per authored model frame.
+                actor.animation = Some(animation);
+                self.world.insert_actor(id, actor);
+                self.world.save_points.push(crate::SavePoint {
+                    actor: id,
+                    position,
+                    resource,
+                    born: self.world.tick,
+                    active: false,
+                    glow_scale: 0.08,
+                });
+            }
+            NativeCall::Unknown92 => {
+                require(a[0] == 19, "system command is not implemented")?;
+                require(a[1] >= 0, "negative door interaction range")?;
+                value = Some(self.world.door_interaction_radius.unwrap_or(250.) as i32);
+                self.world.door_interaction_radius = Some(a[1] as f32);
+            }
             NativeCall::PreloadField => {
                 self.world.preload_field = if a[0] == -1 {
                     None
@@ -36,17 +93,23 @@ impl NativeHost<'_> {
                     "field is not available",
                 )?;
                 require(
-                    self.world.field_transition.is_none(),
+                    self.world.field_transition.is_none() && self.world.field_exit.is_none(),
                     "field transition is already pending",
                 )?;
                 let operation = self.world.operations.begin()?;
                 *self.wait = Some(crate::operation::Wait::Complete(operation.clone()));
-                self.world.field_transition = Some(crate::world::FieldTransition {
+                let request = crate::world::FieldTransition {
                     map,
                     position: [a[1] as f32, a[2] as f32, a[3] as f32],
                     heading: (a[4] as f32).rem_euclid(360.),
+                    camera: self
+                        .world
+                        .field_camera
+                        .as_ref()
+                        .and_then(|rig| rig.entry.clone()),
                     operation,
-                });
+                };
+                self.world.begin_field_exit(request, self.resources)?;
                 self.world.input_enabled = false;
                 return Ok(NativeResult::Suspend);
             }
@@ -71,43 +134,54 @@ impl NativeHost<'_> {
                 ));
                 return Ok(NativeResult::Suspend);
             }
-            NativeCall::ConfigureSound => {
-                // Update a playing sound by its slot.
+            NativeCall::ConfigureSound
+            | NativeCall::SelectAudioBank
+            | NativeCall::AudioCommand
+            | NativeCall::SetAudioFade
+            | NativeCall::PlaySoundSimple
+            | NativeCall::PlaySound => {
                 require(
                     self.world.audio_commands.len() < 512,
                     "audio command queue is not being consumed",
                 )?;
-                let slot = a[0] as u16;
-                let command = match a[1] {
-                    100 => AudioCommand::SoundVolume {
-                        slot,
-                        volume: if a[2] == 255 { 127 } else { a[2] as u8 },
-                    },
-                    101 => {
-                        let pan = a[2] / 2 + 64;
-                        AudioCommand::SoundPan {
-                            slot,
-                            pan: if (0..128).contains(&pan) {
-                                pan as u8
-                            } else {
-                                64
+                let command = match op {
+                    NativeCall::ConfigureSound => {
+                        let slot = a[0] as u16;
+                        match a[1] {
+                            100 => AudioCommand::SoundVolume {
+                                slot,
+                                volume: if a[2] == 255 { 127 } else { a[2] as u8 },
                             },
+                            101 => AudioCommand::SoundPan {
+                                slot,
+                                pan: sound_pan(a[2]),
+                            },
+                            102 => AudioCommand::StopSound(slot),
+                            _ => return Err("sound slot operation is not implemented".into()),
                         }
                     }
-                    102 => AudioCommand::StopSound(slot),
-                    _ => return Err("sound slot operation is not implemented".into()),
+                    NativeCall::SelectAudioBank => AudioCommand::SelectBank((a[0] & 7) as u8),
+                    NativeCall::AudioCommand => AudioCommand::Music(a[0] as i16),
+                    NativeCall::SetAudioFade => AudioCommand::MusicVolume {
+                        volume: a[1].clamp(0, 127) as u8,
+                        duration_ticks: a[2].max(0) as u32,
+                    },
+                    _ => AudioCommand::Sound {
+                        id: a[0] as i16,
+                        volume: if op == NativeCall::PlaySound && a[2] != 255 {
+                            a[2].clamp(0, 127) as u8
+                        } else {
+                            127
+                        },
+                        slot: if op == NativeCall::PlaySound && a[3] != 255 {
+                            Some(u8::try_from(a[3]).map_err(|_| "invalid sound slot")?)
+                        } else {
+                            None
+                        },
+                        pan: sound_pan(a[1]),
+                    },
                 };
                 self.world.audio_commands.push(command);
-            }
-            NativeCall::SelectAudioBank => {
-                // Select the bank from the low three argument bits.
-                require(
-                    self.world.audio_commands.len() < 512,
-                    "audio command queue is not being consumed",
-                )?;
-                self.world
-                    .audio_commands
-                    .push(AudioCommand::SelectBank((a[0] & 7) as u8));
             }
             NativeCall::MoveActor => {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
@@ -151,37 +225,23 @@ impl NativeHost<'_> {
                     a[0] == 0 && a[12..] == [0, 0],
                     "effect recipe is not implemented",
                 )?;
-                require(
-                    self.world.billboards.len() < 2048,
-                    "billboard effect limit exceeded",
-                )?;
-                let handle = self
-                    .world
-                    .next_particle
-                    .checked_add(1)
-                    .ok_or("effect handle overflow")?;
-                self.world.next_particle = handle;
                 let direction = if self.world.tick & 1 == 0 { -3. } else { 3. };
                 let velocity = [a[5] as f32, a[6] as f32, a[7] as f32];
                 let length = velocity.iter().map(|x| x * x).sum::<f32>().sqrt();
                 let speed = (a[8] / 100) as f32;
-                self.world.billboards.insert(
-                    handle,
-                    crate::effect::BillboardEffect {
-                        recipe: 0,
-                        born: self.world.tick,
-                        lifetime: u32::from(a[1] as u16),
-                        position: [a[2] as f32, a[3] as f32, a[4] as f32],
-                        velocity: velocity
-                            .map(|v| if length > 0. { v / length * speed } else { 0. }),
-                        rotation: [0.; 3],
-                        angular_velocity: [0., 0., direction],
-                        size: [a[9] as f32; 2],
-                        size_delta: 0.,
-                        rgba: [64, 64, 64, a[10] as u8],
-                        alpha_delta: a[11] as f32,
-                    },
-                );
+                let handle = self.world.emit_billboard(crate::effect::BillboardEffect {
+                    recipe: 0,
+                    born: self.world.tick,
+                    lifetime: u32::from(a[1] as u16),
+                    position: [a[2] as f32, a[3] as f32, a[4] as f32],
+                    velocity: velocity.map(|v| if length > 0. { v / length * speed } else { 0. }),
+                    rotation: [0.; 3],
+                    angular_velocity: [0., 0., direction],
+                    size: [a[9] as f32; 2],
+                    size_delta: 0.,
+                    rgba: [64, 64, 64, a[10] as u8],
+                    alpha_delta: a[11] as f32,
+                })?;
                 value = Some(handle);
             }
             NativeCall::SetEffectProperty => {
@@ -219,8 +279,7 @@ impl NativeHost<'_> {
                             // Cooked animation ticks are twice the script’s frame unit;
                             // a script rate of 100 advances one cooked tick per update.
                             previous = animation.rate * 100.;
-                            animation.start_frame = position;
-                            animation.phase_tick = self.world.tick;
+                            animation.seek(position, self.world.tick);
                             animation.rate = if a[1] == 0 {
                                 a[2] as f32 / 100.
                             } else {
@@ -231,8 +290,7 @@ impl NativeHost<'_> {
                             previous = position / 2.;
                             let position = a[2] as f32 * 2.;
                             if (0. ..=duration).contains(&position) {
-                                animation.start_frame = position;
-                                animation.phase_tick = self.world.tick;
+                                animation.seek(position, self.world.tick);
                             }
                         }
                         3 => previous = animation.rate * 100.,
@@ -296,19 +354,13 @@ impl NativeHost<'_> {
                         .and_then(|m| m.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("bone adjustment target is not cooked")?
                         .clone();
-                    actor.appearance.bone_adjustments.insert(
+                    adjust_bone(
+                        actor,
                         a[1] as u8,
-                        BoneAdjustment {
-                            from: actor
-                                .appearance
-                                .bone_adjustments
-                                .get(&(a[1] as u8))
-                                .map_or([0.; 3], |adjustment| adjustment.sample(self.world.tick)),
-                            bone,
-                            angles: [a[3] as f32, a[5] as f32, a[4] as f32],
-                            duration_ticks: (a[6] as u32).max(1),
-                            start_tick: self.world.tick,
-                        },
+                        bone,
+                        [a[3] as f32, a[5] as f32, a[4] as f32],
+                        a[6] as u32,
+                        self.world.tick,
                     );
                 }
             }
@@ -374,6 +426,7 @@ impl NativeHost<'_> {
                     };
                     if op == NativeCall::SetActorFace {
                         actor.appearance.face = face;
+                        actor.appearance.eyes = None;
                     } else {
                         actor.appearance.mouth = Some(face);
                     }
@@ -394,25 +447,13 @@ impl NativeHost<'_> {
                         for (slot, bone) in [(a[1], "Bone_kubi"), (a[2], "Bone_atama")] {
                             require((0..8).contains(&slot), "invalid bone controller slot")?;
                             require(a[6] >= 0, "negative bone adjustment duration")?;
-                            actor.appearance.bone_adjustments.insert(
+                            adjust_bone(
+                                actor,
                                 slot as u8,
-                                BoneAdjustment {
-                                    from: actor
-                                        .appearance
-                                        .bone_adjustments
-                                        .get(&(slot as u8))
-                                        .map_or([0.; 3], |adjustment| {
-                                            adjustment.sample(self.world.tick)
-                                        }),
-                                    bone: bone.into(),
-                                    angles: [
-                                        (a[3] / 2) as f32,
-                                        (a[5] / 2) as f32,
-                                        (a[4] / 2) as f32,
-                                    ],
-                                    duration_ticks: (a[6] as u32).max(1),
-                                    start_tick: self.world.tick,
-                                },
+                                bone.into(),
+                                [(a[3] / 2) as f32, (a[5] / 2) as f32, (a[4] / 2) as f32],
+                                a[6] as u32,
+                                self.world.tick,
                             );
                         }
                     }
@@ -465,6 +506,25 @@ impl NativeHost<'_> {
                     self.resolve(a[5], ResourceKind::Model)?
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
+                if self.world.field_camera.is_some() {
+                    let behavior = crate::Behavior::try_from(a[6]).map_err(|e| e.to_string())?;
+                    require(a[7] >= 0, "negative ambient movement speed")?;
+                    require(
+                        locator
+                            || matches!(
+                                behavior,
+                                crate::Behavior::Stationary
+                                    | crate::Behavior::WatchPlayer
+                                    | crate::Behavior::Player
+                            )
+                            || self.resources.model(resource).is_some_and(|m| {
+                                m.clips.contains_key(&crate::animation::slot::WALK)
+                            }),
+                        "ambient actor walk animation is not cooked",
+                    )?;
+                    actor.autonomy =
+                        Some(crate::Autonomy::new(behavior, a[7] as f32, actor.position));
+                }
                 if let Some(model) = self.resources.model(resource) {
                     actor
                         .appearance
@@ -473,6 +533,7 @@ impl NativeHost<'_> {
                 }
                 actor.face(a[4] as f32);
                 actor.visible = !locator;
+                actor.interaction_anchor = locator;
                 actor.properties.insert(17, if locator { 0 } else { 2 });
                 if let Some(clip) = self
                     .resources
@@ -486,10 +547,11 @@ impl NativeHost<'_> {
                         self.world.tick,
                     ));
                 }
-                self.world.actors.insert(a[0], actor);
+                self.world.insert_actor(a[0], actor);
             }
             NativeCall::DespawnActor => {
                 self.world.actors.remove(&a[0]);
+                self.world.overlays.remove(&a[0]);
                 self.world.emotes.remove(&a[0]);
             }
             NativeCall::SetActorHeading => {
@@ -506,83 +568,55 @@ impl NativeHost<'_> {
                         self.world
                             .party
                             .as_ref()
-                            .and_then(|p| p.formation.first())
-                            .copied()
+                            .map(|p| p.field_leader)
                             .map_or(1, i32::from)
                     } else if a[0] > 9 {
                         1
                     } else {
                         a[0]
                     };
-                    require(
-                        self.world.actors.contains_key(&id),
-                        "selected party actor is missing",
-                    )?;
-                    self.world.controlled_actor = id;
+                    self.world
+                        .select_party_member(self.resources, id)
+                        .map_err(|e| e.to_string())?;
                 }
             }
-            NativeCall::CreateScriptRecord | NativeCall::CreateScriptRecordVariant => {
+            NativeCall::CreateScriptRecord
+            | NativeCall::CreateScriptRecordVariant
+            | NativeCall::CreateAreaTrigger => {
                 require(
                     self.world.triggers.len() < 200,
                     "field trigger limit exceeded",
                 )?;
-                let offset = if op == NativeCall::CreateScriptRecord {
-                    1
-                } else {
+                let offset = if op == NativeCall::CreateScriptRecordVariant {
                     4
+                } else {
+                    1
+                };
+                let point = |i| std::array::from_fn(|axis| a[offset + i * 3 + axis] as i16 as f32);
+                let shape = if op == NativeCall::CreateAreaTrigger {
+                    crate::TriggerShape::Quad(std::array::from_fn(point))
+                } else {
+                    crate::TriggerShape::Line(std::array::from_fn(point))
                 };
                 self.world.triggers.push(Trigger {
                     key: a[0] as u32,
-                    segment: [
-                        [a[offset] as f32, a[offset + 1] as f32, a[offset + 2] as f32],
-                        [
-                            a[offset + 3] as f32,
-                            a[offset + 4] as f32,
-                            a[offset + 5] as f32,
-                        ],
-                    ],
-                    height: a[offset + 6] as f32,
+                    shape,
+                    height: a[a.len() - 1] as i16 as f32,
                     transition: (op == NativeCall::CreateScriptRecordVariant)
                         .then(|| [a[1] as u32, a[2] as u32, a[3] as u32]),
                 });
             }
-            NativeCall::AudioCommand
-            | NativeCall::SetAudioFade
-            | NativeCall::PlaySoundSimple
-            | NativeCall::PlaySound => {
-                require(
-                    self.world.audio_commands.len() < 512,
-                    "audio command queue is not being consumed",
-                )?;
-                let command = match op {
-                    NativeCall::AudioCommand => AudioCommand::Music(a[0] as i16),
-                    NativeCall::SetAudioFade => AudioCommand::MusicVolume {
-                        volume: a[1].clamp(0, 127) as u8,
-                        duration_ticks: a[2].max(0) as u32,
-                    },
-                    _ => {
-                        let pan = a[1] / 2 + 64;
-                        AudioCommand::Sound {
-                            id: a[0] as i16,
-                            volume: if op == NativeCall::PlaySound && a[2] != 255 {
-                                a[2].clamp(0, 127) as u8
-                            } else {
-                                127
-                            },
-                            slot: if op == NativeCall::PlaySound && a[3] != 255 {
-                                Some(u8::try_from(a[3]).map_err(|_| "invalid sound slot")?)
-                            } else {
-                                None
-                            },
-                            pan: if (0..128).contains(&pan) {
-                                pan as u8
-                            } else {
-                                64
-                            },
-                        }
-                    }
-                };
-                self.world.audio_commands.push(command);
+            NativeCall::SetTriggerMetadata => {
+                // Type 1 touch records do not carry interaction metadata.
+                if let Some(values) = self
+                    .world
+                    .triggers
+                    .iter_mut()
+                    .filter(|trigger| trigger.key == a[0] as u32)
+                    .find_map(|trigger| trigger.transition.as_mut())
+                {
+                    *values = [u32::from(a[1] as u16), u32::from(a[2] as u16), a[3] as u32];
+                }
             }
             NativeCall::DisableMappedInput => {
                 self.world.input_enabled = false;
@@ -618,6 +652,17 @@ impl NativeHost<'_> {
                         value: a[1] as u8,
                         extra: a[2] as u8,
                         tick: self.world.tick,
+                        level: self
+                            .world
+                            .party
+                            .as_ref()
+                            .map(|party| party.members[0].level),
+                        recorded_at: self.world.calendar_time.or_else(|| {
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .ok()
+                                .and_then(|time| i64::try_from(time.as_secs()).ok())
+                        }),
                     },
                 );
             }
@@ -652,55 +697,76 @@ impl NativeHost<'_> {
             }
             NativeCall::SelectCamera => {
                 require(
-                    a[0] == -2 || (0..4).contains(&a[0]),
-                    "camera snapshot selector is not implemented",
+                    (-2..4).contains(&a[0]),
+                    "camera selector is not implemented",
                 )?;
-                let rig = self
-                    .world
-                    .field_camera
-                    .get_or_insert_with(CameraRig::default);
+                let rig = self.world.field_camera.get_or_insert_default();
                 value = Some(rig.selected as i32);
                 if a[0] == -2 {
                     rig.start_path();
+                } else if a[0] == -1 {
+                    rig.entry = Some(crate::camera::EntryCamera::following(
+                        self.world.controlled_actor,
+                    ));
                 } else {
                     rig.selected = a[0] as usize;
                     rig.motion = None;
+                    rig.position_settled = false;
+                    rig.target_settled = false;
                 }
             }
+            NativeCall::GetCameraProperty => {
+                let rig = self.world.field_camera.get_or_insert_default();
+                let camera = rig
+                    .entry
+                    .as_ref()
+                    .map_or(rig.current(), |entry| &entry.camera);
+                value = Some(match a[0] {
+                    0 => i32::from(camera.follow),
+                    1 => i32::from(camera.anchor_to_actor),
+                    2 => (camera.fov_degrees * 100.) as i32,
+                    3 => rig.position_rate as i32,
+                    4 => rig.target_rate as i32,
+                    5..=7 => i32::from(camera.axes[(a[0] - 5) as usize]),
+                    20..=22 => rig.angles[(a[0] - 20) as usize] as i32,
+                    23 => camera.distance as i32,
+                    _ => return Err("camera property query is not implemented".into()),
+                });
+            }
             NativeCall::SetCameraProperty => {
-                let rig = self
-                    .world
-                    .field_camera
-                    .get_or_insert_with(CameraRig::default);
+                let rig = self.world.field_camera.get_or_insert_default();
                 value = Some(camera_property(rig, a[0], a[1])?);
             }
             NativeCall::SetCameraTransitionValues => {
-                let camera = self
-                    .world
-                    .field_camera
-                    .get_or_insert_with(CameraRig::default)
-                    .current_mut();
+                let rig = self.world.field_camera.get_or_insert_default();
+                rig.position_settled = false;
+                if !rig.command_camera().follow {
+                    rig.target_settled = false;
+                }
+                let camera = rig.command_camera();
                 camera.angles = [a[0] as f32, a[1] as f32, a[2] as f32];
                 camera.distance = a[3] as f32;
                 camera.follow = true;
             }
             NativeCall::SelectActor => {
                 if self.world.actors.contains_key(&a[0]) {
-                    let camera = self
-                        .world
-                        .field_camera
-                        .get_or_insert_with(CameraRig::default)
-                        .current_mut();
+                    let rig = self.world.field_camera.get_or_insert_default();
+                    if rig.command_camera().actor != a[0] || !rig.command_camera().follow {
+                        rig.position_settled = false;
+                        rig.target_settled = false;
+                    }
+                    let camera = rig.command_camera();
                     camera.actor = a[0];
                     camera.follow = true;
                 }
             }
             NativeCall::SetCameraPosition => {
-                self.world
-                    .field_camera
-                    .get_or_insert_with(CameraRig::default)
-                    .current_mut()
-                    .offset = [a[0] as f32, a[1] as f32, a[2] as f32];
+                let rig = self.world.field_camera.get_or_insert_default();
+                let offset = [a[0] as f32, a[1] as f32, a[2] as f32];
+                if rig.command_camera().offset != offset {
+                    rig.target_settled = false;
+                    rig.command_camera().offset = offset;
+                }
             }
             _ => return Err(format!("unimplemented native {op:?}")),
         }
@@ -708,42 +774,78 @@ impl NativeHost<'_> {
     }
 }
 
+fn sound_pan(value: i32) -> u8 {
+    let pan = value / 2 + 64;
+    if (0..128).contains(&pan) {
+        pan as u8
+    } else {
+        64
+    }
+}
+
+fn adjust_bone(
+    actor: &mut Actor,
+    slot: u8,
+    bone: String,
+    angles: [f32; 3],
+    duration: u32,
+    tick: u32,
+) {
+    let adjustments = &mut actor.appearance.bone_adjustments;
+    let from = adjustments.get(&slot).map_or([0.; 3], |a| a.sample(tick));
+    adjustments.insert(
+        slot,
+        BoneAdjustment {
+            from,
+            bone,
+            angles,
+            duration_ticks: duration.max(1),
+            start_tick: tick,
+        },
+    );
+}
+
 fn camera_property(rig: &mut CameraRig, prop: i32, v: i32) -> Result<i32, String> {
+    match prop {
+        0 | 1 | 15..=19 => rig.target_settled = false,
+        5..=14 => rig.position_settled = false,
+        _ => {}
+    }
     Ok(match prop {
-        3 => {
-            let old = rig.position_rate;
-            rig.position_rate = (v as f32).max(1.);
-            old as i32
-        }
-        4 => {
-            let old = rig.target_rate;
-            rig.target_rate = (v as f32).max(1.);
-            old as i32
+        3 | 4 => {
+            // Interpolation rates are global even while editing an entry camera;
+            // the native return value still comes from the selected template.
+            let old = rig.entry.as_ref().map(|entry| {
+                if prop == 3 {
+                    entry.position_rate
+                } else {
+                    entry.target_rate
+                }
+            });
+            let rate = if prop == 3 {
+                &mut rig.position_rate
+            } else {
+                &mut rig.target_rate
+            };
+            let previous = std::mem::replace(rate, (v as f32).max(1.));
+            old.unwrap_or(previous) as i32
         }
         prop => {
-            let camera = rig.current_mut();
+            let camera = rig.command_camera();
             match prop {
-                0 => {
-                    let old = camera.follow;
-                    camera.follow = v & 1 != 0;
-                    i32::from(old)
-                }
-                1 => {
-                    let old = camera.anchor_to_actor;
-                    camera.anchor_to_actor = v & 1 != 0;
-                    i32::from(old)
+                0 | 1 | 5..=7 => {
+                    let flag = match prop {
+                        0 => &mut camera.follow,
+                        1 => &mut camera.anchor_to_actor,
+                        _ => &mut camera.axes[(prop - 5) as usize],
+                    };
+                    i32::from(std::mem::replace(flag, v & 1 != 0))
                 }
                 2 => {
                     let old = camera.fov_degrees as i32 * 100;
                     require((100..17900).contains(&v), "invalid camera field of view")?;
                     camera.fov_degrees = v as f32 / 100.;
                     old
-                }
-                5..=7 => {
-                    let index = (prop - 5) as usize;
-                    let old = camera.axes[index];
-                    camera.axes[index] = v & 1 != 0;
-                    i32::from(old)
                 }
                 8..=19 => {
                     let (bounds, index) = if prop < 14 {

@@ -1,5 +1,21 @@
 //! Checked offline access to original executable constants.
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
+
+pub(crate) fn text(data: &[u8], address: u32) -> Result<String> {
+    if address == 0 {
+        return Ok(String::new());
+    }
+    let end = (0..4096)
+        .find_map(|offset| match slice(data, address + offset, 1) {
+            Ok([0]) => Some(Ok(offset as usize)),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .context("unterminated executable string")??;
+    let (text, _, invalid) = encoding_rs::SHIFT_JIS.decode(slice(data, address, end)?);
+    ensure!(!invalid, "invalid executable string encoding");
+    Ok(text.into_owned())
+}
 
 pub(crate) fn slice(data: &[u8], address: u32, size: usize) -> Result<&[u8]> {
     let word = |at| -> Result<u64> {

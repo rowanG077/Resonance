@@ -135,19 +135,18 @@ impl Voice<'_> {
                     factor,
                     offset,
                     milliseconds,
+                    from_silence,
                 } => {
                     let target = (((self.volume * u32::from(factor)) >> 7)
                         + (u32::from(offset) << 16))
                         .min(127 << 16) as i32;
-                    if milliseconds == 0 {
-                        self.volume = target as u32;
-                        self.volume_ramp = None;
-                    } else {
-                        self.volume_ramp = Some((
-                            target,
-                            (target - self.volume as i32) / i32::from(milliseconds),
-                        ));
+                    if from_silence {
+                        self.volume = 0;
                     }
+                    self.volume_ramp = Some((
+                        target,
+                        (target - self.volume as i32) / i32::from(milliseconds.max(1)),
+                    ));
                 }
                 Command::Auxiliary { bus, value } => {
                     ensure!(bus < 2 && value < 128, "invalid auxiliary control");

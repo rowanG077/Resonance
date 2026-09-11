@@ -1,0 +1,1104 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Items equipment targets: equipped/better/worse/equal/unavailable portrait markers and animation, stat previews, weapon and armor swaps, two accessory slots and reserve equipping.",
+  "registration": "Controlled copies of tech-party-fixture-v1 grant Wooden Blade, Rapier, Shiden, Saint Rapier, Soft Leather, Chain Mail, Manji Seal, Emerald Ring and Faerie Ring. Equipment changes occur through Items input, including unavailable targets, equipped-item selection, equal-slash/different-thrust weapons, accessory replacement and reserve use. This tests menu behavior, not natural acquisition or battles. Marker captures are selected by the registered presentation clock, never image similarity. Native menu opens at update 40/source poll 20; later inputs use source poll/2 + 1, the observed input-processing VI. Capture updates and source VIs remain equal at unchanged tolerance 8/1%. Observations originally at VI/update 2630, 2710, 2790, 4070 and 4150 move both sides to the next actual presentation, one tick later. Down from the right-hand cell of a partial last row stays put; a later Right input selects the remaining left-hand item for the weaker-weapon preview. Consecutive observations check the final equipment popup closing into an empty category.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/items-equipment-fixture-v1/native.json",
+    "sha256": "3c62532bcc38e6226d98329755711a779ba4c37a9f90d7e7202f0f73850fa66e"
+  },
+  "native_replay": {
+    "path": "items-equipment-keyboard.json",
+    "sha256": "31ea7b574cc0db8086f974a8eebe8b7876e798d0646d60db130e9a14583975ac"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/items-equipment-fixture-v1/GQSEAF.s01",
+      "sha256": "9d4f5a34cd7f30b47f5f4fcc5d94f325dfb1e113d229e37037ff58f9c057a2d9"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 8640,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4260,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5620,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 5780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6100,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 6260,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 6420,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 6580,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 6740,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 6900,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 7060,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7380,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7540,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 8340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "items",
+      "native": "vi-230",
+      "dolphin_vi": 230,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapons-tab",
+      "native": "vi-390",
+      "dolphin_vi": 390,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapons",
+      "native": "vi-470",
+      "dolphin_vi": 470,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "wooden-blade",
+      "native": "vi-630",
+      "dolphin_vi": 630,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-59",
+      "native": "vi-675",
+      "dolphin_vi": 675,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-0",
+      "native": "vi-676",
+      "dolphin_vi": 676,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-8",
+      "native": "vi-684",
+      "dolphin_vi": 684,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-9",
+      "native": "vi-685",
+      "dolphin_vi": 685,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-14",
+      "native": "vi-690",
+      "dolphin_vi": 690,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-15",
+      "native": "vi-691",
+      "dolphin_vi": 691,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-17",
+      "native": "vi-693",
+      "dolphin_vi": 693,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-18",
+      "native": "vi-694",
+      "dolphin_vi": 694,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-20",
+      "native": "vi-696",
+      "dolphin_vi": 696,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target-phase-21",
+      "native": "vi-697",
+      "dolphin_vi": 697,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equipped-target",
+      "native": "vi-710",
+      "dolphin_vi": 710,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "already-equipped",
+      "native": "vi-790",
+      "dolphin_vi": 790,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "reserve-unavailable",
+      "native": "vi-870",
+      "dolphin_vi": 870,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "reserve-rejected",
+      "native": "vi-950",
+      "dolphin_vi": 950,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "rapier",
+      "native": "vi-1270",
+      "dolphin_vi": 1270,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-1",
+      "native": "vi-1291",
+      "dolphin_vi": 1291,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-2",
+      "native": "vi-1292",
+      "dolphin_vi": 1292,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-3",
+      "native": "vi-1293",
+      "dolphin_vi": 1293,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-4",
+      "native": "vi-1294",
+      "dolphin_vi": 1294,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-5",
+      "native": "vi-1295",
+      "dolphin_vi": 1295,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-6",
+      "native": "vi-1296",
+      "dolphin_vi": 1296,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-7",
+      "native": "vi-1297",
+      "dolphin_vi": 1297,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-8",
+      "native": "vi-1298",
+      "dolphin_vi": 1298,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapon-open-9",
+      "native": "vi-1299",
+      "dolphin_vi": 1299,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-59",
+      "native": "vi-1335",
+      "dolphin_vi": 1335,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-0",
+      "native": "vi-1336",
+      "dolphin_vi": 1336,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-8",
+      "native": "vi-1344",
+      "dolphin_vi": 1344,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-9",
+      "native": "vi-1345",
+      "dolphin_vi": 1345,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon",
+      "native": "vi-1350",
+      "dolphin_vi": 1350,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-15",
+      "native": "vi-1351",
+      "dolphin_vi": 1351,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-17",
+      "native": "vi-1353",
+      "dolphin_vi": 1353,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-18",
+      "native": "vi-1354",
+      "dolphin_vi": 1354,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-20",
+      "native": "vi-1356",
+      "dolphin_vi": 1356,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-weapon-phase-21",
+      "native": "vi-1357",
+      "dolphin_vi": 1357,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "knockout-unavailable",
+      "native": "vi-1430",
+      "dolphin_vi": 1430,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "knockout-rejected",
+      "native": "vi-1510",
+      "dolphin_vi": 1510,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "rapier-equipped",
+      "native": "vi-1670",
+      "dolphin_vi": 1670,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "shiden",
+      "native": "vi-1750",
+      "dolphin_vi": 1750,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "shiden-target",
+      "native": "vi-1830",
+      "dolphin_vi": 1830,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "shiden-equipped",
+      "native": "vi-1910",
+      "dolphin_vi": 1910,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-8",
+      "native": "vi-1944",
+      "dolphin_vi": 1944,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-9",
+      "native": "vi-1945",
+      "dolphin_vi": 1945,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-14",
+      "native": "vi-1950",
+      "dolphin_vi": 1950,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-15",
+      "native": "vi-1951",
+      "dolphin_vi": 1951,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-17",
+      "native": "vi-1953",
+      "dolphin_vi": 1953,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-18",
+      "native": "vi-1954",
+      "dolphin_vi": 1954,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-20",
+      "native": "vi-1956",
+      "dolphin_vi": 1956,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-21",
+      "native": "vi-1957",
+      "dolphin_vi": 1957,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash",
+      "native": "vi-1990",
+      "dolphin_vi": 1990,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-59",
+      "native": "vi-1995",
+      "dolphin_vi": 1995,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "equal-slash-phase-0",
+      "native": "vi-1996",
+      "dolphin_vi": 1996,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "missing-cell-bound",
+      "native": "vi-2120",
+      "dolphin_vi": 2120,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "wooden-again",
+      "native": "vi-2150",
+      "dolphin_vi": 2150,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-8",
+      "native": "vi-2184",
+      "dolphin_vi": 2184,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-9",
+      "native": "vi-2185",
+      "dolphin_vi": 2185,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-14",
+      "native": "vi-2190",
+      "dolphin_vi": 2190,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-15",
+      "native": "vi-2191",
+      "dolphin_vi": 2191,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-17",
+      "native": "vi-2193",
+      "dolphin_vi": 2193,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-18",
+      "native": "vi-2194",
+      "dolphin_vi": 2194,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-20",
+      "native": "vi-2196",
+      "dolphin_vi": 2196,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-21",
+      "native": "vi-2197",
+      "dolphin_vi": 2197,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon",
+      "native": "vi-2230",
+      "dolphin_vi": 2230,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-59",
+      "native": "vi-2235",
+      "dolphin_vi": 2235,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-weapon-phase-0",
+      "native": "vi-2236",
+      "dolphin_vi": 2236,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "armor-tab",
+      "native": "vi-2470",
+      "dolphin_vi": 2470,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "armor",
+      "native": "vi-2550",
+      "dolphin_vi": 2550,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "better-armor",
+      "native": "vi-2631",
+      "dolphin_vi": 2631,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "armor-unavailable",
+      "native": "vi-2711",
+      "dolphin_vi": 2711,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "armor-rejected",
+      "native": "vi-2791",
+      "dolphin_vi": 2791,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "armor-equipped",
+      "native": "vi-2950",
+      "dolphin_vi": 2950,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weaker-armor",
+      "native": "vi-3030",
+      "dolphin_vi": 3030,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "accessories-tab",
+      "native": "vi-3430",
+      "dolphin_vi": 3430,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "accessories",
+      "native": "vi-3510",
+      "dolphin_vi": 3510,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "manji-target",
+      "native": "vi-3590",
+      "dolphin_vi": 3590,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "first-accessory",
+      "native": "vi-3670",
+      "dolphin_vi": 3670,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "emerald-target",
+      "native": "vi-3750",
+      "dolphin_vi": 3750,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "second-accessory",
+      "native": "vi-3830",
+      "dolphin_vi": 3830,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "faerie-target",
+      "native": "vi-3910",
+      "dolphin_vi": 3910,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "replaced-accessory",
+      "native": "vi-3990",
+      "dolphin_vi": 3990,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "replacement-target",
+      "native": "vi-4071",
+      "dolphin_vi": 4071,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "reserve-accessory",
+      "native": "vi-4151",
+      "dolphin_vi": 4151,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-1",
+      "native": "vi-4171",
+      "dolphin_vi": 4171,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-2",
+      "native": "vi-4172",
+      "dolphin_vi": 4172,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-3",
+      "native": "vi-4173",
+      "dolphin_vi": 4173,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-4",
+      "native": "vi-4174",
+      "dolphin_vi": 4174,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-5",
+      "native": "vi-4175",
+      "dolphin_vi": 4175,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-6",
+      "native": "vi-4176",
+      "dolphin_vi": 4176,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-7",
+      "native": "vi-4177",
+      "dolphin_vi": 4177,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-8",
+      "native": "vi-4178",
+      "dolphin_vi": 4178,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-9",
+      "native": "vi-4179",
+      "dolphin_vi": 4179,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "empty-fade-10",
+      "native": "vi-4180",
+      "dolphin_vi": 4180,
+      "inventory_state": true,
+      "party_state": true
+    },
+    {
+      "name": "reserve-equipped",
+      "native": "vi-4230",
+      "dolphin_vi": 4230,
+      "inventory_state": true,
+      "party_state": true
+    }
+  ],
+  "audio": []
+}

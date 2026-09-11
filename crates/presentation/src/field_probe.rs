@@ -26,6 +26,9 @@ pub struct ClassroomProbe {
     pub approach_settle_ticks: u32,
     pub settle_ticks: u32,
     pub interaction_actor: Option<i32>,
+    /// Appearance applied after the real interaction reaches its captured state.
+    #[serde(default)]
+    pub preferences: Option<resonance_content::menu_data::CustomizeSettings>,
     #[serde(default)]
     pub animation_samples: BTreeMap<i32, f32>,
 }

@@ -76,27 +76,42 @@ def main():
     target.add_argument("--frame", type=int, help="Stop after this dumped PNG index")
     target.add_argument("--watch-vis", type=int,
                         help="Record this many VI observations and audio, without PNG dumping")
+    parser.add_argument("--video", action="store_true",
+                        help="With --watch-vis, also record lossless RGB video with emulated timestamps")
     parser.add_argument("--dolphin", default="dolphin-emu")
     parser.add_argument("--backend", default="OGL")
     parser.add_argument("--timeout", type=float, default=240)
     parser.add_argument("--xvfb", action="store_true", help="Linux isolated virtual display")
     parser.add_argument("--save-state", action="store_true", help="Save a nearby paused checkpoint; requires --xvfb")
     parser.add_argument("--keep-frames", action="store_true", help="Retain every intermediate frame (large)")
+    parser.add_argument("--keep-duplicate-frames", action="store_true",
+                        help="Dump repeated XFB presentations too, preserving their VI timing")
     parser.add_argument("--cpu-clock", type=float, default=1.0,
                         help="Diagnostic emulated CPU multiplier; non-default runs are separate evidence")
     parser.add_argument("--fast-disc", action="store_true",
                         help="Diagnostic unlimited disc speed; never changes the baseline configuration")
     parser.add_argument("--trace-startup", action="store_true",
                         help="Diagnostic read-only GDB trace through the first 12 movie frames")
+    parser.add_argument("--trace-random", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 random calls")
     parser.add_argument("--watch-state", action="store_true",
                         help="Record named game words every VI without enabling the debugger")
+    parser.add_argument("--watch-synopsis", action="store_true",
+                        help="Observe Synopsis navigation and all saved scenario records")
     parser.add_argument("--watch-actor", type=int, action="append", default=[],
                         help="Observe an actor's turn in the initial state's field; repeat up to eight times")
+    parser.add_argument("--watch-particle", type=int, action="append", default=[],
+                        help="Observe a particle slot in the initial state's field; repeat up to four times")
     parser.add_argument("--watch-volume-group", type=int, action="append", default=[],
                         help="Observe a music/effect volume envelope (0..31); repeat up to eight times")
     args = parser.parse_args()
+    if args.trace_random is not None and (
+            not 1 <= args.trace_random <= 4096 or args.trace_startup or not args.initial_state):
+        parser.error("--trace-random needs an initial state and 1..4096 calls, without --trace-startup")
     if (args.frame or args.watch_vis or 0) < 1 or args.timeout <= 0:
         parser.error("frame and timeout must be positive")
+    if args.video and args.watch_vis is None:
+        parser.error("--video requires --watch-vis")
     if args.watch_vis is not None:
         args.watch_state = True
         if args.save_state:
@@ -104,6 +119,11 @@ def main():
     if args.watch_actor:
         if not args.initial_state or len(args.watch_actor) > 8:
             parser.error("--watch-actor requires an initial state and at most eight actors")
+        args.watch_state = True
+    if args.watch_particle:
+        if (not args.initial_state or len(args.watch_particle) > 4
+                or any(not 0 <= slot < 2048 for slot in args.watch_particle)):
+            parser.error("--watch-particle requires an initial state and up to four slots in 0..2047")
         args.watch_state = True
     if args.watch_volume_group:
         if len(args.watch_volume_group) > 8 or any(not 0 <= g < 32 for g in args.watch_volume_group):
@@ -155,6 +175,197 @@ def main():
             parser.error("initial-state requires its recorded .dtm companion for prefix validation")
         from state import inspect
         observation = inspect(initial_state)
+        if args.watch_state:
+            actor_locations["8035A73C"] = "field_save_point_word"
+            for controller in range(4):
+                actor_locations[f"{0x802caed8 + controller * 12 + 8:08X}"] = f"controller_{controller}_status_word"
+            for offset in range(0, 0x24, 4):
+                actor_locations[f"{0x802ce0e0 + offset:08X}"] = f"tech_menu_{offset:02x}_word"
+            for slot in range(8):
+                if slot % 2 == 0:
+                    actor_locations[f"{0x802ce104 + slot * 2:08X}"] = f"tech_counts_{slot // 2}_word"
+                for index in range(18):
+                    actor_locations[f"{0x802ce114 + slot * 72 + index * 4:08X}"] = f"tech_{slot}_choices_{index}_word"
+            actor_locations["80230904"] = "party_menu_display_word"
+            actor_locations["80230910"] = "system_popup_word"
+            actor_locations["80230908"] = "system_selection_word"
+            actor_locations["802308f8"] = "party_menu_first_word"
+            actor_locations["802cc5e0"] = "status_menu_page_word"
+            for offset in [0, 4, 8, 0x50, 0x5c, 0x60]:
+                actor_locations[f"{0x802cc5b8 + offset:08x}"] = f"status_menu_{offset:02x}_word"
+            for offset in range(0, 0x20, 4):
+                actor_locations[f"{0x80227ee0 + offset:08x}"] = f"rename_menu_{offset:02x}_word"
+            for offset in range(0, 0x50, 4):
+                actor_locations[f"{0x802cdfc0 + offset:08x}"] = f"customize_menu_{offset:02x}_word"
+            for offset in [0, 0xc, 0x10, 0x14, 0x18, 0x1c, 0x24, 0x28, 0x30]:
+                actor_locations[f"{0x80230724 + offset:08X}"] = f"inventory_menu_{offset:02x}_word"
+            actor_locations["80230700"] = "collection_selection_word"
+            actor_locations["80230704"] = "collection_scroll_word"
+            actor_locations["80230708"] = "collection_mode_word"
+            actor_locations["8023071C"] = "collection_fade_word"
+            actor_locations["80230720"] = "collection_description_word"
+            for offset in range(0, 0x18, 4):
+                actor_locations[f"{0x80227ec8 + offset:x}"] = f"equipment_menu_{offset:02x}_word"
+            actor_locations["80227F58"] = "world_map_mode_word"
+            actor_locations["80227F5C"] = "world_map_selection_word"
+            actor_locations["80227F60"] = "world_map_scroll_word"
+            actor_locations["80227F64"] = "world_map_item_scroll_word"
+            actor_locations["80227F68"] = "world_map_count_word"
+            actor_locations["8022806C"] = "world_map_fade_word"
+            actor_locations["80228070"] = "world_map_description_word"
+            actor_locations["8022F7E0"] = "monster_mode_count_word"
+            actor_locations["8022F7E4"] = "monster_selection_variant_word"
+            actor_locations["8022F7E8"] = "monster_list_selection_word"
+            actor_locations["8022F7EC"] = "monster_list_scroll_word"
+            actor_locations["802306E8"] = "monster_fade_word"
+            actor_locations["8022FF68"] = "monster_opacity_word"
+            actor_locations["8022FF7C 8"] = "monster_animation_time_bits"
+            actor_locations["8022FF7C 10"] = "monster_animation_end_bits"
+            actor_locations["8022FF7C 18"] = "monster_animation_rate_bits"
+            actor_locations["802306E0"] = "monster_yaw_bits"
+            actor_locations["802306E4"] = "monster_distance_bits"
+            actor_locations["80228074"] = "manual_mode_chapter_word"
+            actor_locations["802280BC"] = "manual_fade_word"
+            actor_locations["802CE478"] = "ex_mode_slot_word"
+            actor_locations["802CE47C"] = "ex_skill_gem_word"
+            actor_locations["802CE480"] = "ex_compound_scroll_word"
+            actor_locations["802CE484"] = "ex_scroll_character_word"
+            actor_locations["802CE49C"] = "ex_counts_confirm_word"
+            actor_locations["802CE4D0"] = "ex_compound_count_word"
+            actor_locations["802CE4D4"] = "ex_preview_word"
+            actor_locations["802CE4D8"] = "ex_popup_description_word"
+            actor_locations["802CE4DC"] = "ex_description_fade_word"
+            for offset in [0, 4, 8, 0x68, 0x6c]:
+                actor_locations[f"{0x80211fe0 + offset:08X}"] = f"cooking_menu_{offset:02x}_word"
+            actor_locations["80231410"] = "unison_mode_slot_word"
+            actor_locations["80231414"] = "unison_row_first_word"
+            actor_locations["80231418"] = "unison_scroll_party_word"
+            actor_locations["80231420"] = "unison_transition_word"
+            actor_locations["80231424"] = "unison_description_word"
+            actor_locations["80231428"] = "unison_description_fade_word"
+            actor_locations["8023142C"] = "unison_counts_first_word"
+            actor_locations["80231430"] = "unison_counts_last_word"
+            for character in range(4):
+                for index in range(18):
+                    actor_locations[f"{0x80231434 + character * 0x48 + index * 4:08X}"] = f"unison_{character}_choices_{index}_word"
+            for index in range(12):
+                actor_locations[f"{0x802ce4a0 + index * 4:08X}"] = f"ex_compound_ids_{index}_word"
+            actor_locations["8022E740"] = "figurine_mode_row_word"
+            actor_locations["8022E744"] = "figurine_selection_scroll_word"
+            actor_locations["8022E748"] = "figurine_scroll_count_word"
+            actor_locations["8022E74C"] = "figurine_model_load_word"
+            actor_locations["8022F7C0"] = "figurine_fade_word"
+            actor_locations["8022F048"] = "figurine_opacity_word"
+            actor_locations["8022E9E4"] = "figurine_yaw_bits"
+            actor_locations["8022E9E8"] = "figurine_distance_bits"
+            actor_locations["8022F05C 8"] = "figurine_animation_time_bits"
+            actor_locations["8022F05C 10"] = "figurine_animation_end_bits"
+            actor_locations["8022F05C 18"] = "figurine_animation_rate_bits"
+            actor_locations["80228078"] = "manual_topic_paragraph_word"
+            for offset, name in [(0, "focus_group"), (4, "option_preset"),
+                                 (8, "first_scroll"), (0x3c, "character"),
+                                 (0x40, "rename_cell"), (0x44, "rename_position"),
+                                 (0x48, "rename_text_first"), (0x4c, "rename_text_last"),
+                                 (0x68, "page_transition"),
+                                 (0x6c, "rename_opacity"),
+                                 (0x70, "description_previous"), (0x74, "description_fade")]:
+                actor_locations[f"{0x802ce4e0 + offset:x}"] = f"strategy_{name}_word"
+            for group in range(3):
+                actor_locations[f"{0x801ab144 + group * 4:x}"] = f"strategy_description_group_{group}_word"
+            if args.watch_synopsis:
+                actor_locations["800000f8"] = "synopsis_bus_clock"
+                for offset, name in [(4, "row_first"), (8, "scroll"), (12, "reading_count"),
+                                     (0x1a0, "text_start"), (0x1a4, "text_end"), (0x1ac, "fade")]:
+                    actor_locations[f"{0x802a2ef0 + offset:x}"] = f"synopsis_{name}_word"
+                for index in range(100):
+                    actor_locations[f"{0x802a2f00 + index * 4:x}"] = f"synopsis_ids_{index}_word"
+            # Skits temporarily replace script storage. Follow the live pointer
+            # and record it too; fixed addresses would report stale story words.
+            for section, pointer, offset, name in [
+                    ("field", "8035a768", 0x10d0, "map_id"),
+                    ("progress", "8035a578", 0x40, "story")]:
+                address = observation.get(section, {}).get("address")
+                if address is None:
+                    continue
+                address = int(address, 16)
+                actor_locations[pointer] = f"{section}_address"
+                actor_locations[f"{pointer} {offset:x}"] = name
+                if section == "field":
+                    if args.watch_synopsis:
+                        for index in range(200):
+                            for offset, name in [(0, "record"), (8, "time_hi"), (12, "time_lo")]:
+                                actor_locations[f"{pointer} {0x1168 + index * 16 + offset:x}"] = f"synopsis_{index}_{name}_word"
+                    actor_locations[f"{pointer} 190"] = "preferences_audio_word"
+                    actor_locations[f"{pointer} 194"] = "preferences_voice_word"
+                    actor_locations[f"{pointer} 1e94"] = "skit_field_ticks"
+                    actor_locations[f"{pointer} 1e90"] = "skit_availability_word"
+                    actor_locations[f"{pointer} e9d"] = "party_formation_first_word"
+                    actor_locations[f"{pointer} ea1"] = "party_formation_last_word"
+                    actor_locations[f"{pointer} ea5"] = "party_control_types_word"
+                    actor_locations[f"{pointer} 1e20"] = "party_leaders_word"
+                    actor_locations[f"{pointer} 1e18"] = "cooking_known_word"
+                    actor_locations[f"{pointer} 1e1c"] = "cooking_settings_word"
+                    actor_locations[f"{pointer} ea8"] = "party_restrictions_word"
+                    for preset in range(3):
+                        base = 0x200 + preset * 0x3c
+                        for index in range(2):
+                            actor_locations[f"{pointer} {base + index * 4:x}"] = f"strategy_preset_{preset}_name_{index}_word"
+                        for character in range(9):
+                            actor_locations[f"{pointer} {base + 32 + character * 3:x}"] = f"strategy_preset_{preset}_character_{character}_word"
+                    actor_locations[f"{pointer} ed5"] = "ex_gem_inventory_word"
+                    actor_locations[f"{pointer} 109d"] = "ex_max_inventory_word"
+                    for index in range(132):
+                        if index not in (10, 124):  # Already observed as EX gem counts.
+                            actor_locations[f"{pointer} {0xead + index * 4:x}"] = f"inventory_{index}_word"
+                    for character in range(9):
+                        base = 0x2b8 + character * 0x118
+                        actor_locations[f"{pointer} {base + 0xe6:x}"] = f"strategy_character_{character}_word"
+                        for index in range(6):
+                            actor_locations[f"{pointer} {base + 0xf4 + index * 4:x}"] = f"cooking_character_{character}_training_{index}_word"
+                        for index in range(4):
+                            actor_locations[f"{pointer} {base + index * 4:x}"] = f"character_{character}_name_{index}_word"
+                        for offset, label in [(0x12, "vitals"), (0x1c, "conditions"),
+                                              (0xe0, "assists"), (0xe4, "assist_owners"),
+                                              (0x70, "known_hi"), (0x74, "known_lo"),
+                                              (0x78, "enabled_hi"), (0x7c, "enabled_lo")]:
+                            actor_locations[f"{pointer} {base + offset:x}"] = f"tech_character_{character}_{label}_word"
+                        for index in range(2):
+                            actor_locations[f"{pointer} {base + 0xd8 + index * 4:x}"] = f"tech_character_{character}_shortcuts_{index}_word"
+                        for index in range(3):
+                            actor_locations[f"{pointer} {base + 0x4a + index * 4:x}"] = f"tech_character_{character}_equipment_{index}_word"
+                        for offset, label in [(0xea, "gems"), (0xee, "skills"), (0x110, "compounds"),
+                                              (0x114, "recent_compounds"),
+                                              (0x36, "vitals"), (0x3c, "attack"), (0x40, "defense_luck"),
+                                              (0x44, "accuracy_evasion"), (0x48, "intelligence")]:
+                            actor_locations[f"{pointer} {base + offset:x}"] = f"ex_character_{character}_{label}_word"
+            for actor in observation.get("actors", []):
+                if actor["draw_callback"] == "8000e720":
+                    label = f'save_point_{actor["slot"]}'
+                    actor_locations[f'{actor["address"] + 0x60:08x}'] = f'{label}_glow_bits'
+                    for index, track in enumerate(actor["animation_tracks"]):
+                        address = int(track["address"], 16)
+                        for offset, name in [(8, "time"), (24, "speed")]:
+                            actor_locations[f"{address + offset:08x}"] = (
+                                f'{label}_track_{index}_{name}_bits')
+            for group in observation.get("field_groups", []):
+                if group["resource"] in (0, 2, 12):
+                    for index, track in enumerate(group["animation_tracks"]):
+                        address = int(track["address"], 16)
+                        for offset, name in [(8, "time"), (24, "speed")]:
+                            actor_locations[f"{address + offset:08x}"] = (
+                                f'field_{group["resource"]}_track_{index}_{name}_bits')
+        if args.watch_particle:
+            pool = int(observation["particle_pool_address"], 16)
+            if not 0x80000000 <= pool <= 0x81800000 - 2048 * 0x6c:
+                parser.error("initial state has no valid particle pool")
+            for slot in set(args.watch_particle):
+                for offset, name in [(0, "timer_flags"), (4, "x_bits"), (8, "y_bits"),
+                                     (12, "z_bits"), (0x10, "rx_bits"), (0x14, "ry_bits"),
+                                     (0x18, "rz_bits"), (0x20, "rgba"), (0x30, "recipe"),
+                                     (0x28, "size_x_bits"), (0x2c, "size_y_bits"),
+                                     (0x40, "fall_bits"), (0x48, "heading_bits"),
+                                     (0x54, "turn_bits")]:
+                    actor_locations[f"{pool + slot * 0x6c + offset:08x}"] = f"particle_{slot}_{name}"
         prefix_end = 256 + observation["movie"]["input_byte"]
         recorded = companion.read_bytes()
         replay = movie.read_bytes()
@@ -171,12 +382,22 @@ def main():
                                  (0x40, "heading_bits"), (0x74, "target_bits"),
                                  (0x78, "step_bits"), (0x80, "speed_bits"),
                                  (0x94, "behavior_word"), (0xb8, "id"),
+                                 (0x98, "autonomy_word"), (0xb0, "decision_timer"),
+                                 (0xa8, "floor_attributes"), (0x790, "movement_speed_bits"),
+                                 (0xc4, "eye_mode_word"),
                                  (0xc8, "eye_mouth_mode_word"),
                                  (0xcc, "mouth_texture_timer_word"),
                                  (0x794, "destination_x_bits"),
                                  (0x798, "destination_y_bits"),
                                  (0x79c, "destination_z_bits")]:
                 actor_locations[f'{matches[0]["address"] + offset:08x}'] = f"actor_{actor_id}_{name}"
+            # MemoryWatcher follows space-separated pointer offsets, keeping
+            # observations attached to the actor when animation slots change.
+            controller = matches[0]["address"] + 0x6fc
+            actor_locations[f"{controller:08x}"] = f"actor_{actor_id}_animation_address"
+            for offset, name in [(8, "time"), (16, "end"), (24, "speed"),
+                                 (36, "blend_duration"), (40, "blend_tick")]:
+                actor_locations[f"{controller:08x} {offset:x}"] = f"actor_{actor_id}_animation_{name}_bits"
         if args.watch_actor:
             for window in observation.get("dialogue_windows", []):
                 actor_locations[f'{window["address"] + 0x13540:08x}'] = f'dialogue_{window["slot"]}_status_word'
@@ -256,17 +477,28 @@ def main():
                    "-C", "Dolphin.DSP.Muted=True",
                    "-C", "Dolphin.DSP.DumpAudio=True",
                    "-C", "Dolphin.Core.EnableCheats=True",
-                   "-C", "GFX.Enhancements.DisableCopyFilter=True"]
+                   "-C", "Graphics.Enhancements.DisableCopyFilter=True"]
         if initial_state:
             command += ["-s", str(output / "input.dtm.sav")]
-        if args.watch_vis is not None:
+        if args.video:
+            command += ["-C", "Dolphin.Movie.DumpFrames=True",
+                        "-C", "Graphics.Settings.DumpFramesAsImages=False",
+                        "-C", "Graphics.Settings.DumpFormat=matroska",
+                        "-C", "Graphics.Settings.DumpCodec=ffv1",
+                        "-C", "Graphics.Settings.DumpPixelFormat=bgr0",
+                        # Dolphin's UseLossless toggle forces Ut Video instead.
+                        "-C", "Graphics.Settings.UseLossless=False"]
+        elif args.watch_vis is not None:
             command += ["-C", "Dolphin.Movie.DumpFrames=False"]
+        if args.keep_duplicate_frames:
+            command += ["-C", "Graphics.Hacks.SkipDuplicateXFBs=False"]
+        metadata["presentation"]["keep_duplicate_frames"] = args.keep_duplicate_frames
         if args.cpu_clock != 1.0:
             command += ["-C", "Dolphin.Core.OverclockEnable=True",
                         "-C", f"Dolphin.Core.Overclock={args.cpu_clock}"]
         if args.fast_disc:
             command += ["-C", "Dolphin.Core.FastDiscSpeed=True"]
-        if args.trace_startup:
+        if args.trace_startup or args.trace_random:
             trace_directory = tempfile.TemporaryDirectory(prefix="resonance-trace-")
             trace_socket = Path(trace_directory.name) / "gdb.sock"
             command += ["-d", "-C", f"Dolphin.General.GDBSocket={trace_socket}"]
@@ -275,11 +507,12 @@ def main():
         metadata["command"] = command
         with (output / "dolphin.log").open("w") as log:
             process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
-        if args.trace_startup:
+        if args.trace_startup or args.trace_random:
             from startup_trace import trace
-            trace_output = output / "startup-trace.jsonl"
-            metadata["startup_trace"] = trace(trace_socket, trace_output, process, args.timeout)
-            metadata["startup_trace"].update(path=trace_output.name, sha256=sha256(trace_output))
+            trace_kind = "random_trace" if args.trace_random else "startup_trace"
+            trace_output = output / f"{trace_kind.replace('_', '-')}.jsonl"
+            metadata[trace_kind] = trace(trace_socket, trace_output, process, args.timeout, args.trace_random)
+            metadata[trace_kind].update(path=trace_output.name, sha256=sha256(trace_output))
         frame = (output / "user" / "Dump" / "Frames" / f"framedump_{args.frame}.png"
                  if args.frame is not None else None)
         deadline = time.monotonic() + args.timeout
@@ -344,6 +577,7 @@ def main():
         if watcher is not None:
             metadata["memory_watch"] = watcher.finish()
             metadata["memory_watch"].update(path="memory.jsonl", sha256=sha256(output / "memory.jsonl"))
+            metadata["memory_watch"]["locations"] = watcher.locations
             if not metadata["memory_watch"]["complete"]:
                 metadata["complete"] = False
             last = None
@@ -363,6 +597,12 @@ def main():
         if trace_directory is not None:
             trace_directory.cleanup()
         metadata["audio"]["recordings"] = audio_evidence(output)
+        if args.video:
+            metadata["video"] = [{"path": str(path.relative_to(output)), "sha256": sha256(path)}
+                                 for path in sorted((output / "user" / "Dump" / "Frames").glob("*.matroska"))]
+            if not metadata["video"]:
+                metadata["complete"] = False
+                metadata["video_error"] = "no timestamped video recording was produced"
         metadata["effective_configs"] = {p.name: sha256(p) for p in config.iterdir() if p.is_file()}
         if checkpoint := metadata.get("nearby_checkpoint"):
             metadata["checkpoint_sha256"] = sha256(output / checkpoint)

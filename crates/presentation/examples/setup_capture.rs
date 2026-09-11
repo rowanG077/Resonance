@@ -5,9 +5,15 @@ fn main() -> anyhow::Result<()> {
         .next()
         .unwrap_or_else(|| "local/native/setup.png".into());
     let tick = args.next().map(|a| a.parse()).transpose()?.unwrap_or(300);
+    let preferences = args
+        .next()
+        .map(|path| -> anyhow::Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
+        .transpose()?;
+    anyhow::ensure!(args.next().is_none(), "unexpected arguments");
     resonance_presentation::capture_setup(
         std::path::Path::new("local/cooked"),
         std::path::Path::new(&output),
         tick,
+        preferences.as_ref(),
     )
 }

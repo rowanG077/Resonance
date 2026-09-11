@@ -1,0 +1,204 @@
+{
+  "version": 1,
+  "presentation_origin": 38084,
+  "session_origin": 34583,
+  "updates": 1380,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 250,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 251,
+      "keys": []
+    },
+    {
+      "update": 330,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 331,
+      "keys": []
+    },
+    {
+      "update": 410,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 411,
+      "keys": []
+    },
+    {
+      "update": 490,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 491,
+      "keys": []
+    },
+    {
+      "update": 570,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 571,
+      "keys": []
+    },
+    {
+      "update": 650,
+      "keys": [
+        "page_down"
+      ]
+    },
+    {
+      "update": 651,
+      "keys": []
+    },
+    {
+      "update": 730,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 731,
+      "keys": []
+    },
+    {
+      "update": 810,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 811,
+      "keys": []
+    },
+    {
+      "update": 890,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 891,
+      "keys": []
+    },
+    {
+      "update": 970,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 971,
+      "keys": []
+    },
+    {
+      "update": 1050,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1051,
+      "keys": []
+    },
+    {
+      "update": 1130,
+      "keys": [
+        "page_down"
+      ]
+    },
+    {
+      "update": 1131,
+      "keys": []
+    },
+    {
+      "update": 1210,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1211,
+      "keys": []
+    },
+    {
+      "update": 1290,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1291,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "origin",
+    "470": "learned-chapters",
+    "550": "movement",
+    "630": "targeting",
+    "710": "single-page-bound",
+    "790": "topic-wrap",
+    "870": "chapter-focus",
+    "950": "status-chapter",
+    "1030": "status-effects",
+    "1110": "single-topic-bound",
+    "1190": "status-next-page",
+    "1270": "chapter-focus-again",
+    "1350": "chapter-wrap"
+  },
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "skit": {
+      "id": 600,
+      "remaining": 1498,
+      "opacity": 255,
+      "control_ticks": 7501,
+      "text_opacity": 255
+    }
+  }
+}

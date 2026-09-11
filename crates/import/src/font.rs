@@ -4,6 +4,75 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::font::{BitmapFont, DialogueArt, Glyph, UiTexture};
 use std::{collections::BTreeMap, fs, path::Path};
 
+/// System strings store literal palette changes, rather than script expressions.
+pub(crate) fn system_text(bytes: &[u8]) -> Result<Vec<resonance_content::font::TextSpan>> {
+    use resonance_content::font::TextSpan;
+    let mut end = bytes
+        .iter()
+        .position(|&v| v == 0)
+        .context("unterminated system text")?;
+    // The system formatter terminates its last line with a newline. It does not
+    // create an extra empty line in the displayed window.
+    if end > 0 && bytes[end - 1] == b'\n' {
+        end -= 1;
+    }
+    let mut spans = Vec::new();
+    let (mut start, mut at, mut color) = (0, 0, 0);
+    while at <= end {
+        if at == end || bytes[at] == 3 {
+            if start < at {
+                let (text, _, invalid) = encoding_rs::SHIFT_JIS.decode(&bytes[start..at]);
+                ensure!(!invalid, "invalid system text encoding");
+                let span = TextSpan {
+                    text: text.into_owned(),
+                    color,
+                };
+                span.validate()?;
+                spans.push(span);
+            }
+            if at == end {
+                break;
+            }
+            ensure!(at + 1 < end, "truncated system text color");
+            color = match bytes[at + 1] {
+                0x39 => 0, // Restore the normal white text palette.
+                value @ 1..=6 => value,
+                _ => anyhow::bail!("unsupported system text palette"),
+            };
+            at += 2;
+            start = at;
+        } else {
+            at += 1;
+        }
+    }
+    Ok(spans)
+}
+
+#[cfg(test)]
+mod system_text_tests {
+    use super::*;
+
+    #[test]
+    fn literal_colors_and_line_endings() {
+        let spans = system_text(b"Press\x03\x04 A\x03\x39 to\ncontinue.\n\0").unwrap();
+        assert_eq!(
+            spans
+                .iter()
+                .map(|s| (s.text.as_str(), s.color))
+                .collect::<Vec<_>>(),
+            [("Press", 0), (" A", 4), (" to\ncontinue.", 0)]
+        );
+        for invalid in [
+            b"unterminated".as_slice(),
+            b"\x03\0",
+            b"\x03\x07text\0",
+            b"\x81\0",
+        ] {
+            assert!(system_text(invalid).is_err(), "{invalid:?}");
+        }
+    }
+}
+
 pub fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
     cook_repertoire(extracted, output, ktx, &Default::default())
 }
@@ -18,7 +87,6 @@ pub(crate) fn cook_repertoire(
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     // The dialogue font uses this four-color palette.
     let mapping = dol::slice(&executable, 0x801F8984, 96 * 2)?;
-    let widths = dol::slice(&executable, 0x801F9680, 0x180)?;
     let palette = dol::slice(&executable, 0x801F88A0, 8)?;
     let colors: Vec<_> = palette
         .chunks_exact(2)
@@ -54,23 +122,10 @@ pub(crate) fn cook_repertoire(
             repertoire.push((character, code));
         }
     }
-    for &character in required {
-        if matches!(character, '\n' | '\r' | '\u{c}')
-            || repertoire.iter().any(|(c, _)| *c == character)
-        {
-            continue;
-        }
-        let text = character.to_string();
-        let (bytes, _, invalid) = encoding_rs::SHIFT_JIS.encode(&text);
-        ensure!(
-            !invalid && bytes.len() == 2,
-            "source font cannot represent {character:?}"
-        );
-        let code = u16::from_be_bytes(bytes.as_ref().try_into()?);
-        // Out-of-range Shift-JIS uses the bitmap at 0x7E3C. Keep this fallback
-        // for imported debug text; runtime glyphs must still be present in the atlas.
-        repertoire.push((character, code));
-    }
+    // This font has one shared bitmap for characters outside its three pages.
+    // Cook it once and declare its aliases up front, so cooking a field with
+    // Japanese debug text cannot resize the atlas used by every other field.
+    repertoire.push(('\u{fffd}', 0xffff));
     let (width, height) = (416, (repertoire.len() as u32).div_ceil(16) * 26);
     let mut rgba = vec![0u8; (width * height * 4) as usize];
     // A white texel in the outer gutter supports ordinary solid UI quads.
@@ -87,19 +142,30 @@ pub(crate) fn cook_repertoire(
                     .copy_from_slice(&colors[usize::from(pixels[(row * 24 + column) as usize])]);
             }
         }
-        let advance = if (0x8140..=0x829A).contains(&code) {
-            let index = usize::from((code >> 8) - 0x81) * 192 + usize::from((code & 255) - 0x40);
-            let value = *widths.get(index).context("glyph metric outside table")?;
-            if value == 0 { 24 } else { u32::from(value) }
-        } else {
-            24
-        };
+        let advance = glyph_advance(&executable, code)?;
         glyphs.insert(
             character,
             Glyph {
                 rect: [x, y, 24, 24],
                 advance,
             },
+        );
+    }
+    let fallback = glyphs.remove(&'\u{fffd}').unwrap();
+    for character in fallback_characters() {
+        glyphs.entry(character).or_insert_with(|| fallback.clone());
+    }
+    for character in required {
+        ensure!(
+            matches!(character, '\n' | '\r' | '\u{c}') || glyphs.contains_key(character),
+            "source font cannot represent {character:?}"
+        );
+    }
+    for skit in crate::skit::definitions(&executable)? {
+        ensure!(
+            skit.title.chars().all(|c| glyphs.contains_key(&c)),
+            "source font cannot represent skit {}",
+            skit.id
         );
     }
     let intermediate = output.join("intermediate/fonts/dialogue.png");
@@ -125,7 +191,26 @@ pub(crate) fn cook_repertoire(
         &serde_json::to_vec_pretty(&font)?,
     )?;
     cook_windows(extracted, output, ktx)?;
+    crate::menu::cook(extracted, &executable, output, ktx)?;
     Ok(())
+}
+pub(crate) fn glyph_advance(executable: &[u8], code: u16) -> Result<u32> {
+    if !(0x8140..=0x829a).contains(&code) {
+        return Ok(24);
+    }
+    let index = u32::from((code >> 8) - 0x81) * 192 + u32::from((code & 255) - 0x40);
+    let value = dol::slice(executable, 0x801f9680 + index, 1)?[0];
+    Ok(if value == 0 { 24 } else { u32::from(value) })
+}
+
+fn fallback_characters() -> impl Iterator<Item = char> {
+    (0x8440u16..=0xfcfc).filter_map(|code| {
+        let bytes = code.to_be_bytes();
+        let (text, _, invalid) = encoding_rs::SHIFT_JIS.decode(&bytes);
+        let mut chars = text.chars();
+        let character = chars.next()?;
+        (!invalid && chars.next().is_none()).then_some(character)
+    })
 }
 
 fn cook_subtitles(executable: &[u8], output: &Path, font: &BitmapFont) -> Result<()> {
@@ -255,6 +340,35 @@ fn cook_windows(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
     )?;
     Ok(())
 }
+/// Decode a menu symbol into the same RGBA pixels as the shared text atlas.
+pub(crate) fn glyph_image(
+    extracted: &Path,
+    executable: &[u8],
+    character: u8,
+) -> Result<(u32, u32, Vec<u8>)> {
+    ensure!((32..127).contains(&character), "menu symbol is not ASCII");
+    let code = if character == b'^' {
+        0x81a7
+    } else {
+        u16::from_be_bytes(
+            dol::slice(executable, 0x801f8984 + u32::from(character - 32) * 2, 2)?.try_into()?,
+        )
+    };
+    let colors: Vec<_> = dol::slice(executable, 0x801f88a0, 8)?
+        .chunks_exact(2)
+        .map(|p| rgb5a3(u16::from_be_bytes(p.try_into().unwrap())))
+        .collect();
+    let source = fs::read(extracted.join("files/u_f_fontb0.dat"))?;
+    Ok((
+        24,
+        24,
+        decode_glyph(&source, code)?
+            .into_iter()
+            .flat_map(|pixel| colors[usize::from(pixel)])
+            .collect(),
+    ))
+}
+
 fn decode_glyph(source: &[u8], code: u16) -> Result<[u8; 576]> {
     let base = if (0x8140..0x8440).contains(&code) && (code & 255) >= 0x40 {
         usize::from((code >> 8) - 0x81) * 0x6c00
@@ -322,5 +436,11 @@ mod tests {
         assert_eq!(&pixels[..4], &[0, 1, 2, 3]);
         assert_eq!(&pixels[24..28], &[3, 2, 1, 0]);
         assert!(decode_glyph(&source[..10], 0x8140).is_err());
+        let aliases: std::collections::BTreeSet<_> = fallback_characters().collect();
+        assert!(aliases.contains(&'漢'));
+        assert!(!aliases.contains(&'A'));
+        assert!(!aliases.contains(&'\u{fffd}'));
+        assert!(!aliases.contains(&'🙂'));
+        assert!(aliases.len() < 16384 - 512);
     }
 }

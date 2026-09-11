@@ -16,6 +16,33 @@ target/debug/resonance-import cook-field-preload \
   --movie story-intro.json
 ```
 
+`cook-field --map ID` resolves the archive through the original field catalog
+and cooks geometry, animations, collision, dialogue, declared NPC resources,
+the field's packed model bank and MAP-local models. The bank has its own script-ID
+table; a direct actor ID need not be a separately declared shared NPC resource.
+Maps 330 and 332 extend the classroom's connected exploration route.
+Standalone character files and grouped archive dependencies resolve through the
+source resource catalog. Cooking rejects declared model/animation IDs without a
+character binding. Tutorial texture packages are identified separately and still
+require overlay recipes; their native requests remain unsupported. Mesh filenames
+include their content hash so a changed shared character clip set cannot overwrite
+meshes referenced by another field.
+Field inventories also include skit scenarios, message tables, portrait atlases
+and media metadata. Portrait surfaces and dialogue layers warm with the field;
+opening Z performs no reads or shader compilation. Silent media carries only a
+clock; audible tracks join the prepared voice bank. `cook-skits` refreshes shared
+content hashes and existing field inventories together.
+Field particle recipes carry their texture, palette and motion parameters.
+Their texture dependencies and render layers are prepared before activation;
+live particles only update geometry and use the same missing-effect audit.
+`cook-field-audio --map ID --coefficients PATH` handles unvoiced fields with
+literal music/cue declarations and the common sound bank. Dynamic declarations,
+other banks and voiced fields require explicit recipes; they fail cooking.
+
+The shared dialogue atlas has a fixed repertoire. Unsupported source-font
+characters share its original fallback bitmap, declared explicitly in the font
+metadata, so cooking one field cannot change another field's glyph coordinates.
+
 Paths are relative to `--output`, default `local/cooked`. Supply the complete
 `--audio` and `--movie` lists each time. New recipes call
 `field_preload::cook(root, Inputs { field, audio, movies })` after writing metadata.
@@ -43,16 +70,21 @@ preload destination fields. Completeness does not prove native/effect support.
    scenes/clips come from its retained glTF graph. Completion requires both loaded
    dependencies and finished load jobs. Texture copies share by image and sampler.
 3. An offscreen draw prepares every mesh/material variant, both depth-write states,
-   dialogue/subtitles, effects and shadows using the live camera/target settings.
+   dialogue/subtitles, location captions, effects and shadows using the live camera/target settings.
    Wait for expected render draws, successful compilation and GPU completion.
-4. Release the black hold and gameplay clocks. Retain prepared resources for the
-   field lifetime. New raw reads, sampler bindings or field pipelines fail the
+4. Release the black hold, attach the destination audio source and resume field
+   updates. Opening audio commands remain queued until the scene is ready.
+   Retain prepared resources for
+   revisits. New raw reads, sampler bindings or field pipelines fail the
    development guard; dynamic geometry/uniform updates remain allowed.
 
-The setup/classroom route prepares both fields. Future destinations need explicit
-scene-owner bindings. The setup script supplies its transition fade; generic
-field changes must not assume a fade. Teardown releases field leases, actors,
-effects, UI and audio; Bevy retains pipeline objects for reuse.
+New Game prepares setup and classroom together. Later destinations prepare on
+request; checkpoint startup prepares its saved field directly. Field changes
+pause gameplay, retire outgoing audio and publish verified bytes before renderer
+loading begins. Live actors, effects and UI instances retire on handoff; visited
+packages and artwork remain cached. Returns recreate instances from those assets
+and reuse shader and sampler variants. The supported route is 340, 332 and 330;
+additional destinations need scene-owner bindings and content validation.
 
 Relevant tests: `cargo test -p resonance-import --lib field_preload::`,
 `cargo test -p resonance-content prepared::`, and

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Cursor, path::Path, sync::Arc};
 
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 #[cfg(test)]
 mod tests;
@@ -21,7 +21,11 @@ pub struct Sample {
 #[derive(Serialize, Deserialize)]
 pub struct Asset {
     pub frames: u32,
-    pub sample: Sample,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample: Option<Sample>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program: Option<Sample>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub controls: Vec<Control>,
 }
 
@@ -50,7 +54,7 @@ impl Manifest {
         );
         let manifest: Self = serde_json::from_slice(&bytes)?;
         ensure!(
-            manifest.version == VERSION && manifest.sample_rate == 32028,
+            (2..=VERSION).contains(&manifest.version) && manifest.sample_rate == 32028,
             "unsupported cooked cue package; recook title sounds"
         );
         ensure!(
@@ -69,7 +73,30 @@ impl Manifest {
             );
             total += u64::from(asset.frames);
             ensure!(total <= 4_000_000, "cue bank exceeds frame budget");
-            let sample = asset.sample;
+            ensure!(
+                asset.sample.is_some() != asset.program.is_some(),
+                "cue needs one source"
+            );
+            if let Some(program) = asset.program {
+                ensure!(asset.controls.is_empty(), "program cues own their controls");
+                relative_path(&program.path)?;
+                let bytes = read_bounded(&root.join(&program.path), 4 * 1024 * 1024)?;
+                ensure!(
+                    format!("{:x}", Sha256::digest(&bytes)) == program.sha256,
+                    "cue program digest differs from manifest"
+                );
+                let package = crate::package::Package::load(root, &program.path)?;
+                ensure!(
+                    package.reverbs == manifest.reverbs,
+                    "cue uses a different effects studio"
+                );
+                cues.insert(
+                    name,
+                    Arc::new(Cue::program(Arc::new(package), asset.frames as usize)?),
+                );
+                continue;
+            }
+            let sample = asset.sample.unwrap();
             relative_path(&sample.path)?;
             let bytes = read_bounded(
                 &root.join(sample.path),

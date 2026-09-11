@@ -2,13 +2,30 @@
 use anyhow::{Result, ensure};
 use resonance_content::field::CollisionGroup;
 
-/// Circle/line contact within a vertical span. Short movement sweeps prevent
-/// ordinary walking from skipping triggers; teleports do not sweep the route.
+/// Lines touch the player's radius; area triggers test the player's center.
+/// Both include the authored vertical span and the player's vertical radius.
 pub fn touches_trigger(trigger: &resonance_events::Trigger, p: [f32; 3], radius: f32) -> bool {
-    let [a, b] = trigger.segment;
-    if p[2] + radius < a[2].min(b[2]) || p[2] > a[2].max(b[2]) + trigger.height {
+    use resonance_events::TriggerShape;
+    let points: &[[f32; 3]] = match &trigger.shape {
+        TriggerShape::Line(points) => points,
+        TriggerShape::Quad(points) => points,
+    };
+    let low = points.iter().map(|v| v[2]).fold(f32::INFINITY, f32::min);
+    let high = points
+        .iter()
+        .map(|v| v[2])
+        .fold(f32::NEG_INFINITY, f32::max);
+    if p[2] + radius < low || p[2] > high + trigger.height {
         return false;
     }
+    if let TriggerShape::Quad(points) = &trigger.shape {
+        let sides: [f32; 4] = std::array::from_fn(|i| {
+            let (a, b) = (points[i], points[(i + 1) % 4]);
+            (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+        });
+        return sides.iter().all(|s| *s >= 0.) || sides.iter().all(|s| *s <= 0.);
+    }
+    let (a, b) = (points[0], points[1]);
     let delta = [b[0] - a[0], b[1] - a[1]];
     let length_squared = delta[0] * delta[0] + delta[1] * delta[1];
     let t = if length_squared > 0. {
@@ -50,19 +67,24 @@ impl WalkMesh {
     pub fn height(&self, point: [f32; 3], max_step: f32) -> Option<f32> {
         self.surface(point, max_step).map(|surface| surface.height)
     }
-    /// Rotate horizontal intent onto the encountered slope. The original field
-    /// controller uses Rx * Ry from the floor normal, and resolves penetration
-    /// along that normal before applying the rotated horizontal displacement.
-    pub fn resolve_motion(&self, start: [f32; 3], proposed: [f32; 3]) -> Option<[f32; 3]> {
+    /// Tilt horizontal intent onto the floor and resolve penetration along its
+    /// normal. Player movement applies pitch before roll; NPCs use the reverse.
+    pub fn resolve_motion(
+        &self,
+        start: [f32; 3],
+        proposed: [f32; 3],
+        player: bool,
+    ) -> Option<[f32; 3]> {
         let surface = self.surface(proposed, 32.)?;
         let [nx, ny, nz] = surface.normal;
         let pitch = (-ny).clamp(-1., 1.).asin();
         let roll = nx.atan2(nz);
         let dx = proposed[0] - start[0];
         let dy = proposed[1] - start[1];
+        let cross = pitch.sin() * roll.sin();
         Some([
-            start[0] + dx * roll.cos(),
-            start[1] + dy * pitch.cos() + dx * pitch.sin() * roll.sin(),
+            start[0] + dx * roll.cos() + if player { dy * cross } else { 0. },
+            start[1] + dy * pitch.cos() + if player { 0. } else { dx * cross },
             start[2] + (surface.height - start[2]) * nz * nz,
         ])
     }
@@ -95,8 +117,8 @@ impl WalkMesh {
                 }
             })
     }
-    /// Short sweeps prevent tunnelling across holes. Axis slides keep input
-    /// responsive alongside desks and walls. `blocked` supplies actor collision.
+    /// Check floor clearance in each intended direction, allowing the other
+    /// axis to slide when one reaches an edge. `blocked` supplies actor collision.
     pub fn move_by(
         &self,
         start: [f32; 3],
@@ -113,21 +135,18 @@ impl WalkMesh {
         let mut point = start;
         let fit = |mut p: [f32; 3]| {
             p[2] = self.height(p, 32.)?;
-            // Eight perimeter samples give the player's footprint clearance.
-            for i in 0..8 {
-                let angle = i as f32 * std::f32::consts::FRAC_PI_4;
-                self.height(
-                    [
-                        p[0] + angle.cos() * radius,
-                        p[1] + angle.sin() * radius,
-                        p[2],
-                    ],
-                    32.,
-                )?;
-            }
             (!blocked(p)).then_some(p)
         };
         for _ in 0..steps {
+            let delta: [f32; 2] = std::array::from_fn(|axis| {
+                let mut probe = point;
+                probe[axis] += radius.copysign(delta[axis]);
+                if delta[axis] != 0. && self.height(probe, 32.).is_some() {
+                    delta[axis]
+                } else {
+                    0.
+                }
+            });
             if let Some(next) = fit([point[0] + delta[0], point[1] + delta[1], point[2]]) {
                 point = next;
             } else {
@@ -161,25 +180,42 @@ fn height([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
 mod tests {
     use super::*;
     #[test]
-    fn walking_intent_slows_horizontally_on_a_slope() {
+    fn walking_intent_tilts_onto_single_and_double_axis_slopes() {
         let mesh = WalkMesh::new(&[CollisionGroup {
             surface: 96,
             vertices: vec![[0., -100., 0.], [100., -100., 75.], [0., 100., 0.]],
             triangles: vec![[0, 1, 2]],
         }])
         .unwrap();
-        let resolved = mesh.resolve_motion([0.; 3], [10., 0., 0.]).unwrap();
+        let resolved = mesh.resolve_motion([0.; 3], [10., 0., 0.], true).unwrap();
         // A 3:4:5 slope rotates ten horizontal units to eight. The initial
         // floor correction follows the normal rather than snapping vertically.
         for (actual, expected) in resolved.into_iter().zip([8., 0., 4.8]) {
             assert!((actual - expected).abs() < 0.0001);
+        }
+        let mesh = WalkMesh::new(&[CollisionGroup {
+            surface: 96,
+            vertices: vec![[0., -100., -50.], [100., -100., 25.], [0., 100., 50.]],
+            triangles: vec![[0, 1, 2]],
+        }])
+        .unwrap();
+        // Pitching a sideways player step must not introduce forward drift.
+        // NPC motion retains its separately authored orientation convention.
+        for (player, expected) in [
+            (true, [8., 0., 4.137931]),
+            (false, [8., -2.228344, 4.137931]),
+        ] {
+            let actual = mesh.resolve_motion([0.; 3], [10., 0., 0.], player).unwrap();
+            for (actual, expected) in actual.into_iter().zip(expected) {
+                assert!((actual - expected).abs() < 0.0001);
+            }
         }
     }
     #[test]
     fn doorway_height_does_not_expand_its_horizontal_reach() {
         let trigger = resonance_events::Trigger {
             key: 3001,
-            segment: [[-540., -264., 0.], [-540., -380., 0.]],
+            shape: resonance_events::TriggerShape::Line([[-540., -264., 0.], [-540., -380., 0.]]),
             height: 200.,
             transition: None,
         };
@@ -188,6 +224,29 @@ mod tests {
         assert!(!touches_trigger(&trigger, [-499., -440., 0.], 42.));
         assert!(!touches_trigger(&trigger, [-499., -320., 201.], 42.));
         assert!(!touches_trigger(&trigger, [-499., -320., -43.], 42.));
+    }
+    #[test]
+    fn area_trigger_uses_its_polygon_and_vertical_span() {
+        let points = [
+            [0., 0., 10.],
+            [100., 0., 10.],
+            [80., 60., 20.],
+            [20., 60., 20.],
+        ];
+        let mut trigger = resonance_events::Trigger {
+            key: 2002,
+            shape: resonance_events::TriggerShape::Quad(points),
+            height: 200.,
+            transition: None,
+        };
+        assert!(touches_trigger(&trigger, [50., 30., 0.], 42.));
+        assert!(!touches_trigger(&trigger, [10., 59., 10.], 42.));
+        assert!(!touches_trigger(&trigger, [50., 30., 221.], 42.));
+        assert!(!touches_trigger(&trigger, [50., 30., -33.], 42.));
+        let mut reversed = points;
+        reversed.reverse();
+        trigger.shape = resonance_events::TriggerShape::Quad(reversed);
+        assert!(touches_trigger(&trigger, [50., 30., 10.], 42.));
     }
     fn square() -> WalkMesh {
         WalkMesh::new(&[CollisionGroup {
@@ -213,12 +272,15 @@ mod tests {
         assert!((normal[1] + 0.2 / 1.04f32.sqrt()).abs() < 0.00001);
     }
     #[test]
-    fn swept_footprint_stops_at_wall_and_slides_without_leaving_floor() {
+    fn directional_clearance_preserves_small_slides_and_movement_away() {
         let mesh = square();
-        let end = mesh.move_by([80., 20., 4.], [60., 60.], 10., |_| false);
-        assert!(end[0] <= 90.01 && end[0] >= 85.);
-        assert!((end[1] - 80.).abs() < 0.001);
-        assert!((end[2] - 16.).abs() < 0.001);
+        let end = mesh.move_by([91., 20., 4.], [4., 0.4], 10., |_| false);
+        assert_eq!(end[0], 91.);
+        assert!((end[1] - 20.4).abs() < 0.001);
+        assert!((end[2] - 4.08).abs() < 0.001);
+        let away = mesh.move_by(end, [-4., 0.], 10., |_| false);
+        assert_eq!(away[0], 87.);
+        assert_eq!(away[1], end[1]);
     }
     #[test]
     fn actor_obstacle_is_respected_during_sweep() {

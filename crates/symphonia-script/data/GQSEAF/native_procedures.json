@@ -130,13 +130,13 @@
     },
     {
       "opcode": 14,
-      "name": "native_0e",
+      "name": "create_save_point",
       "handler": "fn_80050D7C",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3"
+        "x",
+        "y",
+        "z",
+        "reserved"
       ],
       "argument_types": [
         "i32",
@@ -144,7 +144,9 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
+      "returns_value": false,
+      "notes": "Creates the shared save-point model at the given field position; the fourth argument is consumed but unused.",
       "source": "src/game/fn_80050D7C.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -177,8 +179,8 @@
         "z",
         "yaw",
         "resource_id",
-        "arg6",
-        "arg7"
+        "movement_kind",
+        "speed_or_emote_duration"
       ],
       "argument_types": [
         "actor_id",
@@ -665,7 +667,7 @@
     },
     {
       "opcode": 39,
-      "name": "native_27",
+      "name": "find_party_member",
       "handler": "fn_80054100",
       "arguments": [
         "arg0"
@@ -703,31 +705,34 @@
     },
     {
       "opcode": 41,
-      "name": "set_event_sound_bit",
+      "name": "learn_title",
       "handler": "fn_80041458",
       "arguments": [
-        "packed_sound_bit"
+        "packed_title"
       ],
       "argument_types": [
         "i32"
       ],
       "confidence": "semantic-high",
-      "notes": "Sets one bit in the per-character/event sound flag table at global offset 0x2D8; the packed argument is (table_index << 8) | bit.",
+      "notes": "Learns a title packed as (zero-based character index << 8) | one-based title ID.",
       "source": "src/game/fn_80041458.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 42,
-      "name": "native_2a",
+      "name": "get_title",
       "handler": "fn_80041318",
       "arguments": [
-        "arg0"
+        "character",
+        "packed_title"
       ],
       "argument_types": [
+        "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
+      "notes": "A zero packed_title reads the character's equipped title; otherwise tests ownership of the packed title.",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -1186,17 +1191,18 @@
     },
     {
       "opcode": 63,
-      "name": "native_3f",
+      "name": "control_event",
       "handler": "fn_80050334",
       "arguments": [
-        "arg0",
-        "arg1"
+        "event_handle",
+        "command"
       ],
       "argument_types": [
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
+      "notes": "Controls a spawned event: 0 resumes, 1 pauses, 50 clears the free-control gate, and 51 enables it. Other event types are unaffected by these scheduling flags.",
       "source": "src/game/fn_80050334.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -1400,22 +1406,22 @@
     },
     {
       "opcode": 75,
-      "name": "native_4b",
+      "name": "create_overlay",
       "handler": "fn_80041BA4",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8",
-        "arg9",
-        "arg10",
-        "arg11",
-        "arg12"
+        "actor_id",
+        "resource",
+        "x",
+        "y",
+        "width",
+        "height",
+        "angle",
+        "red",
+        "green",
+        "blue",
+        "alpha",
+        "fade_in_ticks",
+        "depth_or_caption_hold"
       ],
       "argument_types": [
         "i32",
@@ -1464,13 +1470,13 @@
     },
     {
       "opcode": 77,
-      "name": "native_4d",
+      "name": "set_trigger_metadata",
       "handler": "fn_80051560",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3"
+        "record_key",
+        "value_10",
+        "value_12",
+        "value_14"
       ],
       "argument_types": [
         "i32",
@@ -1478,7 +1484,9 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "returns_value": false,
+      "confidence": "semantic-high",
+      "notes": "Updates metadata on the first matching type 2 or type 3 trigger. Type 1 touch records and missing records are unchanged.",
       "source": "src/game/fn_80051560.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -1638,23 +1646,23 @@
     },
     {
       "opcode": 86,
-      "name": "change_music",
+      "name": "play_movie",
       "handler": "fn_8004E5A8",
       "arguments": [
-        "music_id"
+        "media_id"
       ],
       "argument_types": [
         "i32"
       ],
       "confidence": "semantic-medium",
-      "notes": "Stops music when music_id is -1; otherwise resolves the music resource and starts a fade/transition when the current stage permits it.",
+      "notes": "Starts scene media, including skit voice/timing tracks. A media_id of -1 stops playback.",
       "source": "src/game/fn_8004E5A8.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 87,
-      "name": "native_57",
+      "name": "create_portrait",
       "handler": "fn_80041930",
       "arguments": [
         "arg0",
@@ -1693,7 +1701,7 @@
     },
     {
       "opcode": 88,
-      "name": "native_58",
+      "name": "load_portrait",
       "handler": "fn_8004CB34",
       "arguments": [
         "arg0"
@@ -1711,7 +1719,7 @@
     },
     {
       "opcode": 89,
-      "name": "native_59",
+      "name": "wait_media_position",
       "handler": "fn_8004E1FC",
       "arguments": [
         "arg0"
@@ -1787,7 +1795,7 @@
     },
     {
       "opcode": 94,
-      "name": "native_5e",
+      "name": "scale_portrait",
       "handler": "fn_80057594",
       "arguments": [
         "arg0",
@@ -2526,12 +2534,12 @@
     },
     {
       "opcode": 131,
-      "name": "start_encounter",
+      "name": "play_skit",
       "handler": "fn_80040EB0",
       "arguments": [
-        "encounter_id",
-        "enabled",
-        "skip_if_loaded"
+        "skit_id",
+        "skippable",
+        "repeat_if_seen"
       ],
       "confidence": "semantic-high",
       "source": "src/game/fn_80040EB0.c",
@@ -2543,7 +2551,7 @@
         "bool"
       ],
       "yields": true,
-      "notes": "Selects encounter metadata, begins battle mode 0x0B, and yields with command 27. When skip_if_loaded is false, an already loaded encounter is ignored."
+      "notes": "Plays a skit and yields with command 27. If repeat_if_seen is false, an already viewed skit is ignored. Skippable permits Start to end playback after 120 updates. Completion records the skit as viewed."
     },
     {
       "opcode": 132,
@@ -2615,7 +2623,7 @@
     },
     {
       "opcode": 136,
-      "name": "native_88",
+      "name": "forget_recipe",
       "handler": "fn_80041848",
       "arguments": [
         "arg0"
@@ -2751,7 +2759,7 @@
     },
     {
       "opcode": 144,
-      "name": "native_90",
+      "name": "actor_exists",
       "handler": "fn_80059A30",
       "arguments": [
         "arg0"
@@ -2899,23 +2907,23 @@
     },
     {
       "opcode": 150,
-      "name": "native_96",
+      "name": "create_area_trigger",
       "handler": "fn_8005263C",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8",
-        "arg9",
-        "arg10",
-        "arg11",
-        "arg12",
-        "arg13"
+        "record_key",
+        "x0",
+        "y0",
+        "z0",
+        "x1",
+        "y1",
+        "z1",
+        "x2",
+        "y2",
+        "z2",
+        "x3",
+        "y3",
+        "z3",
+        "height"
       ],
       "argument_types": [
         "i32",
@@ -2933,7 +2941,8 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "returns_value": false,
+      "confidence": "semantic-high",
       "source": "src/game/fn_8005263C.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -3145,15 +3154,15 @@
     },
     {
       "opcode": 162,
-      "name": "native_a2",
+      "name": "get_camera_property",
       "handler": "fn_8004A24C",
       "arguments": [
-        "arg0"
+        "property"
       ],
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -3234,7 +3243,7 @@
         "i32"
       ],
       "confidence": "semantic-medium",
-      "notes": "Resolves actor_id and marks it as the active interaction target, clearing the target-selection latch when the target changes.",
+      "notes": "Sets the selected field camera's actor target; actor 999999 resolves to the controlled party member. Also applies to the next field's entry camera when that camera is selected.",
       "source": "src/game/fn_80049A88.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -4012,7 +4021,7 @@
     },
     {
       "opcode": 199,
-      "name": "native_c7",
+      "name": "has_recipe",
       "handler": "fn_800418B8",
       "arguments": [
         "arg0"
@@ -4030,7 +4039,7 @@
     },
     {
       "opcode": 200,
-      "name": "native_c8",
+      "name": "learn_recipe",
       "handler": "fn_80041880",
       "arguments": [
         "arg0"
@@ -4867,18 +4876,20 @@
     },
     {
       "opcode": 238,
-      "name": "native_ee",
+      "name": "preview_skit",
       "handler": "fn_80040E48",
       "arguments": [
-        "arg0"
+        "skit_id"
       ],
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80040E48.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "yields": true,
+      "notes": "Plays a skippable skit and yields with command 27, without changing its viewed flag."
     },
     {
       "opcode": 240,
@@ -4896,7 +4907,7 @@
     },
     {
       "opcode": 241,
-      "name": "native_f1",
+      "name": "set_portrait_talking",
       "handler": "fn_800408B4",
       "arguments": [
         "arg0",
@@ -4943,7 +4954,7 @@
     },
     {
       "opcode": 244,
-      "name": "native_f4",
+      "name": "set_skit_subtitle",
       "handler": "fn_80040808",
       "arguments": [
         "arg0",

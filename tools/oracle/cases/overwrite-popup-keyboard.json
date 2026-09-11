@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "presentation_origin": 39076,
+  "updates": 376,
+  "inputs": [
+    {
+      "update": 20,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 21,
+      "keys": []
+    },
+    {
+      "update": 80,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 81,
+      "keys": []
+    },
+    {
+      "update": 140,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 141,
+      "keys": []
+    },
+    {
+      "update": 200,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 201,
+      "keys": []
+    },
+    {
+      "update": 260,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 261,
+      "keys": []
+    },
+    {
+      "update": 329,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 330,
+      "keys": []
+    },
+    {
+      "update": 361,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 362,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "329": "popup-00",
+    "330": "popup-01",
+    "331": "popup-02",
+    "332": "popup-03",
+    "333": "popup-04",
+    "334": "popup-05",
+    "335": "popup-06",
+    "336": "popup-07",
+    "337": "popup-08",
+    "338": "popup-09",
+    "339": "popup-10",
+    "340": "popup-11",
+    "341": "popup-12",
+    "342": "popup-13",
+    "343": "popup-14",
+    "344": "popup-15",
+    "345": "popup-16",
+    "346": "popup-17",
+    "347": "popup-18",
+    "348": "popup-19",
+    "349": "popup-20",
+    "350": "popup-21",
+    "351": "popup-22",
+    "352": "popup-23",
+    "353": "popup-24",
+    "354": "popup-25",
+    "355": "popup-26",
+    "356": "popup-27",
+    "357": "popup-28",
+    "358": "popup-29",
+    "359": "popup-30",
+    "360": "popup-31",
+    "361": "popup-32",
+    "362": "popup-33",
+    "363": "popup-34",
+    "364": "popup-35",
+    "365": "popup-36",
+    "366": "popup-37",
+    "367": "popup-38",
+    "368": "popup-39",
+    "369": "popup-40",
+    "370": "popup-41",
+    "371": "popup-42",
+    "372": "popup-43",
+    "373": "popup-44",
+    "374": "popup-45",
+    "375": "popup-46",
+    "376": "popup-47"
+  },
+  "expected": {
+    "329": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    },
+    "376": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    }
+  }
+}

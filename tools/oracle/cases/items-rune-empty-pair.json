@@ -1,0 +1,801 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Rune Bottle: transforming the last eligible item, automatic closure with bottles remaining, and empty-picker rejection from ordinary and recent items.",
+  "registration": "Rust inventory-fixture leaves one Apple Gel and two Rune Bottles, removing Orange Gel in copies of the Items handoff fixture. Native update 64 is source VI zero with unchanged field/UI clock origins and 8/1% image tolerance. The single eligible item is transformed, then both ordinary and recent-item views attempt to reopen the empty picker. Inventory, all members and menu state remain checked.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/items-rune-empty-fixture-v1/native.json",
+    "sha256": "9f2eb443bdb361e06a2acadebce6c6c148cb9cf939882514c72dc99768d22cb6"
+  },
+  "native_replay": {
+    "path": "items-rune-empty-keyboard.json",
+    "sha256": "c2de3df52e3cebe4d711be2a268d1f79a0ae06856c1a862bda0f00a6e8b51b44"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/items-rune-empty-fixture-v1/GQSEAF.s01",
+      "sha256": "90d37e311986159fa6b91fc678c9abb1b2288f4f0c07830ca28675989d0b57d6"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 1250,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 440,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 580,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 640,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 760,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 880,
+        "duration": 2,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 920,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 960,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1020,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "origin-0",
+      "native": "origin-0",
+      "dolphin_vi": 0,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "list-0",
+      "native": "list-0",
+      "dolphin_vi": 235,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-0",
+      "native": "open-0",
+      "dolphin_vi": 251,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-1",
+      "native": "open-1",
+      "dolphin_vi": 252,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-2",
+      "native": "open-2",
+      "dolphin_vi": 253,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-3",
+      "native": "open-3",
+      "dolphin_vi": 254,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-4",
+      "native": "open-4",
+      "dolphin_vi": 255,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-5",
+      "native": "open-5",
+      "dolphin_vi": 256,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-6",
+      "native": "open-6",
+      "dolphin_vi": 257,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-7",
+      "native": "open-7",
+      "dolphin_vi": 258,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-8",
+      "native": "open-8",
+      "dolphin_vi": 259,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-9",
+      "native": "open-9",
+      "dolphin_vi": 260,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-10",
+      "native": "open-10",
+      "dolphin_vi": 261,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-11",
+      "native": "open-11",
+      "dolphin_vi": 262,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-12",
+      "native": "open-12",
+      "dolphin_vi": 263,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-13",
+      "native": "open-13",
+      "dolphin_vi": 264,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-14",
+      "native": "open-14",
+      "dolphin_vi": 265,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "open-15",
+      "native": "open-15",
+      "dolphin_vi": 266,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "result-0",
+      "native": "result-0",
+      "dolphin_vi": 291,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "result-1",
+      "native": "result-1",
+      "dolphin_vi": 292,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "result-2",
+      "native": "result-2",
+      "dolphin_vi": 293,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-0",
+      "native": "empty-close-0",
+      "dolphin_vi": 321,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-1",
+      "native": "empty-close-1",
+      "dolphin_vi": 322,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-2",
+      "native": "empty-close-2",
+      "dolphin_vi": 323,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-3",
+      "native": "empty-close-3",
+      "dolphin_vi": 324,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-4",
+      "native": "empty-close-4",
+      "dolphin_vi": 325,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-5",
+      "native": "empty-close-5",
+      "dolphin_vi": 326,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-6",
+      "native": "empty-close-6",
+      "dolphin_vi": 327,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-7",
+      "native": "empty-close-7",
+      "dolphin_vi": 328,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-8",
+      "native": "empty-close-8",
+      "dolphin_vi": 329,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-9",
+      "native": "empty-close-9",
+      "dolphin_vi": 330,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-10",
+      "native": "empty-close-10",
+      "dolphin_vi": 331,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-11",
+      "native": "empty-close-11",
+      "dolphin_vi": 332,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-12",
+      "native": "empty-close-12",
+      "dolphin_vi": 333,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-13",
+      "native": "empty-close-13",
+      "dolphin_vi": 334,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-14",
+      "native": "empty-close-14",
+      "dolphin_vi": 335,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-15",
+      "native": "empty-close-15",
+      "dolphin_vi": 336,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-16",
+      "native": "empty-close-16",
+      "dolphin_vi": 337,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-17",
+      "native": "empty-close-17",
+      "dolphin_vi": 338,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-18",
+      "native": "empty-close-18",
+      "dolphin_vi": 339,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-19",
+      "native": "empty-close-19",
+      "dolphin_vi": 340,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-20",
+      "native": "empty-close-20",
+      "dolphin_vi": 341,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-close-21",
+      "native": "empty-close-21",
+      "dolphin_vi": 342,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-reject-0",
+      "native": "empty-reject-0",
+      "dolphin_vi": 381,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-reject-1",
+      "native": "empty-reject-1",
+      "dolphin_vi": 382,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-reject-2",
+      "native": "empty-reject-2",
+      "dolphin_vi": 383,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-0",
+      "native": "empty-ack-0",
+      "dolphin_vi": 411,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-1",
+      "native": "empty-ack-1",
+      "dolphin_vi": 412,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-2",
+      "native": "empty-ack-2",
+      "dolphin_vi": 413,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-3",
+      "native": "empty-ack-3",
+      "dolphin_vi": 414,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-4",
+      "native": "empty-ack-4",
+      "dolphin_vi": 415,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-5",
+      "native": "empty-ack-5",
+      "dolphin_vi": 416,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-6",
+      "native": "empty-ack-6",
+      "dolphin_vi": 417,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-7",
+      "native": "empty-ack-7",
+      "dolphin_vi": 418,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-8",
+      "native": "empty-ack-8",
+      "dolphin_vi": 419,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-9",
+      "native": "empty-ack-9",
+      "dolphin_vi": 420,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-10",
+      "native": "empty-ack-10",
+      "dolphin_vi": 421,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-11",
+      "native": "empty-ack-11",
+      "dolphin_vi": 422,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-12",
+      "native": "empty-ack-12",
+      "dolphin_vi": 423,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-13",
+      "native": "empty-ack-13",
+      "dolphin_vi": 424,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-14",
+      "native": "empty-ack-14",
+      "dolphin_vi": 425,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "empty-ack-15",
+      "native": "empty-ack-15",
+      "dolphin_vi": 426,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-0",
+      "native": "recent-0",
+      "dolphin_vi": 470,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-reject-0",
+      "native": "recent-reject-0",
+      "dolphin_vi": 481,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-reject-1",
+      "native": "recent-reject-1",
+      "dolphin_vi": 482,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-reject-2",
+      "native": "recent-reject-2",
+      "dolphin_vi": 483,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-0",
+      "native": "recent-ack-0",
+      "dolphin_vi": 511,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-1",
+      "native": "recent-ack-1",
+      "dolphin_vi": 512,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-2",
+      "native": "recent-ack-2",
+      "dolphin_vi": 513,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-3",
+      "native": "recent-ack-3",
+      "dolphin_vi": 514,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-4",
+      "native": "recent-ack-4",
+      "dolphin_vi": 515,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-5",
+      "native": "recent-ack-5",
+      "dolphin_vi": 516,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-6",
+      "native": "recent-ack-6",
+      "dolphin_vi": 517,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-7",
+      "native": "recent-ack-7",
+      "dolphin_vi": 518,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-8",
+      "native": "recent-ack-8",
+      "dolphin_vi": 519,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-9",
+      "native": "recent-ack-9",
+      "dolphin_vi": 520,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-10",
+      "native": "recent-ack-10",
+      "dolphin_vi": 521,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-11",
+      "native": "recent-ack-11",
+      "dolphin_vi": 522,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-12",
+      "native": "recent-ack-12",
+      "dolphin_vi": 523,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-13",
+      "native": "recent-ack-13",
+      "dolphin_vi": 524,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-14",
+      "native": "recent-ack-14",
+      "dolphin_vi": 525,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "recent-ack-15",
+      "native": "recent-ack-15",
+      "dolphin_vi": 526,
+      "inventory_state": true,
+      "party_state": true,
+      "effect_state": true
+    }
+  ],
+  "audio": []
+}

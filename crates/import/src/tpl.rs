@@ -14,6 +14,8 @@ pub(crate) struct TplTexture {
     pub(crate) palette_offset: Option<usize>,
     pub(crate) palette_entries: usize,
     pub(crate) palette_format: u32,
+    pub(crate) wrap: [u32; 2],
+    pub(crate) filter: [u32; 2],
 }
 
 pub(crate) fn parse_tpl(data: &[u8]) -> Result<Vec<TplTexture>, TextureError> {
@@ -80,6 +82,14 @@ pub(crate) fn parse_tpl(data: &[u8]) -> Result<Vec<TplTexture>, TextureError> {
             palette_offset,
             palette_entries,
             palette_format,
+            wrap: [
+                read_u32(data, texture_offset + 12).unwrap(),
+                read_u32(data, texture_offset + 16).unwrap(),
+            ],
+            filter: [
+                read_u32(data, texture_offset + 20).unwrap(),
+                read_u32(data, texture_offset + 24).unwrap(),
+            ],
         });
     }
     Ok(out)
@@ -162,7 +172,7 @@ pub(crate) fn decode_texture(data: &[u8], texture: &TplTexture) -> Result<Vec<u8
             .ok_or_else(|| TextureError::Tpl(format!("{label} texture has no palette")))?;
         let entries = texture.palette_entries;
         if entries == 0
-            || entries > limit
+            || entries > 16384
             || entries
                 .checked_mul(2)
                 .and_then(|size| offset.checked_add(size))
@@ -170,7 +180,9 @@ pub(crate) fn decode_texture(data: &[u8], texture: &TplTexture) -> Result<Vec<u8
         {
             return Err(TextureError::Tpl(format!("invalid {label} palette")));
         }
-        palette = (0..entries)
+        // Shared tables may contain several palettes. An image's index width
+        // selects the first palette; later colors do not change its pixels.
+        palette = (0..entries.min(limit))
             .map(|index| {
                 palette_pixel(
                     read_u16(data, offset + index * 2).unwrap(),
@@ -363,6 +375,8 @@ mod tests {
             palette_offset: None,
             palette_entries: 0,
             palette_format: 0,
+            wrap: [0; 2],
+            filter: [1; 2],
         }
     }
 
@@ -382,6 +396,27 @@ mod tests {
         let colors = dxt_colors(0, 0xffff);
         assert_eq!(colors[2], [127, 127, 127, 255]);
         assert_eq!(colors[3], [127, 127, 127, 0]);
+    }
+
+    #[test]
+    fn ci4_decodes_its_indices_from_a_larger_shared_palette() {
+        let mut descriptor = texture(8);
+        descriptor.width = 2;
+        descriptor.palette_offset = Some(32);
+        descriptor.palette_entries = 48;
+        descriptor.palette_format = 1;
+        let mut data = vec![0; 32 + 48 * 2];
+        data[0] = 0x0f;
+        data[32..34].copy_from_slice(&0xf800_u16.to_be_bytes());
+        data[62..64].copy_from_slice(&0x07e0_u16.to_be_bytes());
+        data[64..].fill(255);
+        assert_eq!(
+            decode_texture(&data, &descriptor).unwrap(),
+            [255, 0, 0, 255, 0, 255, 0, 255]
+        );
+        // The complete declared table must exist, including unused palettes.
+        data.pop();
+        assert!(decode_texture(&data, &descriptor).is_err());
     }
 
     #[test]

@@ -7,9 +7,38 @@ use std::{
     fs,
     io::{Cursor, Read},
     ops::Range,
-    path::Path,
+    path::{Path, PathBuf},
 };
 use symphonia_script::{Program, message, scenario, semantics::NativeRegistry};
+
+/// Resolve a field's archive through the executable's indexed resource catalog.
+pub fn source_for_id(extracted: &Path, map: u32) -> Result<PathBuf> {
+    const TABLE: u32 = 0x801e4060;
+    const ROW_BYTES: u32 = 24;
+    const ROWS: u32 = 0x3348 / ROW_BYTES;
+    ensure!(
+        fs::read(extracted.join("sys/boot.bin"))?.get(..8) == Some(b"GQSEAF\0\0"),
+        "field catalog requires GQSEAF revision 0 disc 1"
+    );
+    ensure!(map < ROWS, "field {map} is outside the resource catalog");
+    let dol = fs::read(extracted.join("sys/main.dol"))?;
+    let address = word(crate::dol::slice(&dol, TABLE + map * ROW_BYTES, 4)?, 0)?;
+    let bytes = crate::dol::slice(&dol, address, 64)?;
+    let name = std::str::from_utf8(
+        &bytes[..bytes
+            .iter()
+            .position(|b| *b == 0)
+            .context("unterminated field archive name")?],
+    )?;
+    ensure!(
+        name.ends_with(".bin")
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.')),
+        "invalid field archive name"
+    );
+    Ok(extracted.join("files/MAP").join(name))
+}
 
 pub(crate) struct MapArchive {
     pub bytes: Vec<u8>,
@@ -22,6 +51,7 @@ impl MapArchive {
         let bytes = fs::read(source)?;
         let mut cabinet = cab::Cabinet::new(Cursor::new(&bytes))?;
         let name = source
+            .with_extension("bin")
             .file_name()
             .and_then(|n| n.to_str())
             .context("map file name")?
@@ -154,16 +184,27 @@ pub fn inspect(source: &Path, output: &Path) -> Result<()> {
 /// Cook the classroom's static environment, scenario, dialogue and collision.
 /// Character packages are resolved separately from the shared resource tables.
 pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
+    cook_field(extracted, 340, output, ktx)
+}
+
+pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> Result<()> {
     use crate::media::{Tool, Workspace, hash_file};
     use crate::scene::{PartSource, cook_part};
     use resonance_content::{ScriptAsset, field::FieldAssets};
     let _workspace = Workspace::open(extracted, output)?;
     let ktx = Tool::resolve(ktx)?;
+    let source = source_for_id(extracted, map_id)?;
+    let name = if map_id == 340 {
+        "iselia-classroom".into()
+    } else {
+        format!("map-{map_id}")
+    };
+    let prefix = format!("fields/{name}");
+    let map = MapArchive::open(&source)?;
     let mut sources = BTreeMap::new();
     for path in [
         "sys/boot.bin",
         "sys/main.dol",
-        "files/MAP/isa_i06.bin",
         "files/MAP/_custom.bin",
         "files/npc_all.bin",
         "files/d.d",
@@ -172,23 +213,43 @@ pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()>
         "files/gen_all.bin",
         "files/lloyd000.bin",
         "files/lloyd.bin",
+        "files/lloyd_ex.bin",
         "files/collet000.bin",
         "files/collet.bin",
+        "files/collet_ex.bin",
         "files/genius000.bin",
         "files/genius.bin",
+        "files/genius_ex.bin",
         "files/refill000.bin",
         "files/refill.bin",
+        "files/refill_ex.bin",
         "files/u_f_fontb0.dat",
         "files/system.tpl",
         "files/effect.cab",
+        "files/mahou.cab",
         "files/toon.tpl",
     ] {
-        sources.insert(path, hash_file(&extracted.join(path))?);
+        sources.insert(path.to_owned(), hash_file(&extracted.join(path))?);
     }
+    let executable = fs::read(extracted.join("sys/main.dol"))?;
+    for resource in crate::field_resources::declarations(map.section(6)?)?.resources {
+        let path = format!(
+            "files/{}",
+            crate::field_resources::source_path(&executable, &extracted.join("files"), resource)?
+        );
+        sources.insert(path.clone(), hash_file(&extracted.join(path))?);
+    }
+    sources.insert(
+        source
+            .strip_prefix(extracted)?
+            .to_string_lossy()
+            .into_owned(),
+        hash_file(&source)?,
+    );
     let recipe = serde_json::json!({"version":1,"sources":sources,"ktx_sha256":ktx.hash,"compiler_sha256":hash_file(&std::env::current_exe()?)?});
     let ktx = ktx.path.as_path();
-    let metadata = output.join("fields/iselia-classroom.json");
-    let cache = output.join("intermediate/fields/iselia-classroom-recipe.json");
+    let metadata = output.join(format!("{prefix}.json"));
+    let cache = output.join(format!("intermediate/{prefix}-recipe.json"));
     if let Ok(bytes) = fs::read(&metadata)
         && let Ok(assets) = serde_json::from_slice::<FieldAssets>(&bytes)
         && let Ok(previous) = fs::read(&cache)
@@ -201,7 +262,7 @@ pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()>
             .iter()
             .all(|(path, hash)| hash_file(&output.join(path)).is_ok_and(|actual| actual == *hash))
     {
-        println!("Classroom assets are current");
+        println!("Field {map_id} assets are current");
         refresh_preloads(output)?;
         return Ok(());
     }
@@ -210,53 +271,78 @@ pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()>
         boot.get(..8) == Some(b"GQSEAF\0\0"),
         "expected GQSEAF revision 0 disc 1"
     );
-    let map = MapArchive::open(&extracted.join("files/MAP/isa_i06.bin"))?;
     let mut parts = Vec::new();
-    for (draw_order, index) in [0, 2].into_iter().enumerate() {
-        let (part, _, _) = cook_part(
+    let mut doors = Vec::new();
+    // The optional third layer contains outdoor vegetation and decorations.
+    let layers = [0, 2, 12]
+        .into_iter()
+        .filter(|&index| index != 12 || map.sections.get(index).is_some_and(Option::is_some));
+    for (draw_order, index) in layers.enumerate() {
+        let (part, gltf, _) = cook_part(
             PartSource {
-                name: &format!("fields/iselia-classroom/{index:02}"),
+                name: &format!("{prefix}/{index:02}"),
                 source: map.section(index)?,
                 resource: index as u16,
                 draw_order: draw_order as u32,
                 depth_write: index != 2,
                 translation: [0.; 3],
-                autoplay: None,
+                autoplay: if map_id == 340 {
+                    None
+                } else {
+                    Some(map.section(index + 1)?)
+                },
                 animation_slots: &[],
-                clip_prefix: "classroom",
+                clip_prefix: &name,
                 extra_clips: &[],
                 texture_animations: Vec::new(),
             },
             output,
             ktx,
         )?;
+        if index == 0 {
+            doors = crate::field_doors::cook(&gltf)?;
+        }
         parts.push(part);
     }
     let script = map.section(6)?;
     Program::decode(script)?;
     let header = scenario::parse_header(script)?;
     let messages = message::parse(&script[header.auxiliary_offset()..])?;
-    let script_path = "fields/iselia-classroom/events.ssb";
-    let messages_path = "fields/iselia-classroom/messages.json";
-    write_atomic(&output.join(script_path), script)?;
-    write_atomic(&output.join(messages_path), &serde_json::to_vec(&messages)?)?;
+    let script_path = format!("{prefix}/events.ssb");
+    let messages_path = format!("{prefix}/messages.json");
+    write_atomic(&output.join(&script_path), script)?;
+    write_atomic(
+        &output.join(&messages_path),
+        &serde_json::to_vec(&messages)?,
+    )?;
     let (effects, effect_files) = crate::field_effects::cook(extracted, output, ktx)?;
+    let (captions, caption_files) = crate::field_caption::cook(&map, &prefix, output, ktx)?;
     let mut assets = FieldAssets {
-        version: 5,
-        map_id: 340,
+        version: 7,
+        map_id,
         source_sha256: map.source_sha256.clone(),
         script: ScriptAsset {
-            path: script_path.into(),
+            path: script_path.clone(),
             sha256: digest(script),
         },
-        messages: messages_path.into(),
+        messages: messages_path.clone(),
         parts,
         ground: collision(map.section(4)?)?,
         regions: collision(map.section(5)?)?,
-        actors: crate::character::cook_classroom(extracted, output, ktx)?,
+        doors,
+        actors: crate::character::cook_field(extracted, output, ktx, map_id, &map)?,
         contact_shadow: crate::field_shadow::cook(extracted, output, ktx)?,
         toon_ramp: crate::field_lighting::cook(extracted, output, ktx)?,
         effects,
+        blink: crate::field_effects::blink(extracted)?,
+        particles: crate::field_effects::particles(extracted)?,
+        captions,
+        save_point_tutorial: if crate::field_resources::declarations(script)?.save_point {
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            crate::font::system_text(crate::dol::slice(&executable, 0x8017A274, 256)?)?
+        } else {
+            Vec::new()
+        },
         files: BTreeMap::new(),
     };
     let setup_source = MapArchive::open(&extracted.join("files/MAP/_custom.bin"))?;
@@ -272,9 +358,17 @@ pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()>
             _ => None,
         })
         .flatten()
+        .chain(
+            assets
+                .save_point_tutorial
+                .iter()
+                .flat_map(|span| span.text.chars()),
+        )
         .collect();
     crate::font::cook_repertoire(extracted, output, ktx, &required)?;
     let session_data = crate::session::cook(extracted, output)?;
+    let text = crate::session::cook_text(extracted, output)?;
+    let skits = crate::skit::cook(extracted, output, ktx, Path::new("vgmstream-cli"))?;
     let ui: resonance_content::font::DialogueArt =
         serde_json::from_slice(&fs::read(output.join("ui/dialogue.json"))?)?;
     let font: resonance_content::font::BitmapFont =
@@ -292,10 +386,13 @@ pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()>
         assets.toon_ramp.clone(),
         assets.effects.clone(),
         session_data,
+        text,
+        skits,
     ]
     .into();
     files.extend(ui.textures.into_iter().map(|texture| texture.path));
     files.extend(effect_files);
+    files.extend(caption_files);
     for part in assets
         .parts
         .iter()
@@ -308,13 +405,16 @@ pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()>
         .into_iter()
         .map(|path| Ok((path.clone(), hash_file(&output.join(path))?)))
         .collect::<Result<_>>()?;
-    let setup_files = cook_setup(extracted, output, ktx, &assets)?;
-    let setup: FieldAssets =
-        serde_json::from_slice(&fs::read(output.join("fields/new-game-setup.json"))?)?;
-    let setup_messages: Vec<symphonia_script::message::Message> =
-        serde_json::from_slice(&fs::read(output.join(&setup.messages))?)?;
-    crate::font::validate_messages(&font, &setup_messages)?;
-    assets.files.extend(setup_files);
+    if map_id == 340 {
+        assets
+            .files
+            .extend(cook_setup(extracted, output, ktx, &assets)?);
+        let setup: FieldAssets =
+            serde_json::from_slice(&fs::read(output.join("fields/new-game-setup.json"))?)?;
+        let setup_messages: Vec<symphonia_script::message::Message> =
+            serde_json::from_slice(&fs::read(output.join(&setup.messages))?)?;
+        crate::font::validate_messages(&font, &setup_messages)?;
+    }
     assets.validate()?;
     let bytes = serde_json::to_vec_pretty(&assets)?;
     write_atomic(&metadata, &bytes)?;
@@ -325,7 +425,7 @@ pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()>
         )?,
     )?;
     println!(
-        "Cooked classroom environment, {} messages and {} collision triangles",
+        "Cooked field {map_id} environment, {} messages and {} collision triangles",
         messages.len(),
         assets
             .ground
@@ -337,32 +437,104 @@ pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()>
     Ok(())
 }
 
-/// Recipe-level media bindings for the two fields currently cooked here.
-/// Keep these out of the generic manifest builder and refresh after either
-/// geometry or media cooks, regardless of their order (including cache hits).
+/// Rebind only the shared assets just cooked, then refresh dependent descriptors.
+pub(crate) fn refresh_shared(output: &Path, paths: &[String]) -> Result<()> {
+    let directory = output.join("fields");
+    if !directory.exists() {
+        return Ok(());
+    }
+    let hashes = paths
+        .iter()
+        .map(|path| Ok((path.clone(), crate::media::hash_file(&output.join(path))?)))
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    let mut changed = std::collections::BTreeSet::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() || entry.path().extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let Ok(mut field) = serde_json::from_slice::<resonance_content::field::FieldAssets>(
+            &fs::read(entry.path())?,
+        ) else {
+            continue;
+        };
+        field.files.extend(hashes.clone());
+        write_atomic(&entry.path(), &serde_json::to_vec_pretty(&field)?)?;
+        changed.insert(
+            entry
+                .path()
+                .strip_prefix(output)?
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    // A field can include another field descriptor, such as new-game setup.
+    for _ in 0..=changed.len() {
+        let mut dirty = false;
+        for path in &changed {
+            let mut field: resonance_content::field::FieldAssets =
+                serde_json::from_slice(&fs::read(output.join(path))?)?;
+            let mut updated = false;
+            for (dependency, hash) in &mut field.files {
+                if changed.contains(dependency) {
+                    let current = crate::media::hash_file(&output.join(dependency))?;
+                    if *hash != current {
+                        *hash = current;
+                        updated = true;
+                    }
+                }
+            }
+            if updated {
+                write_atomic(&output.join(path), &serde_json::to_vec_pretty(&field)?)?;
+                dirty = true;
+            }
+        }
+        if !dirty {
+            return refresh_preloads(output);
+        }
+    }
+    anyhow::bail!("cyclic field descriptor dependencies")
+}
+
+/// Refresh after geometry or media cooks, including cache hits. Separate media
+/// inputs remain explicitly missing until their cook has completed.
 pub(crate) fn refresh_preloads(output: &Path) -> Result<()> {
     use resonance_content::field_preload::Inputs;
-    for (field, movies) in [
-        ("fields/iselia-classroom.json", Vec::new()),
-        (
-            "fields/new-game-setup.json",
-            vec!["story-intro.json".to_string()],
-        ),
-    ] {
-        match fs::metadata(output.join(field)) {
-            Ok(_) => {
-                crate::field_preload::cook(
-                    output,
-                    Inputs {
-                        field: field.into(),
-                        audio: ["fields/iselia-classroom-audio.json".into()].into(),
-                        movies: movies.into_iter().collect(),
-                    },
-                )?;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error).context("inspect cooked field for preload refresh"),
+    let directory = output.join("fields");
+    if !directory.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() || entry.path().extension().is_none_or(|e| e != "json") {
+            continue;
         }
+        let Ok(assets) = serde_json::from_slice::<resonance_content::field::FieldAssets>(
+            &fs::read(entry.path())?,
+        ) else {
+            continue;
+        };
+        let audio = if matches!(assets.map_id, 5 | 340) {
+            "fields/iselia-classroom-audio.json".into()
+        } else {
+            format!("fields/map-{}-audio.json", assets.map_id)
+        };
+        crate::field_preload::cook(
+            output,
+            Inputs {
+                field: entry
+                    .path()
+                    .strip_prefix(output)?
+                    .to_string_lossy()
+                    .into_owned(),
+                audio: [audio].into(),
+                movies: if assets.map_id == 5 {
+                    ["story-intro.json".into()].into()
+                } else {
+                    Default::default()
+                },
+            },
+        )?;
     }
     Ok(())
 }

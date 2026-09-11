@@ -1,5 +1,5 @@
 use crate::ResourceLibrary;
-use crate::native::NativeHost;
+use crate::native::{EventAction, EventCommand, NativeHost};
 use crate::operation::Wait;
 use crate::{Animation, GameWorld, animation::slot};
 use anyhow::{Context, Result, ensure};
@@ -13,6 +13,36 @@ struct Instance {
     vm: Vm,
     wait: Option<Wait>,
     registers: [i32; 6],
+    background: Option<Background>,
+}
+
+impl Instance {
+    fn new(program: &Arc<Program>, pc: u32, handle: i32, key: Option<u32>) -> Result<Self> {
+        Ok(Self {
+            handle,
+            key,
+            vm: Vm::new(program.clone(), pc)?,
+            wait: None,
+            registers: [0; 6],
+            background: None,
+        })
+    }
+}
+
+#[derive(Default)]
+struct Background {
+    paused: bool,
+    require_control: bool,
+}
+
+/// One timed ambient wait observed at the start of an oracle replay.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BackgroundWaitOrigin {
+    pub key: u32,
+    pub pc: u32,
+    pub remaining: u32,
+    pub require_control: bool,
 }
 
 /// Stable slot order and one shared script data region, following the original
@@ -28,22 +58,27 @@ pub struct EventRuntime {
     interaction: Option<i32>,
 }
 impl EventRuntime {
+    pub fn restore_field_leader(&mut self) -> Result<()> {
+        let id = self
+            .world
+            .party
+            .as_mut()
+            .context("party is not initialized")?
+            .restore_field_leader();
+        self.world
+            .select_party_member(&self.resources, i32::from(id))
+    }
     pub fn new(program: Arc<Program>, resources: Arc<ResourceLibrary>) -> Result<Self> {
         Self::with_state(program, resources, GameWorld::default(), Memory::default())
     }
     pub fn with_state(
         program: Arc<Program>,
         resources: Arc<ResourceLibrary>,
-        world: GameWorld,
+        mut world: GameWorld,
         memory: Memory,
     ) -> Result<Self> {
-        let main = Instance {
-            handle: 1,
-            key: None,
-            vm: Vm::new(program.clone(), program.entry())?,
-            wait: None,
-            registers: [0; 6],
-        };
+        world.sync_actor_order();
+        let main = Instance::new(&program, program.entry(), 1, None)?;
         let mut instances: Vec<Option<Instance>> = (0..32).map(|_| None).collect();
         instances[0] = Some(main);
         let mut events = Self {
@@ -62,8 +97,112 @@ impl EventRuntime {
     pub fn tick(&self) -> u32 {
         self.world.tick
     }
+    pub fn background_waits(&self) -> Vec<BackgroundWaitOrigin> {
+        self.instances
+            .iter()
+            .flatten()
+            .filter_map(|instance| {
+                let background = instance.background.as_ref()?;
+                let Some(Wait::Tick(wake)) = instance.wait else {
+                    return None;
+                };
+                (!background.paused).then_some(BackgroundWaitOrigin {
+                    key: instance.key?,
+                    pc: instance.vm.pc(),
+                    remaining: wake.saturating_sub(self.world.tick),
+                    require_control: background.require_control,
+                })
+            })
+            .collect()
+    }
+    /// Adjust only an existing wait; never seek a VM or replace its stacks.
+    pub fn apply_background_wait_origin(&mut self, origin: &BackgroundWaitOrigin) -> Result<()> {
+        ensure!(
+            (1..=36000).contains(&origin.remaining),
+            "invalid ambient wait duration"
+        );
+        let instance = self
+            .instances
+            .iter_mut()
+            .flatten()
+            .find(|i| i.key == Some(origin.key) && i.background.is_some())
+            .context("ambient wait event is missing")?;
+        let background = instance.background.as_ref().unwrap();
+        ensure!(
+            instance.vm.pc() == origin.pc
+                && !background.paused
+                && background.require_control == origin.require_control,
+            "ambient event {} is not at the observed wait (PC {:#x}, expected {:#x})",
+            origin.key,
+            instance.vm.pc(),
+            origin.pc
+        );
+        let Some(Wait::Tick(wake)) = &mut instance.wait else {
+            anyhow::bail!("ambient event is not waiting for time");
+        };
+        *wake = self
+            .world
+            .tick
+            .checked_add(origin.remaining)
+            .context("ambient wait clock overflow")?;
+        Ok(())
+    }
+    pub fn apply_flutter_origin(&mut self, origins: &[crate::effect::FlutterOrigin]) -> Result<()> {
+        ensure!(origins.len() <= 32, "too many initial leaves");
+        let particles = origins
+            .iter()
+            .map(|origin| {
+                let Some(crate::ParticleKind::Flutter(recipe)) =
+                    self.resources.particles.get(&origin.kind)
+                else {
+                    anyhow::bail!("leaf origin requires a cooked flutter recipe");
+                };
+                origin.particle(self.world.tick, recipe)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.world.particles.retain(|p| p.flutter.is_none());
+        for particle in particles {
+            let born = particle.born;
+            self.world
+                .emit_particle(particle)
+                .map_err(anyhow::Error::msg)?;
+            self.world.particles.last_mut().unwrap().born = born;
+        }
+        Ok(())
+    }
+    /// Register an existing blink once when preparing an oracle replay.
+    pub fn apply_eye_origin(&mut self, id: i32, eyes: crate::EyeBlink) -> Result<()> {
+        let cycle = self
+            .resources
+            .blink
+            .as_ref()
+            .context("eye blink animation is not cooked")?;
+        let tick = usize::from(eyes.tick);
+        ensure!(
+            tick < cycle.frames.len()
+                && eyes.frame == cycle.frames[(tick + cycle.frames.len() - 1) % cycle.frames.len()],
+            "eye origin does not follow the blink sequence"
+        );
+        let actor = self
+            .world
+            .actors
+            .get_mut(&id)
+            .context("eye origin actor is missing")?;
+        ensure!(
+            matches!(actor.appearance.face, crate::Face::Blink) && actor.appearance.eyes.is_some(),
+            "eye origin requires an active blink"
+        );
+        actor.appearance.eyes = Some(eyes);
+        Ok(())
+    }
     pub fn active_instances(&self) -> usize {
         self.instances.iter().filter(|i| i.is_some()).count()
+    }
+    pub fn main_finished(&self) -> bool {
+        self.instances
+            .iter()
+            .flatten()
+            .all(|instance| instance.handle != 1)
     }
     /// Read-only wait inventory for bounded replay failures and developer tools.
     pub fn pending_operations(&self) -> Vec<String> {
@@ -83,19 +222,65 @@ impl EventRuntime {
     pub fn memory(&self) -> &Memory {
         &self.memory
     }
-    /// Retire the scene and copy only global script memory; field-local bytes reset.
-    pub fn take_persistent(&mut self) -> Result<crate::PersistentState> {
-        self.cancel();
+    /// Write a persistent script variable from a native service or developer tool.
+    pub fn set_global(&mut self, index: u16, value: i32) -> Result<()> {
+        ensure!(
+            (crate::persistent::STORY_GLOBALS_START / 4..crate::persistent::GLOBAL_BYTES / 4)
+                .contains(&index),
+            "invalid persistent script variable"
+        );
+        self.memory
+            .write(index * 4, symphonia_script::Width::S32, value)?;
+        Ok(())
+    }
+    pub fn player_has_control(&self) -> bool {
+        // The field supervisor keeps running during exploration. Free control
+        // depends on event ownership, not whether the VM has any live stacks.
+        !self.failed
+            && self.world.input_enabled
+            && self.interaction.is_none()
+            && self.world.field_exit.is_none()
+    }
+    pub fn save_progress(&self) -> Result<crate::SavedProgress> {
+        ensure!(!self.failed, "cannot save a failed event runtime");
+        Ok(crate::SavedProgress {
+            script_globals: (0..crate::persistent::GLOBAL_BYTES)
+                .step_by(4)
+                .map(|offset| {
+                    if offset < crate::persistent::STORY_GLOBALS_START {
+                        Ok(0)
+                    } else {
+                        self.memory.read(offset, symphonia_script::Width::S32)
+                    }
+                })
+                .collect::<std::result::Result<_, _>>()?,
+            party: self
+                .world
+                .party
+                .clone()
+                .context("party has not been initialized")?,
+            event_flags: self.world.event_flags.clone(),
+            event_records: self.world.event_records.clone(),
+            random_state: self.world.random_state,
+            gameplay_random: self.world.gameplay_random.clone(),
+            tick: self.world.tick,
+        })
+    }
+    /// Prepare a field entry without retiring the live scene. The caller cancels
+    /// it only after the destination accepts this state; field-local bytes reset.
+    pub fn persistent_state(&self) -> Result<crate::PersistentState> {
+        ensure!(!self.failed, "cannot transfer a failed event runtime");
         let mut memory = Memory::default();
-        for offset in (0..0x400).step_by(4) {
+        for offset in (0..crate::persistent::GLOBAL_BYTES).step_by(4) {
             let width = symphonia_script::Width::S32;
             memory.write(offset, width, self.memory.read(offset, width)?)?;
         }
         Ok(crate::PersistentState {
             memory,
-            party: self.world.party.take(),
-            event_flags: std::mem::take(&mut self.world.event_flags),
-            event_records: std::mem::take(&mut self.world.event_records),
+            gameplay_random: self.world.gameplay_random.clone(),
+            party: self.world.party.clone(),
+            event_flags: self.world.event_flags.clone(),
+            event_records: self.world.event_records.clone(),
             random_state: self.world.random_state,
             tick: self.world.tick,
         })
@@ -133,13 +318,7 @@ impl EventRuntime {
             .context("event pool exhausted (32 instances)")?;
         let handle = self.next_handle;
         self.next_handle = handle.checked_add(1).context("event handle overflow")?;
-        *entry = Some(Instance {
-            handle,
-            key: Some(key),
-            vm: Vm::new(self.program.clone(), pc)?,
-            wait: None,
-            registers: [0; 6],
-        });
+        *entry = Some(Instance::new(&self.program, pc, handle, Some(key))?);
         self.interaction = Some(handle);
         // A crossing may immediately fail its story condition. Queue it exclusively,
         // but let the script take control explicitly; stopping movement here would
@@ -161,24 +340,51 @@ impl EventRuntime {
         self.world.movie = None;
         self.world.voice = None;
         self.world.field_transition = None;
+        self.world.field_exit = None;
         self.world.preload_field = None;
         self.interaction = None;
         self.world.input_enabled = false;
     }
     pub fn step(&mut self) -> Result<()> {
-        self.step_with_motion(|_, _, _| {})
+        self.step_with_motion(
+            self.world.tick.saturating_add(1),
+            |_| Ok(()),
+            |_, _, _, _| {},
+            |_| Ok(()),
+        )
     }
-    /// Resolve movement against the scene before scripts observe actor positions.
-    /// The event crate owns intent; the caller owns terrain and collision data.
-    pub fn step_with_motion(
+    /// Prepare control against the current view, then resolve actor movement
+    /// against the scene before scripts observe positions. Preparation returns
+    /// scene-owned data to the resolver without storing it in the event runtime.
+    /// Wind samples the running effect clock, which advances through field menus.
+    pub fn step_with_motion<T>(
         &mut self,
-        mut resolve: impl FnMut(i32, &mut crate::Actor, [f32; 3]),
+        effect_tick: u32,
+        prepare: impl FnOnce(&mut Self) -> Result<T>,
+        mut resolve: impl FnMut(&T, i32, &mut crate::Actor, [f32; 3]),
+        services: impl FnOnce(&mut GameWorld) -> Result<()>,
     ) -> Result<()> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
         if self.world.blocked_by_movie() {
             return Ok(());
         }
         self.world.tick = self.world.tick.checked_add(1).context("clock overflow")?;
+        if let Some(party) = &mut self.world.party
+            && let Some(modifier) = &mut party.encounter_modifier
+        {
+            modifier.remaining -= 1;
+            if modifier.remaining == 0 {
+                party.encounter_modifier = None;
+            }
+        }
+        if let Some(scene) = &mut self.world.skit {
+            scene.step(
+                self.resources
+                    .skits
+                    .as_ref()
+                    .context("skit catalog missing")?,
+            )?;
+        }
         for dialogue in self.world.dialogue.values_mut() {
             if let Some(id) = dialogue.opening_actor
                 && self
@@ -190,12 +396,45 @@ impl EventRuntime {
                 dialogue.opening_actor = None;
             }
         }
-        for (id, actor) in &mut self.world.actors {
-            let turn = actor.turn_direction();
+        // The view follows the pose presented by the preceding actor update.
+        if let Some(camera) = &mut self.world.field_camera {
+            camera.step(&self.world.actors);
+        }
+        let prepared = prepare(self)?;
+        self.world
+            .billboards
+            .retain(|_, effect| effect.alive(self.world.tick));
+        self.world
+            .billboards
+            .values_mut()
+            .for_each(crate::effect::BillboardEffect::step);
+        let player_position = self
+            .world
+            .actors
+            .get(&self.world.controlled_actor)
+            .map(|a| a.position);
+        // Native calls share randomness: update actors in creation order, not ID order.
+        self.world.sync_actor_order();
+        let actor_order = self.world.actor_order.clone();
+        for id in &actor_order {
+            let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
+            let ambient =
+                actor.step_autonomy(self.world.input_enabled, player_position, &mut || {
+                    crate::world::random(&mut self.world.random_state)
+                });
+            let turn = actor.turn_direction();
+            let movement_speed = actor
+                .motion
+                .as_ref()
+                .map(|motion| motion.speed)
+                .or_else(|| ambient.walking.then(|| actor.autonomy.unwrap().speed));
             actor.step_motion();
-            resolve(*id, actor, previous);
-            actor.step_heading(self.world.input_enabled && *id == self.world.controlled_actor);
+            resolve(&prepared, *id, actor, previous);
+            actor.step_heading(
+                self.world.input_enabled && *id == self.world.controlled_actor,
+                actor.motion.is_some() || actor.position[..2] != previous[..2],
+            );
             if !actor.scripted_animation
                 && let Some(model) = self.resources.model(actor.resource)
             {
@@ -206,8 +445,16 @@ impl EventRuntime {
                     !self.world.input_enabled && *id == self.world.controlled_actor;
                 let player_locomotion =
                     self.world.input_enabled && *id == self.world.controlled_actor;
-                let requested = if let Some(motion) = &actor.motion {
-                    if motion.speed > 7. {
+                let requested = if let Some(speed) = movement_speed {
+                    let running = !ambient.walking && speed > 7.;
+                    let event_gait = if running {
+                        slot::EVENT_RUN
+                    } else {
+                        slot::EVENT_WALK
+                    };
+                    if event_controlled && model.clips.contains_key(&event_gait) {
+                        event_gait
+                    } else if running && model.clips.contains_key(&slot::RUN) {
                         slot::RUN
                     } else {
                         slot::WALK
@@ -271,31 +518,51 @@ impl EventRuntime {
                     // keeps its independent authored rate and blend duration.
                     let rate = motion.speed / if slot == slot::WALK { 2. } else { 10. };
                     if animation.rate != rate {
-                        animation.start_frame =
-                            animation.sample(self.world.tick, 0, animation.duration_ticks as f32);
-                        animation.phase_tick = self.world.tick;
+                        animation.seek(
+                            animation.sample(self.world.tick, 0, animation.duration_ticks as f32),
+                            self.world.tick,
+                        );
                         animation.rate = rate;
                     }
                 }
             }
+            if let Some(animation) = &mut actor.animation {
+                animation.set_paused(ambient.paused, self.world.tick);
+            }
         }
+        services(&mut self.world)?;
         self.world.particles.retain(|p| p.alive(self.world.tick));
+        self.world.overlays.retain(|id, overlay| {
+            let expired = matches!(
+                overlay.kind,
+                crate::world::OverlayKind::LocationCaption { .. }
+            ) && overlay.alpha(self.world.tick) == 0;
+            if expired {
+                self.world.actors.remove(id);
+            }
+            !expired && self.world.actors.contains_key(id)
+        });
+        for particle in &mut self.world.particles {
+            if let Some(flutter) = &mut particle.flutter {
+                flutter.step(&mut particle.position, effect_tick, &mut || {
+                    crate::world::random(&mut self.world.random_state)
+                });
+            }
+        }
         self.world
-            .billboards
-            .retain(|_, effect| effect.alive(self.world.tick));
-        self.world
-            .billboards
-            .values_mut()
-            .for_each(crate::effect::BillboardEffect::step);
+            .refractions
+            .retain(|_, effect| self.world.tick.saturating_sub(effect.born) <= effect.lifetime);
         self.world.emotes.retain(|_, e| {
             self.world.actors.contains_key(&e.actor)
                 && e.duration
                     .is_none_or(|d| self.world.tick - e.start_tick <= d)
         });
-        if let Some(camera) = &mut self.world.field_camera {
-            camera.step(&self.world.actors);
-        }
-        let result = self.execute();
+        let result = self
+            .world
+            .step_field_exit(&self.resources)
+            .map_err(anyhow::Error::msg)
+            .and_then(|()| self.execute())
+            .and_then(|()| self.world.step_eyes(&self.resources));
         self.failed = result.is_err();
         result
     }
@@ -305,6 +572,18 @@ impl EventRuntime {
             let Some(mut instance) = self.instances[slot].take() else {
                 continue;
             };
+            if instance.background.as_ref().is_some_and(|b| {
+                b.paused
+                    || b.require_control && !self.world.input_enabled
+                    || self.world.field_transition.is_some()
+                    || self.world.field_exit.is_some()
+            }) {
+                if let Some(Wait::Tick(wake)) = &mut instance.wait {
+                    *wake = wake.checked_add(1).context("paused event clock overflow")?;
+                }
+                self.instances[slot] = Some(instance);
+                continue;
+            }
             if instance
                 .wait
                 .as_mut()
@@ -340,14 +619,14 @@ impl EventRuntime {
                 };
                 instance.vm.complete(result, &mut self.memory)?;
             }
-            let mut spawns = Vec::new();
+            let mut commands = Vec::new();
             let mut wait = None;
             let mut host = NativeHost {
                 world: &mut self.world,
                 resources: &self.resources,
                 program: &self.program,
                 registers: &mut instance.registers,
-                spawns: &mut spawns,
+                events: &mut commands,
                 next_handle: &mut self.next_handle,
                 wait: &mut wait,
             };
@@ -370,7 +649,25 @@ impl EventRuntime {
                 self.interaction = None;
                 self.world.input_enabled = true;
             }
-            for (handle, key) in spawns {
+            for EventCommand { handle, action } in commands {
+                let EventAction::Spawn(key) = action else {
+                    if let Some(background) = self
+                        .instances
+                        .iter_mut()
+                        .flatten()
+                        .find(|i| i.handle == handle)
+                        .and_then(|i| i.background.as_mut())
+                    {
+                        match action {
+                            EventAction::Pause(paused) => background.paused = paused,
+                            EventAction::ControlGate(enabled) => {
+                                background.require_control = enabled
+                            }
+                            EventAction::Spawn(_) => unreachable!(),
+                        }
+                    }
+                    continue;
+                };
                 let pc = self
                     .program
                     .event(2, key)
@@ -380,13 +677,9 @@ impl EventRuntime {
                     .iter_mut()
                     .find(|i| i.is_none())
                     .context("event pool exhausted (32 instances)")?;
-                *entry = Some(Instance {
-                    handle,
-                    key: Some(key),
-                    vm: Vm::new(self.program.clone(), pc)?,
-                    wait: None,
-                    registers: [0; 6],
-                });
+                let mut spawned = Instance::new(&self.program, pc, handle, Some(key))?;
+                spawned.background = Some(Background::default());
+                *entry = Some(spawned);
             }
             if self.world.blocked_by_movie() {
                 break;
@@ -403,6 +696,85 @@ impl EventRuntime {
                 animation.binding_updates = 1;
             }
         }
+        Ok(())
+    }
+}
+
+impl EventRuntime {
+    /// Register an observed ambient phase once; ordinary saves recreate actors.
+    pub fn apply_actor_origin(&mut self, id: i32, origin: &crate::ActorOrigin) -> Result<()> {
+        let actor = self
+            .world
+            .actors
+            .get_mut(&id)
+            .ok_or_else(|| anyhow::anyhow!("ambient actor {id} is missing"))?;
+        let current = actor
+            .autonomy
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("actor {id} has no ambient behavior"))?;
+        let state = &origin.autonomy;
+        ensure!(
+            current.behavior == state.behavior
+                && current.speed == state.speed
+                && current.home == state.home
+                && current.radius == state.radius
+                && (-2..=183).contains(&state.remaining)
+                && !state.conversing,
+            "ambient origin changes actor {id}'s authored movement settings"
+        );
+        use crate::animation::slot;
+        ensure!(
+            origin
+                .position
+                .iter()
+                .all(|v| v.is_finite() && v.abs() <= 100_000.)
+                && origin.heading.is_finite()
+                && origin.target_heading.is_finite()
+                && (actor.interaction_anchor && origin.animation_slot.is_none()
+                    || actor.scripted_animation
+                    || matches!(
+                        (state.activity, origin.animation_slot),
+                        (crate::Activity::Idle, Some(slot::IDLE))
+                            | (crate::Activity::Walk, Some(slot::WALK))
+                    )),
+            "invalid ambient pose for actor {id}"
+        );
+        if id == self.world.controlled_actor {
+            ensure!(
+                origin.position == actor.position && origin.heading == actor.heading,
+                "ambient origin cannot reposition the player"
+            );
+        }
+        let animation = if let Some(slot) = origin.animation_slot {
+            let clip = self
+                .resources
+                .model(actor.resource)
+                .and_then(|m| m.clips.get(&slot))
+                .context("ambient animation is not cooked")?;
+            ensure!(
+                (0. ..=clip.duration_ticks as f32).contains(&origin.animation_sample),
+                "ambient animation sample is outside its clip"
+            );
+            Some(Animation {
+                start_frame: origin.animation_sample,
+                repeat: origin.animation_repeat,
+                ..Animation::new(actor.resource, slot, clip.duration_ticks, self.world.tick)
+            })
+        } else {
+            ensure!(
+                actor.interaction_anchor
+                    && actor.animation.is_none()
+                    && origin.animation_sample == 0.
+                    && !origin.animation_repeat,
+                "only a scene locator can omit its animation"
+            );
+            None
+        };
+        actor.autonomy = Some(*state);
+        actor.position = origin.position;
+        actor.heading = origin.heading;
+        actor.target_heading = origin.target_heading;
+        actor.animation = animation;
         Ok(())
     }
 }

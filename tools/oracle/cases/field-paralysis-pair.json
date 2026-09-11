@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Field paralysis alone: compare the head symbol on both sides of successive 32-update animation boundaries.",
+  "registration": "Controlled copies set Lloyd to paralysis (0x80), recorded in field-paralysis-fixture-v1/fixture.json. Use the source-observed school-grounds ambient origins at native update 64; capture updates equal source VI + 64. No inputs or clock corrections during the observation. This tests the field symbol independently of poison and menu pauses.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/field-paralysis-fixture-v1/native.json",
+    "sha256": "95568aaf1373317380e322bfa0bed93c2168777b8f13e980dc3866b0253b353a"
+  },
+  "native_replay": {
+    "path": "field-paralysis-keyboard.json",
+    "sha256": "d7462f2b25c59d740c082e46636fff93bcdbf65762ac1bb0b66cf94ef632db0f"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/field-paralysis-fixture-v1/GQSEAF.s01",
+      "sha256": "2047e18af4f9f3e0d8e54460d7c3071b241e86bc01378d3053b1a200a7dca121"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 300,
+    "rtc": 1700000000,
+    "inputs": []
+  },
+  "frames": [
+    {
+      "name": "paralysis-2",
+      "native": "paralysis-2",
+      "dolphin_vi": 2,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-16",
+      "native": "paralysis-16",
+      "dolphin_vi": 16,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-17",
+      "native": "paralysis-17",
+      "dolphin_vi": 17,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-18",
+      "native": "paralysis-18",
+      "dolphin_vi": 18,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-48",
+      "native": "paralysis-48",
+      "dolphin_vi": 48,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-49",
+      "native": "paralysis-49",
+      "dolphin_vi": 49,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-50",
+      "native": "paralysis-50",
+      "dolphin_vi": 50,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-80",
+      "native": "paralysis-80",
+      "dolphin_vi": 80,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-81",
+      "native": "paralysis-81",
+      "dolphin_vi": 81,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-112",
+      "native": "paralysis-112",
+      "dolphin_vi": 112,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    },
+    {
+      "name": "paralysis-113",
+      "native": "paralysis-113",
+      "dolphin_vi": 113,
+      "paralysis_state": true,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "regions": [
+        [
+          292,
+          168,
+          48,
+          32
+        ]
+      ]
+    }
+  ],
+  "audio": []
+}

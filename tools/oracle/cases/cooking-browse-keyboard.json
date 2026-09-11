@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "updates": 1800,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 130,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 131,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 210,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 211,
+      "keys": []
+    },
+    {
+      "update": 250,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 251,
+      "keys": []
+    },
+    {
+      "update": 325,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 326,
+      "keys": []
+    },
+    {
+      "update": 400,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 401,
+      "keys": []
+    },
+    {
+      "update": 500,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 501,
+      "keys": []
+    },
+    {
+      "update": 600,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 601,
+      "keys": []
+    },
+    {
+      "update": 700,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 701,
+      "keys": []
+    },
+    {
+      "update": 800,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 801,
+      "keys": []
+    },
+    {
+      "update": 900,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 901,
+      "keys": []
+    },
+    {
+      "update": 1000,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1001,
+      "keys": []
+    },
+    {
+      "update": 1100,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 1101,
+      "keys": []
+    },
+    {
+      "update": 1200,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1201,
+      "keys": []
+    },
+    {
+      "update": 1300,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 1301,
+      "keys": []
+    },
+    {
+      "update": 1400,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1401,
+      "keys": []
+    },
+    {
+      "update": 1500,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1501,
+      "keys": []
+    },
+    {
+      "update": 1650,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1651,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "initial",
+    "450": "list",
+    "550": "unknown",
+    "650": "unknown-notice",
+    "850": "page-two",
+    "950": "page-one",
+    "1050": "header",
+    "1150": "result",
+    "1250": "return",
+    "1350": "full",
+    "1450": "dismiss",
+    "1550": "main",
+    "1750": "field"
+  },
+  "session_origin": 34583,
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "skit": {
+      "id": 600,
+      "remaining": 1498,
+      "opacity": 255,
+      "control_ticks": 7501,
+      "text_opacity": 255
+    },
+    "gameplay_random": "uninitialized"
+  }
+}

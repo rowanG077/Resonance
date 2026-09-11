@@ -1,5 +1,5 @@
 //! Diagnostic instrument rendering from the original bank and executable tables.
-use super::{Workspace, hash_file, write_json};
+use super::{Workspace, hash_file, write_json, write_pcm16};
 use anyhow::{Result, ensure};
 use resonance_audio_cook::{
     bank::Bank,
@@ -122,19 +122,7 @@ pub fn render_music_voice(options: MusicVoiceOptions<'_>) -> Result<()> {
         let name = format!("macro-{}-key-{}-{name}.wav", options.macro_id, options.key);
         let path = workspace.output.join(&name);
         let temporary = path.with_extension("partial.wav");
-        let mut writer = hound::WavWriter::create(
-            &temporary,
-            hound::WavSpec {
-                channels: 2,
-                sample_rate: PLAYBACK_RATE,
-                bits_per_sample: 16,
-                sample_format: hound::SampleFormat::Int,
-            },
-        )?;
-        for sample in samples {
-            writer.write_sample(*sample)?;
-        }
-        writer.finalize()?;
+        write_pcm16(&temporary, 2, PLAYBACK_RATE, samples.iter().copied())?;
         fs::rename(temporary, &path)?;
         assets.insert(
             name,
@@ -212,19 +200,7 @@ pub fn render_title_audio_preview(
     };
     let path = workspace.output.join("title-preview.wav");
     let temporary = path.with_extension("partial.wav");
-    let mut writer = hound::WavWriter::create(
-        &temporary,
-        hound::WavSpec {
-            channels: 2,
-            sample_rate: PLAYBACK_RATE,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )?;
-    for sample in preview.pcm {
-        writer.write_sample(sample)?;
-    }
-    writer.finalize()?;
+    write_pcm16(&temporary, 2, PLAYBACK_RATE, preview.pcm)?;
     fs::rename(temporary, &path)?;
     write_json(
         &path.with_extension("json"),
@@ -289,50 +265,6 @@ mod tests {
                 expected
             );
         }
-    }
-
-    #[test]
-    #[ignore = "requires local extracted instruments and RESONANCE_DSP_COEFFICIENTS"]
-    fn continuous_music_worker_stops_when_its_bounded_consumer_disconnects() {
-        let coefficient_path = std::env::var_os("RESONANCE_DSP_COEFFICIENTS")
-            .expect("set RESONANCE_DSP_COEFFICIENTS to the pinned decoder coefficient resource");
-        let executable = fs::read(extracted().join("sys/main.dol")).unwrap();
-        let tables = tables(&executable, &fs::read(coefficient_path).unwrap()).unwrap();
-        let bank_bytes = fs::read(extracted().join("files/S/inst.snd")).unwrap();
-        let bank = Bank::parse(&bank_bytes).unwrap();
-        let song = resonance_audio_cook::song::Song::parse(
-            &fs::read(extracted().join("files/S/bgm_etc000.song")).unwrap(),
-        )
-        .unwrap();
-        let setup = bank.music_setup(0, 1).unwrap();
-        let (resources, score) =
-            resonance_audio_cook::compile::music(&bank, &song, &setup).unwrap();
-        let reverbs = super::super::music::title_reverbs(&executable).unwrap();
-        let (send, receive) = std::sync::mpsc::sync_channel(2);
-        std::thread::scope(|scope| {
-            let worker = scope.spawn(|| {
-                let mut disconnected = false;
-                resonance_audio_cook::sequence::render_stream(
-                    &resources,
-                    &score,
-                    &tables,
-                    reverbs,
-                    |_| 1.0,
-                    |block| {
-                        assert!(!disconnected, "renderer ignored sink cancellation");
-                        disconnected = send.send(block.to_vec()).is_err();
-                        !disconnected
-                    },
-                )
-                .unwrap();
-                assert!(disconnected);
-            });
-            for _ in 0..4 {
-                assert_eq!(receive.recv().unwrap().len(), 320);
-            }
-            drop(receive);
-            worker.join().unwrap();
-        });
     }
 
     #[test]

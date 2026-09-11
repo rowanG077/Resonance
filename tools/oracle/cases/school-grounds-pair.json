@@ -1,0 +1,363 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Post-Frank school grounds: memory circle, keyboard walking and return",
+  "registration": "Both checkpoints are field 332, story 2500, after the memory-circle tutorial, at the observed player position and heading. Native update zero follows ordinary field initialization. Wait 1397 native updates with no input before the registered initial frame: the timed skit notification and Save prompt finish appearing, and the shared blink and spark rotation counter low seven bits match Dolphin (native tick 20271, source counter 37551). At that frame, register scenery loops 0/2/12 at cooked samples 76/1076/76, the memory circle at 115.2978515625, and the fifteen observed memory-circle spark births in the replay's ambient origin. Normal keyboard input and animation rates drive all subsequent frames. Native update 1397 pairs with Dolphin VI 0 / dump 1; subsequent dumps use native update - 1396. A native update spans two Dolphin controller polls; stick displacement 32 requests walking. These origins belong to the replay, never the quicksave payload. The active-circle region isolates the effect footprint; the full-frame gate covers the overlapping actor. The outdoor audio window uses explicit channel-DC normalization and records raw PCM diagnostics.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/paired-school-grounds.json",
+    "sha256": "f085ba361bd4f26cfd982ace70f9f2dd86e574803a927439fa614607745278e8"
+  },
+  "native_replay": {
+    "path": "school-grounds-keyboard.json",
+    "sha256": "d75f4c4b00c34a3865c5296e67c40a3f9fc59e232d14789d9f84259a03360c9f"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    }
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 700,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 120,
+        "buttons": [],
+        "stick": [
+          96,
+          128
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 220,
+        "buttons": [],
+        "stick": [
+          160,
+          128
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "initial",
+      "native": "initial",
+      "dolphin": 1,
+      "dolphin_vi": 0,
+      "save_prompt": true,
+      "skit_prompt": true,
+    "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          220,
+          180,
+          80,
+          120
+        ],
+        [
+          500,
+          425,
+          130,
+          45
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "walk-left",
+      "native": "walk-left",
+      "dolphin": 41,
+      "dolphin_vi": 40,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          500,
+          425,
+          130,
+          45
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "left-end",
+      "native": "left-end",
+      "dolphin": 71,
+      "dolphin_vi": 70,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          500,
+          425,
+          130,
+          45
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "idle",
+      "native": "idle",
+      "dolphin": 131,
+      "dolphin_vi": 130,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          500,
+          425,
+          130,
+          45
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "save-fade-start",
+      "native": "save-fade-start",
+      "dolphin": 169,
+      "dolphin_vi": 168,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          500,
+          425,
+          130,
+          45
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "save-fade-middle",
+      "native": "save-fade-middle",
+      "dolphin": 176,
+      "dolphin_vi": 175,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          500,
+          425,
+          130,
+          45
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "save-fade-end",
+      "native": "save-fade-end",
+      "dolphin": 187,
+      "dolphin_vi": 186,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          500,
+          425,
+          130,
+          45
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "save-gone",
+      "native": "save-gone",
+      "dolphin": 188,
+      "dolphin_vi": 187,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          500,
+          425,
+          130,
+          45
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "walk-right",
+      "native": "walk-right",
+      "dolphin": 191,
+      "dolphin_vi": 190,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "right-end",
+      "native": "right-end",
+      "dolphin": 241,
+      "dolphin_vi": 240,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "regions": [
+        [
+          10,
+          430,
+          215,
+          30
+        ],
+        [
+          380,
+          85,
+          125,
+          115
+        ],
+        [
+          295,
+          325,
+          110,
+          75
+        ],
+        [
+          20,
+          190,
+          125,
+          125
+        ]
+      ],
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    }
+  ],
+  "audio": []
+}

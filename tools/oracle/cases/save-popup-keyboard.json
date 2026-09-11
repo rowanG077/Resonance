@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "presentation_origin": 38236,
+  "updates": 196,
+  "inputs": [
+    {
+      "update": 20,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 21,
+      "keys": []
+    },
+    {
+      "update": 80,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 81,
+      "keys": []
+    },
+    {
+      "update": 149,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 150,
+      "keys": []
+    },
+    {
+      "update": 181,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 182,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "149": "popup-00",
+    "150": "popup-01",
+    "151": "popup-02",
+    "152": "popup-03",
+    "153": "popup-04",
+    "154": "popup-05",
+    "155": "popup-06",
+    "156": "popup-07",
+    "157": "popup-08",
+    "158": "popup-09",
+    "159": "popup-10",
+    "160": "popup-11",
+    "161": "popup-12",
+    "162": "popup-13",
+    "163": "popup-14",
+    "164": "popup-15",
+    "165": "popup-16",
+    "166": "popup-17",
+    "167": "popup-18",
+    "168": "popup-19",
+    "169": "popup-20",
+    "170": "popup-21",
+    "171": "popup-22",
+    "172": "popup-23",
+    "173": "popup-24",
+    "174": "popup-25",
+    "175": "popup-26",
+    "176": "popup-27",
+    "177": "popup-28",
+    "178": "popup-29",
+    "179": "popup-30",
+    "180": "popup-31",
+    "181": "popup-32",
+    "182": "popup-33",
+    "183": "popup-34",
+    "184": "popup-35",
+    "185": "popup-36",
+    "186": "popup-37",
+    "187": "popup-38",
+    "188": "popup-39",
+    "189": "popup-40",
+    "190": "popup-41",
+    "191": "popup-42",
+    "192": "popup-43",
+    "193": "popup-44",
+    "194": "popup-45",
+    "195": "popup-46",
+    "196": "popup-47"
+  },
+  "expected": {
+    "149": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    },
+    "196": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    }
+  }
+}

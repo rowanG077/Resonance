@@ -16,6 +16,7 @@ pub struct Chain {
 pub struct Joint {
     pub node: u16,
     pub gravity: f32,
+    /// Signed velocity feedback; negative values reverse the previous displacement.
     pub damping: f32,
 }
 
@@ -48,7 +49,7 @@ impl Chain {
                 joint.gravity.is_finite()
                     && joint.gravity.abs() <= 100.
                     && joint.damping.is_finite()
-                    && (0. ..=2.).contains(&joint.damping),
+                    && (-2. ..=2.).contains(&joint.damping),
                 "invalid secondary chain dynamics"
             );
         }

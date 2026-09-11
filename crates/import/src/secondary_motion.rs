@@ -19,16 +19,6 @@ fn parameter(name: &str, tag: &str) -> Result<Option<f32>> {
 
 pub(crate) fn cook(gltf: &Value, names: &[String], lloyd: bool) -> Result<Vec<Chain>> {
     let nodes = gltf["nodes"].as_array().context("chain skeleton")?;
-    let spine = if lloyd {
-        Some(
-            names
-                .iter()
-                .position(|name| name.starts_with("Bone_sebone02"))
-                .context("Lloyd chain collision anchor")? as u16,
-        )
-    } else {
-        None
-    };
     let mut chains = Vec::new();
     for (index, name) in names
         .iter()
@@ -76,11 +66,15 @@ pub(crate) fn cook(gltf: &Value, names: &[String], lloyd: bool) -> Result<Vec<Ch
                 joint.gravity = -0.7333;
                 joint.damping = 0.7666;
             }
-        } else if let Some(spine) = spine
-            && name.contains("manto_")
-        {
+        } else if lloyd && name.contains("manto_") {
+            // Attached models can reuse Lloyd's resource name without his
+            // skeleton. Only an actual scarf chain needs the spine plane.
+            let spine = names
+                .iter()
+                .position(|name| name.starts_with("Bone_sebone02"))
+                .context("Lloyd chain collision anchor")?;
             chain.collision_plane = Some(CollisionPlane {
-                anchor: spine,
+                anchor: spine.try_into()?,
                 normal: [0., -1., 0.],
                 offset: 0.,
                 strength: 1.,
@@ -89,10 +83,6 @@ pub(crate) fn cook(gltf: &Value, names: &[String], lloyd: bool) -> Result<Vec<Ch
         chain.validate(names.len())?;
         chains.push(chain);
     }
-    ensure!(
-        !lloyd || chains.len() == 3,
-        "unexpected Lloyd secondary-motion rig"
-    );
     Ok(chains)
 }
 
@@ -220,6 +210,35 @@ pub(crate) fn raine(chains: &mut [Chain], names: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lloyd_collision_anchor_is_required_only_for_scarf_chains() {
+        let mut gltf = serde_json::json!({"nodes": [{"children": [1]}, {}]});
+        let mut names = vec!["default".into(), "default01".into()];
+        assert!(cook(&gltf, &names, true).unwrap().is_empty());
+
+        names[0] = "AB_ROOT_NR_FP_01_kami".into();
+        let hair = cook(&gltf, &names, true).unwrap();
+        assert_eq!(hair[0].attraction, 0.4165);
+        assert_eq!(hair[0].joints[0].gravity, -0.7333);
+        assert!(hair[0].collision_plane.is_none());
+
+        names[0] = "AB_ROOT_FP_01_manto_L".into();
+        assert!(
+            cook(&gltf, &names, true)
+                .unwrap_err()
+                .to_string()
+                .contains("Lloyd chain collision anchor")
+        );
+        names.push("Bone_sebone02".into());
+        gltf["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({}));
+        let scarf = cook(&gltf, &names, true).unwrap();
+        assert_eq!(scarf[0].collision_plane.as_ref().unwrap().anchor, 2);
+    }
+
     #[test]
     fn encoded_decimal_parameters_preserve_sign_and_zero_fallback() {
         assert_eq!(

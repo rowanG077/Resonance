@@ -1,0 +1,788 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Return to Iselia school: slope walking, scripted door approach, facing, opening and fade.",
+  "registration": "An ordinary field checkpoint restores story 2500 and the source camera distance of 1890. Warm 2237 updates for the restarted skit notification, then register only scenery loops 0/2/12 at samples 52/252/52 observed in the source state. Player animation and secondary motion are never sought. Walking and the interaction establish the subsequent poses naturally. Native update 2237 + N pairs with Dolphin VI N / dump N + 1 through the opening fade. Source loading stalls are outside these image gates; the native replay independently requires free classroom control afterward. Audio is recorded without a playback device; no audio gate is accepted here.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/classroom-door-quicksave.json",
+    "sha256": "e5c8fe64cb813c353659237fdf3b092cd4ca433672197711dc6e696c1e8360f1"
+  },
+  "native_replay": {
+    "path": "classroom-door-keyboard.json",
+    "sha256": "3b23f97288cb735c2f1af5bf65486cdb0e7d5d4e809f52d849167e3ef8144e33"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-school-revisit/user/StateSaves/GQSEAF.s01",
+      "sha256": "d5f5bfed1da03609df96663e4397c0b9e5e4d8f617b672c39bb6e2279585c247"
+    },
+    "prefix_sha256": "04309fb42fc8726e326c7d10ca9a5b3be3da1cc17927eb083a7d0edbd1de72fd",
+    "start_poll": 68989,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    }
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1016.4122924804688,
+      1356.66259765625,
+      11.68171215057373
+    ],
+    "heading": 185
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 440,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 60,
+        "buttons": [],
+        "stick": [
+          160,
+          128
+        ]
+      },
+      {
+        "poll": 100,
+        "duration": 40,
+        "buttons": [],
+        "stick": [
+          128,
+          160
+        ]
+      },
+      {
+        "poll": 200,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "door-000",
+      "native": "door-000",
+      "dolphin": 1,
+      "dolphin_vi": 0,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      }
+    },
+    {
+      "name": "door-011",
+      "native": "door-011",
+      "dolphin": 12,
+      "dolphin_vi": 11,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      }
+    },
+    {
+      "name": "door-012",
+      "native": "door-012",
+      "dolphin": 13,
+      "dolphin_vi": 12,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      }
+    },
+    {
+      "name": "door-013",
+      "native": "door-013",
+      "dolphin": 14,
+      "dolphin_vi": 13,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      }
+    },
+    {
+      "name": "door-014",
+      "native": "door-014",
+      "dolphin": 15,
+      "dolphin_vi": 14,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      }
+    },
+    {
+      "name": "door-100",
+      "native": "door-100",
+      "dolphin": 101,
+      "dolphin_vi": 100,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-102",
+      "native": "door-102",
+      "dolphin": 103,
+      "dolphin_vi": 102,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-103",
+      "native": "door-103",
+      "dolphin": 104,
+      "dolphin_vi": 103,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-104",
+      "native": "door-104",
+      "dolphin": 105,
+      "dolphin_vi": 104,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-105",
+      "native": "door-105",
+      "dolphin": 106,
+      "dolphin_vi": 105,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-106",
+      "native": "door-106",
+      "dolphin": 107,
+      "dolphin_vi": 106,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-107",
+      "native": "door-107",
+      "dolphin": 108,
+      "dolphin_vi": 107,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-108",
+      "native": "door-108",
+      "dolphin": 109,
+      "dolphin_vi": 108,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-109",
+      "native": "door-109",
+      "dolphin": 110,
+      "dolphin_vi": 109,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-110",
+      "native": "door-110",
+      "dolphin": 111,
+      "dolphin_vi": 110,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-111",
+      "native": "door-111",
+      "dolphin": 112,
+      "dolphin_vi": 111,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-112",
+      "native": "door-112",
+      "dolphin": 113,
+      "dolphin_vi": 112,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-113",
+      "native": "door-113",
+      "dolphin": 114,
+      "dolphin_vi": 113,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-114",
+      "native": "door-114",
+      "dolphin": 115,
+      "dolphin_vi": 114,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-115",
+      "native": "door-115",
+      "dolphin": 116,
+      "dolphin_vi": 115,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-124",
+      "native": "door-124",
+      "dolphin": 125,
+      "dolphin_vi": 124,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-137",
+      "native": "door-137",
+      "dolphin": 138,
+      "dolphin_vi": 137,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-138",
+      "native": "door-138",
+      "dolphin": 139,
+      "dolphin_vi": 138,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-139",
+      "native": "door-139",
+      "dolphin": 140,
+      "dolphin_vi": 139,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-140",
+      "native": "door-140",
+      "dolphin": 141,
+      "dolphin_vi": 140,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-141",
+      "native": "door-141",
+      "dolphin": 142,
+      "dolphin_vi": 141,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-145",
+      "native": "door-145",
+      "dolphin": 146,
+      "dolphin_vi": 145,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-150",
+      "native": "door-150",
+      "dolphin": 151,
+      "dolphin_vi": 150,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-160",
+      "native": "door-160",
+      "dolphin": 161,
+      "dolphin_vi": 160,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    },
+    {
+      "name": "door-170",
+      "native": "door-170",
+      "dolphin": 171,
+      "dolphin_vi": 170,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "999980": "field_12_track_0"
+      },
+      "regions": [
+        [
+          280,
+          175,
+          90,
+          125
+        ],
+        [
+          300,
+          115,
+          65,
+          180
+        ]
+      ]
+    }
+  ],
+  "audio": []
+}

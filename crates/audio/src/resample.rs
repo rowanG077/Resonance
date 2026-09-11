@@ -2,7 +2,6 @@
 //! Filter data is an explicit decoder input; this module owns no audio device.
 use crate::sample::Sample;
 use anyhow::{Result, ensure};
-use std::borrow::Cow;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Coefficients(#[serde(with = "crate::package::coefficients")] pub [[[i16; 4]; 128]; 4]);
@@ -102,7 +101,7 @@ impl<'a> Resampler<'a> {
 /// First-pass PCM and separately restored ADPCM loop PCM have different
 /// predictor histories. Repeating a slice of the first pass loses that state.
 pub struct SampleCursor<'a> {
-    sample: Cow<'a, Sample>,
+    sample: &'a Sample,
     position: usize,
     first_end: usize,
     loop_at: usize,
@@ -110,14 +109,6 @@ pub struct SampleCursor<'a> {
 
 impl<'a> SampleCursor<'a> {
     pub fn new(sample: &'a Sample) -> Result<Self> {
-        Self::with_sample(Cow::Borrowed(sample))
-    }
-
-    pub fn from_owned(sample: Sample) -> Result<Self> {
-        Self::with_sample(Cow::Owned(sample))
-    }
-
-    fn with_sample(sample: Cow<'a, Sample>) -> Result<Self> {
         let end = u64::from(sample.loop_start) + u64::from(sample.loop_length);
         ensure!(
             end <= sample.pcm.len() as u64 && sample.loop_pcm.len() == sample.loop_length as usize,
@@ -137,7 +128,7 @@ impl<'a> SampleCursor<'a> {
     }
 
     pub fn sample(&self) -> &Sample {
-        &self.sample
+        self.sample
     }
 
     pub fn is_done(&self) -> bool {

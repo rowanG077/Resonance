@@ -1,0 +1,583 @@
+{
+  "version": 1,
+  "updates": 1764,
+  "inputs": [
+    {
+      "update": 76,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 77,
+      "keys": []
+    },
+    {
+      "update": 154,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 155,
+      "keys": []
+    },
+    {
+      "update": 194,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 195,
+      "keys": []
+    },
+    {
+      "update": 234,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 235,
+      "keys": []
+    },
+    {
+      "update": 274,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 275,
+      "keys": []
+    },
+    {
+      "update": 314,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 315,
+      "keys": []
+    },
+    {
+      "update": 464,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 465,
+      "keys": []
+    },
+    {
+      "update": 614,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 615,
+      "keys": []
+    },
+    {
+      "update": 764,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 765,
+      "keys": []
+    },
+    {
+      "update": 864,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 865,
+      "keys": []
+    },
+    {
+      "update": 904,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 905,
+      "keys": []
+    },
+    {
+      "update": 944,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 945,
+      "keys": []
+    },
+    {
+      "update": 1024,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1025,
+      "keys": []
+    },
+    {
+      "update": 1064,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1065,
+      "keys": []
+    },
+    {
+      "update": 1164,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 1165,
+      "keys": []
+    },
+    {
+      "update": 1264,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1265,
+      "keys": []
+    },
+    {
+      "update": 1364,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1365,
+      "keys": []
+    },
+    {
+      "update": 1464,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1465,
+      "keys": []
+    },
+    {
+      "update": 1615,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1616,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "64": "initial",
+    "66": "poison-first",
+    "70": "poison-second",
+    "74": "poison-third",
+    "414": "overview",
+    "564": "cooks",
+    "714": "colette",
+    "814": "selected-chef",
+    "964": "recipe-navigation",
+    "1044": "recipe-preview",
+    "1114": "selected-recipe",
+    "1244": "result",
+    "1314": "result-held",
+    "1414": "return",
+    "1534": "main",
+    "1684": "field"
+  },
+  "session_origin": 34519,
+  "ambient_origin": {
+    "update": 64,
+    "samples": {
+      "999980": 76,
+      "999996": 76,
+      "999998": 1076,
+      "-2147483648": 115.29785
+    },
+    "effect_tick": 37551,
+    "random_state": 667551397,
+    "eyes": {
+      "1": {
+        "frame": 0,
+        "tick": 34
+      },
+      "209": {
+        "frame": 0,
+        "tick": 73
+      },
+      "210": {
+        "frame": 0,
+        "tick": 46
+      }
+    },
+    "actors": {
+      "1": {
+        "autonomy": {
+          "behavior": "player",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 129,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1968.5965576171875,
+          1005.5621948242188,
+          0
+        ],
+        "heading": 276,
+        "target_heading": 276,
+        "animation_slot": 12,
+        "animation_sample": 58,
+        "animation_repeat": true
+      },
+      "209": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 4,
+          "home": [
+            1715,
+            1316,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 87,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1311.25830078125,
+          1539.6483154296875,
+          0
+        ],
+        "heading": 30,
+        "target_heading": 30,
+        "animation_slot": 12,
+        "animation_sample": 4,
+        "animation_repeat": true
+      },
+      "210": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 2,
+          "home": [
+            1472,
+            1507,
+            0
+          ],
+          "radius": 600,
+          "activity": "walk",
+          "remaining": 29,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1557.2791748046875,
+          1834.7120361328125,
+          0
+        ],
+        "heading": 64,
+        "target_heading": 64,
+        "animation_slot": 36,
+        "animation_sample": 30,
+        "animation_repeat": true
+      },
+      "211": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 14,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": 84,
+        "animation_sample": 500,
+        "animation_repeat": false
+      },
+      "90020": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            1,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 119,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      }
+    },
+    "flutters": [
+      {
+        "kind": 25,
+        "age": 112,
+        "lifetime": 150,
+        "position": [
+          2893.152099609375,
+          878.3523559570312,
+          72.08041381835938
+        ],
+        "size": 25,
+        "rgba": [
+          13,
+          60,
+          4,
+          255
+        ],
+        "motion": {
+          "rotation": [
+            23037,
+            18576,
+            25591.51171875
+          ],
+          "fall_speed": 1.840000033378601,
+          "spin": 0.2,
+          "heading": -49,
+          "turn_after": 9
+        }
+      }
+    ],
+    "background_waits": [
+      {
+        "key": 5000,
+        "pc": 7678,
+        "remaining": 157,
+        "require_control": false
+      },
+      {
+        "key": 5100,
+        "pc": 7786,
+        "remaining": 122,
+        "require_control": false
+      }
+    ],
+    "save_sparks": [
+      {
+        "save_point": 0,
+        "age": 7,
+        "offset": [
+          -29,
+          -19
+        ],
+        "size": 35,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 31,
+        "offset": [
+          -9,
+          -6
+        ],
+        "size": 37,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 59,
+        "offset": [
+          8,
+          22
+        ],
+        "size": 32,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 55,
+        "offset": [
+          24,
+          4
+        ],
+        "size": 41,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 51,
+        "offset": [
+          16,
+          -29
+        ],
+        "size": 40,
+        "speed_eighths": 29
+      },
+      {
+        "save_point": 0,
+        "age": 47,
+        "offset": [
+          -3,
+          -18
+        ],
+        "size": 41,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 43,
+        "offset": [
+          6,
+          8
+        ],
+        "size": 42,
+        "speed_eighths": 44
+      },
+      {
+        "save_point": 0,
+        "age": 39,
+        "offset": [
+          15,
+          -19
+        ],
+        "size": 41,
+        "speed_eighths": 27
+      },
+      {
+        "save_point": 0,
+        "age": 35,
+        "offset": [
+          17,
+          25
+        ],
+        "size": 34,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 27,
+        "offset": [
+          -14,
+          -7
+        ],
+        "size": 43,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 23,
+        "offset": [
+          5,
+          19
+        ],
+        "size": 36,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 19,
+        "offset": [
+          21,
+          9
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      },
+      {
+        "save_point": 0,
+        "age": 15,
+        "offset": [
+          -3,
+          -29
+        ],
+        "size": 41,
+        "speed_eighths": 30
+      },
+      {
+        "save_point": 0,
+        "age": 11,
+        "offset": [
+          22,
+          31
+        ],
+        "size": 35,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 3,
+        "offset": [
+          -11,
+          14
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      }
+    ],
+    "skit": {
+      "id": 600,
+      "control_ticks": 7501,
+      "remaining": 1498,
+      "opacity": 255,
+      "text_opacity": 255
+    },
+    "gameplay_random": "uninitialized",
+    "poison_puffs": []
+  },
+  "presentation_origin": 38020
+}

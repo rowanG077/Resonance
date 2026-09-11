@@ -274,11 +274,10 @@ pub(super) fn prepare_field(
         let pending = std::mem::take(&mut field.pending);
         for p in pending {
             let surface = surfaces.add(TitleSurface {
-                color: sampled_image(p.color, &mut images, &mut sampled),
                 multiply: sampled_image(p.multiply, &mut images, &mut sampled),
                 blend: p.blend,
                 depth_write: p.depth_write,
-                ..default()
+                ..TitleSurface::textured(sampled_image(p.color, &mut images, &mut sampled))
             });
             field.materials.push(SurfaceBinding {
                 resource: p.resource,

@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "presentation_origin": 38992,
+  "updates": 1090,
+  "inputs": [
+    {
+      "update": 20,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 21,
+      "keys": []
+    },
+    {
+      "update": 80,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 81,
+      "keys": []
+    },
+    {
+      "update": 140,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 141,
+      "keys": []
+    },
+    {
+      "update": 200,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 201,
+      "keys": []
+    },
+    {
+      "update": 260,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 261,
+      "keys": []
+    },
+    {
+      "update": 320,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 321,
+      "keys": []
+    },
+    {
+      "update": 420,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 421,
+      "keys": []
+    },
+    {
+      "update": 460,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 461,
+      "keys": []
+    },
+    {
+      "update": 500,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 501,
+      "keys": []
+    },
+    {
+      "update": 560,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 561,
+      "keys": []
+    },
+    {
+      "update": 620,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 621,
+      "keys": []
+    },
+    {
+      "update": 680,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 681,
+      "keys": []
+    },
+    {
+      "update": 740,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 741,
+      "keys": []
+    },
+    {
+      "update": 770,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 771,
+      "keys": []
+    },
+    {
+      "update": 800,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 801,
+      "keys": []
+    },
+    {
+      "update": 830,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 831,
+      "keys": []
+    },
+    {
+      "update": 869,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 870,
+      "keys": []
+    },
+    {
+      "update": 1013,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1014,
+      "keys": []
+    },
+    {
+      "update": 1045,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1046,
+      "keys": []
+    },
+    {
+      "update": 1063,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1064,
+      "keys": []
+    },
+    {
+      "update": 1083,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1084,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "1013": "popup-00",
+    "1014": "popup-01",
+    "1015": "popup-02",
+    "1016": "popup-03",
+    "1017": "popup-04",
+    "1018": "popup-05",
+    "1019": "popup-06",
+    "1020": "popup-07",
+    "1021": "popup-08",
+    "1022": "popup-09",
+    "1023": "popup-10",
+    "1024": "popup-11",
+    "1025": "popup-12",
+    "1026": "popup-13",
+    "1027": "popup-14",
+    "1028": "popup-15",
+    "1029": "popup-16",
+    "1030": "popup-17",
+    "1031": "popup-18",
+    "1032": "popup-19",
+    "1033": "popup-20",
+    "1034": "popup-21",
+    "1035": "popup-22",
+    "1036": "popup-23",
+    "1037": "popup-24",
+    "1038": "popup-25",
+    "1039": "popup-26",
+    "1040": "popup-27",
+    "1041": "popup-28",
+    "1042": "popup-29",
+    "1043": "popup-30",
+    "1044": "popup-31",
+    "1045": "popup-32",
+    "1046": "popup-33",
+    "1047": "popup-34",
+    "1048": "popup-35",
+    "1049": "popup-36",
+    "1050": "popup-37",
+    "1051": "popup-38",
+    "1052": "popup-39",
+    "1053": "popup-40",
+    "1054": "popup-41",
+    "1055": "popup-42",
+    "1056": "popup-43",
+    "1057": "popup-44",
+    "1058": "popup-45",
+    "1059": "popup-46",
+    "1060": "popup-47",
+    "1083": "empty-error-00",
+    "1084": "empty-error-01",
+    "1085": "empty-error-02",
+    "1086": "empty-error-03",
+    "1087": "empty-error-04",
+    "1088": "empty-error-05",
+    "1089": "empty-error-06",
+    "1090": "empty-error-07"
+  },
+  "expected": {
+    "1013": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    },
+    "1090": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    }
+  }
+}

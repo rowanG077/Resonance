@@ -6,6 +6,33 @@ use super::{
 use bevy::{prelude::*, transform::helper::TransformHelper};
 use std::collections::BTreeMap;
 
+/// glTF geometry nodes and their primitive children can repeat bone names.
+/// Exclude both so pose updates always reach the skeleton.
+pub(super) fn named_bones(
+    root: Entity,
+    children: &Query<&Children>,
+    nodes: &Query<(&Name, &Transform, &ChildOf)>,
+    meshes: &Query<(), With<Mesh3d>>,
+) -> BTreeMap<String, (Entity, Transform, Entity)> {
+    let mut bones = BTreeMap::new();
+    for entity in children.iter_descendants(root) {
+        if meshes.contains(entity)
+            || children
+                .get(entity)
+                .is_ok_and(|children| children.iter().any(|child| meshes.contains(child)))
+        {
+            continue;
+        }
+        if let Ok((name, transform, parent)) = nodes.get(entity) {
+            bones.insert(
+                name.as_str().to_owned(),
+                (entity, *transform, parent.parent()),
+            );
+        }
+    }
+    bones
+}
+
 #[derive(Resource, Default)]
 pub(super) struct Authored(BTreeMap<Entity, Quat>);
 

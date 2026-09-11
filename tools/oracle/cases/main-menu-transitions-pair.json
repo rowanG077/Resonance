@@ -1,0 +1,408 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Main menu opening, closing and reopening: slide/fade all three panels, retain a fresh field image on each entry, reject input during transitions, then resume exploration.",
+  "registration": "Use the original school-grounds checkpoint and source-observed ambient origins at native update 64. Source VI 12 is the first main-menu draw (native update 76). The close press is first consumed at source VI 101 (native update 165); capture updates remain VI + 64. No presentation-clock pauses, render skips or later phase adjustments are applied. Reopen at source VI 132/native update 196 after nineteen live field updates. Cancel during its opening must be ignored. Close again at source VI 156/native update 220 and verify the refreshed background through the final transparent pose and resumption. No clocks or field state are re-registered.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "main-menu-transitions-keyboard.json",
+    "sha256": "e7da17c81833f9b3f138b6aaceb1a0f7ba2c12435868c7542e47044771ffa728"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 360,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 200,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 208,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 2,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 266,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 310,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "main-12",
+      "native": "main-12",
+      "dolphin_vi": 12,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-13",
+      "native": "main-13",
+      "dolphin_vi": 13,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-14",
+      "native": "main-14",
+      "dolphin_vi": 14,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-15",
+      "native": "main-15",
+      "dolphin_vi": 15,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-16",
+      "native": "main-16",
+      "dolphin_vi": 16,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-17",
+      "native": "main-17",
+      "dolphin_vi": 17,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-18",
+      "native": "main-18",
+      "dolphin_vi": 18,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-19",
+      "native": "main-19",
+      "dolphin_vi": 19,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-20",
+      "native": "main-20",
+      "dolphin_vi": 20,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-21",
+      "native": "main-21",
+      "dolphin_vi": 21,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-22",
+      "native": "main-22",
+      "dolphin_vi": 22,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-23",
+      "native": "main-23",
+      "dolphin_vi": 23,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-24",
+      "native": "main-24",
+      "dolphin_vi": 24,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-101",
+      "native": "main-101",
+      "dolphin_vi": 101,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-102",
+      "native": "main-102",
+      "dolphin_vi": 102,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-103",
+      "native": "main-103",
+      "dolphin_vi": 103,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-104",
+      "native": "main-104",
+      "dolphin_vi": 104,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-105",
+      "native": "main-105",
+      "dolphin_vi": 105,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-106",
+      "native": "main-106",
+      "dolphin_vi": 106,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-107",
+      "native": "main-107",
+      "dolphin_vi": 107,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-108",
+      "native": "main-108",
+      "dolphin_vi": 108,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-109",
+      "native": "main-109",
+      "dolphin_vi": 109,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-110",
+      "native": "main-110",
+      "dolphin_vi": 110,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-111",
+      "native": "main-111",
+      "dolphin_vi": 111,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-112",
+      "native": "main-112",
+      "dolphin_vi": 112,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-113",
+      "native": "main-113",
+      "dolphin_vi": 113,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-114",
+      "native": "main-114",
+      "dolphin_vi": 114,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-115",
+      "native": "main-115",
+      "dolphin_vi": 115,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-130",
+      "native": "reopen-130",
+      "dolphin_vi": 130,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-132",
+      "native": "reopen-132",
+      "dolphin_vi": 132,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-134",
+      "native": "reopen-134",
+      "dolphin_vi": 134,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-141",
+      "native": "reopen-141",
+      "dolphin_vi": 141,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-142",
+      "native": "reopen-142",
+      "dolphin_vi": 142,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-156",
+      "native": "reopen-156",
+      "dolphin_vi": 156,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-164",
+      "native": "reopen-164",
+      "dolphin_vi": 164,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-166",
+      "native": "reopen-166",
+      "dolphin_vi": 166,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-167",
+      "native": "reopen-167",
+      "dolphin_vi": 167,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-168",
+      "native": "reopen-168",
+      "dolphin_vi": 168,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "reopen-169",
+      "native": "reopen-169",
+      "dolphin_vi": 169,
+      "main_menu_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    }
+  ],
+  "audio": []
+}

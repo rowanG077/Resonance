@@ -1,0 +1,1112 @@
+{
+  "version": 1,
+  "updates": 2474,
+  "session_origin": 34519,
+  "presentation_origin": 38020,
+  "inputs": [
+    {
+      "update": 76,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 77,
+      "keys": []
+    },
+    {
+      "update": 155,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 156,
+      "keys": []
+    },
+    {
+      "update": 235,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 236,
+      "keys": []
+    },
+    {
+      "update": 315,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 316,
+      "keys": []
+    },
+    {
+      "update": 395,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 396,
+      "keys": []
+    },
+    {
+      "update": 475,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 476,
+      "keys": []
+    },
+    {
+      "update": 565,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 566,
+      "keys": []
+    },
+    {
+      "update": 605,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 606,
+      "keys": []
+    },
+    {
+      "update": 645,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 646,
+      "keys": []
+    },
+    {
+      "update": 685,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 686,
+      "keys": []
+    },
+    {
+      "update": 725,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 726,
+      "keys": []
+    },
+    {
+      "update": 805,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 806,
+      "keys": []
+    },
+    {
+      "update": 885,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 886,
+      "keys": []
+    },
+    {
+      "update": 925,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 926,
+      "keys": []
+    },
+    {
+      "update": 965,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 966,
+      "keys": []
+    },
+    {
+      "update": 1005,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1006,
+      "keys": []
+    },
+    {
+      "update": 1045,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1046,
+      "keys": []
+    },
+    {
+      "update": 1085,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1086,
+      "keys": []
+    },
+    {
+      "update": 1125,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1126,
+      "keys": []
+    },
+    {
+      "update": 1165,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1166,
+      "keys": []
+    },
+    {
+      "update": 1205,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1206,
+      "keys": []
+    },
+    {
+      "update": 1245,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1246,
+      "keys": []
+    },
+    {
+      "update": 1285,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 1286,
+      "keys": []
+    },
+    {
+      "update": 1325,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1326,
+      "keys": []
+    },
+    {
+      "update": 1365,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1366,
+      "keys": []
+    },
+    {
+      "update": 1405,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1406,
+      "keys": []
+    },
+    {
+      "update": 1445,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1446,
+      "keys": []
+    },
+    {
+      "update": 1485,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1486,
+      "keys": []
+    },
+    {
+      "update": 1525,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1526,
+      "keys": []
+    },
+    {
+      "update": 1565,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1566,
+      "keys": []
+    },
+    {
+      "update": 1605,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1606,
+      "keys": []
+    },
+    {
+      "update": 1645,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1646,
+      "keys": []
+    },
+    {
+      "update": 1685,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1686,
+      "keys": []
+    },
+    {
+      "update": 1725,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1726,
+      "keys": []
+    },
+    {
+      "update": 1765,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1766,
+      "keys": []
+    },
+    {
+      "update": 1805,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1806,
+      "keys": []
+    },
+    {
+      "update": 1845,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1846,
+      "keys": []
+    },
+    {
+      "update": 1885,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1886,
+      "keys": []
+    },
+    {
+      "update": 1925,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1926,
+      "keys": []
+    },
+    {
+      "update": 1965,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1966,
+      "keys": []
+    },
+    {
+      "update": 2005,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2006,
+      "keys": []
+    },
+    {
+      "update": 2045,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2046,
+      "keys": []
+    },
+    {
+      "update": 2085,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2086,
+      "keys": []
+    },
+    {
+      "update": 2125,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2126,
+      "keys": []
+    },
+    {
+      "update": 2165,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2166,
+      "keys": []
+    },
+    {
+      "update": 2205,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2206,
+      "keys": []
+    },
+    {
+      "update": 2245,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2246,
+      "keys": []
+    },
+    {
+      "update": 2285,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 2286,
+      "keys": []
+    },
+    {
+      "update": 2325,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2326,
+      "keys": []
+    },
+    {
+      "update": 2365,
+      "keys": [
+        "start"
+      ]
+    },
+    {
+      "update": 2366,
+      "keys": []
+    },
+    {
+      "update": 2405,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2406,
+      "keys": []
+    },
+    {
+      "update": 2445,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2446,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "64": "initial-field",
+    "76": "main-entry-0",
+    "77": "main-entry-1",
+    "78": "main-entry-2",
+    "79": "main-entry-3",
+    "80": "main-entry-4",
+    "81": "main-entry-5",
+    "82": "main-entry-6",
+    "83": "main-entry-7",
+    "84": "main-entry-8",
+    "85": "main-entry-9",
+    "235": "system-entry-0",
+    "236": "system-entry-1",
+    "237": "system-entry-2",
+    "238": "system-entry-3",
+    "239": "system-entry-4",
+    "240": "system-entry-5",
+    "241": "system-entry-6",
+    "242": "system-entry-7",
+    "243": "system-entry-8",
+    "244": "system-entry-9",
+    "245": "system-entry-10",
+    "246": "system-entry-11",
+    "247": "system-entry-12",
+    "248": "system-entry-13",
+    "249": "system-entry-14",
+    "250": "system-entry-15",
+    "251": "system-entry-16",
+    "252": "system-entry-17",
+    "253": "system-entry-18",
+    "254": "system-entry-19",
+    "255": "system-entry-20",
+    "256": "system-entry-21",
+    "257": "system-entry-22",
+    "258": "system-entry-23",
+    "475": "customize-entry-0",
+    "476": "customize-entry-1",
+    "477": "customize-entry-2",
+    "478": "customize-entry-3",
+    "479": "customize-entry-4",
+    "480": "customize-entry-5",
+    "481": "customize-entry-6",
+    "482": "customize-entry-7",
+    "483": "customize-entry-8",
+    "484": "customize-entry-9",
+    "485": "customize-entry-10",
+    "486": "customize-entry-11",
+    "487": "customize-entry-12",
+    "488": "customize-entry-13",
+    "489": "customize-entry-14",
+    "490": "customize-entry-15",
+    "491": "customize-entry-16",
+    "492": "customize-entry-17",
+    "493": "customize-entry-18",
+    "494": "customize-entry-19",
+    "495": "customize-entry-20",
+    "496": "customize-entry-21",
+    "497": "customize-entry-22",
+    "498": "customize-entry-23",
+    "499": "customize-entry-24",
+    "500": "customize-entry-25",
+    "501": "customize-entry-26",
+    "502": "customize-entry-27",
+    "503": "customize-entry-28",
+    "504": "customize-entry-29",
+    "505": "customize-entry-30",
+    "506": "customize-entry-31",
+    "507": "customize-entry-32",
+    "508": "customize-entry-33",
+    "509": "customize-entry-34",
+    "510": "customize-entry-35",
+    "511": "customize-entry-36",
+    "561": "message-preview-row-change-0",
+    "562": "message-preview-row-change-1",
+    "563": "message-preview-row-change-2",
+    "564": "message-preview-row-change-3",
+    "565": "message-preview-row-change-4",
+    "566": "message-preview-row-change-5",
+    "567": "message-preview-row-change-6",
+    "568": "message-preview-row-change-7",
+    "569": "message-preview-row-change-8",
+    "570": "message-preview-row-change-9",
+    "571": "message-preview-row-change-10",
+    "572": "message-preview-row-change-11",
+    "725": "color-entry-0",
+    "726": "color-entry-1",
+    "727": "color-entry-2",
+    "728": "color-entry-3",
+    "729": "color-entry-4",
+    "730": "color-entry-5",
+    "754": "color-heading",
+    "805": "color-carousel-0",
+    "806": "color-carousel-1",
+    "807": "color-carousel-2",
+    "808": "color-carousel-3",
+    "809": "color-carousel-4",
+    "810": "color-carousel-5",
+    "811": "color-carousel-6",
+    "812": "color-carousel-7",
+    "813": "color-carousel-8",
+    "814": "color-carousel-9",
+    "815": "color-carousel-10",
+    "816": "color-carousel-11",
+    "817": "color-carousel-12",
+    "818": "color-carousel-13",
+    "819": "color-carousel-14",
+    "820": "color-carousel-15",
+    "821": "color-carousel-16",
+    "822": "color-carousel-17",
+    "823": "color-carousel-18",
+    "834": "dialogue-color",
+    "885": "color-component-0",
+    "886": "color-component-1",
+    "887": "color-component-2",
+    "888": "color-component-3",
+    "889": "color-component-4",
+    "890": "color-component-5",
+    "914": "color-red",
+    "954": "color-red-increase",
+    "1034": "color-green-decrease",
+    "1045": "color-exit-0",
+    "1046": "color-exit-1",
+    "1047": "color-exit-2",
+    "1048": "color-exit-3",
+    "1049": "color-exit-4",
+    "1050": "color-exit-5",
+    "1125": "volume-entry-0",
+    "1126": "volume-entry-1",
+    "1127": "volume-entry-2",
+    "1128": "volume-entry-3",
+    "1129": "volume-entry-4",
+    "1130": "volume-entry-5",
+    "1154": "volume-music",
+    "1194": "volume-music-decrease",
+    "1274": "volume-effects-decrease",
+    "1354": "volume-music-second-step",
+    "1554": "volume-stereo",
+    "1594": "volume-mono",
+    "1605": "volume-exit-0",
+    "1606": "volume-exit-1",
+    "1607": "volume-exit-2",
+    "1608": "volume-exit-3",
+    "1609": "volume-exit-4",
+    "1610": "volume-exit-5",
+    "1685": "controls-entry-0",
+    "1686": "controls-entry-1",
+    "1687": "controls-entry-2",
+    "1688": "controls-entry-3",
+    "1689": "controls-entry-4",
+    "1690": "controls-entry-5",
+    "1714": "controls-first",
+    "1754": "controls-first-remapped",
+    "1794": "controls-first-restored",
+    "1874": "controls-second-remapped",
+    "1914": "controls-second-restored",
+    "1925": "controls-exit-0",
+    "1926": "controls-exit-1",
+    "1927": "controls-exit-2",
+    "1928": "controls-exit-3",
+    "1929": "controls-exit-4",
+    "1930": "controls-exit-5",
+    "2045": "row-scroll-first-0",
+    "2046": "row-scroll-first-1",
+    "2047": "row-scroll-first-2",
+    "2048": "row-scroll-first-3",
+    "2049": "row-scroll-first-4",
+    "2085": "row-scroll-next-0",
+    "2086": "row-scroll-next-1",
+    "2087": "row-scroll-next-2",
+    "2088": "row-scroll-next-3",
+    "2089": "row-scroll-next-4",
+    "2205": "row-scroll-last-0",
+    "2206": "row-scroll-last-1",
+    "2207": "row-scroll-last-2",
+    "2208": "row-scroll-last-3",
+    "2209": "row-scroll-last-4",
+    "2245": "position-entry-0",
+    "2246": "position-entry-1",
+    "2247": "position-entry-2",
+    "2248": "position-entry-3",
+    "2249": "position-entry-4",
+    "2250": "position-entry-5",
+    "2274": "screen-position",
+    "2394": "screen-reset",
+    "2405": "position-exit-0",
+    "2406": "position-exit-1",
+    "2407": "position-exit-2",
+    "2408": "position-exit-3",
+    "2409": "position-exit-4",
+    "2410": "position-exit-5",
+    "2445": "customize-exit-0",
+    "2446": "customize-exit-1",
+    "2447": "customize-exit-2",
+    "2448": "customize-exit-3",
+    "2449": "customize-exit-4",
+    "2450": "customize-exit-5",
+    "2451": "customize-exit-6",
+    "2452": "customize-exit-7",
+    "2453": "customize-exit-8",
+    "2454": "customize-exit-9",
+    "2455": "customize-exit-10",
+    "2456": "customize-exit-11",
+    "2457": "customize-exit-12",
+    "2458": "customize-exit-13",
+    "2459": "customize-exit-14",
+    "2460": "customize-exit-15",
+    "2461": "customize-exit-16",
+    "2462": "customize-exit-17",
+    "2463": "customize-exit-18",
+    "2464": "customize-exit-19",
+    "2465": "customize-exit-20",
+    "2466": "customize-exit-21",
+    "2467": "customize-exit-22",
+    "2468": "customize-exit-23",
+    "2474": "main-customized"
+  },
+  "ambient_origin": {
+    "update": 64,
+    "samples": {
+      "999980": 76,
+      "999996": 76,
+      "999998": 1076,
+      "-2147483648": 115.29785
+    },
+    "effect_tick": 37551,
+    "random_state": 667551397,
+    "eyes": {
+      "1": {
+        "frame": 0,
+        "tick": 34
+      },
+      "209": {
+        "frame": 0,
+        "tick": 73
+      },
+      "210": {
+        "frame": 0,
+        "tick": 46
+      }
+    },
+    "actors": {
+      "1": {
+        "autonomy": {
+          "behavior": "player",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 129,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1968.5965576171875,
+          1005.5621948242188,
+          0
+        ],
+        "heading": 276,
+        "target_heading": 276,
+        "animation_slot": 12,
+        "animation_sample": 58,
+        "animation_repeat": true
+      },
+      "209": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 4,
+          "home": [
+            1715,
+            1316,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 87,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1311.25830078125,
+          1539.6483154296875,
+          0
+        ],
+        "heading": 30,
+        "target_heading": 30,
+        "animation_slot": 12,
+        "animation_sample": 4,
+        "animation_repeat": true
+      },
+      "210": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 2,
+          "home": [
+            1472,
+            1507,
+            0
+          ],
+          "radius": 600,
+          "activity": "walk",
+          "remaining": 29,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1557.2791748046875,
+          1834.7120361328125,
+          0
+        ],
+        "heading": 64,
+        "target_heading": 64,
+        "animation_slot": 36,
+        "animation_sample": 30,
+        "animation_repeat": true
+      },
+      "211": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 14,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": 84,
+        "animation_sample": 500,
+        "animation_repeat": false
+      },
+      "90020": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            1,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 119,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      }
+    },
+    "flutters": [
+      {
+        "kind": 25,
+        "age": 112,
+        "lifetime": 150,
+        "position": [
+          2893.152099609375,
+          878.3523559570312,
+          72.08041381835938
+        ],
+        "size": 25,
+        "rgba": [
+          13,
+          60,
+          4,
+          255
+        ],
+        "motion": {
+          "rotation": [
+            23037,
+            18576,
+            25591.51171875
+          ],
+          "fall_speed": 1.840000033378601,
+          "spin": 0.2,
+          "heading": -49,
+          "turn_after": 9
+        }
+      }
+    ],
+    "background_waits": [
+      {
+        "key": 5000,
+        "pc": 7678,
+        "remaining": 157,
+        "require_control": false
+      },
+      {
+        "key": 5100,
+        "pc": 7786,
+        "remaining": 122,
+        "require_control": false
+      }
+    ],
+    "save_sparks": [
+      {
+        "save_point": 0,
+        "age": 7,
+        "offset": [
+          -29,
+          -19
+        ],
+        "size": 35,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 31,
+        "offset": [
+          -9,
+          -6
+        ],
+        "size": 37,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 59,
+        "offset": [
+          8,
+          22
+        ],
+        "size": 32,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 55,
+        "offset": [
+          24,
+          4
+        ],
+        "size": 41,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 51,
+        "offset": [
+          16,
+          -29
+        ],
+        "size": 40,
+        "speed_eighths": 29
+      },
+      {
+        "save_point": 0,
+        "age": 47,
+        "offset": [
+          -3,
+          -18
+        ],
+        "size": 41,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 43,
+        "offset": [
+          6,
+          8
+        ],
+        "size": 42,
+        "speed_eighths": 44
+      },
+      {
+        "save_point": 0,
+        "age": 39,
+        "offset": [
+          15,
+          -19
+        ],
+        "size": 41,
+        "speed_eighths": 27
+      },
+      {
+        "save_point": 0,
+        "age": 35,
+        "offset": [
+          17,
+          25
+        ],
+        "size": 34,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 27,
+        "offset": [
+          -14,
+          -7
+        ],
+        "size": 43,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 23,
+        "offset": [
+          5,
+          19
+        ],
+        "size": 36,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 19,
+        "offset": [
+          21,
+          9
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      },
+      {
+        "save_point": 0,
+        "age": 15,
+        "offset": [
+          -3,
+          -29
+        ],
+        "size": 41,
+        "speed_eighths": 30
+      },
+      {
+        "save_point": 0,
+        "age": 11,
+        "offset": [
+          22,
+          31
+        ],
+        "size": 35,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 3,
+        "offset": [
+          -11,
+          14
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      }
+    ],
+    "skit": {
+      "id": 600,
+      "control_ticks": 7501,
+      "remaining": 1498,
+      "opacity": 255,
+      "text_opacity": 255
+    },
+    "gameplay_random": "uninitialized",
+    "poison_puffs": []
+  }
+}

@@ -1,0 +1,612 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Tech save-point TP costs: equip Faerie Ring and Personal through the menus, then heal/revive/cast for 1 TP.",
+  "registration": "Controlled fixture extends tech-groups-fixture-v1 with one Faerie Ring and Raine at 4 TP. The replay equips the ring through Equip, checks the normal reduced costs, equips a level-two EX gem and selects Personal through EX Skills, then tests healing, revival, group healing, knockout rejection and zero-TP rejection. Both starts are at the activated save point; its source flag is read directly. Story remains 2500. Menu opens at native update 40; later input/image times use source poll/2 and the established presentation/session origins. Fixture grants are made by the Rust fixture tool; equipment and EX choices are actual replayed menu actions. Native update and source VI 1750→1751, 1830→1831, 4550→4551 move together to the next observed video presentation; the clock origin and tolerance are unchanged.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/tech-personal-fixture-v1/native.json",
+    "sha256": "53babd0c7513c0545ed48b0099af30b27b03597fdeae47042e3b69fd50689908"
+  },
+  "native_replay": {
+    "path": "tech-personal-keyboard.json",
+    "sha256": "ea10a77ba3333bd6b7df09c0f3efb24f74eb35add778fb9d7610575688a571ca"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/tech-personal-fixture-v1/GQSEAF.s01",
+      "sha256": "6e64609cb9d84356f0697f5921a374047f7a6d6588c1368b22b727f914b65fb7"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 10220,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5460,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5780,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6100,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 6260,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 6420,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 6580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7060,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 7220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7380,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 7540,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7860,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 8020,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8660,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 8820,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 8980,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 9140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9620,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 9780,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "ring-preview",
+      "native": "vi-1110",
+      "dolphin_vi": 1110
+    },
+    {
+      "name": "ring-equipped",
+      "native": "vi-1190",
+      "dolphin_vi": 1190
+    },
+    {
+      "name": "ring-first-aid",
+      "native": "vi-1751",
+      "dolphin_vi": 1751,
+      "tech_state": true
+    },
+    {
+      "name": "ring-nurse",
+      "native": "vi-1831",
+      "dolphin_vi": 1831,
+      "tech_state": true
+    },
+    {
+      "name": "ring-insufficient-tp",
+      "native": "vi-1910",
+      "dolphin_vi": 1910,
+      "tech_state": true
+    },
+    {
+      "name": "raine-ex-slots",
+      "native": "vi-2390",
+      "dolphin_vi": 2390,
+      "ex_state": true
+    },
+    {
+      "name": "level-two-gem",
+      "native": "vi-2550",
+      "dolphin_vi": 2550,
+      "ex_state": true
+    },
+    {
+      "name": "gem-confirmation",
+      "native": "vi-2630",
+      "dolphin_vi": 2630,
+      "ex_state": true
+    },
+    {
+      "name": "personal-preview",
+      "native": "vi-2950",
+      "dolphin_vi": 2950,
+      "ex_state": true
+    },
+    {
+      "name": "personal-equipped",
+      "native": "vi-3030",
+      "dolphin_vi": 3030,
+      "ex_state": true
+    },
+    {
+      "name": "personal-first-aid",
+      "native": "vi-3430",
+      "dolphin_vi": 3430,
+      "tech_state": true
+    },
+    {
+      "name": "personal-target",
+      "native": "vi-3510",
+      "dolphin_vi": 3510,
+      "tech_state": true
+    },
+    {
+      "name": "personal-knockout-rejected",
+      "native": "vi-3670",
+      "dolphin_vi": 3670,
+      "tech_state": true
+    },
+    {
+      "name": "personal-first-heal",
+      "native": "vi-3830",
+      "dolphin_vi": 3830,
+      "tech_state": true
+    },
+    {
+      "name": "personal-second-heal",
+      "native": "vi-3910",
+      "dolphin_vi": 3910,
+      "tech_state": true
+    },
+    {
+      "name": "personal-revival",
+      "native": "vi-4070",
+      "dolphin_vi": 4070,
+      "tech_state": true
+    },
+    {
+      "name": "personal-revived",
+      "native": "vi-4310",
+      "dolphin_vi": 4310,
+      "tech_state": true
+    },
+    {
+      "name": "personal-nurse",
+      "native": "vi-4551",
+      "dolphin_vi": 4551,
+      "tech_state": true
+    },
+    {
+      "name": "personal-group-target",
+      "native": "vi-4630",
+      "dolphin_vi": 4630,
+      "tech_state": true
+    },
+    {
+      "name": "last-tp-group-heal",
+      "native": "vi-4710",
+      "dolphin_vi": 4710,
+      "tech_state": true
+    },
+    {
+      "name": "zero-tp-rejected",
+      "native": "vi-4790",
+      "dolphin_vi": 4790,
+      "tech_state": true
+    }
+  ],
+  "audio": []
+}

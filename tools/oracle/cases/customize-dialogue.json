@@ -1,0 +1,209 @@
+{
+  "version": 2,
+  "description": "All three saved dialogue frame styles and six backgrounds on the naturally reached Genis/Mithos line. Compare the entire dialogue panel region, including tab and continue marker, at the unchanged tolerance 8 / 1% gate. Controlled Dolphin checkpoint copies change only the saved appearance; source VI 150. Native scripts reach and reveal the same line before applying appearance for rendering. This matrix does not validate actor animation, attached pointers, choices, or dialogue opening timing.",
+  "tolerance": 8,
+  "max_changed_fraction": 0.01,
+  "preferences": {
+    "background": 5,
+    "battle_auto_zoom": true,
+    "battle_rank": 0,
+    "battle_voiceover": true,
+    "button_map": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "colors": {
+      "choice": [
+        136,
+        40,
+        40,
+        232
+      ],
+      "dialogue": [
+        0,
+        72,
+        144,
+        232
+      ],
+      "menu": [
+        48,
+        104,
+        120,
+        216
+      ],
+      "popup": [
+        24,
+        88,
+        80,
+        232
+      ],
+      "selection": [
+        112,
+        144,
+        24,
+        128
+      ],
+      "shade_bottom": [
+        32,
+        80,
+        88,
+        216
+      ],
+      "shade_top": [
+        24,
+        48,
+        48,
+        216
+      ]
+    },
+    "event_voiceover": true,
+    "message_speed": 3,
+    "movie_subtitles": true,
+    "rumble": true,
+    "screen_position": [
+      0,
+      0
+    ],
+    "skit_notifications": true,
+    "stereo": true,
+    "volumes": {
+      "battle_effects": 127,
+      "battle_voice": 127,
+      "effects": 127,
+      "music": 127,
+      "voice": 127
+    },
+    "window": 1
+  },
+  "variants": [
+    {
+      "window": 0,
+      "background": 0,
+      "reference": "local/findings-menu/dialogue-s0-p0-oracle-v1/reference.png",
+      "sha256": "8c4a8d508b45d8e34765abc23bdbb7117da7229c2703b78241f7de4e966b52f4"
+    },
+    {
+      "window": 0,
+      "background": 1,
+      "reference": "local/findings-menu/dialogue-s0-p1-oracle-v1/reference.png",
+      "sha256": "78330070edc2457f9914c32642ab2a956b6cdf3bc3d821af02b2bff185ff1dc3"
+    },
+    {
+      "window": 0,
+      "background": 2,
+      "reference": "local/findings-menu/dialogue-s0-p2-oracle-v1/reference.png",
+      "sha256": "569c524bec0b0c8e8ade5f7ff39463cce6d4f49f72d287c5fd36ef4c0980642c"
+    },
+    {
+      "window": 0,
+      "background": 3,
+      "reference": "local/findings-menu/dialogue-s0-p3-oracle-v1/reference.png",
+      "sha256": "963ca1e5e57cccc05089e69c840d2409e7eb1e67d05edcbb74bc47a7efaa2821"
+    },
+    {
+      "window": 0,
+      "background": 4,
+      "reference": "local/findings-menu/dialogue-s0-p4-oracle-v1/reference.png",
+      "sha256": "b5f52bbe879617e5607086b65b4f7644f1edf4af7f9c225ee703fdd738a46d3e"
+    },
+    {
+      "window": 0,
+      "background": 5,
+      "reference": "local/findings-menu/dialogue-window0-oracle-v1/reference.png",
+      "sha256": "6eff77177953c8351554cb56e38ed4bb7d5b85158132a1a809568efe4084a24e"
+    },
+    {
+      "window": 1,
+      "background": 0,
+      "reference": "local/findings-menu/dialogue-s1-p0-oracle-v1/reference.png",
+      "sha256": "e8516a2d903a51ac3dfc810a051b26493055a2836b8ea74d809dcf5b17df09f0"
+    },
+    {
+      "window": 1,
+      "background": 1,
+      "reference": "local/findings-menu/dialogue-s1-p1-oracle-v1/reference.png",
+      "sha256": "8f8e9888ba3d8d585f8c97f6a13b8e1b219144135d82547556a8f586114061e4"
+    },
+    {
+      "window": 1,
+      "background": 2,
+      "reference": "local/findings-menu/dialogue-s1-p2-oracle-v1/reference.png",
+      "sha256": "6cfdeb1a150d5fabda0b6215657abfbf8cca1b84d56311240a10c5b350e7abe7"
+    },
+    {
+      "window": 1,
+      "background": 3,
+      "reference": "local/findings-menu/dialogue-s1-p3-oracle-v1/reference.png",
+      "sha256": "6ab8f13ba3dc0227816c407d075a0c7efb83185426a9a5583ccdb1611e9ccb54"
+    },
+    {
+      "window": 1,
+      "background": 4,
+      "reference": "local/findings-menu/dialogue-s1-p4-oracle-v1/reference.png",
+      "sha256": "773def9cb9ea9e580785c5e0b2fb157acb42b9b64f5da50451bef6bc15cbdd45"
+    },
+    {
+      "window": 1,
+      "background": 5,
+      "reference": "local/findings-menu/dialogue-window1-oracle-v1/reference.png",
+      "sha256": "686a30be77b544d17e2f5f1af445512458912980c32d91d9d9ba11de982ab842"
+    },
+    {
+      "window": 2,
+      "background": 0,
+      "reference": "local/findings-menu/dialogue-s2-p0-oracle-v1/reference.png",
+      "sha256": "c87a2836070b30109bceb38f7823e814e79406daba8d623b0152e11ee5679149"
+    },
+    {
+      "window": 2,
+      "background": 1,
+      "reference": "local/findings-menu/dialogue-s2-p1-oracle-v1/reference.png",
+      "sha256": "a25eddef92f6e4ccd6a25637b44d10dbd2580977c488ce8d33b912d7d8bcdc95"
+    },
+    {
+      "window": 2,
+      "background": 2,
+      "reference": "local/findings-menu/dialogue-s2-p2-oracle-v1/reference.png",
+      "sha256": "cc600b919170a82cbdfb6b20c21cd1023cbbf028d4a9a8273ee45e6cd23f2b4e"
+    },
+    {
+      "window": 2,
+      "background": 3,
+      "reference": "local/findings-menu/dialogue-s2-p3-oracle-v1/reference.png",
+      "sha256": "aade5c1a42ba5ef2efbc437a61b626871d4b9387595ca93ee1d9813ec009b07f"
+    },
+    {
+      "window": 2,
+      "background": 4,
+      "reference": "local/findings-menu/dialogue-s2-p4-oracle-v1/reference.png",
+      "sha256": "6521d13cf53812f9d176b127efe31ca9626cf626128c3f9b4f8a68589fcdb063"
+    },
+    {
+      "window": 2,
+      "background": 5,
+      "reference": "local/findings-menu/dialogue-window2-oracle-v1/reference.png",
+      "sha256": "a359454d0dc10fe25843f552c33a1da9aef09cc77ba48c5d808833b40d6f8d3c"
+    }
+  ],
+  "capture": {
+    "kind": "dialogue",
+    "prefix": "Mithos, the hero",
+    "hold_ticks": 0
+  },
+  "regions": [
+    {
+      "name": "panel",
+      "rect": [
+        155,
+        10,
+        465,
+        133
+      ]
+    }
+  ]
+}

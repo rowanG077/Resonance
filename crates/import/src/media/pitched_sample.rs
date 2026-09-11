@@ -1,5 +1,5 @@
 //! Offline diagnostic for pitched instrument PCM, before envelope and studio gain.
-use super::{Workspace, hash_file, write_json};
+use super::{Workspace, hash_file, write_json, write_pcm16};
 use anyhow::{Result, ensure};
 use resonance_audio_cook::{bank::Bank, pitch, render, resample};
 use serde_json::json;
@@ -66,21 +66,8 @@ pub fn render_pitched_sample(options: PitchedSampleOptions<'_>) -> Result<()> {
     );
     let path = workspace.output.join(&name);
     let temporary = path.with_extension("partial.wav");
-    let mut writer = hound::WavWriter::create(
-        &temporary,
-        hound::WavSpec {
-            channels: 2,
-            sample_rate: render::PLAYBACK_RATE,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )?;
-    for _ in 0..options.frames {
-        let sample = source.next_sample(|| cursor.next_sample());
-        writer.write_sample(sample)?;
-        writer.write_sample(sample)?;
-    }
-    writer.finalize()?;
+    let stereo = (0..options.frames).flat_map(|_| [source.next_sample(|| cursor.next_sample()); 2]);
+    write_pcm16(&temporary, 2, render::PLAYBACK_RATE, stereo)?;
     fs::rename(temporary, &path)?;
     write_json(
         &path.with_extension("json"),

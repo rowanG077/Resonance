@@ -1,0 +1,942 @@
+{
+  "version": 1,
+  "updates": 1100,
+  "inputs": [
+    {
+      "update": 76,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 77,
+      "keys": []
+    },
+    {
+      "update": 155,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 156,
+      "keys": []
+    },
+    {
+      "update": 235,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 236,
+      "keys": []
+    },
+    {
+      "update": 315,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 316,
+      "keys": []
+    },
+    {
+      "update": 345,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 346,
+      "keys": []
+    },
+    {
+      "update": 385,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 386,
+      "keys": []
+    },
+    {
+      "update": 455,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 456,
+      "keys": []
+    },
+    {
+      "update": 475,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 476,
+      "keys": []
+    },
+    {
+      "update": 495,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 496,
+      "keys": []
+    },
+    {
+      "update": 515,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 516,
+      "keys": []
+    },
+    {
+      "update": 535,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 536,
+      "keys": []
+    },
+    {
+      "update": 555,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 556,
+      "keys": []
+    },
+    {
+      "update": 575,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 576,
+      "keys": []
+    },
+    {
+      "update": 595,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 596,
+      "keys": []
+    },
+    {
+      "update": 615,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 616,
+      "keys": []
+    },
+    {
+      "update": 625,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 626,
+      "keys": []
+    },
+    {
+      "update": 630,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 631,
+      "keys": []
+    },
+    {
+      "update": 635,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 636,
+      "keys": []
+    },
+    {
+      "update": 640,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 641,
+      "keys": []
+    },
+    {
+      "update": 645,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 646,
+      "keys": []
+    },
+    {
+      "update": 650,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 651,
+      "keys": []
+    },
+    {
+      "update": 655,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 656,
+      "keys": []
+    },
+    {
+      "update": 660,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 661,
+      "keys": []
+    },
+    {
+      "update": 665,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 666,
+      "keys": []
+    },
+    {
+      "update": 675,
+      "keys": [
+        "next_page"
+      ]
+    },
+    {
+      "update": 676,
+      "keys": []
+    },
+    {
+      "update": 715,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 716,
+      "keys": []
+    },
+    {
+      "update": 745,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 746,
+      "keys": []
+    },
+    {
+      "update": 795,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 796,
+      "keys": []
+    },
+    {
+      "update": 825,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 826,
+      "keys": []
+    },
+    {
+      "update": 875,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 876,
+      "keys": []
+    },
+    {
+      "update": 935,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 936,
+      "keys": []
+    },
+    {
+      "update": 995,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 996,
+      "keys": []
+    },
+    {
+      "update": 1025,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1026,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "64": "origin-0",
+    "235": "main-depart-0",
+    "236": "main-depart-1",
+    "237": "main-depart-2",
+    "238": "main-depart-3",
+    "239": "main-depart-4",
+    "240": "main-depart-5",
+    "241": "main-depart-6",
+    "242": "main-depart-7",
+    "243": "main-depart-8",
+    "244": "main-depart-9",
+    "245": "main-depart-10",
+    "246": "main-depart-11",
+    "247": "items-open-0",
+    "248": "items-open-1",
+    "249": "items-open-2",
+    "250": "items-open-3",
+    "251": "items-open-4",
+    "252": "items-open-5",
+    "253": "items-open-6",
+    "254": "items-open-7",
+    "255": "items-open-8",
+    "256": "items-open-9",
+    "257": "items-open-10",
+    "258": "items-open-11",
+    "259": "items-open-12",
+    "260": "items-open-13",
+    "261": "items-open-14",
+    "262": "items-open-15",
+    "263": "items-open-16",
+    "264": "items-open-17",
+    "315": "recent-0",
+    "316": "recent-1",
+    "317": "recent-2",
+    "318": "recent-3",
+    "319": "recent-4",
+    "320": "recent-5",
+    "321": "recent-6",
+    "322": "recent-7",
+    "323": "recent-8",
+    "324": "recent-9",
+    "325": "recent-10",
+    "326": "recent-11",
+    "327": "recent-12",
+    "328": "recent-13",
+    "329": "recent-14",
+    "330": "recent-15",
+    "331": "recent-16",
+    "345": "books-0",
+    "346": "books-1",
+    "347": "books-2",
+    "348": "books-3",
+    "349": "books-4",
+    "350": "books-5",
+    "351": "books-6",
+    "352": "books-7",
+    "353": "books-8",
+    "354": "books-9",
+    "355": "books-10",
+    "356": "books-11",
+    "357": "books-12",
+    "358": "books-13",
+    "359": "books-14",
+    "360": "books-15",
+    "361": "books-16",
+    "385": "items-depart-0",
+    "386": "items-depart-1",
+    "387": "items-depart-2",
+    "388": "items-depart-3",
+    "389": "items-depart-4",
+    "390": "items-depart-5",
+    "391": "items-depart-6",
+    "392": "items-depart-7",
+    "393": "items-depart-8",
+    "394": "items-depart-9",
+    "396": "items-depart-11",
+    "397": "book-open-0",
+    "398": "book-open-1",
+    "399": "book-open-2",
+    "400": "book-open-3",
+    "401": "book-open-4",
+    "402": "book-open-5",
+    "403": "book-open-6",
+    "404": "book-open-7",
+    "405": "book-open-8",
+    "406": "book-open-9",
+    "407": "book-open-10",
+    "408": "book-open-11",
+    "409": "book-open-12",
+    "410": "book-open-13",
+    "411": "book-open-14",
+    "412": "book-open-15",
+    "413": "book-open-16",
+    "414": "book-open-17",
+    "575": "book-scroll-0",
+    "576": "book-scroll-1",
+    "577": "book-scroll-2",
+    "578": "book-scroll-3",
+    "579": "book-scroll-4",
+    "580": "book-scroll-5",
+    "595": "book-scroll-again-0",
+    "596": "book-scroll-again-1",
+    "597": "book-scroll-again-2",
+    "598": "book-scroll-again-3",
+    "599": "book-scroll-again-4",
+    "600": "book-scroll-again-5",
+    "615": "book-scroll-last-0",
+    "616": "book-scroll-last-1",
+    "617": "book-scroll-last-2",
+    "618": "book-scroll-last-3",
+    "619": "book-scroll-last-4",
+    "620": "book-scroll-last-5",
+    "645": "book-up-0",
+    "646": "book-up-1",
+    "647": "book-up-2",
+    "648": "book-up-3",
+    "649": "book-up-4",
+    "650": "book-up-5",
+    "660": "book-scroll-up-0",
+    "661": "book-scroll-up-1",
+    "662": "book-scroll-up-2",
+    "663": "book-scroll-up-3",
+    "664": "book-scroll-up-4",
+    "665": "book-scroll-up-5",
+    "666": "book-scroll-up-6",
+    "667": "book-scroll-up-7",
+    "668": "book-scroll-up-8",
+    "669": "book-scroll-up-9",
+    "670": "book-scroll-up-10",
+    "671": "book-scroll-up-11",
+    "672": "book-scroll-up-12",
+    "673": "book-scroll-up-13",
+    "674": "book-scroll-up-14",
+    "675": "book-category-0",
+    "676": "book-category-1",
+    "677": "book-category-2",
+    "678": "book-category-3",
+    "679": "book-category-4",
+    "680": "book-category-5",
+    "681": "book-category-6",
+    "682": "book-category-7",
+    "683": "book-category-8",
+    "684": "book-category-9",
+    "685": "book-category-10",
+    "686": "book-category-11",
+    "687": "book-category-12",
+    "688": "book-category-13",
+    "689": "book-category-14",
+    "690": "book-category-15",
+    "691": "book-category-16",
+    "715": "book-tabs-0",
+    "716": "book-tabs-1",
+    "717": "book-tabs-2",
+    "718": "book-tabs-3",
+    "719": "book-tabs-4",
+    "720": "book-tabs-5",
+    "721": "book-tabs-6",
+    "722": "book-tabs-7",
+    "723": "book-tabs-8",
+    "724": "book-tabs-9",
+    "725": "book-tabs-10",
+    "726": "book-tabs-11",
+    "727": "book-tabs-12",
+    "728": "book-tabs-13",
+    "729": "book-tabs-14",
+    "730": "book-tabs-15",
+    "731": "book-tabs-16",
+    "745": "book-depart-0",
+    "746": "book-depart-1",
+    "747": "book-depart-2",
+    "748": "book-depart-3",
+    "749": "book-depart-4",
+    "750": "book-depart-5",
+    "751": "book-depart-6",
+    "752": "book-depart-7",
+    "753": "book-depart-8",
+    "754": "book-depart-9",
+    "755": "book-depart-10",
+    "756": "book-depart-11",
+    "757": "items-return-0",
+    "758": "items-return-1",
+    "759": "items-return-2",
+    "760": "items-return-3",
+    "761": "items-return-4",
+    "762": "items-return-5",
+    "763": "items-return-6",
+    "764": "items-return-7",
+    "765": "items-return-8",
+    "766": "items-return-9",
+    "767": "items-return-10",
+    "768": "items-return-11",
+    "769": "items-return-12",
+    "770": "items-return-13",
+    "771": "items-return-14",
+    "772": "items-return-15",
+    "773": "items-return-16",
+    "774": "items-return-17",
+    "795": "items-tabs-0",
+    "796": "items-tabs-1",
+    "797": "items-tabs-2",
+    "798": "items-tabs-3",
+    "799": "items-tabs-4",
+    "800": "items-tabs-5",
+    "801": "items-tabs-6",
+    "802": "items-tabs-7",
+    "803": "items-tabs-8",
+    "804": "items-tabs-9",
+    "805": "items-tabs-10",
+    "806": "items-tabs-11",
+    "807": "items-tabs-12",
+    "808": "items-tabs-13",
+    "809": "items-tabs-14",
+    "810": "items-tabs-15",
+    "811": "items-tabs-16",
+    "825": "items-close-0",
+    "826": "items-close-1",
+    "827": "items-close-2",
+    "828": "items-close-3",
+    "829": "items-close-4",
+    "830": "items-close-5",
+    "831": "items-close-6",
+    "832": "items-close-7",
+    "833": "items-close-8",
+    "834": "items-close-9",
+    "836": "items-close-11",
+    "837": "main-return-0",
+    "838": "main-return-1",
+    "839": "main-return-2",
+    "840": "main-return-3",
+    "841": "main-return-4",
+    "842": "main-return-5",
+    "843": "main-return-6",
+    "844": "main-return-7",
+    "845": "main-return-8",
+    "846": "main-return-9"
+  },
+  "session_origin": 34519,
+  "ambient_origin": {
+    "update": 64,
+    "samples": {
+      "999980": 76,
+      "999996": 76,
+      "999998": 1076,
+      "-2147483648": 115.29785
+    },
+    "effect_tick": 37551,
+    "random_state": 667551397,
+    "eyes": {
+      "1": {
+        "frame": 0,
+        "tick": 34
+      },
+      "209": {
+        "frame": 0,
+        "tick": 73
+      },
+      "210": {
+        "frame": 0,
+        "tick": 46
+      }
+    },
+    "actors": {
+      "1": {
+        "autonomy": {
+          "behavior": "player",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 129,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1968.5965576171875,
+          1005.5621948242188,
+          0
+        ],
+        "heading": 276,
+        "target_heading": 276,
+        "animation_slot": 12,
+        "animation_sample": 58,
+        "animation_repeat": true
+      },
+      "209": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 4,
+          "home": [
+            1715,
+            1316,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 87,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1311.25830078125,
+          1539.6483154296875,
+          0
+        ],
+        "heading": 30,
+        "target_heading": 30,
+        "animation_slot": 12,
+        "animation_sample": 4,
+        "animation_repeat": true
+      },
+      "210": {
+        "autonomy": {
+          "behavior": "wander_near_home",
+          "speed": 2,
+          "home": [
+            1472,
+            1507,
+            0
+          ],
+          "radius": 600,
+          "activity": "walk",
+          "remaining": 29,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1557.2791748046875,
+          1834.7120361328125,
+          0
+        ],
+        "heading": 64,
+        "target_heading": 64,
+        "animation_slot": 36,
+        "animation_sample": 30,
+        "animation_repeat": true
+      },
+      "211": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 14,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": 84,
+        "animation_sample": 500,
+        "animation_repeat": false
+      },
+      "90020": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            1,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 119,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      }
+    },
+    "flutters": [
+      {
+        "kind": 25,
+        "age": 112,
+        "lifetime": 150,
+        "position": [
+          2893.152099609375,
+          878.3523559570312,
+          72.08041381835938
+        ],
+        "size": 25,
+        "rgba": [
+          13,
+          60,
+          4,
+          255
+        ],
+        "motion": {
+          "rotation": [
+            23037,
+            18576,
+            25591.51171875
+          ],
+          "fall_speed": 1.840000033378601,
+          "spin": 0.2,
+          "heading": -49,
+          "turn_after": 9
+        }
+      }
+    ],
+    "background_waits": [
+      {
+        "key": 5000,
+        "pc": 7678,
+        "remaining": 157,
+        "require_control": false
+      },
+      {
+        "key": 5100,
+        "pc": 7786,
+        "remaining": 122,
+        "require_control": false
+      }
+    ],
+    "save_sparks": [
+      {
+        "save_point": 0,
+        "age": 7,
+        "offset": [
+          -29,
+          -19
+        ],
+        "size": 35,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 31,
+        "offset": [
+          -9,
+          -6
+        ],
+        "size": 37,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 59,
+        "offset": [
+          8,
+          22
+        ],
+        "size": 32,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 55,
+        "offset": [
+          24,
+          4
+        ],
+        "size": 41,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 51,
+        "offset": [
+          16,
+          -29
+        ],
+        "size": 40,
+        "speed_eighths": 29
+      },
+      {
+        "save_point": 0,
+        "age": 47,
+        "offset": [
+          -3,
+          -18
+        ],
+        "size": 41,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 43,
+        "offset": [
+          6,
+          8
+        ],
+        "size": 42,
+        "speed_eighths": 44
+      },
+      {
+        "save_point": 0,
+        "age": 39,
+        "offset": [
+          15,
+          -19
+        ],
+        "size": 41,
+        "speed_eighths": 27
+      },
+      {
+        "save_point": 0,
+        "age": 35,
+        "offset": [
+          17,
+          25
+        ],
+        "size": 34,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 27,
+        "offset": [
+          -14,
+          -7
+        ],
+        "size": 43,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 23,
+        "offset": [
+          5,
+          19
+        ],
+        "size": 36,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 19,
+        "offset": [
+          21,
+          9
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      },
+      {
+        "save_point": 0,
+        "age": 15,
+        "offset": [
+          -3,
+          -29
+        ],
+        "size": 41,
+        "speed_eighths": 30
+      },
+      {
+        "save_point": 0,
+        "age": 11,
+        "offset": [
+          22,
+          31
+        ],
+        "size": 35,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 3,
+        "offset": [
+          -11,
+          14
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      }
+    ],
+    "skit": {
+      "id": 600,
+      "control_ticks": 7501,
+      "remaining": 1498,
+      "opacity": 255,
+      "text_opacity": 255
+    },
+    "gameplay_random": "uninitialized",
+    "poison_puffs": []
+  },
+  "presentation_origin": 38020
+}

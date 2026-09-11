@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "updates": 3337,
+  "presentation_origin": 31775,
+  "presentation_pauses": [
+    {"start": 2378, "end": 2393}
+  ],
+  "ambient_origin": {
+    "update": 2237,
+    "samples": {
+      "999980": 52,
+      "999996": 52,
+      "999998": 252
+    },
+    "skit": {
+      "id": 600,
+      "control_ticks": 4557,
+      "remaining": 783,
+      "opacity": 255,
+      "text_opacity": 255
+    }
+  },
+  "inputs": [
+    {
+      "update": 2248,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 2278,
+      "keys": []
+    },
+    {
+      "update": 2288,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 2308,
+      "keys": []
+    },
+    {
+      "update": 2338,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2339,
+      "keys": []
+    },
+    {
+      "update": 2538,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 2603,
+      "keys": []
+    },
+    {
+      "update": 2638,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 2748,
+      "keys": []
+    },
+    {
+      "update": 2838,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 2948,
+      "keys": []
+    },
+    {
+      "update": 2978,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 3063,
+      "keys": []
+    },
+    {
+      "update": 3088,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3089,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "2237": "initial",
+    "2267": "right-moving",
+    "2277": "right-stopped",
+    "2307": "door-step",
+    "2337": "before-door",
+    "2377": "corridor-arrival",
+    "2410": "corridor-loading",
+    "2537": "before-corridor-walk",
+    "2567": "corridor-walk",
+    "2602": "classroom-door",
+    "2637": "before-room",
+    "2657": "entering-room",
+    "2677": "room-view",
+    "2717": "desk-approach",
+    "2757": "desks",
+    "2797": "desks-idle",
+    "2837": "before-return",
+    "2867": "room-exit",
+    "2887": "door-pass",
+    "2947": "corridor-return",
+    "2977": "before-exit-walk",
+    "3017": "hall-return",
+    "3062": "exit-door",
+    "3137": "school-arrival",
+    "3237": "school-settled",
+    "3337": "finished",
+    "3086": "before-exit"
+  },
+  "expected": {
+    "2797": {
+      "map_id": 340,
+      "story": 2500,
+      "free_control": true
+    },
+    "3337": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": true
+    }
+  }
+}

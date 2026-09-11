@@ -1,0 +1,347 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Group-item eligibility: knockout Lloyd blocks group recovery, revival enables it, ordinary gels fill HP, and full-party HP/TP reject group items without consumption.",
+  "registration": "Controlled fixture copies items-groups-fixture-v1, knocks out Lloyd and restores all other members to full HP/TP with no conditions. The actual menus revive and heal Lloyd, verify the group-recovery gate before/after, cancel without consuming, reject full-party recovery and return to Main. This tests menu eligibility, not combat or natural damage. Native menu opens at update 40/source poll 20; later native inputs use source poll/2 + 1, matching the observed controller-processing VI. Image/state observations use equal native update/source VI with the unchanged registered clock origins and tolerance 8/1%.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/items-groups-eligibility-fixture-v1/native.json",
+    "sha256": "d685131b9c241379c6d86aab5e91f732502fc5ab3b6625c42311d5fe040ad107"
+  },
+  "native_replay": {
+    "path": "items-groups-eligibility-keyboard.json",
+    "sha256": "6c5f9ad503c29d0f43460367af9a1fa90ea74a251ba728ef3dfe1aa28db7ac62"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/items-groups-eligibility-fixture-v1/GQSEAF.s01",
+      "sha256": "b484625c00cee97772b520e62b880770acd985c1308a7a8ef8b0f5e1f5cdda5b"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3680,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "list",
+      "native": "vi-230",
+      "dolphin_vi": 230,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "energy",
+      "native": "vi-310",
+      "dolphin_vi": 310,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "knockout-leader-rejected",
+      "native": "vi-390",
+      "dolphin_vi": 390,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "life-bottle",
+      "native": "vi-470",
+      "dolphin_vi": 470,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "revive-target",
+      "native": "vi-550",
+      "dolphin_vi": 550,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "leader-revived",
+      "native": "vi-630",
+      "dolphin_vi": 630,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "energy-again",
+      "native": "vi-710",
+      "dolphin_vi": 710,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "group-now-available",
+      "native": "vi-790",
+      "dolphin_vi": 790,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "cancel-group",
+      "native": "vi-870",
+      "dolphin_vi": 870,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "apple-gel",
+      "native": "vi-950",
+      "dolphin_vi": 950,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "single-target",
+      "native": "vi-1030",
+      "dolphin_vi": 1030,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "heal-196",
+      "native": "vi-1110",
+      "dolphin_vi": 1110,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "heal-294",
+      "native": "vi-1190",
+      "dolphin_vi": 1190,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "heal-full",
+      "native": "vi-1270",
+      "dolphin_vi": 1270,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "energy-full",
+      "native": "vi-1350",
+      "dolphin_vi": 1350,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "full-hp-rejected",
+      "native": "vi-1430",
+      "dolphin_vi": 1430,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "spirit-full",
+      "native": "vi-1510",
+      "dolphin_vi": 1510,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "full-tp-rejected",
+      "native": "vi-1590",
+      "dolphin_vi": 1590,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "categories",
+      "native": "vi-1670",
+      "dolphin_vi": 1670,
+      "party_state": true,
+      "inventory_state": true
+    },
+    {
+      "name": "main-return",
+      "native": "vi-1750",
+      "dolphin_vi": 1750,
+      "party_state": true
+    }
+  ],
+  "audio": []
+}

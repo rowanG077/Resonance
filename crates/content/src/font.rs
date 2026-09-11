@@ -2,6 +2,28 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+/// A literal text run using the dialogue palette, shared by system notices and menus.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextSpan {
+    pub text: String,
+    pub color: u8,
+}
+impl TextSpan {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.color <= 6
+                && self.text.len() <= 8192
+                && self
+                    .text
+                    .chars()
+                    .all(|c| !c.is_control() || matches!(c, '\n' | '\u{c}')),
+            "invalid system text span"
+        );
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BitmapFont {
     pub version: u32,
@@ -128,7 +150,7 @@ impl BitmapFont {
             "invalid font dimensions"
         );
         ensure!(
-            !self.glyphs.is_empty() && self.glyphs.len() <= 4096,
+            !self.glyphs.is_empty() && self.glyphs.len() <= 16384,
             "invalid font glyph count"
         );
         for glyph in self.glyphs.values() {

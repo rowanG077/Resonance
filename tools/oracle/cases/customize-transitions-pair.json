@@ -1,0 +1,3213 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Customize and System transitions: outer entry/exit, color carousel, positive option scrolling, message preview and help changes, nested panels, plus all settled preferences checks.",
+  "registration": "Reuses the unchanged silent customize-audio-panels-paired-v1/dolphin recording, source replay and native/Dolphin fixture pins. Native update 64 is source VI zero with the complete equipment-transitions-keyboard ambient origin. Read-only reinspection confirms the same controlled actor, all ambient actors, particles, RNG, clocks, field animations, skit, gameplay RNG, eyes and background script registries as the equipment source. Both fixtures remain at story 2500. Source Y first presents Main at VI 12, mapped to native update 76; every later edge maps source poll/2 + 1 to VI + 64, with native release on the following update. All 2,450 source observations are contiguous and satisfy UI clock = 38084 + VI and effect clock = 37551 + VI, with no removed waits, repeated origins or presentation/effect advances. Timestamp inspection confirms every video VI 0-2448 exists once, in native-resolution lossless FFV1 and within NTSC timestamp quantization; no requested image is omitted or substituted. The System-to-Customize handoff is sampled throughout VIs 411-447: System fades at 411-418, Main at 419-429 and the first visible Customize frame is VI 430 with fade 206. The old case described VI 427 as first presentation; its copied draft at 427-429 is hidden preparation and is not treated as a visible page. Customize state is gated on all selected VIs 430-2392, including the final transparent closing frame, using the observed full 0x50-byte state block, current row, postdraw scroll/carousel phases, retained message-preview counters and page fade. Every gate-required field was audited in the per-VI observations and watcher map. Effect phase/RNG and all four field-animation clocks are checked throughout; applied mixer settings are checked by customize_state on the page and audio_state elsewhere. The carousel is sampled every VI 741-759, positive row scrolling at 1981-1985, 2021-2025 and 2141-2145, retained message preview/current-row change at 497-508, every visited nested-panel entry/exit and closing at 2381-2404. All 20 comparable old samples remain. Main fade, System opacity/selection and gameplay RNG were not watched, so their numerical gates are absent; full-frame images cover the visible transitions with the unchanged 8/1% tolerance. Negative row scrolling, reverse carousel movement, defaults confirmation and returning to the field are outside this replay. The original screen-right (VI 2250) and screen-down (VI 2290) diagnostic images are omitted from this acceptance case and its native captures: native scanout applies their nonzero screen offset, whereas Dolphin dumps before the original VI origin adjustment. They remain in the original customize-panels case and customize-audio-panels-paired-v1 report pending an oracle that observes the final scanout. Every remaining requested frame was checked against the source screen-position word and has zero offset; no regions, translations or tolerance changes conceal a mismatch. No new Dolphin, GPU or audio run was performed to author this case.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "customize-transitions-keyboard.json",
+    "sha256": "81014d8a5980651d763e71593dd3f053b39edfe3194ba258ae8d534eab7370f4"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 4900,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1000,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1080,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1160,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1240,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1320,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1480,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1640,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1720,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1800,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1880,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 1960,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2040,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2120,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2280,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2360,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2440,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2520,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2600,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2680,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2760,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2840,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2920,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3000,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3080,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3160,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3240,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3320,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3400,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3480,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3560,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3640,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3720,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3800,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3880,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3960,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4040,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4120,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4200,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4280,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4360,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4440,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4520,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4600,
+        "duration": 4,
+        "buttons": [
+          "start"
+        ]
+      },
+      {
+        "poll": 4680,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4760,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "initial-field",
+      "native": "initial-field",
+      "dolphin_vi": 0,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-0",
+      "native": "main-entry-0",
+      "dolphin_vi": 12,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-1",
+      "native": "main-entry-1",
+      "dolphin_vi": 13,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-2",
+      "native": "main-entry-2",
+      "dolphin_vi": 14,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-3",
+      "native": "main-entry-3",
+      "dolphin_vi": 15,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-4",
+      "native": "main-entry-4",
+      "dolphin_vi": 16,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-5",
+      "native": "main-entry-5",
+      "dolphin_vi": 17,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-6",
+      "native": "main-entry-6",
+      "dolphin_vi": 18,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-7",
+      "native": "main-entry-7",
+      "dolphin_vi": 19,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-8",
+      "native": "main-entry-8",
+      "dolphin_vi": 20,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-entry-9",
+      "native": "main-entry-9",
+      "dolphin_vi": 21,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-0",
+      "native": "system-entry-0",
+      "dolphin_vi": 171,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-1",
+      "native": "system-entry-1",
+      "dolphin_vi": 172,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-2",
+      "native": "system-entry-2",
+      "dolphin_vi": 173,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-3",
+      "native": "system-entry-3",
+      "dolphin_vi": 174,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-4",
+      "native": "system-entry-4",
+      "dolphin_vi": 175,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-5",
+      "native": "system-entry-5",
+      "dolphin_vi": 176,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-6",
+      "native": "system-entry-6",
+      "dolphin_vi": 177,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-7",
+      "native": "system-entry-7",
+      "dolphin_vi": 178,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-8",
+      "native": "system-entry-8",
+      "dolphin_vi": 179,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-9",
+      "native": "system-entry-9",
+      "dolphin_vi": 180,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-10",
+      "native": "system-entry-10",
+      "dolphin_vi": 181,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-11",
+      "native": "system-entry-11",
+      "dolphin_vi": 182,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-12",
+      "native": "system-entry-12",
+      "dolphin_vi": 183,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-13",
+      "native": "system-entry-13",
+      "dolphin_vi": 184,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-14",
+      "native": "system-entry-14",
+      "dolphin_vi": 185,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-15",
+      "native": "system-entry-15",
+      "dolphin_vi": 186,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-16",
+      "native": "system-entry-16",
+      "dolphin_vi": 187,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-17",
+      "native": "system-entry-17",
+      "dolphin_vi": 188,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-18",
+      "native": "system-entry-18",
+      "dolphin_vi": 189,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-19",
+      "native": "system-entry-19",
+      "dolphin_vi": 190,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-20",
+      "native": "system-entry-20",
+      "dolphin_vi": 191,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-21",
+      "native": "system-entry-21",
+      "dolphin_vi": 192,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-22",
+      "native": "system-entry-22",
+      "dolphin_vi": 193,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "system-entry-23",
+      "native": "system-entry-23",
+      "dolphin_vi": 194,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-0",
+      "native": "customize-entry-0",
+      "dolphin_vi": 411,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-1",
+      "native": "customize-entry-1",
+      "dolphin_vi": 412,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-2",
+      "native": "customize-entry-2",
+      "dolphin_vi": 413,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-3",
+      "native": "customize-entry-3",
+      "dolphin_vi": 414,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-4",
+      "native": "customize-entry-4",
+      "dolphin_vi": 415,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-5",
+      "native": "customize-entry-5",
+      "dolphin_vi": 416,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-6",
+      "native": "customize-entry-6",
+      "dolphin_vi": 417,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-7",
+      "native": "customize-entry-7",
+      "dolphin_vi": 418,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-8",
+      "native": "customize-entry-8",
+      "dolphin_vi": 419,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-9",
+      "native": "customize-entry-9",
+      "dolphin_vi": 420,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-10",
+      "native": "customize-entry-10",
+      "dolphin_vi": 421,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-11",
+      "native": "customize-entry-11",
+      "dolphin_vi": 422,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-12",
+      "native": "customize-entry-12",
+      "dolphin_vi": 423,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-13",
+      "native": "customize-entry-13",
+      "dolphin_vi": 424,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-14",
+      "native": "customize-entry-14",
+      "dolphin_vi": 425,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-15",
+      "native": "customize-entry-15",
+      "dolphin_vi": 426,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-16",
+      "native": "customize-entry-16",
+      "dolphin_vi": 427,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-17",
+      "native": "customize-entry-17",
+      "dolphin_vi": 428,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-18",
+      "native": "customize-entry-18",
+      "dolphin_vi": 429,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-entry-19",
+      "native": "customize-entry-19",
+      "dolphin_vi": 430,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-20",
+      "native": "customize-entry-20",
+      "dolphin_vi": 431,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-21",
+      "native": "customize-entry-21",
+      "dolphin_vi": 432,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-22",
+      "native": "customize-entry-22",
+      "dolphin_vi": 433,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-23",
+      "native": "customize-entry-23",
+      "dolphin_vi": 434,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-24",
+      "native": "customize-entry-24",
+      "dolphin_vi": 435,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-25",
+      "native": "customize-entry-25",
+      "dolphin_vi": 436,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-26",
+      "native": "customize-entry-26",
+      "dolphin_vi": 437,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-27",
+      "native": "customize-entry-27",
+      "dolphin_vi": 438,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-28",
+      "native": "customize-entry-28",
+      "dolphin_vi": 439,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-29",
+      "native": "customize-entry-29",
+      "dolphin_vi": 440,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-30",
+      "native": "customize-entry-30",
+      "dolphin_vi": 441,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-31",
+      "native": "customize-entry-31",
+      "dolphin_vi": 442,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-32",
+      "native": "customize-entry-32",
+      "dolphin_vi": 443,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-33",
+      "native": "customize-entry-33",
+      "dolphin_vi": 444,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-34",
+      "native": "customize-entry-34",
+      "dolphin_vi": 445,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-35",
+      "native": "customize-entry-35",
+      "dolphin_vi": 446,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-entry-36",
+      "native": "customize-entry-36",
+      "dolphin_vi": 447,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-0",
+      "native": "message-preview-row-change-0",
+      "dolphin_vi": 497,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-1",
+      "native": "message-preview-row-change-1",
+      "dolphin_vi": 498,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-2",
+      "native": "message-preview-row-change-2",
+      "dolphin_vi": 499,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-3",
+      "native": "message-preview-row-change-3",
+      "dolphin_vi": 500,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-4",
+      "native": "message-preview-row-change-4",
+      "dolphin_vi": 501,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-5",
+      "native": "message-preview-row-change-5",
+      "dolphin_vi": 502,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-6",
+      "native": "message-preview-row-change-6",
+      "dolphin_vi": 503,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-7",
+      "native": "message-preview-row-change-7",
+      "dolphin_vi": 504,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-8",
+      "native": "message-preview-row-change-8",
+      "dolphin_vi": 505,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-9",
+      "native": "message-preview-row-change-9",
+      "dolphin_vi": 506,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-10",
+      "native": "message-preview-row-change-10",
+      "dolphin_vi": 507,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-row-change-11",
+      "native": "message-preview-row-change-11",
+      "dolphin_vi": 508,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-entry-0",
+      "native": "color-entry-0",
+      "dolphin_vi": 661,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-entry-1",
+      "native": "color-entry-1",
+      "dolphin_vi": 662,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-entry-2",
+      "native": "color-entry-2",
+      "dolphin_vi": 663,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-entry-3",
+      "native": "color-entry-3",
+      "dolphin_vi": 664,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-entry-4",
+      "native": "color-entry-4",
+      "dolphin_vi": 665,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-entry-5",
+      "native": "color-entry-5",
+      "dolphin_vi": 666,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-heading",
+      "native": "color-heading",
+      "dolphin_vi": 690,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-0",
+      "native": "color-carousel-0",
+      "dolphin_vi": 741,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-1",
+      "native": "color-carousel-1",
+      "dolphin_vi": 742,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-2",
+      "native": "color-carousel-2",
+      "dolphin_vi": 743,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-3",
+      "native": "color-carousel-3",
+      "dolphin_vi": 744,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-4",
+      "native": "color-carousel-4",
+      "dolphin_vi": 745,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-5",
+      "native": "color-carousel-5",
+      "dolphin_vi": 746,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-6",
+      "native": "color-carousel-6",
+      "dolphin_vi": 747,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-7",
+      "native": "color-carousel-7",
+      "dolphin_vi": 748,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-8",
+      "native": "color-carousel-8",
+      "dolphin_vi": 749,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-9",
+      "native": "color-carousel-9",
+      "dolphin_vi": 750,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-10",
+      "native": "color-carousel-10",
+      "dolphin_vi": 751,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-11",
+      "native": "color-carousel-11",
+      "dolphin_vi": 752,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-12",
+      "native": "color-carousel-12",
+      "dolphin_vi": 753,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-13",
+      "native": "color-carousel-13",
+      "dolphin_vi": 754,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-14",
+      "native": "color-carousel-14",
+      "dolphin_vi": 755,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-15",
+      "native": "color-carousel-15",
+      "dolphin_vi": 756,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-16",
+      "native": "color-carousel-16",
+      "dolphin_vi": 757,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-17",
+      "native": "color-carousel-17",
+      "dolphin_vi": 758,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-carousel-18",
+      "native": "color-carousel-18",
+      "dolphin_vi": 759,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "dialogue-color",
+      "native": "dialogue-color",
+      "dolphin_vi": 770,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-component-0",
+      "native": "color-component-0",
+      "dolphin_vi": 821,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-component-1",
+      "native": "color-component-1",
+      "dolphin_vi": 822,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-component-2",
+      "native": "color-component-2",
+      "dolphin_vi": 823,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-component-3",
+      "native": "color-component-3",
+      "dolphin_vi": 824,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-component-4",
+      "native": "color-component-4",
+      "dolphin_vi": 825,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-component-5",
+      "native": "color-component-5",
+      "dolphin_vi": 826,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-red",
+      "native": "color-red",
+      "dolphin_vi": 850,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-red-increase",
+      "native": "color-red-increase",
+      "dolphin_vi": 890,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-green-decrease",
+      "native": "color-green-decrease",
+      "dolphin_vi": 970,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-exit-0",
+      "native": "color-exit-0",
+      "dolphin_vi": 981,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-exit-1",
+      "native": "color-exit-1",
+      "dolphin_vi": 982,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-exit-2",
+      "native": "color-exit-2",
+      "dolphin_vi": 983,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-exit-3",
+      "native": "color-exit-3",
+      "dolphin_vi": 984,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-exit-4",
+      "native": "color-exit-4",
+      "dolphin_vi": 985,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "color-exit-5",
+      "native": "color-exit-5",
+      "dolphin_vi": 986,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-entry-0",
+      "native": "volume-entry-0",
+      "dolphin_vi": 1061,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-entry-1",
+      "native": "volume-entry-1",
+      "dolphin_vi": 1062,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-entry-2",
+      "native": "volume-entry-2",
+      "dolphin_vi": 1063,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-entry-3",
+      "native": "volume-entry-3",
+      "dolphin_vi": 1064,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-entry-4",
+      "native": "volume-entry-4",
+      "dolphin_vi": 1065,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-entry-5",
+      "native": "volume-entry-5",
+      "dolphin_vi": 1066,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-music",
+      "native": "volume-music",
+      "dolphin_vi": 1090,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-music-decrease",
+      "native": "volume-music-decrease",
+      "dolphin_vi": 1130,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-effects-decrease",
+      "native": "volume-effects-decrease",
+      "dolphin_vi": 1210,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-music-second-step",
+      "native": "volume-music-second-step",
+      "dolphin_vi": 1290,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-stereo",
+      "native": "volume-stereo",
+      "dolphin_vi": 1490,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-mono",
+      "native": "volume-mono",
+      "dolphin_vi": 1530,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-exit-0",
+      "native": "volume-exit-0",
+      "dolphin_vi": 1541,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-exit-1",
+      "native": "volume-exit-1",
+      "dolphin_vi": 1542,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-exit-2",
+      "native": "volume-exit-2",
+      "dolphin_vi": 1543,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-exit-3",
+      "native": "volume-exit-3",
+      "dolphin_vi": 1544,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-exit-4",
+      "native": "volume-exit-4",
+      "dolphin_vi": 1545,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "volume-exit-5",
+      "native": "volume-exit-5",
+      "dolphin_vi": 1546,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-entry-0",
+      "native": "controls-entry-0",
+      "dolphin_vi": 1621,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-entry-1",
+      "native": "controls-entry-1",
+      "dolphin_vi": 1622,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-entry-2",
+      "native": "controls-entry-2",
+      "dolphin_vi": 1623,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-entry-3",
+      "native": "controls-entry-3",
+      "dolphin_vi": 1624,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-entry-4",
+      "native": "controls-entry-4",
+      "dolphin_vi": 1625,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-entry-5",
+      "native": "controls-entry-5",
+      "dolphin_vi": 1626,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-first",
+      "native": "controls-first",
+      "dolphin_vi": 1650,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-first-remapped",
+      "native": "controls-first-remapped",
+      "dolphin_vi": 1690,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-first-restored",
+      "native": "controls-first-restored",
+      "dolphin_vi": 1730,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-second-remapped",
+      "native": "controls-second-remapped",
+      "dolphin_vi": 1810,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-second-restored",
+      "native": "controls-second-restored",
+      "dolphin_vi": 1850,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-exit-0",
+      "native": "controls-exit-0",
+      "dolphin_vi": 1861,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-exit-1",
+      "native": "controls-exit-1",
+      "dolphin_vi": 1862,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-exit-2",
+      "native": "controls-exit-2",
+      "dolphin_vi": 1863,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-exit-3",
+      "native": "controls-exit-3",
+      "dolphin_vi": 1864,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-exit-4",
+      "native": "controls-exit-4",
+      "dolphin_vi": 1865,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "controls-exit-5",
+      "native": "controls-exit-5",
+      "dolphin_vi": 1866,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-first-0",
+      "native": "row-scroll-first-0",
+      "dolphin_vi": 1981,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-first-1",
+      "native": "row-scroll-first-1",
+      "dolphin_vi": 1982,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-first-2",
+      "native": "row-scroll-first-2",
+      "dolphin_vi": 1983,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-first-3",
+      "native": "row-scroll-first-3",
+      "dolphin_vi": 1984,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-first-4",
+      "native": "row-scroll-first-4",
+      "dolphin_vi": 1985,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-next-0",
+      "native": "row-scroll-next-0",
+      "dolphin_vi": 2021,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-next-1",
+      "native": "row-scroll-next-1",
+      "dolphin_vi": 2022,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-next-2",
+      "native": "row-scroll-next-2",
+      "dolphin_vi": 2023,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-next-3",
+      "native": "row-scroll-next-3",
+      "dolphin_vi": 2024,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-next-4",
+      "native": "row-scroll-next-4",
+      "dolphin_vi": 2025,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-last-0",
+      "native": "row-scroll-last-0",
+      "dolphin_vi": 2141,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-last-1",
+      "native": "row-scroll-last-1",
+      "dolphin_vi": 2142,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-last-2",
+      "native": "row-scroll-last-2",
+      "dolphin_vi": 2143,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-last-3",
+      "native": "row-scroll-last-3",
+      "dolphin_vi": 2144,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "row-scroll-last-4",
+      "native": "row-scroll-last-4",
+      "dolphin_vi": 2145,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-entry-0",
+      "native": "position-entry-0",
+      "dolphin_vi": 2181,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-entry-1",
+      "native": "position-entry-1",
+      "dolphin_vi": 2182,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-entry-2",
+      "native": "position-entry-2",
+      "dolphin_vi": 2183,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-entry-3",
+      "native": "position-entry-3",
+      "dolphin_vi": 2184,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-entry-4",
+      "native": "position-entry-4",
+      "dolphin_vi": 2185,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-entry-5",
+      "native": "position-entry-5",
+      "dolphin_vi": 2186,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "screen-position",
+      "native": "screen-position",
+      "dolphin_vi": 2210,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "screen-reset",
+      "native": "screen-reset",
+      "dolphin_vi": 2330,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-exit-0",
+      "native": "position-exit-0",
+      "dolphin_vi": 2341,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-exit-1",
+      "native": "position-exit-1",
+      "dolphin_vi": 2342,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-exit-2",
+      "native": "position-exit-2",
+      "dolphin_vi": 2343,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-exit-3",
+      "native": "position-exit-3",
+      "dolphin_vi": 2344,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-exit-4",
+      "native": "position-exit-4",
+      "dolphin_vi": 2345,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "position-exit-5",
+      "native": "position-exit-5",
+      "dolphin_vi": 2346,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-0",
+      "native": "customize-exit-0",
+      "dolphin_vi": 2381,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-1",
+      "native": "customize-exit-1",
+      "dolphin_vi": 2382,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-2",
+      "native": "customize-exit-2",
+      "dolphin_vi": 2383,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-3",
+      "native": "customize-exit-3",
+      "dolphin_vi": 2384,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-4",
+      "native": "customize-exit-4",
+      "dolphin_vi": 2385,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-5",
+      "native": "customize-exit-5",
+      "dolphin_vi": 2386,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-6",
+      "native": "customize-exit-6",
+      "dolphin_vi": 2387,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-7",
+      "native": "customize-exit-7",
+      "dolphin_vi": 2388,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-8",
+      "native": "customize-exit-8",
+      "dolphin_vi": 2389,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-9",
+      "native": "customize-exit-9",
+      "dolphin_vi": 2390,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-10",
+      "native": "customize-exit-10",
+      "dolphin_vi": 2391,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-11",
+      "native": "customize-exit-11",
+      "dolphin_vi": 2392,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-exit-12",
+      "native": "customize-exit-12",
+      "dolphin_vi": 2393,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-13",
+      "native": "customize-exit-13",
+      "dolphin_vi": 2394,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-14",
+      "native": "customize-exit-14",
+      "dolphin_vi": 2395,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-15",
+      "native": "customize-exit-15",
+      "dolphin_vi": 2396,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-16",
+      "native": "customize-exit-16",
+      "dolphin_vi": 2397,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-17",
+      "native": "customize-exit-17",
+      "dolphin_vi": 2398,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-18",
+      "native": "customize-exit-18",
+      "dolphin_vi": 2399,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-19",
+      "native": "customize-exit-19",
+      "dolphin_vi": 2400,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-20",
+      "native": "customize-exit-20",
+      "dolphin_vi": 2401,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-21",
+      "native": "customize-exit-21",
+      "dolphin_vi": 2402,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-22",
+      "native": "customize-exit-22",
+      "dolphin_vi": 2403,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "customize-exit-23",
+      "native": "customize-exit-23",
+      "dolphin_vi": 2404,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    },
+    {
+      "name": "main-customized",
+      "native": "main-customized",
+      "dolphin_vi": 2410,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "audio_state": true
+    }
+  ],
+  "audio": []
+}

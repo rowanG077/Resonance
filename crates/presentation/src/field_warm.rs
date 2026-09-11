@@ -52,7 +52,7 @@ struct Preparation {
 }
 #[derive(Resource)]
 struct PreparedMaterials {
-    _surfaces: Vec<Handle<TitleSurface>>,
+    surfaces: HashMap<u32, Vec<Handle<TitleSurface>>>,
     sampler_misses: u64,
 }
 #[derive(Component)]
@@ -122,11 +122,14 @@ fn begin(
     mut sampled: ResMut<super::scene::SampledImages>,
     ui: Option<Res<super::field_ui::Artwork>>,
     session: Option<Res<super::new_game::Session>>,
+    backdrop: Query<Entity, With<super::menu_backdrop::Quad>>,
 ) {
     let Some(art) = art.filter(|a| a.ready) else {
         return;
     };
-    if session.is_none_or(|s| s.assets.map_id != art.map) {
+    if session.is_none_or(|s| {
+        s.assets.map_id != art.map || s.field.events.world.field_transition.is_some()
+    }) {
         return;
     }
     if resident.active.load(Ordering::Acquire)
@@ -137,11 +140,15 @@ fn begin(
     let Some(ui) = ui.filter(|ui| ui.ready(&images)) else {
         return;
     };
+    let Ok(backdrop) = backdrop.single() else {
+        return;
+    };
     let mut entities = Vec::new();
     let mut report = Report {
         map: Some(art.map),
         ..Default::default()
     };
+    report.expected.insert(backdrop.into());
     let target = images.add(Image::new_target_texture(
         64,
         64,
@@ -360,6 +367,7 @@ fn complete(
     preparation: Option<Res<Preparation>>,
     shared: Res<Shared>,
     resident: Res<Resident>,
+    refraction: Res<super::field_refraction::Ready>,
     mut exit: MessageWriter<AppExit>,
     mut logged: Local<u64>,
     names: Query<(
@@ -370,6 +378,7 @@ fn complete(
         Option<&InheritedVisibility>,
     )>,
     sampled: Res<super::scene::SampledImages>,
+    retained: Option<ResMut<PreparedMaterials>>,
 ) {
     let Some(preparation) = preparation else {
         return;
@@ -397,7 +406,7 @@ fn complete(
         exit.write(AppExit::error());
         return;
     }
-    if report.completed.load(Ordering::Acquire) {
+    if report.completed.load(Ordering::Acquire) && refraction.get() {
         info!(
             "Field {} GPU preparation complete in {:.3}s: {} draws, {} pipelines",
             preparation.map,
@@ -409,10 +418,17 @@ fn complete(
             commands.entity(*entity).despawn();
         }
         resident.active.store(true, Ordering::Release);
-        commands.insert_resource(PreparedMaterials {
-            _surfaces: preparation.retained.clone(),
-            sampler_misses: sampled.misses,
-        });
+        if let Some(mut retained) = retained {
+            retained
+                .surfaces
+                .insert(preparation.map, preparation.retained.clone());
+            retained.sampler_misses = sampled.misses;
+        } else {
+            commands.insert_resource(PreparedMaterials {
+                surfaces: [(preparation.map, preparation.retained.clone())].into(),
+                sampler_misses: sampled.misses,
+            });
+        }
         commands.remove_resource::<Preparation>();
     } else if preparation.started.elapsed().as_secs() > 120 {
         error!(
@@ -467,7 +483,7 @@ fn rendered(
     use bevy::render::render_resource::PipelineDescriptor;
     let relevant = || {
         cache.pipelines().filter(|p| matches!(&p.descriptor,
-        PipelineDescriptor::RenderPipelineDescriptor(d) if matches!(d.label.as_deref(),Some("resonance/surface" | "resonance/field-ui"))))
+        PipelineDescriptor::RenderPipelineDescriptor(d) if matches!(d.label.as_deref(),Some("resonance/surface" | "resonance/field-ui" | "resonance/refraction" | "resonance/menu-backdrop"))))
     };
     let count = relevant().count();
     if resident.active.load(Ordering::Acquire) {
@@ -491,17 +507,7 @@ fn rendered(
         return;
     }
     let mut seen = HashSet::new();
-    let items3 = phases3
-        .0
-        .values()
-        .flat_map(|p| p.items.values())
-        .map(|p| (p.entity.1, p.pipeline));
-    let items2 = phases2
-        .0
-        .values()
-        .flat_map(|p| p.items.values())
-        .map(|p| (p.entity.1, p.pipeline));
-    for (entity, pipeline) in items3.chain(items2) {
+    for (entity, pipeline) in draws(&phases3, &phases2) {
         if report.expected.contains(&entity) {
             report.pipelines.insert(pipeline);
             if matches!(
@@ -527,4 +533,21 @@ fn rendered(
         let done = report.completed.clone();
         queue.on_submitted_work_done(move || done.store(true, Ordering::Release));
     }
+}
+
+/// Draws queued by both cameras; callers retain their own pipeline/error policy.
+pub(super) fn draws<'a>(
+    models: &'a ViewSortedRenderPhases<Transparent3d>,
+    ui: &'a ViewSortedRenderPhases<Transparent2d>,
+) -> impl Iterator<Item = (MainEntity, CachedRenderPipelineId)> + 'a {
+    let models = models
+        .0
+        .values()
+        .flat_map(|p| p.items.values())
+        .map(|p| (p.entity.1, p.pipeline));
+    let ui =
+        ui.0.values()
+            .flat_map(|p| p.items.values())
+            .map(|p| (p.entity.1, p.pipeline));
+    models.chain(ui)
 }

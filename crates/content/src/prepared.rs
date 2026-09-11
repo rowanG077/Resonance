@@ -122,6 +122,7 @@ mod tests {
     use crate::field_preload::{File as Entry, Inputs, VERSION};
     use std::{
         fs,
+        sync::atomic::{AtomicUsize, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -132,13 +133,15 @@ mod tests {
         }
     }
     fn fixture() -> Fixture {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
-            "resonance-prepared-{}-{}",
+            "resonance-prepared-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).unwrap();
         let mut files = BTreeMap::new();

@@ -124,8 +124,10 @@ impl Song {
                 let tick = read::u32(entry, 0)?;
                 let pattern = read::u16(entry, 8)?;
                 if pattern >= 0xfffe {
-                    track.end_tick = tick;
+                    // A stop marker is consumed after the pattern finishes;
+                    // unlike a loop marker, its time word is unused (often 0).
                     if pattern == 0xfffe {
+                        track.end_tick = tick;
                         let index = read::u16(entry, 10)?;
                         ensure!(
                             usize::from(index) < track.regions.len(),
@@ -151,7 +153,7 @@ impl Song {
                     "invalid pattern controls"
                 );
                 let offset = read::u32(bytes, pattern_table + usize::from(pattern) * 4)? as usize;
-                parse_pattern(bytes, offset, entry, &mut track, &mut total)
+                track.end_tick = parse_pattern(bytes, offset, entry, &mut track, &mut total)
                     .with_context(|| format!("track {id}, pattern {pattern}"))?;
                 at += 12;
             }
@@ -164,7 +166,9 @@ impl Song {
             );
             ensure!(
                 track.events.last().is_none_or(|e| e.tick <= track.end_tick),
-                "song track ends before its last event"
+                "song track {id} ends at {} before its last event {:?}",
+                track.end_tick,
+                track.events.last()
             );
             tracks.push(track);
         }
@@ -191,7 +195,11 @@ impl Song {
             .tracks
             .iter()
             .map(|track| {
-                let region = usize::from(track.loop_region.context("track has no loop region")?);
+                // A stopped track has no loop event. It remains exhausted
+                // while the other tracks restart their selected regions.
+                let Some(region) = track.loop_region.map(usize::from) else {
+                    return Ok(track.events.len());
+                };
                 track
                     .events
                     .iter()
@@ -232,12 +240,26 @@ impl Song {
         result
     }
 
-    pub fn loop_interval(&self) -> Result<(u32, u32)> {
-        let end = self.tracks.first().context("song has no tracks")?.end_tick;
-        ensure!(
-            self.tracks
+    pub fn playback_interval(&self) -> Result<(u32, u32)> {
+        let mut looping = self
+            .tracks
+            .iter()
+            .filter(|track| track.loop_region.is_some());
+        let Some(first) = looping.next() else {
+            let end = self
+                .tracks
                 .iter()
-                .all(|t| t.loop_region.is_some() && t.end_tick == end),
+                .map(|track| track.end_tick)
+                .max()
+                .context("song has no tracks")?
+                .checked_add(1)
+                .context("song end tick overflow")?;
+            return Ok((0, end));
+        };
+        let end = first.end_tick;
+        ensure!(
+            looping.all(|track| track.end_tick == end)
+                && self.tracks.iter().all(|track| track.end_tick <= end),
             "song does not have one shared loop interval"
         );
         Ok((self.loop_start_tick, end))
@@ -250,7 +272,7 @@ fn parse_pattern(
     region: &[u8],
     track: &mut Track,
     total: &mut usize,
-) -> Result<()> {
+) -> Result<u32> {
     let pitch = read::u32(bytes, offset + 4)? as usize;
     let modulation = read::u32(bytes, offset + 8)? as usize;
     let base = read::u32(region, 0)?;
@@ -326,7 +348,7 @@ fn parse_pattern(
             kind,
         });
     }
-    Ok(())
+    base.checked_add(tick).context("pattern end tick overflow")
 }
 
 fn stream_value(bytes: &[u8], at: &mut usize) -> Result<Option<(u16, i16)>> {
@@ -444,7 +466,7 @@ mod tests {
             song.events().iter().map(|e| e.track).collect::<Vec<_>>(),
             [0, 1, 0, 1]
         );
-        assert_eq!(song.loop_interval().unwrap(), (1, 10));
+        assert_eq!(song.playback_interval().unwrap(), (1, 10));
     }
 
     #[test]
@@ -469,7 +491,7 @@ mod tests {
         bytes[384..394].copy_from_slice(&[0, 2, 60, 100, 0, 15, 0, 0, 255, 255]);
         let song = Song::parse(&bytes).unwrap();
         assert_eq!(song.initial_bpm_1024, 120 * 1024);
-        assert_eq!(song.loop_interval().unwrap(), (1, 20));
+        assert_eq!(song.playback_interval().unwrap(), (1, 20));
         assert_eq!(
             song.events()[1],
             Event {
@@ -484,6 +506,13 @@ mod tests {
             }
         );
         assert!(Song::parse(&bytes[..393]).is_err());
+        let mut stopped = bytes.clone();
+        stopped[360..364].fill(0); // Stop-marker timestamps are unused.
+        stopped[368..370].copy_from_slice(&0xffffu16.to_be_bytes());
+        let stopped = Song::parse(&stopped).unwrap();
+        assert_eq!(stopped.playback_interval().unwrap(), (0, 13));
+        assert_eq!(stopped.events(), song.events());
+        assert!(stopped.loop_events().unwrap().is_empty());
         bytes[370..372].copy_from_slice(&7u16.to_be_bytes());
         assert!(Song::parse(&bytes).is_err());
         bytes[370..372].fill(0);
@@ -542,7 +571,7 @@ mod tests {
                 }
             })
             .collect();
-        let song = Song {
+        let mut song = Song {
             has_master_track: false,
             initial_bpm_1024: 140 * 1024,
             loop_start_tick: 1,
@@ -562,5 +591,15 @@ mod tests {
                 volume: None
             }
         ));
+        song.tracks[1].loop_region = None;
+        song.tracks[1].end_tick = 8;
+        assert_eq!(song.events().len(), 8);
+        assert_eq!(song.playback_interval().unwrap(), (1, 100));
+        assert!(
+            song.loop_events()
+                .unwrap()
+                .iter()
+                .all(|event| event.track == 0)
+        );
     }
 }

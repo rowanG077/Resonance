@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/resonance", "apps/resonance-import", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device"]
+members = ["apps/resonance", "apps/resonance-import", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ rust-version = "1.97"
 license = "MIT"
 
 [workspace.dependencies]
+resonance-persistence = { path = "crates/persistence" }
 resonance-playback = { path = "crates/playback" }
 resonance-audio-device = { path = "crates/audio-device" }
 anyhow = "1"
@@ -22,6 +23,7 @@ resonance-events = { path = "crates/resonance-events" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+time = { version = "0.3.55", default-features = false, features = ["std"] }
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["png"] }
 bevy = { version = "=0.19.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "gltf_animation", "png", "ktx2", "zstd_rust", "x11", "wayland"] }

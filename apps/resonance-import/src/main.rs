@@ -10,6 +10,57 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Cook figurine catalogue records and shared animated model previews.
+    CookFigurines {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        output: PathBuf,
+        #[arg(long, default_value = "ktx")]
+        ktx: PathBuf,
+        #[arg(long, num_args = 1..)]
+        figurine: Vec<u16>,
+    },
+    /// Cook enemy catalogue records and their animated model previews.
+    CookMonsters {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        output: PathBuf,
+        #[arg(long, default_value = "ktx")]
+        ktx: PathBuf,
+        #[arg(long, num_args = 1..)]
+        monster: Vec<u8>,
+    },
+    /// Cook menu descriptions, statistics, frames, and character illustrations.
+    CookMenu {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        output: PathBuf,
+        #[arg(long, default_value = "ktx")]
+        ktx: PathBuf,
+    },
+    /// Refresh shared field sprites and dependent preload manifests.
+    CookEffects {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        output: PathBuf,
+        #[arg(long, default_value = "ktx")]
+        ktx: PathBuf,
+    },
+    /// Cook skit scripts, animated portraits and media without opening audio.
+    CookSkits {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        output: PathBuf,
+        #[arg(long, default_value = "ktx")]
+        ktx: PathBuf,
+        #[arg(long, default_value = "vgmstream-cli")]
+        voice_decoder: PathBuf,
+    },
     /// Build a conservative preload manifest from an already cooked field.
     CookFieldPreload {
         #[arg(long, default_value = "local/cooked")]
@@ -35,6 +86,17 @@ enum Action {
         #[arg(long, default_value = "vgmstream-cli")]
         voice_decoder: PathBuf,
     },
+    /// Cook an unvoiced field's declared music and common cues without playback.
+    CookFieldAudio {
+        #[arg(long)]
+        map: u32,
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        output: PathBuf,
+        #[arg(long)]
+        coefficients: PathBuf,
+    },
     /// Cook the New Game story movie with the same verified offline pipeline.
     CookStoryIntro {
         #[command(flatten)]
@@ -55,10 +117,26 @@ enum Action {
         #[arg(long, default_value = "ktx")]
         ktx: PathBuf,
     },
+    /// Cook a field's geometry, collision, scenario and model packages by disc ID.
+    CookField {
+        #[arg(long)]
+        map: u32,
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        output: PathBuf,
+        #[arg(long, default_value = "ktx")]
+        ktx: PathBuf,
+    },
     /// Inspect a field archive, its original scenario, messages, and native calls.
     InspectField {
-        #[arg(long)]
-        source: PathBuf,
+        #[arg(long, required_unless_present = "map", conflicts_with = "map")]
+        source: Option<PathBuf>,
+        /// Indexed field resource in the original executable.
+        #[arg(long, required_unless_present = "source")]
+        map: Option<u32>,
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
         #[arg(long)]
         output: PathBuf,
     },
@@ -186,6 +264,8 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
+        #[arg(long)]
+        coefficients: PathBuf,
     },
     /// Diagnose Rust voice buses and their studio mix; writes WAVs without playback.
     RenderSoundBuses {
@@ -223,6 +303,40 @@ struct MediaPaths {
 
 fn main() -> anyhow::Result<()> {
     match Args::parse().command {
+        Action::CookFigurines {
+            extracted,
+            output,
+            ktx,
+            figurine,
+        } => resonance_import::figurines::cook(&extracted, &output, &ktx, &figurine),
+        Action::CookMonsters {
+            extracted,
+            output,
+            ktx,
+            monster,
+        } => resonance_import::monsters::cook(&extracted, &output, &ktx, &monster),
+        Action::CookMenu {
+            extracted,
+            output,
+            ktx,
+        } => resonance_import::menu::cook_all(&extracted, &output, &ktx),
+        Action::CookFieldAudio {
+            map,
+            extracted,
+            output,
+            coefficients,
+        } => resonance_import::media::cook_field_audio(&extracted, &output, map, &coefficients),
+        Action::CookSkits {
+            extracted,
+            output,
+            ktx,
+            voice_decoder,
+        } => resonance_import::skit::cook_all(&extracted, &output, &ktx, &voice_decoder),
+        Action::CookEffects {
+            extracted,
+            output,
+            ktx,
+        } => resonance_import::cook_effects(&extracted, &output, &ktx),
         Action::CookClassroomAudio {
             extracted,
             output,
@@ -267,7 +381,22 @@ fn main() -> anyhow::Result<()> {
             output,
             ktx,
         } => resonance_import::field::cook_classroom(&extracted, &output, &ktx),
-        Action::InspectField { source, output } => {
+        Action::CookField {
+            map,
+            extracted,
+            output,
+            ktx,
+        } => resonance_import::field::cook_field(&extracted, map, &output, &ktx),
+        Action::InspectField {
+            source,
+            map,
+            extracted,
+            output,
+        } => {
+            let source = match source {
+                Some(source) => source,
+                None => resonance_import::field::source_for_id(&extracted, map.unwrap())?,
+            };
             resonance_import::field::inspect(&source, &output)
         }
         Action::RenderSoundSequence {
@@ -363,9 +492,11 @@ fn main() -> anyhow::Result<()> {
             frames,
             master_fade_lead_ms,
         ),
-        Action::CookTitleSounds { extracted, output } => {
-            resonance_import::media::cook_title_sounds(&extracted, &output)
-        }
+        Action::CookTitleSounds {
+            extracted,
+            output,
+            coefficients,
+        } => resonance_import::media::cook_title_sounds(&extracted, &output, &coefficients),
         Action::RenderSoundBuses {
             extracted,
             bank,

@@ -1,12 +1,12 @@
-use super::{PLAYBACK_RATE, Workspace, hash_file, json_file, valid_asset, write_json};
-use anyhow::Result;
-use resonance_audio::{
-    package::{Package, SampleAsset},
-    sequence, volume,
+use super::{
+    PLAYBACK_RATE, Workspace, hash_file, json_file, valid_asset, write_json, write_pcm16,
+    write_sample_assets,
 };
+use anyhow::Result;
+use resonance_audio::{package::Package, sequence, volume};
 use resonance_audio_cook::{bank::Bank, compile, song::Song};
 use serde_json::json;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{fs, path::Path};
 
 pub fn cook_title_audio(extracted: &Path, output: &Path, coefficients: &Path) -> Result<()> {
     let workspace = Workspace::open(extracted, output)?;
@@ -37,38 +37,9 @@ pub fn cook_title_audio(extracted: &Path, output: &Path, coefficients: &Path) ->
     let tables = super::music_voice::tables(&executable, &coefficient_bytes)?;
     let reverbs = super::music::title_reverbs(&executable)?;
     fs::create_dir_all(workspace.output.join("audio/title-instruments"))?;
-    let mut samples = BTreeMap::new();
-    for (id, sample) in &resources.samples {
-        let name = format!("audio/title-instruments/sample-{id}.wav");
-        let path = workspace.output.join(&name);
-        let temporary = path.with_extension("partial.wav");
-        let mut writer = hound::WavWriter::create(
-            &temporary,
-            hound::WavSpec {
-                channels: 1,
-                sample_rate: u32::from(sample.rate),
-                bits_per_sample: 16,
-                sample_format: hound::SampleFormat::Int,
-            },
-        )?;
-        for &value in sample.pcm.iter().chain(&sample.loop_pcm) {
-            writer.write_sample(value)?;
-        }
-        writer.finalize()?;
-        fs::rename(temporary, &path)?;
-        samples.insert(
-            *id,
-            SampleAsset {
-                path: name,
-                sha256: hash_file(&path)?,
-                key: sample.key,
-                rate: sample.rate,
-                first_frames: sample.pcm.len() as u32,
-                loop_start: sample.loop_start,
-                loop_length: sample.loop_length,
-            },
-        );
-    }
+    let samples = write_sample_assets(&workspace.output, &resources, |id| {
+        format!("audio/title-instruments/sample-{id}.wav")
+    })?;
     let package = Package {
         version: resonance_audio::package::VERSION,
         programs: resources.programs,
@@ -116,19 +87,7 @@ pub fn render_cooked_title_audio(
     fs::create_dir_all(output)?;
     let path = output.join("title-preview.wav");
     let temporary = path.with_extension("partial.wav");
-    let mut writer = hound::WavWriter::create(
-        &temporary,
-        hound::WavSpec {
-            channels: 2,
-            sample_rate: PLAYBACK_RATE,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )?;
-    for sample in preview.pcm {
-        writer.write_sample(sample)?;
-    }
-    writer.finalize()?;
+    write_pcm16(&temporary, 2, PLAYBACK_RATE, preview.pcm)?;
     fs::rename(temporary, &path)?;
     write_json(
         &path.with_extension("json"),

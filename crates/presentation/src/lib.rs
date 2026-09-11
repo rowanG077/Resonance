@@ -41,16 +41,25 @@ mod field_audit;
 mod field_effects;
 mod field_pose;
 mod field_probe;
+mod field_refraction;
 mod field_ui;
 mod field_view;
 mod glow;
 mod materials;
+mod menu_backdrop;
+mod model_preview;
 mod movie;
 mod new_game;
+mod saves;
+pub use saves::{
+    CheckpointReplay, SaveOptions, record_checkpoint, run_menu_probe, run_quicksave_probe,
+    run_title_load_probe,
+};
 mod new_game_capture;
 mod secondary_motion;
 pub use new_game_capture::{
-    record_new_game, record_new_game_display, record_new_game_until, record_new_game_with_gamepad,
+    record_new_game, record_new_game_display, record_new_game_exploration, record_new_game_until,
+    record_new_game_with_gamepad,
 };
 mod performance;
 pub use performance::{PerformanceOptions, run_frame_benchmark, run_movie_probe, run_window_probe};
@@ -72,6 +81,7 @@ use materials::{TitleOutput, TitleText};
 
 #[derive(Resource)]
 pub struct RunOptions {
+    pub saves: SaveOptions,
     pub assets: PathBuf,
     pub tick: Option<u32>,
     pub presentation_start: Option<u32>,
@@ -97,6 +107,10 @@ struct Replay(Option<resonance_game::replay::TitleReplay>);
 struct Menu(TitleState);
 #[derive(Resource, Default)]
 struct Clock(PresentationClock);
+/// Source video can omit presentations while simulation continues (for
+/// example during a field-loading stall). Replay fixtures register that gap.
+#[derive(Resource, Default)]
+pub(crate) struct PresentationPause(pub(crate) bool);
 #[derive(Resource)]
 struct Events(resonance_events::EventRuntime);
 #[derive(Resource)]
@@ -185,9 +199,10 @@ pub fn run_with_display(
 }
 
 fn build_app_with_display(
-    options: RunOptions,
+    mut options: RunOptions,
     resolution: Resolution,
 ) -> Result<(App, Option<PathBuf>)> {
+    options.skip_intro |= options.saves.load.is_some();
     anyhow::ensure!(
         options.presentation_start.is_none()
             || options.tick.is_some()
@@ -268,6 +283,7 @@ fn build_app_with_display(
     let movie = movie::Playback::load(&assets, &options)?;
     let boot = boot::Playback::load(&assets, &options)?;
     let mut app = App::new();
+    saves::install(&mut app, &options.saves)?;
     loading::install(&mut app, &assets);
     let recording = options.record_playthrough.clone();
     let silent = options.silent || options.headless();
@@ -310,6 +326,7 @@ fn build_app_with_display(
         .insert_resource(options)
         .insert_resource(Menu(state))
         .insert_resource(Clock(clock))
+        .init_resource::<PresentationPause>()
         .insert_resource(Art {
             manifest,
             images: Vec::new(),
@@ -343,6 +360,12 @@ fn build_app_with_display(
         .add_systems(Startup, (setup, glow::setup, display::initialize).chain())
         .add_systems(PostUpdate, loading::black_hold)
         .add_systems(
+            Update,
+            (saves::release_frame, saves::capture)
+                .chain()
+                .after(field_view::FieldPreparation),
+        )
+        .add_systems(
             FixedUpdate,
             (
                 timing::advance_clock,
@@ -355,6 +378,7 @@ fn build_app_with_display(
         .add_systems(
             Update,
             (
+                saves::update,
                 new_game::enter,
                 new_game::transition,
                 prepare_field,
@@ -464,6 +488,7 @@ fn setup(
         None,
     );
     source.sampler = ImageSampler::linear();
+    source.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let source = images.add(source);
     commands.insert_resource(display::Targets {
         source: source.clone(),
@@ -474,6 +499,7 @@ fn setup(
         MeshMaterial2d(outputs.add(TitleOutput {
             source: source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
+            screen_offset: Vec2::ZERO,
         })),
         RenderLayers::layer(2),
         display::OutputQuad,
@@ -611,6 +637,7 @@ fn start_audio(
     new_game: Option<Res<new_game::Session>>,
 ) {
     if new_game.is_some()
+        || options.saves.load.is_some()
         || recording.is_some_and(|r| !r.started)
         || movie.active
         || boot.active()
@@ -746,8 +773,10 @@ fn advance(
     recording: Option<Res<playthrough::Recording>>,
     new_game: Option<Res<new_game::Session>>,
     loading: Option<Res<loading::Pending>>,
+    load_menu: Option<Res<saves::title::LoadMenu>>,
 ) {
     if new_game.is_some()
+        || load_menu.is_some()
         || loading.is_some()
         || movie.active
         || boot.active()
@@ -765,8 +794,19 @@ fn advance(
     if let Some(events) = &mut events {
         events.0.step().unwrap_or_else(|e| panic!("{e:#}"));
     }
-    if menu.0.step(input) == Some(resonance_game::TitleAction::NewGame) {
-        commands.insert_resource(new_game::Request);
+    match menu.0.step(input) {
+        Some(resonance_game::TitleAction::NewGame) => {
+            commands.insert_resource(new_game::Request(None));
+        }
+        Some(resonance_game::TitleAction::Load) => {
+            commands.insert_resource(saves::title::LoadMenu::new());
+            if let Some(control) = &sounds.control
+                && let Err(error) = control.play("confirm")
+            {
+                error!("could not play confirmation cue: {error:#}");
+            }
+        }
+        None => {}
     }
     if menu.0.selected != previous_selection
         && let Some(control) = &sounds.control
@@ -787,10 +827,11 @@ fn layout(
     mut outputs: ResMut<Assets<TitleOutput>>,
     movie: Res<movie::Playback>,
     boot: Res<boot::Playback>,
+    load_menu: Option<Res<saves::title::LoadMenu>>,
 ) {
     let state = &menu.0;
     TitleOutput::update(&mut outputs, |b| {
-        b.x = if movie.active || boot.active() {
+        b.x = if movie.active || boot.active() || load_menu.is_some() {
             1.
         } else {
             events.as_ref().map_or(1., |e| e.0.world.brightness())
@@ -849,6 +890,9 @@ fn capture(
     let Some(path) = options.capture.clone() else {
         return;
     };
+    if options.saves.load.is_some() {
+        return;
+    }
     if started.0.elapsed().as_secs() > 60 {
         error!("title capture timed out waiting for assets, render pipelines, or GPU readback");
         exit.write(AppExit::error());

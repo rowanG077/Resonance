@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "updates": 840,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 90,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 91,
+      "keys": []
+    },
+    {
+      "update": 110,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 111,
+      "keys": []
+    },
+    {
+      "update": 130,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 131,
+      "keys": []
+    },
+    {
+      "update": 170,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 171,
+      "keys": []
+    },
+    {
+      "update": 210,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 211,
+      "keys": []
+    },
+    {
+      "update": 310,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 311,
+      "keys": []
+    },
+    {
+      "update": 370,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 371,
+      "keys": []
+    },
+    {
+      "update": 450,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 451,
+      "keys": []
+    },
+    {
+      "update": 530,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 531,
+      "keys": []
+    },
+    {
+      "update": 600,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 601,
+      "keys": []
+    },
+    {
+      "update": 650,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 651,
+      "keys": []
+    },
+    {
+      "update": 750,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 751,
+      "keys": []
+    },
+    {
+      "update": 800,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 801,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "280": "overview",
+    "350": "body",
+    "430": "removed",
+    "510": "preview",
+    "580": "equipped",
+    "720": "optimal",
+    "840": "return"
+  }
+}

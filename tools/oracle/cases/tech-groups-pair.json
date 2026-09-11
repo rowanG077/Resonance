@@ -1,0 +1,602 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Tech group healing and cures, poisoned portraits, preview cycling and reserve targets.",
+  "registration": "Controlled five-member fixture grants Raine Nurse, Recover and Purify, poisons injured Lloyd and Genis, and injures reserve Sheena. Colette remains knocked out. Story remains 2500. Fixture changes use the Rust fixture tool and preserve matching source/native learned and AI flags. Menu opens at update 40; later inputs and images use registered source poll/2 and unchanged presentation/session origins. Idle observations measure the group preview cycle; directional input must not change all-party targeting. Native update and source VI 4150→4151 move together to the next observed video presentation; the clock origin and tolerance are unchanged. Boundary captures check the displayed member and observed counter across consecutive preview changes.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/tech-groups-fixture-v1/native.json",
+    "sha256": "c78476603f440a9de2b1e226cfdcdc4df5b55846cab6fc587697cbc34b89d811"
+  },
+  "native_replay": {
+    "path": "tech-groups-keyboard.json",
+    "sha256": "761a75a9e3511f5aafbc88a94c6342b6cad6f4ace721704e6bfdbf291e34fe40"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/tech-groups-fixture-v1/GQSEAF.s01",
+      "sha256": "f094188ae140be78a277ddc2d3b1d0169baaef8824dcde5a0861c41d0d2c309a"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 8620,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 5460,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 5620,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 5780,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 5940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6100,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 6260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6420,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 6580,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 6740,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 6900,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 7060,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 7220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7380,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7540,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7700,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 7860,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8180,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "raine-list",
+      "native": "vi-470",
+      "dolphin_vi": 470,
+      "tech_state": true
+    },
+    {
+      "name": "recover-selected",
+      "native": "vi-630",
+      "dolphin_vi": 630,
+      "tech_state": true
+    },
+    {
+      "name": "poison-target",
+      "native": "vi-710",
+      "dolphin_vi": 710,
+      "tech_state": true
+    },
+    {
+      "name": "poison-cured",
+      "native": "vi-790",
+      "dolphin_vi": 790,
+      "tech_state": true
+    },
+    {
+      "name": "clean-target-rejected",
+      "native": "vi-870",
+      "dolphin_vi": 870,
+      "tech_state": true
+    },
+    {
+      "name": "knockout-cure-target",
+      "native": "vi-950",
+      "dolphin_vi": 950,
+      "tech_state": true
+    },
+    {
+      "name": "knockout-cure-rejected",
+      "native": "vi-1030",
+      "dolphin_vi": 1030,
+      "tech_state": true
+    },
+    {
+      "name": "nurse-selected",
+      "native": "vi-1190",
+      "dolphin_vi": 1190,
+      "tech_state": true
+    },
+    {
+      "name": "group-preview",
+      "native": "vi-1270",
+      "dolphin_vi": 1270,
+      "tech_state": true
+    },
+    {
+      "name": "preview-boundary-1330",
+      "native": "vi-1330",
+      "dolphin_vi": 1330,
+      "tech_state": true
+    },
+    {
+      "name": "preview-boundary-1331",
+      "native": "vi-1331",
+      "dolphin_vi": 1331,
+      "tech_state": true
+    },
+    {
+      "name": "preview-boundary-1332",
+      "native": "vi-1332",
+      "dolphin_vi": 1332,
+      "tech_state": true
+    },
+    {
+      "name": "preview-second",
+      "native": "vi-1350",
+      "dolphin_vi": 1350,
+      "tech_state": true
+    },
+    {
+      "name": "preview-third",
+      "native": "vi-1430",
+      "dolphin_vi": 1430,
+      "tech_state": true
+    },
+    {
+      "name": "preview-boundary-1451",
+      "native": "vi-1451",
+      "dolphin_vi": 1451,
+      "tech_state": true
+    },
+    {
+      "name": "preview-boundary-1452",
+      "native": "vi-1452",
+      "dolphin_vi": 1452,
+      "tech_state": true
+    },
+    {
+      "name": "preview-boundary-1453",
+      "native": "vi-1453",
+      "dolphin_vi": 1453,
+      "tech_state": true
+    },
+    {
+      "name": "preview-fourth",
+      "native": "vi-1510",
+      "dolphin_vi": 1510,
+      "tech_state": true
+    },
+    {
+      "name": "preview-reserve",
+      "native": "vi-1590",
+      "dolphin_vi": 1590,
+      "tech_state": true
+    },
+    {
+      "name": "preview-fifth",
+      "native": "vi-1670",
+      "dolphin_vi": 1670,
+      "tech_state": true
+    },
+    {
+      "name": "preview-sixth",
+      "native": "vi-1750",
+      "dolphin_vi": 1750,
+      "tech_state": true
+    },
+    {
+      "name": "preview-seventh",
+      "native": "vi-1830",
+      "dolphin_vi": 1830,
+      "tech_state": true
+    },
+    {
+      "name": "preview-cycle",
+      "native": "vi-1910",
+      "dolphin_vi": 1910,
+      "tech_state": true
+    },
+    {
+      "name": "group-healed",
+      "native": "vi-1990",
+      "dolphin_vi": 1990,
+      "tech_state": true
+    },
+    {
+      "name": "purify-selected",
+      "native": "vi-2310",
+      "dolphin_vi": 2310,
+      "tech_state": true
+    },
+    {
+      "name": "group-cure-targets",
+      "native": "vi-2390",
+      "dolphin_vi": 2390,
+      "tech_state": true
+    },
+    {
+      "name": "group-direction-ignored",
+      "native": "vi-2470",
+      "dolphin_vi": 2470,
+      "tech_state": true
+    },
+    {
+      "name": "group-cured",
+      "native": "vi-2550",
+      "dolphin_vi": 2550,
+      "tech_state": true
+    },
+    {
+      "name": "clean-party-rejected",
+      "native": "vi-2630",
+      "dolphin_vi": 2630,
+      "tech_state": true
+    },
+    {
+      "name": "nurse-low-tp",
+      "native": "vi-2950",
+      "dolphin_vi": 2950,
+      "tech_state": true
+    },
+    {
+      "name": "group-insufficient-tp",
+      "native": "vi-3030",
+      "dolphin_vi": 3030,
+      "tech_state": true
+    },
+    {
+      "name": "single-target-retained",
+      "native": "vi-3190",
+      "dolphin_vi": 3190,
+      "tech_state": true
+    },
+    {
+      "name": "single-first-target",
+      "native": "vi-3510",
+      "dolphin_vi": 3510,
+      "tech_state": true
+    },
+    {
+      "name": "reserve-target",
+      "native": "vi-3590",
+      "dolphin_vi": 3590,
+      "tech_state": true
+    },
+    {
+      "name": "reserve-healed",
+      "native": "vi-3670",
+      "dolphin_vi": 3670,
+      "tech_state": true
+    },
+    {
+      "name": "reserve-full",
+      "native": "vi-3750",
+      "dolphin_vi": 3750,
+      "tech_state": true
+    },
+    {
+      "name": "full-reserve-rejected",
+      "native": "vi-3830",
+      "dolphin_vi": 3830,
+      "tech_state": true
+    },
+    {
+      "name": "knockout-heal-target",
+      "native": "vi-3990",
+      "dolphin_vi": 3990,
+      "tech_state": true
+    },
+    {
+      "name": "knockout-heal-rejected",
+      "native": "vi-4070",
+      "dolphin_vi": 4070,
+      "tech_state": true
+    },
+    {
+      "name": "return-list",
+      "native": "vi-4151",
+      "dolphin_vi": 4151,
+      "tech_state": true
+    }
+  ],
+  "audio": []
+}

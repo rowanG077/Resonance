@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "presentation_origin": 38084,
+  "session_origin": 34583,
+  "updates": 2220,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 42,
+      "keys": []
+    },
+    {
+      "update": 130,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 132,
+      "keys": []
+    },
+    {
+      "update": 250,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 252,
+      "keys": []
+    },
+    {
+      "update": 370,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 372,
+      "keys": []
+    },
+    {
+      "update": 490,
+      "keys": [
+        "previous_page"
+      ]
+    },
+    {
+      "update": 492,
+      "keys": []
+    },
+    {
+      "update": 610,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 612,
+      "keys": []
+    },
+    {
+      "update": 730,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 732,
+      "keys": []
+    },
+    {
+      "update": 850,
+      "keys": [
+        "alternate"
+      ]
+    },
+    {
+      "update": 852,
+      "keys": []
+    },
+    {
+      "update": 970,
+      "keys": [
+        "rotate_right"
+      ]
+    },
+    {
+      "update": 990,
+      "keys": []
+    },
+    {
+      "update": 1090,
+      "keys": [
+        "page_down"
+      ]
+    },
+    {
+      "update": 1110,
+      "keys": []
+    },
+    {
+      "update": 1210,
+      "keys": [
+        "start"
+      ]
+    },
+    {
+      "update": 1212,
+      "keys": []
+    },
+    {
+      "update": 1330,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1332,
+      "keys": []
+    },
+    {
+      "update": 1450,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1452,
+      "keys": []
+    },
+    {
+      "update": 1570,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1572,
+      "keys": []
+    },
+    {
+      "update": 1690,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1692,
+      "keys": []
+    },
+    {
+      "update": 1810,
+      "keys": [
+        "page_down"
+      ]
+    },
+    {
+      "update": 1830,
+      "keys": []
+    },
+    {
+      "update": 1930,
+      "keys": [
+        "page_up"
+      ]
+    },
+    {
+      "update": 1950,
+      "keys": []
+    },
+    {
+      "update": 2050,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2052,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "origin",
+    "700": "vi-700",
+    "820": "vi-820",
+    "940": "vi-940",
+    "1060": "vi-1060",
+    "1180": "vi-1180",
+    "1300": "vi-1300",
+    "1540": "vi-1540",
+    "1660": "vi-1660",
+    "1780": "vi-1780",
+    "1901": "vi-1901",
+    "2020": "vi-2020",
+    "2140": "vi-2140"
+  },
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "skit": {
+      "id": 600,
+      "remaining": 1498,
+      "opacity": 255,
+      "control_ticks": 7501,
+      "text_opacity": 255
+    }
+  },
+  "preview_origins": {
+    "700": {
+      "figurine": 0,
+      "tick": 53
+    },
+    "1180": {
+      "figurine": 12,
+      "tick": 79
+    },
+    "1540": {
+      "figurine": 0,
+      "tick": 54
+    },
+    "1660": {
+      "figurine": 1,
+      "tick": 80
+    },
+    "1780": {
+      "figurine": 2,
+      "tick": 79
+    },
+    "1901": {
+      "figurine": 108,
+      "tick": 81
+    },
+    "2020": {
+      "figurine": 2,
+      "tick": 79
+    }
+  }
+}
+

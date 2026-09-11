@@ -1,7 +1,7 @@
 """Known in-memory signals verify reporting; no game audio is generated."""
 import unittest
 import numpy as np
-from music_compare import alignment, compare, metrics
+from music_compare import acceptance, alignment, compare, metrics
 
 
 class MusicComparisonTests(unittest.TestCase):
@@ -28,6 +28,20 @@ class MusicComparisonTests(unittest.TestCase):
     def test_silence_cannot_produce_a_registration(self):
         with self.assertRaises(ValueError):
             alignment(np.zeros((100, 2)), np.zeros((200, 2)))
+
+    def test_acceptance_uses_fixed_alignment_quality_and_rejects_phase_error(self):
+        summary = {
+            'reference_clipped_samples': 0,
+            'actual_clipped_samples': 0,
+        }
+        windows = [{
+            'correlation': 0.999,
+            'mean_removed_signal_to_error_db': 24.,
+            'level_difference_db': -0.03,
+        }]
+        self.assertTrue(acceptance(summary, windows)['passed'])
+        windows[0]['correlation'] = 0.8
+        self.assertFalse(acceptance(summary, windows)['passed'])
 
 
 if __name__ == '__main__':

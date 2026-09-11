@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Colette cooks for three injured party members: select and retain the chef, consume ingredients, restore HP/TP, train only the selected cook, and retain results on return.",
+  "registration": "Controlled copies set the three active members to HP 1 / TP 1 with no conditions. The shared school-grounds registration supplies the independently observed ambient actors, effects and RNG after 64 native preparation updates. Subsequent native inputs/captures are source VI + 64; menu entry is native update 76 / source VI 12. No source poses or executable fragments enter the runtime.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/cooking-injured-fixture-v1/native.json",
+    "sha256": "4a0cfce1121ad0524a5cc444c697c6228f99e535f87b1588a9c72164790cd91b"
+  },
+  "native_replay": {
+    "path": "cooking-injured-keyboard.json",
+    "sha256": "5d3b522c83b3bd31b878f1e7a6b26604b8e2a6dc07f8d02e7c1d81e02874be17"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/cooking-injured-fixture-v1/GQSEAF.s01",
+      "sha256": "9eac29dee01b38827561f0ad087a15c4875fc098602eaf7e4f4f3fe5a85aa2bd"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3000,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 800,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1100,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1400,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1600,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 1800,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2500,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "overview",
+      "native": "overview",
+      "dolphin_vi": 350,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "cooks",
+      "native": "cooks",
+      "dolphin_vi": 500,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "colette",
+      "native": "colette",
+      "dolphin_vi": 650,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "selected-chef",
+      "native": "selected-chef",
+      "dolphin_vi": 750,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "result",
+      "native": "result",
+      "dolphin_vi": 900,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "result-held",
+      "native": "result-held",
+      "dolphin_vi": 950,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "return",
+      "native": "return",
+      "dolphin_vi": 1050,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main",
+      "native": "main",
+      "dolphin_vi": 1200,
+      "cooking_state": true,
+      "effect_state": true,
+      "gameplay_random_state": true
+    }
+  ],
+  "audio": []
+}

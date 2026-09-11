@@ -8,6 +8,37 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 mod execute;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires locally cooked recovery cue; no audio device"]
+    fn recovery_cue_fades_from_silence_to_its_scaled_velocity_in_400_ms() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked");
+        let package = crate::package::Package::load(&root, "audio/field-sound-132.json").unwrap();
+        let crate::data::EventKind::Notes { voices, .. } = &package.score.first_events[0].kind
+        else {
+            panic!("missing recovery notes")
+        };
+        for &note in voices {
+            let mut voice = Voice::new(&package.resources, &package.tables, note).unwrap();
+            voice.commands().unwrap();
+            assert_eq!(voice.volume, 0);
+            for frame in 0..=12800 {
+                voice.prepare_frame(Controls::default()).unwrap();
+                if frame % 160 == 159 {
+                    voice.mix_block(&mut [[[0; 2]; 3]; 160]).unwrap();
+                }
+                if frame == 6400 {
+                    assert_eq!(voice.volume, 3_251_200);
+                }
+            }
+            assert_eq!(voice.volume, 6_502_400);
+            assert!(voice.volume_ramp.is_none());
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Tables {
     pub mix: mix::Tables,
@@ -28,6 +59,9 @@ impl Tables {
 
 #[derive(Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Controls {
+    /// Output mode is runtime state; keep the score's authored pan intact.
+    #[serde(skip)]
+    pub mono: bool,
     pub group_volume: f32,
     pub volume: u8,
     pub expression: u8,
@@ -40,10 +74,11 @@ pub struct Controls {
 impl Default for Controls {
     fn default() -> Self {
         Self {
+            mono: false,
             group_volume: 1.0,
             volume: 127,
             expression: 127,
-            pan: 64,
+            pan: mix::CENTER_PAN,
             post: [0; 2],
             modulation: 0,
             pitch_bend: 8192,
@@ -401,7 +436,12 @@ impl<'a> Voice<'a> {
                         combine: Combine::Multiply,
                     },
                 ])?;
-                let pan = (i16::from(self.pan) + i16::from(controls.pan) - 64).clamp(0, 127) as u8;
+                let pan = if controls.mono {
+                    mix::CENTER_PAN
+                } else {
+                    (i16::from(self.pan) + i16::from(controls.pan) - i16::from(mix::CENTER_PAN))
+                        .clamp(0, 127) as u8
+                };
                 let lfo = if self.lfo_to_tremolo {
                     self.lfo.value
                 } else {

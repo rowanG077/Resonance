@@ -338,6 +338,86 @@ fn worker_preserves_millisecond_controls_from_the_offline_renderer() {
 }
 
 #[test]
+fn mono_centers_live_voices_and_preserves_pan_changes_for_stereo() {
+    use crate::{
+        data::{Event, EventKind, Interpolation, Note},
+        sequence::{LiveControls, stream::Stream},
+    };
+    use std::sync::Arc;
+    let (root, value) = fixture();
+    let score = |centered| {
+        let mut loaded = load(&root, &value).unwrap();
+        loaded.tables.mix.pan = [0., std::f32::consts::FRAC_1_SQRT_2, 1., 1.];
+        loaded.tables.mix.pan_16_scale = 1. / (63. * 65536.);
+        loaded.resources.programs.insert(
+            1,
+            vec![
+                Command::Interpolation {
+                    mode: Interpolation::Direct,
+                    coefficients: 0,
+                },
+                Command::StartSample { sample: 2 },
+                Command::Wait {
+                    milliseconds: None,
+                    from_start: false,
+                    key_off: true,
+                    sample_end: false,
+                },
+                Command::End,
+            ],
+        );
+        loaded.score.initial_bpm_1024 = 160_000; // One tick per millisecond.
+        loaded.score.controls[0].pan = if centered { 64 } else { 17 };
+        loaded.score.first_events = vec![
+            Event {
+                tick: 0,
+                channel: 0,
+                kind: EventKind::Notes {
+                    voices: vec![Note {
+                        macro_id: 1,
+                        key: 60,
+                        velocity: 127,
+                        pan: if centered { 64 } else { 48 },
+                        priority: 64,
+                        max_voices: 255,
+                    }],
+                    length: 90,
+                },
+            },
+            Event {
+                tick: 20,
+                channel: 0,
+                kind: EventKind::Pan {
+                    value: if centered { 64 } else { 113 },
+                },
+            },
+        ];
+        Arc::new(loaded)
+    };
+    let panned = score(false);
+    let mut stereo = Stream::new(panned.clone(), false).unwrap();
+    let mut changing = Stream::new(panned, false).unwrap();
+    // An authored centered score supplies the expectation without using mono mode.
+    let mut center = Stream::new(score(true), false).unwrap();
+    for block in 0..16 {
+        let stereo = stereo.block(LiveControls::default()).unwrap().unwrap();
+        let center = center.block(LiveControls::default()).unwrap().unwrap();
+        let mono = (3..10).contains(&block);
+        let actual = changing
+            .block(LiveControls {
+                mono,
+                ..Default::default()
+            })
+            .unwrap()
+            .unwrap();
+        if block < 3 || (5..10).contains(&block) || block >= 12 {
+            assert_ne!(stereo, center, "fixture must exercise audible panning");
+            assert_eq!(actual, if mono { center } else { stereo }, "block {block}");
+        }
+    }
+}
+
+#[test]
 fn exclusive_group_ends_the_previous_voice_and_cue_release_finishes() {
     use crate::{
         data::{Event, EventKind, Interpolation, Note},

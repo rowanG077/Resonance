@@ -3,6 +3,16 @@
 Title music, field audio and movies share one persistent mixer worker. Bevy
 controls lifecycle and presentation; the audio callback consumes prepared PCM.
 The file-only recorder uses the same sources and mixer with an explicit clock.
+Customize previews BGM independently of committed preferences. New cues, voice
+settings and stereo use the saved values until commit; the commit cue uses the
+new values. The field adapter sends these controls through its existing queue.
+Mono centers individual synthesized voices before shared effects and the final
+channel fold. Authored pan remains intact, including pan events received in mono,
+so switching back to stereo preserves playback and positioning.
+Speech uses a cooked amplitude curve for saved volume settings. Rust cooking
+resolves CRI attenuation and stream-mixer tables into `voice_gains` in the field
+audio JSON; the runtime applies that gain to decoded PCM. Level 64 is about
+22.15% amplitude. Muting keeps speech progression and completion callbacks alive.
 
 | Owner | Responsibility |
 |---|---|

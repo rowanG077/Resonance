@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "description": "BGM preview at level 64 in Customize, before committing. Eight left presses change the original running music group while saved BGM remains 127. Compare a settled six-second music interval at one registered PCM alignment. No resampling, time stretching, gain fitting or per-window realignment.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "reference": {
+    "path": "local/findings-menu/music64-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_07-41-56_dspdump.wav",
+    "sha256": "ca364e4faf5585de19e95e305cd2c7e880b6dfac3cb6d7c4e559074517d20e35"
+  },
+  "native": {
+    "path": "local/findings-menu/iselia-level64-native-v1.wav",
+    "sha256": "4cf407e09f2891998a484e708d0eb01ef70bdee8695bea026e5680d2ee5815ec",
+    "recording": [
+      "target/debug/examples/record_field_music",
+      "local/cooked",
+      "OUTPUT",
+      "7",
+      "120",
+      "64",
+      "6"
+    ],
+    "audio_device": false
+  },
+  "window": {
+    "reference_start_frame": 768672,
+    "actual_start_frame": 3425688,
+    "frames": 192168,
+    "window_frames": 32028,
+    "sample_rate": 32028,
+    "channels": 2
+  },
+  "thresholds": {
+    "minimum_window_correlation": 0.99,
+    "minimum_window_mean_removed_signal_to_error_db": 15,
+    "maximum_window_abs_level_difference_db": 0.15
+  },
+  "dolphin": {
+    "state": "local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+    "state_sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72",
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "replay": {
+      "game_id": "GQSEAF",
+      "polls": 3900,
+      "rtc": 1700000000,
+      "inputs": [
+        {
+          "poll": 20,
+          "duration": 4,
+          "buttons": [
+            "y"
+          ]
+        },
+        {
+          "poll": 180,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 340,
+          "duration": 4,
+          "buttons": [
+            "a"
+          ]
+        },
+        {
+          "poll": 500,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 660,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 820,
+          "duration": 4,
+          "buttons": [
+            "a"
+          ]
+        },
+        {
+          "poll": 1000,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1160,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1320,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1480,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1640,
+          "duration": 4,
+          "buttons": [
+            "down"
+          ]
+        },
+        {
+          "poll": 1800,
+          "duration": 4,
+          "buttons": [
+            "a"
+          ]
+        },
+        {
+          "poll": 1960,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2000,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2040,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2080,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2120,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2160,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2200,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        },
+        {
+          "poll": 2240,
+          "duration": 4,
+          "buttons": [
+            "left"
+          ]
+        }
+      ]
+    },
+    "watch_vis": 1900,
+    "registration": "The reference window starts at PCM frame 768672, after the last volume edit and previous cue/reverb tails. A one-second registration located native frame 3425688 in the original 120-second score recording. Subsequent checks must keep that position fixed. Read-only MemoryWatcher observes draft BGM=64 and committed BGM=127 while the original volume panel remains open."
+  }
+}

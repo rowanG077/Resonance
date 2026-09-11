@@ -44,13 +44,14 @@ fn preserves_envelope_pcm_and_rejects_damaged_controls_and_samples() {
             "navigate".into(),
             Asset {
                 frames: 3,
-                sample: Sample {
+                sample: Some(Sample {
                     path: "sample.wav".into(),
                     sha256: format!(
                         "{:x}",
                         Sha256::digest(fs::read(root.0.join("sample.wav")).unwrap())
                     ),
-                },
+                }),
+                program: None,
                 controls: vec![Control {
                     volume: 127 << 16,
                     controller: 16383,

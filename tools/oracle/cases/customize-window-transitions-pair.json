@@ -1,0 +1,3313 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Dense Customize window transitions: System-to-Main handoff, page entry and exit, message preview typing, option help changes, immediate window-style changes, all six backgrounds, and committed appearance on Main and field return.",
+  "registration": "Reuse local/findings-menu/customize-windows-main-transition-v1/dolphin without replaying Dolphin. Preserve its source disc, savestate, prefix, RTC, inputs and capture profile. All 3,600 source observations have UI clock = 38084 + VI and effect clock = 37551 + VI; the hash-verified source video index contains every VI from 0 through 3598. Register the complete shared school-grounds ambient origin at native update 64, including source effect RNG and uninitialized gameplay RNG. Every input and capture uses source VI + 64, except initial Y uses native update 76 as registered to the first frozen field presentation. Confirm Customize at source VI 411: System closes through 418, Main slides through 429, Customize first draws at 430 with fade 206 and settles at 439. Close Customize at VI 3401; its final transparent frame is 3412, Main reappears at 3413 and settles at 3422. Final Main close begins at 3501 and ordinary field updates resume at 3513. No post-origin clocks, state or random draws are adjusted. All 25 original settled window/background/Main/field captures and their full-image, effect RNG and four scenery-loop gates remain; the 220-frame case adds dense handoffs, entry/exit, initial message preview typing, option help changes and immediate theme changes. Full Customize word observations gate draft, selection and available numeric transients only while Customize is active (VI 430 through 3412). Effect clock/RNG, gameplay RNG and scenery loops are checked at every capture. Main viewport and System opacity were not observed in this capture, so their transitions are checked through images; no Main state gate is enabled. The route visits the first four options, three window styles and all six backgrounds. It does not cover a complete message preview fade/restart, option-list scrolling, color/volume/control panels, or Customize reopening. Screen-position offsets are outside this case and remain in the separate existing diagnostics.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
+    "sha256": "1fd286f24e4dc251d1cec7d36ac71b656517645ad7776e3f630b14b4c42e5fea"
+  },
+  "native_replay": {
+    "path": "customize-window-transitions-keyboard.json",
+    "sha256": "3288dd4830a5de869d02bfadef1066b5095d0f472996437ee7c7b6296df5eb81"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 7200,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1000,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1200,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1400,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 1600,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1800,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2000,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2400,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2600,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2800,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3000,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3200,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3400,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3600,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 3800,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4000,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4200,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 4400,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 4600,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 4800,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 5000,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 5200,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 5400,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 5600,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5800,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 6000,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 6200,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 6400,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 6600,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 6800,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 7000,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "origin-0",
+      "native": "origin-0",
+      "dolphin_vi": 0,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-0",
+      "native": "main-open-0",
+      "dolphin_vi": 12,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-1",
+      "native": "main-open-1",
+      "dolphin_vi": 13,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-2",
+      "native": "main-open-2",
+      "dolphin_vi": 14,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-3",
+      "native": "main-open-3",
+      "dolphin_vi": 15,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-4",
+      "native": "main-open-4",
+      "dolphin_vi": 16,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-5",
+      "native": "main-open-5",
+      "dolphin_vi": 17,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-6",
+      "native": "main-open-6",
+      "dolphin_vi": 18,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-7",
+      "native": "main-open-7",
+      "dolphin_vi": 19,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-8",
+      "native": "main-open-8",
+      "dolphin_vi": 20,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-9",
+      "native": "main-open-9",
+      "dolphin_vi": 21,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-open-10",
+      "native": "main-open-10",
+      "dolphin_vi": 22,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-0",
+      "native": "system-open-0",
+      "dolphin_vi": 170,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-1",
+      "native": "system-open-1",
+      "dolphin_vi": 171,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-2",
+      "native": "system-open-2",
+      "dolphin_vi": 172,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-3",
+      "native": "system-open-3",
+      "dolphin_vi": 173,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-4",
+      "native": "system-open-4",
+      "dolphin_vi": 174,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-5",
+      "native": "system-open-5",
+      "dolphin_vi": 175,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-6",
+      "native": "system-open-6",
+      "dolphin_vi": 176,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-7",
+      "native": "system-open-7",
+      "dolphin_vi": 177,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-8",
+      "native": "system-open-8",
+      "dolphin_vi": 178,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-9",
+      "native": "system-open-9",
+      "dolphin_vi": 179,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-open-10",
+      "native": "system-open-10",
+      "dolphin_vi": 180,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-select-1-0",
+      "native": "system-select-1-0",
+      "dolphin_vi": 250,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-select-1-1",
+      "native": "system-select-1-1",
+      "dolphin_vi": 251,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-select-1-2",
+      "native": "system-select-1-2",
+      "dolphin_vi": 252,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-select-1-3",
+      "native": "system-select-1-3",
+      "dolphin_vi": 253,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-select-2-0",
+      "native": "system-select-2-0",
+      "dolphin_vi": 330,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-select-2-1",
+      "native": "system-select-2-1",
+      "dolphin_vi": 331,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-select-2-2",
+      "native": "system-select-2-2",
+      "dolphin_vi": 332,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "system-select-2-3",
+      "native": "system-select-2-3",
+      "dolphin_vi": 333,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-0",
+      "native": "customize-enter-0",
+      "dolphin_vi": 410,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-1",
+      "native": "customize-enter-1",
+      "dolphin_vi": 411,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-2",
+      "native": "customize-enter-2",
+      "dolphin_vi": 412,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-3",
+      "native": "customize-enter-3",
+      "dolphin_vi": 413,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-4",
+      "native": "customize-enter-4",
+      "dolphin_vi": 414,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-5",
+      "native": "customize-enter-5",
+      "dolphin_vi": 415,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-6",
+      "native": "customize-enter-6",
+      "dolphin_vi": 416,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-7",
+      "native": "customize-enter-7",
+      "dolphin_vi": 417,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-8",
+      "native": "customize-enter-8",
+      "dolphin_vi": 418,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-9",
+      "native": "customize-enter-9",
+      "dolphin_vi": 419,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-10",
+      "native": "customize-enter-10",
+      "dolphin_vi": 420,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-11",
+      "native": "customize-enter-11",
+      "dolphin_vi": 421,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-12",
+      "native": "customize-enter-12",
+      "dolphin_vi": 422,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-13",
+      "native": "customize-enter-13",
+      "dolphin_vi": 423,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-14",
+      "native": "customize-enter-14",
+      "dolphin_vi": 424,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-15",
+      "native": "customize-enter-15",
+      "dolphin_vi": 425,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-16",
+      "native": "customize-enter-16",
+      "dolphin_vi": 426,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-17",
+      "native": "customize-enter-17",
+      "dolphin_vi": 427,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-18",
+      "native": "customize-enter-18",
+      "dolphin_vi": 428,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-19",
+      "native": "customize-enter-19",
+      "dolphin_vi": 429,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-enter-20",
+      "native": "customize-enter-20",
+      "dolphin_vi": 430,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-21",
+      "native": "customize-enter-21",
+      "dolphin_vi": 431,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-22",
+      "native": "customize-enter-22",
+      "dolphin_vi": 432,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-23",
+      "native": "customize-enter-23",
+      "dolphin_vi": 433,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-24",
+      "native": "customize-enter-24",
+      "dolphin_vi": 434,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-25",
+      "native": "customize-enter-25",
+      "dolphin_vi": 435,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-26",
+      "native": "customize-enter-26",
+      "dolphin_vi": 436,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-27",
+      "native": "customize-enter-27",
+      "dolphin_vi": 437,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-28",
+      "native": "customize-enter-28",
+      "dolphin_vi": 438,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-29",
+      "native": "customize-enter-29",
+      "dolphin_vi": 439,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-enter-30",
+      "native": "customize-enter-30",
+      "dolphin_vi": 440,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-0",
+      "native": "message-preview-0",
+      "dolphin_vi": 441,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-1",
+      "native": "message-preview-1",
+      "dolphin_vi": 442,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-2",
+      "native": "message-preview-2",
+      "dolphin_vi": 443,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-3",
+      "native": "message-preview-3",
+      "dolphin_vi": 444,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-4",
+      "native": "message-preview-4",
+      "dolphin_vi": 445,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-5",
+      "native": "message-preview-5",
+      "dolphin_vi": 446,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-6",
+      "native": "message-preview-6",
+      "dolphin_vi": 447,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-7",
+      "native": "message-preview-7",
+      "dolphin_vi": 448,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-8",
+      "native": "message-preview-8",
+      "dolphin_vi": 449,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-9",
+      "native": "message-preview-9",
+      "dolphin_vi": 450,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-10",
+      "native": "message-preview-10",
+      "dolphin_vi": 451,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-11",
+      "native": "message-preview-11",
+      "dolphin_vi": 452,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-12",
+      "native": "message-preview-12",
+      "dolphin_vi": 453,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-13",
+      "native": "message-preview-13",
+      "dolphin_vi": 454,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-14",
+      "native": "message-preview-14",
+      "dolphin_vi": 455,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-15",
+      "native": "message-preview-15",
+      "dolphin_vi": 456,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-16",
+      "native": "message-preview-16",
+      "dolphin_vi": 457,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-17",
+      "native": "message-preview-17",
+      "dolphin_vi": 458,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-18",
+      "native": "message-preview-18",
+      "dolphin_vi": 459,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-19",
+      "native": "message-preview-19",
+      "dolphin_vi": 460,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-20",
+      "native": "message-preview-20",
+      "dolphin_vi": 461,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-21",
+      "native": "message-preview-21",
+      "dolphin_vi": 462,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-22",
+      "native": "message-preview-22",
+      "dolphin_vi": 463,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-23",
+      "native": "message-preview-23",
+      "dolphin_vi": 464,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-24",
+      "native": "message-preview-24",
+      "dolphin_vi": 465,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-25",
+      "native": "message-preview-25",
+      "dolphin_vi": 466,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-26",
+      "native": "message-preview-26",
+      "dolphin_vi": 467,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-27",
+      "native": "message-preview-27",
+      "dolphin_vi": 468,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-28",
+      "native": "message-preview-28",
+      "dolphin_vi": 469,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-29",
+      "native": "message-preview-29",
+      "dolphin_vi": 470,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-30",
+      "native": "message-preview-30",
+      "dolphin_vi": 471,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-31",
+      "native": "message-preview-31",
+      "dolphin_vi": 472,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-32",
+      "native": "message-preview-32",
+      "dolphin_vi": 473,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-33",
+      "native": "message-preview-33",
+      "dolphin_vi": 474,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-34",
+      "native": "message-preview-34",
+      "dolphin_vi": 475,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-35",
+      "native": "message-preview-35",
+      "dolphin_vi": 476,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-36",
+      "native": "message-preview-36",
+      "dolphin_vi": 477,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-37",
+      "native": "message-preview-37",
+      "dolphin_vi": 478,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-38",
+      "native": "message-preview-38",
+      "dolphin_vi": 479,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-39",
+      "native": "message-preview-39",
+      "dolphin_vi": 480,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-40",
+      "native": "message-preview-40",
+      "dolphin_vi": 481,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-41",
+      "native": "message-preview-41",
+      "dolphin_vi": 482,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-42",
+      "native": "message-preview-42",
+      "dolphin_vi": 483,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-43",
+      "native": "message-preview-43",
+      "dolphin_vi": 484,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-44",
+      "native": "message-preview-44",
+      "dolphin_vi": 485,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-45",
+      "native": "message-preview-45",
+      "dolphin_vi": 486,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-46",
+      "native": "message-preview-46",
+      "dolphin_vi": 487,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-47",
+      "native": "message-preview-47",
+      "dolphin_vi": 488,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-48",
+      "native": "message-preview-48",
+      "dolphin_vi": 489,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-49",
+      "native": "message-preview-49",
+      "dolphin_vi": 490,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-50",
+      "native": "message-preview-50",
+      "dolphin_vi": 491,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-51",
+      "native": "message-preview-51",
+      "dolphin_vi": 492,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-52",
+      "native": "message-preview-52",
+      "dolphin_vi": 493,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-53",
+      "native": "message-preview-53",
+      "dolphin_vi": 494,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-54",
+      "native": "message-preview-54",
+      "dolphin_vi": 495,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-55",
+      "native": "message-preview-55",
+      "dolphin_vi": 496,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-56",
+      "native": "message-preview-56",
+      "dolphin_vi": 497,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-57",
+      "native": "message-preview-57",
+      "dolphin_vi": 498,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-58",
+      "native": "message-preview-58",
+      "dolphin_vi": 499,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "message-preview-59",
+      "native": "message-preview-59",
+      "dolphin_vi": 500,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-skit-titles-1",
+      "native": "help-skit-titles-1",
+      "dolphin_vi": 501,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-skit-titles-2",
+      "native": "help-skit-titles-2",
+      "dolphin_vi": 502,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-skit-titles-3",
+      "native": "help-skit-titles-3",
+      "dolphin_vi": 503,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-skit-titles-4",
+      "native": "help-skit-titles-4",
+      "dolphin_vi": 504,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-skit-titles-5",
+      "native": "help-skit-titles-5",
+      "dolphin_vi": 505,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-window-0",
+      "native": "help-window-0",
+      "dolphin_vi": 600,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-window-1",
+      "native": "help-window-1",
+      "dolphin_vi": 601,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-window-2",
+      "native": "help-window-2",
+      "dolphin_vi": 602,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-window-3",
+      "native": "help-window-3",
+      "dolphin_vi": 603,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-window-4",
+      "native": "help-window-4",
+      "dolphin_vi": 604,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-window-5",
+      "native": "help-window-5",
+      "dolphin_vi": 605,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "vi-650",
+      "native": "vi-650",
+      "dolphin_vi": 650,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "window-first-0",
+      "native": "window-first-0",
+      "dolphin_vi": 700,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-first-1",
+      "native": "window-first-1",
+      "dolphin_vi": 701,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-first-2",
+      "native": "window-first-2",
+      "dolphin_vi": 702,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-first-3",
+      "native": "window-first-3",
+      "dolphin_vi": 703,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "vi-750",
+      "native": "vi-750",
+      "dolphin_vi": 750,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "window-second-0",
+      "native": "window-second-0",
+      "dolphin_vi": 800,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-second-1",
+      "native": "window-second-1",
+      "dolphin_vi": 801,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-second-2",
+      "native": "window-second-2",
+      "dolphin_vi": 802,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-second-3",
+      "native": "window-second-3",
+      "dolphin_vi": 803,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "vi-850",
+      "native": "vi-850",
+      "dolphin_vi": 850,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "window-third-0",
+      "native": "window-third-0",
+      "dolphin_vi": 900,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-third-1",
+      "native": "window-third-1",
+      "dolphin_vi": 901,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-third-2",
+      "native": "window-third-2",
+      "dolphin_vi": 902,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-third-3",
+      "native": "window-third-3",
+      "dolphin_vi": 903,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "vi-950",
+      "native": "vi-950",
+      "dolphin_vi": 950,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "window-return-0",
+      "native": "window-return-0",
+      "dolphin_vi": 1000,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-return-1",
+      "native": "window-return-1",
+      "dolphin_vi": 1001,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-return-2",
+      "native": "window-return-2",
+      "dolphin_vi": 1002,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "window-return-3",
+      "native": "window-return-3",
+      "dolphin_vi": 1003,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "vi-1050",
+      "native": "vi-1050",
+      "dolphin_vi": 1050,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "help-background-0",
+      "native": "help-background-0",
+      "dolphin_vi": 1100,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-background-1",
+      "native": "help-background-1",
+      "dolphin_vi": 1101,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-background-2",
+      "native": "help-background-2",
+      "dolphin_vi": 1102,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-background-3",
+      "native": "help-background-3",
+      "dolphin_vi": 1103,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-background-4",
+      "native": "help-background-4",
+      "dolphin_vi": 1104,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "help-background-5",
+      "native": "help-background-5",
+      "dolphin_vi": 1105,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "vi-1250",
+      "native": "vi-1250",
+      "dolphin_vi": 1250,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-1350",
+      "native": "vi-1350",
+      "dolphin_vi": 1350,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-1450",
+      "native": "vi-1450",
+      "dolphin_vi": 1450,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-1550",
+      "native": "vi-1550",
+      "dolphin_vi": 1550,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-1650",
+      "native": "vi-1650",
+      "dolphin_vi": 1650,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-1750",
+      "native": "vi-1750",
+      "dolphin_vi": 1750,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-1950",
+      "native": "vi-1950",
+      "dolphin_vi": 1950,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-2150",
+      "native": "vi-2150",
+      "dolphin_vi": 2150,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-2250",
+      "native": "vi-2250",
+      "dolphin_vi": 2250,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-2350",
+      "native": "vi-2350",
+      "dolphin_vi": 2350,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-2450",
+      "native": "vi-2450",
+      "dolphin_vi": 2450,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-2550",
+      "native": "vi-2550",
+      "dolphin_vi": 2550,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-2750",
+      "native": "vi-2750",
+      "dolphin_vi": 2750,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-2950",
+      "native": "vi-2950",
+      "dolphin_vi": 2950,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-3050",
+      "native": "vi-3050",
+      "dolphin_vi": 3050,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-3150",
+      "native": "vi-3150",
+      "dolphin_vi": 3150,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-3250",
+      "native": "vi-3250",
+      "dolphin_vi": 3250,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "vi-3350",
+      "native": "vi-3350",
+      "dolphin_vi": 3350,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true,
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-0",
+      "native": "customize-close-0",
+      "dolphin_vi": 3400,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-1",
+      "native": "customize-close-1",
+      "dolphin_vi": 3401,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-2",
+      "native": "customize-close-2",
+      "dolphin_vi": 3402,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-3",
+      "native": "customize-close-3",
+      "dolphin_vi": 3403,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-4",
+      "native": "customize-close-4",
+      "dolphin_vi": 3404,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-5",
+      "native": "customize-close-5",
+      "dolphin_vi": 3405,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-6",
+      "native": "customize-close-6",
+      "dolphin_vi": 3406,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-7",
+      "native": "customize-close-7",
+      "dolphin_vi": 3407,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-8",
+      "native": "customize-close-8",
+      "dolphin_vi": 3408,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-9",
+      "native": "customize-close-9",
+      "dolphin_vi": 3409,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-10",
+      "native": "customize-close-10",
+      "dolphin_vi": 3410,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-11",
+      "native": "customize-close-11",
+      "dolphin_vi": 3411,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-12",
+      "native": "customize-close-12",
+      "dolphin_vi": 3412,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "customize_state": true
+    },
+    {
+      "name": "customize-close-13",
+      "native": "customize-close-13",
+      "dolphin_vi": 3413,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-14",
+      "native": "customize-close-14",
+      "dolphin_vi": 3414,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-15",
+      "native": "customize-close-15",
+      "dolphin_vi": 3415,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-16",
+      "native": "customize-close-16",
+      "dolphin_vi": 3416,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-17",
+      "native": "customize-close-17",
+      "dolphin_vi": 3417,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-18",
+      "native": "customize-close-18",
+      "dolphin_vi": 3418,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-19",
+      "native": "customize-close-19",
+      "dolphin_vi": 3419,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-20",
+      "native": "customize-close-20",
+      "dolphin_vi": 3420,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-21",
+      "native": "customize-close-21",
+      "dolphin_vi": 3421,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-22",
+      "native": "customize-close-22",
+      "dolphin_vi": 3422,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-23",
+      "native": "customize-close-23",
+      "dolphin_vi": 3423,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "customize-close-24",
+      "native": "customize-close-24",
+      "dolphin_vi": 3424,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "vi-3450",
+      "native": "vi-3450",
+      "dolphin_vi": 3450,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true
+    },
+    {
+      "name": "main-close-0",
+      "native": "main-close-0",
+      "dolphin_vi": 3500,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-1",
+      "native": "main-close-1",
+      "dolphin_vi": 3501,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-2",
+      "native": "main-close-2",
+      "dolphin_vi": 3502,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-3",
+      "native": "main-close-3",
+      "dolphin_vi": 3503,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-4",
+      "native": "main-close-4",
+      "dolphin_vi": 3504,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-5",
+      "native": "main-close-5",
+      "dolphin_vi": 3505,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-6",
+      "native": "main-close-6",
+      "dolphin_vi": 3506,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-7",
+      "native": "main-close-7",
+      "dolphin_vi": 3507,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-8",
+      "native": "main-close-8",
+      "dolphin_vi": 3508,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-9",
+      "native": "main-close-9",
+      "dolphin_vi": 3509,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-10",
+      "native": "main-close-10",
+      "dolphin_vi": 3510,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-11",
+      "native": "main-close-11",
+      "dolphin_vi": 3511,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-12",
+      "native": "main-close-12",
+      "dolphin_vi": 3512,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-13",
+      "native": "main-close-13",
+      "dolphin_vi": 3513,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "main-close-14",
+      "native": "main-close-14",
+      "dolphin_vi": 3514,
+      "effect_state": true,
+      "gameplay_random_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    },
+    {
+      "name": "vi-3550",
+      "native": "vi-3550",
+      "dolphin_vi": 3550,
+      "effect_state": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      },
+      "gameplay_random_state": true
+    }
+  ],
+  "audio": []
+}

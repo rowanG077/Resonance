@@ -1,0 +1,268 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Collector's Book: discovered items no longer held, category percentages, all eight categories, an empty category, category focus and return to Items.",
+  "registration": "Controlled menu inventory fixture: inventory-fixture grants item 70 to copies of the original matched checkpoints. It verifies starting inventory/discoveries and records both original hashes and the changes in local/findings-menu/collection-fixture-v1/fixture.json. This tests menu behavior, not story unlocks. Native menu input at update 40 allows field setup; all subsequent inputs use source poll/2. Compare complete menu images and source-observed book category, row, scroll and focus. Native UI origin is the source-observed 38084; subsequent inputs use source poll/2 + 1, matching the source input-processing VI. The collection gate now also checks the UI clock, page fade and description crossfade.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/collection-fixture-v1/native.json",
+    "sha256": "7a2ec55d6f64019a49e1ba2a4859a5576a79a3a241265247367136fbeb08f58b"
+  },
+  "native_replay": {
+    "path": "collection-keyboard.json",
+    "sha256": "3e429bd3d95673dd279cfb9bfc6fc4b729c462287c9b2ce276f2351989874fe0"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/collection-fixture-v1/GQSEAF.s01",
+      "sha256": "5bb991a398e33d5097ba2cc3ed432a1ffdb87e48a336eb562eb365ca664e1199"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 2760,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "l"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "r"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "items",
+      "native": "vi-230",
+      "dolphin_vi": 230,
+      "party_state": true
+    },
+    {
+      "name": "key-items",
+      "native": "vi-390",
+      "dolphin_vi": 390,
+      "party_state": true
+    },
+    {
+      "name": "consumables",
+      "native": "vi-470",
+      "dolphin_vi": 470,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "key-wrap",
+      "native": "vi-550",
+      "dolphin_vi": 550,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "consumables-return",
+      "native": "vi-630",
+      "dolphin_vi": 630,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "weapons",
+      "native": "vi-710",
+      "dolphin_vi": 710,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "body",
+      "native": "vi-790",
+      "dolphin_vi": 790,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "head",
+      "native": "vi-870",
+      "dolphin_vi": 870,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "arm",
+      "native": "vi-950",
+      "dolphin_vi": 950,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "accessories-empty",
+      "native": "vi-1030",
+      "dolphin_vi": 1030,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "ingredients",
+      "native": "vi-1110",
+      "dolphin_vi": 1110,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "key-items-book",
+      "native": "vi-1190",
+      "dolphin_vi": 1190,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "category-focus",
+      "native": "vi-1270",
+      "dolphin_vi": 1270,
+      "collection_state": true,
+      "party_state": true
+    },
+    {
+      "name": "items-return",
+      "native": "vi-1350",
+      "dolphin_vi": 1350,
+      "party_state": true
+    }
+  ],
+  "audio": []
+}

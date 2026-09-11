@@ -1,0 +1,564 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "U. Attack variants: twelve learned Lloyd techniques, bounded paging, retained selection, duplicate shortcuts and shared persistence.",
+  "registration": "Controlled unison-variants-fixture-v1 grants Lloyd techniques 2 through 12 using the source learned bitset and cooked named technique IDs, with the original table order verified. Its story threshold is applied to the already initialized source field; native applies it after the main menu opens at update 40. This tests menu behavior, not later-story field entry, skit availability or technique acquisition. Remaining input and image ticks use source poll/2; state gates require matching presentation clocks, list indices, selection and all nine characters saved shortcuts.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/unison-variants-fixture-v1/native.json",
+    "sha256": "0e8922f7517f4f9e783d31e8807ac336e964b823fc30961214adc3bbc377b1b0"
+  },
+  "native_replay": {
+    "path": "unison-variants-keyboard.json",
+    "sha256": "4492c40fdd51cf63dd02c873f35220800e84e7b5300aa8daa01fa6d5cc9ecac4"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/unison-variants-fixture-v1/GQSEAF.s01",
+      "sha256": "886f94cd1f673382ca60f9651edf92e5137beb58419aa13689f34786fa3a7176"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 1403000,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 8300,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 5460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5940,
+        "duration": 4,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 6100,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6740,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 6900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7060,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7220,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 7380,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 7540,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 7700,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 7860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "long-list",
+      "native": "vi-310",
+      "dolphin_vi": 310,
+      "unison_state": true
+    },
+    {
+      "name": "next-page",
+      "native": "vi-390",
+      "dolphin_vi": 390,
+      "unison_state": true
+    },
+    {
+      "name": "last-row",
+      "native": "vi-550",
+      "dolphin_vi": 550,
+      "unison_state": true
+    },
+    {
+      "name": "lower-bound",
+      "native": "vi-630",
+      "dolphin_vi": 630,
+      "unison_state": true
+    },
+    {
+      "name": "assigned-last",
+      "native": "vi-710",
+      "dolphin_vi": 710,
+      "unison_state": true
+    },
+    {
+      "name": "reopened-scroll",
+      "native": "vi-790",
+      "dolphin_vi": 790,
+      "unison_state": true
+    },
+    {
+      "name": "previous-page-offset",
+      "native": "vi-950",
+      "dolphin_vi": 950,
+      "unison_state": true
+    },
+    {
+      "name": "first-row",
+      "native": "vi-1030",
+      "dolphin_vi": 1030,
+      "unison_state": true
+    },
+    {
+      "name": "upper-bound",
+      "native": "vi-1110",
+      "dolphin_vi": 1110,
+      "unison_state": true
+    },
+    {
+      "name": "cancel-preview",
+      "native": "vi-1190",
+      "dolphin_vi": 1190,
+      "unison_state": true
+    },
+    {
+      "name": "removed-last",
+      "native": "vi-1270",
+      "dolphin_vi": 1270,
+      "unison_state": true
+    },
+    {
+      "name": "assigned-second",
+      "native": "vi-1510",
+      "dolphin_vi": 1510,
+      "unison_state": true
+    },
+    {
+      "name": "genis-list",
+      "native": "vi-1670",
+      "dolphin_vi": 1670,
+      "unison_state": true
+    },
+    {
+      "name": "list-ignores-left",
+      "native": "vi-1750",
+      "dolphin_vi": 1750,
+      "unison_state": true
+    },
+    {
+      "name": "selected-row-restored",
+      "native": "vi-1990",
+      "dolphin_vi": 1990,
+      "unison_state": true
+    },
+    {
+      "name": "page-retains-offset",
+      "native": "vi-2070",
+      "dolphin_vi": 2070,
+      "unison_state": true
+    },
+    {
+      "name": "assigned-middle",
+      "native": "vi-2150",
+      "dolphin_vi": 2150,
+      "unison_state": true
+    },
+    {
+      "name": "second-slot",
+      "native": "vi-2470",
+      "dolphin_vi": 2470,
+      "unison_state": true
+    },
+    {
+      "name": "duplicate-shortcut",
+      "native": "vi-2790",
+      "dolphin_vi": 2790,
+      "unison_state": true
+    },
+    {
+      "name": "fourth-slot",
+      "native": "vi-3350",
+      "dolphin_vi": 3350,
+      "unison_state": true
+    },
+    {
+      "name": "reopened-shortcuts",
+      "native": "vi-3510",
+      "dolphin_vi": 3510,
+      "unison_state": true
+    },
+    {
+      "name": "reopened-middle-scroll",
+      "native": "vi-3590",
+      "dolphin_vi": 3590,
+      "unison_state": true
+    },
+    {
+      "name": "party-upper-left-bound",
+      "native": "vi-3830",
+      "dolphin_vi": 3830,
+      "unison_state": true
+    },
+    {
+      "name": "genis-reopened",
+      "native": "vi-3990",
+      "dolphin_vi": 3990,
+      "unison_state": true
+    }
+  ],
+  "audio": []
+}

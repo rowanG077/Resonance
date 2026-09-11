@@ -2,7 +2,7 @@
 //! established command-line codecs run without opening an audio output device.
 mod cooked_music;
 mod field_audio;
-pub use field_audio::cook_classroom_audio;
+pub use field_audio::{cook_classroom_audio, cook_field_audio};
 mod movie;
 mod music;
 mod music_score;
@@ -22,9 +22,11 @@ pub use sounds::cook_title_sounds;
 
 use crate::read::u32 as be_u32;
 use anyhow::{Context, Result, ensure};
+use resonance_audio::{data::Resources, package::SampleAsset};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     fs,
     io::Read,
     path::{Path, PathBuf},
@@ -142,6 +144,64 @@ fn write_json(path: &Path, value: &Value) -> Result<()> {
     let mut data = serde_json::to_vec_pretty(value)?;
     data.push(b'\n');
     crate::write_atomic(path, &data)
+}
+
+/// Write only the supplied path; callers validate temporary files before publishing them.
+fn write_pcm16(
+    path: &Path,
+    channels: u16,
+    sample_rate: u32,
+    samples: impl IntoIterator<Item = i16>,
+) -> Result<()> {
+    let mut writer = hound::WavWriter::create(
+        path,
+        hound::WavSpec {
+            channels,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )?;
+    for sample in samples {
+        writer.write_sample(sample)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
+
+fn write_sample_assets(
+    output: &Path,
+    resources: &Resources,
+    name: impl Fn(u16) -> String,
+) -> Result<BTreeMap<u16, SampleAsset>> {
+    resources
+        .samples
+        .iter()
+        .map(|(&id, sample)| {
+            let path = name(id);
+            let target = output.join(&path);
+            let temporary = target.with_extension("partial.wav");
+            write_pcm16(
+                &temporary,
+                1,
+                u32::from(sample.rate),
+                sample.pcm.iter().chain(&sample.loop_pcm).copied(),
+            )?;
+            fs::rename(temporary, &target)?;
+            Ok((
+                id,
+                SampleAsset {
+                    path,
+                    sha256: hash_file(&target)?,
+                    key: sample.key,
+                    rate: sample.rate,
+                    first_frames: sample.pcm.len() as u32,
+                    loop_start: sample.loop_start,
+                    loop_length: sample.loop_length,
+                },
+            ))
+        })
+        .collect()
 }
 
 fn valid_asset(output: &Path, asset: &Value) -> bool {

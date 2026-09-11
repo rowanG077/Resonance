@@ -379,7 +379,6 @@ pub(crate) fn cook_part(
         .as_object_mut()
         .context("buffer")?
         .remove("uri");
-    let mesh = format!("{name}/scene.glb");
     let mut binary = fs::read(intermediate.join("scene.bin"))?;
     let mut clips = Vec::new();
     let autoplay = spec.autoplay.is_some();
@@ -474,6 +473,9 @@ pub(crate) fn cook_part(
         glb.extend(v.to_le_bytes());
     }
     glb.extend(&binary);
+    // Fields share character packages; a new clip set must not overwrite the
+    // mesh still referenced by another field's manifest.
+    let mesh = format!("{name}/{}.glb", digest(&glb));
     write_atomic(&output.join(&mesh), &glb)?;
     let part = ScenePart {
         resource: spec.resource,

@@ -2,8 +2,8 @@ use bevy::{
     mesh::MeshVertexBufferLayoutRef,
     prelude::*,
     render::render_resource::{
-        AsBindGroup, BlendState, CompareFunction, Face, RenderPipelineDescriptor, ShaderType,
-        SpecializedMeshPipelineError,
+        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction,
+        Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
     },
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d, Material2dKey},
@@ -16,8 +16,20 @@ pub(super) struct TitleOutput {
     pub source: Handle<Image>,
     #[uniform(2)]
     pub brightness: Vec4,
+    #[uniform(3)]
+    pub screen_offset: Vec2,
 }
 impl TitleOutput {
+    pub fn position(outputs: &mut Assets<Self>, position: [i16; 2]) {
+        let offset = Vec2::new(f32::from(position[0]) / 640., f32::from(position[1]) / 480.);
+        let changed: Vec<_> = outputs
+            .iter()
+            .filter_map(|(id, output)| (output.screen_offset != offset).then_some(id))
+            .collect();
+        for id in changed {
+            outputs.get_mut(id).unwrap().screen_offset = offset;
+        }
+    }
     /// Assets::iter_mut marks every visited material as modified, even if its
     /// bytes are unchanged. Avoid rebuilding bindings for unchanged output.
     pub fn update(outputs: &mut Assets<Self>, edit: impl Fn(&mut Vec4)) {
@@ -80,12 +92,16 @@ impl Material2d for TitleText {
 #[bindless]
 pub(super) struct TitleSurface {
     #[texture(0)]
-    #[sampler(1)]
     pub color: Option<Handle<Image>>,
+    /// Share texture pixels while selecting a separately prepared sampler.
+    #[texture(5)]
+    #[sampler(1)]
+    pub sampling: Option<Handle<Image>>,
     #[texture(2)]
     #[sampler(3)]
     pub multiply: Option<Handle<Image>>,
     pub uv_offsets: Vec4,
+    pub uv_scales: Vec4,
     pub tint: Vec4,
     #[texture(6)]
     #[sampler(7)]
@@ -95,6 +111,7 @@ pub(super) struct TitleSurface {
     pub shade_colors: [Vec4; 2],
     pub constant_color: bool,
     pub blend: bool,
+    pub additive: bool,
     pub depth_test: bool,
     pub depth_write: bool,
     pub cull: resonance_content::CullFace,
@@ -104,17 +121,30 @@ impl Default for TitleSurface {
     fn default() -> Self {
         Self {
             color: None,
+            sampling: None,
             multiply: None,
             toon_ramp: None,
             uv_offsets: Vec4::ZERO,
+            uv_scales: Vec4::ONE,
             tint: Vec4::ONE,
             field_light: Vec4::ZERO,
             shade_colors: [Vec4::ONE; 2],
             constant_color: false,
             blend: false,
+            additive: false,
             depth_test: true,
             depth_write: true,
             cull: resonance_content::CullFace::Back,
+        }
+    }
+}
+
+impl TitleSurface {
+    pub fn textured(color: Option<Handle<Image>>) -> Self {
+        Self {
+            sampling: color.clone(),
+            color,
+            ..default()
         }
     }
 }
@@ -124,6 +154,7 @@ impl Default for TitleSurface {
 #[derive(Clone, ShaderType)]
 pub(super) struct SurfaceUniform {
     uv_offsets: Vec4,
+    uv_scales: Vec4,
     tint: Vec4,
     field_light: Vec4,
     shade_colors: [Vec4; 2],
@@ -132,6 +163,7 @@ impl From<&TitleSurface> for SurfaceUniform {
     fn from(value: &TitleSurface) -> Self {
         Self {
             uv_offsets: value.uv_offsets,
+            uv_scales: value.uv_scales,
             tint: value.tint,
             field_light: value.field_light,
             shade_colors: value.shade_colors,
@@ -146,6 +178,7 @@ pub(super) struct SurfaceKey {
     depth_test: bool,
     depth_write: bool,
     blend: bool,
+    additive: bool,
     cull: resonance_content::CullFace,
 }
 
@@ -157,6 +190,7 @@ impl From<&TitleSurface> for SurfaceKey {
             depth_test: material.depth_test,
             depth_write: material.depth_write,
             blend: material.blend,
+            additive: material.additive,
             cull: material.cull,
         }
     }
@@ -200,11 +234,21 @@ impl Material for TitleSurface {
         {
             fragment.shader_defs.push("CONSTANT_COLOR".into());
         }
-        if !key.bind_group_data.blend
-            && let Some(fragment) = &mut descriptor.fragment
-        {
+        if let Some(fragment) = &mut descriptor.fragment {
             for target in fragment.targets.iter_mut().flatten() {
-                target.blend = None;
+                if key.bind_group_data.additive {
+                    let component = BlendComponent {
+                        src_factor: BlendFactor::SrcAlpha,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Add,
+                    };
+                    target.blend = Some(BlendState {
+                        color: component,
+                        alpha: component,
+                    });
+                } else if !key.bind_group_data.blend {
+                    target.blend = None;
+                }
             }
         }
         if let Some(depth) = &mut descriptor.depth_stencil {

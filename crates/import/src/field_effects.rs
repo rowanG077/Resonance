@@ -1,4 +1,4 @@
-//! Cook the original emote recipes and dust atlas into ordinary sprite tracks.
+//! Cook emotes, particles and refraction into ordinary textures and effect recipes.
 use crate::{dol, tpl, write_atomic};
 use anyhow::{Result, ensure};
 use resonance_content::effect::{EmoteTrack, FieldEffects, Sprite};
@@ -8,6 +8,53 @@ use std::{
     io::{Cursor, Read},
     path::Path,
 };
+
+pub(crate) fn blink(extracted: &Path) -> Result<resonance_content::effect::BlinkCycle> {
+    let executable = fs::read(extracted.join("sys/main.dol"))?;
+    let word = |address| -> Result<u32> {
+        Ok(u32::from_be_bytes(
+            dol::slice(&executable, address, 4)?.try_into()?,
+        ))
+    };
+    // The initializer selects a sequence entry and randomizes its elapsed time.
+    let entry = word(0x8001D4A8)?;
+    let spread = word(0x8001D4CC)?;
+    ensure!(
+        entry >> 16 == 0x3800 && spread >> 16 == 0x1C00,
+        "unexpected blink initializer"
+    );
+    let mut frames = Vec::new();
+    let mut initial_tick = None;
+    let table = dol::slice(&executable, 0x801E3840, 20)?;
+    ensure!(
+        table[16..] == [0xFD, 0, 0, 1],
+        "unexpected blink loop terminator"
+    );
+    for (index, row) in table[..16].chunks_exact(4).enumerate() {
+        if index == (entry & 0xFFFF) as usize {
+            initial_tick = Some(frames.len() as u16);
+        }
+        let ticks = usize::from(u16::from_be_bytes([row[2], row[3]])) + 1;
+        ensure!(
+            row[0] < 16 && row[1] == 0 && ticks <= 1024,
+            "invalid blink frame"
+        );
+        frames.extend(std::iter::repeat_n(row[0], ticks));
+    }
+    let blink = resonance_content::effect::BlinkCycle {
+        frames,
+        initial_tick: initial_tick.ok_or_else(|| anyhow::anyhow!("invalid initial blink entry"))?,
+        initial_spread: spread as u16,
+    };
+    blink.validate()?;
+    Ok(blink)
+}
+
+pub fn cook_all(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
+    let (effects, mut files) = cook(extracted, output, ktx)?;
+    files.push(effects);
+    crate::field::refresh_shared(output, &files)
+}
 
 pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<(String, Vec<String>)> {
     let mut archive =
@@ -23,11 +70,15 @@ pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<(Strin
     );
     let textures = tpl::decode(&bytes)?;
     let mut files = Vec::new();
-    // The effect atlas stores dust in image 0 and emotes in image 1.
-    for (index, name) in [(0, "dust"), (1, "emotes")] {
+    for (index, name) in [
+        (0, "dust"),
+        (1, "emotes"),
+        (2, "particles"),
+        (5, "refraction"),
+    ] {
         let (width, height, rgba) = &textures[index];
         ensure!(
-            (*width, *height) == (256, 256),
+            (*width, *height) == if index == 5 { (64, 64) } else { (256, 256) },
             "unexpected effect atlas size"
         );
         let png = output.join(format!("intermediate/effects/{name}.png"));
@@ -150,14 +201,53 @@ pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<(Strin
             },
         );
     }
-    // Recipe zero uses the dust billboard atlas sequence.
-    let row = dol::slice(&executable, 0x8020A43C, 12)?;
-    let dust_uv = [row[4], row[5], row[4] + row[0], row[5] + row[1]].map(|v| f32::from(v) / 256.);
+    let sprite = |address,
+                  texture: &str,
+                  additive,
+                  inset: u8|
+     -> Result<resonance_content::effect::SpriteRecipe> {
+        let row = dol::slice(&executable, address, 12)?;
+        Ok(resonance_content::effect::SpriteRecipe {
+            texture: texture.into(),
+            uv: [
+                row[4],
+                row[5],
+                row[4] + row[0] - inset,
+                row[5] + row[1] - inset,
+            ]
+            .map(|v| f32::from(v) / 256.),
+            additive,
+        })
+    };
     let effects = FieldEffects {
-        version: 1,
-        dust_texture: files[0].clone(),
+        version: 3,
         emote_texture: files[1].clone(),
-        dust_uv,
+        status_texture: "ui/system-0.ktx2".into(),
+        paralysis: EmoteTrack {
+            anchor: dol::text(&executable, 0x8017A498)?,
+            intro: Vec::new(),
+            cycle: [16., 0.]
+                .into_iter()
+                .map(|y| {
+                    Ok(vec![Sprite {
+                        offset: [0., 0., value(0x8035AFD8)?],
+                        size: [72., 24.],
+                        uv: [137., y, 184., y + 15.].map(|v| v / 256.),
+                        rotation: 0.,
+                    }])
+                })
+                .collect::<Result<_>>()?,
+        },
+        sprites: [
+            (0, sprite(0x8020A43C, &files[0], false, 0)?),
+            (8, sprite(0x8020A4D8, &files[2], true, 1)?),
+            (10, sprite(0x8020A4E4, &files[2], true, 1)?),
+        ]
+        .into(),
+        refraction: resonance_content::effect::RefractionRecipe {
+            sprite: sprite(0x8020A778, &files[3], false, 1)?,
+            displacement: [value(0x801E3828)? * 2., value(0x801E3838)? * 2.],
+        },
         emotes,
         // Each mouth frame lasts duration + 1 updates; 0xFD loops the sequence.
         // The dialogue player enables the sequence during text reveal and speech.
@@ -177,4 +267,36 @@ pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<(Strin
     let path = "effects/field.json";
     write_atomic(&output.join(path), &serde_json::to_vec_pretty(&effects)?)?;
     Ok((path.into(), files))
+}
+
+pub(crate) fn particles(
+    extracted: &Path,
+) -> Result<BTreeMap<i32, resonance_content::effect::FlutterRecipe>> {
+    use resonance_content::effect::FlutterRecipe;
+    let executable = fs::read(extracted.join("sys/main.dol"))?;
+    let float = |at| -> Result<f32> {
+        Ok(f32::from_be_bytes(
+            dol::slice(&executable, at, 4)?.try_into()?,
+        ))
+    };
+    let row = dol::slice(&executable, 0x8020A584, 12)?;
+    ensure!(
+        row == [63, 63, 0, 1, 192, 192, 0, 60, 0, 0, 255, 255],
+        "unexpected flutter atlas recipe"
+    );
+    let recipe = FlutterRecipe {
+        texture: "effects/particles.ktx2".into(),
+        uv: [row[4], row[5], row[4] + row[0] - 1, row[5] + row[1] - 1].map(|v| f32::from(v) / 256.),
+        aspect_ratio: float(0x8035C1C0)?,
+        palette: dol::slice(&executable, 0x8020A240, 0x1B8)?
+            .chunks_exact(4)
+            .map(|color| color.try_into().unwrap())
+            .collect(),
+        fall_speed: f64::from_be_bytes(dol::slice(&executable, 0x8035C1C8, 8)?.try_into()?) as f32
+            * float(0x8035C224)?,
+        fall_variation: float(0x8035C224)? / float(0x8035C220)?,
+        spin: f64::from_be_bytes(dol::slice(&executable, 0x8035C228, 8)?.try_into()?) as f32,
+    };
+    recipe.validate()?;
+    Ok([(25, recipe)].into())
 }

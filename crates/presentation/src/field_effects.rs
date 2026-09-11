@@ -8,16 +8,19 @@ use anyhow::Result;
 use bevy::{
     asset::RenderAssetUsages,
     camera::visibility::NoFrustumCulling,
-    image::{ImageLoaderSettings, ImageSampler},
+    image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
     transform::helper::TransformHelper,
 };
-use resonance_content::effect::FieldEffects;
+use resonance_content::{
+    effect::{FieldEffects, FlutterRecipe, RefractionRecipe},
+    field::FieldAssets,
+};
 use std::{collections::BTreeMap, fs, path::Path};
 
-const DUST: usize = 0;
-const EMOTES: usize = 1;
+const EMOTES: usize = 0;
+const STATUS: usize = 1;
 
 #[derive(Component)]
 pub(super) struct EffectDraw;
@@ -25,45 +28,106 @@ pub(super) struct EffectDraw;
 #[derive(Resource)]
 pub(super) struct Artwork {
     spec: FieldEffects,
-    textures: [Handle<Image>; 2],
-    layers: [Option<(Entity, Handle<Mesh>)>; 2],
+    textures: Vec<Handle<Image>>,
+    layers: Vec<Option<(Entity, Handle<Mesh>)>>,
+    particles: BTreeMap<i32, (FlutterRecipe, usize)>,
+    sprites: BTreeMap<u16, usize>,
+    additive: Vec<bool>,
+    refraction_texture: Handle<Image>,
 }
 impl Artwork {
+    pub(super) fn refraction(&self) -> (&RefractionRecipe, &Handle<Image>) {
+        (&self.spec.refraction, &self.refraction_texture)
+    }
     pub fn mouth_frame(&self, age: u32) -> u8 {
         self.spec.mouth_cycle[age as usize % self.spec.mouth_cycle.len()]
     }
-    pub fn load(root: &Path, path: &str, server: &AssetServer) -> Result<Self> {
-        Self::load_with(root, path, server, None)
+    pub fn load(root: &Path, field: &FieldAssets, server: &AssetServer) -> Result<Self> {
+        Self::load_with(root, field, server, None)
     }
     pub fn load_with(
         root: &Path,
-        path: &str,
+        field: &FieldAssets,
         server: &AssetServer,
         files: Option<&resonance_content::prepared::Files>,
     ) -> Result<Self> {
         let spec: FieldEffects = if let Some(files) = files {
-            files.json(path)?
+            files.json(&field.effects)?
         } else {
-            serde_json::from_slice(&fs::read(root.join(path))?)?
+            serde_json::from_slice(&fs::read(root.join(&field.effects))?)?
         };
         spec.validate()?;
-        let textures = [&spec.dust_texture, &spec.emote_texture].map(|path| {
-            server
-                .load_builder()
-                .with_settings(|s: &mut ImageLoaderSettings| {
-                    s.is_srgb = false;
-                    s.sampler = ImageSampler::linear();
-                })
-                .load(path.clone())
-        });
+        let mut paths = vec![spec.emote_texture.clone(), spec.status_texture.clone()];
+        let mut additive = vec![false, false];
+        let sprites = spec
+            .sprites
+            .iter()
+            .map(|(&kind, recipe)| {
+                paths.push(recipe.texture.clone());
+                additive.push(recipe.additive);
+                (kind, paths.len() - 1)
+            })
+            .collect();
+        let particles = field
+            .particles
+            .iter()
+            .map(|(&kind, recipe)| {
+                let index = paths
+                    .iter()
+                    .enumerate()
+                    .find(|(i, p)| *i > STATUS && !additive[*i] && **p == recipe.texture)
+                    .map(|(i, _)| i)
+                    .unwrap_or_else(|| {
+                        paths.push(recipe.texture.clone());
+                        additive.push(false);
+                        paths.len() - 1
+                    });
+                (kind, (recipe.clone(), index))
+            })
+            .collect();
+        let textures: Vec<_> = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                server
+                    .load_builder()
+                    .with_settings(move |s: &mut ImageLoaderSettings| {
+                        s.is_srgb = false;
+                        // AssetServer shares the first load's settings by path.
+                        // Match dialogue's sampler for the shared frame/status atlas.
+                        s.sampler = if index == STATUS {
+                            ImageSampler::Descriptor(ImageSamplerDescriptor {
+                                address_mode_u: ImageAddressMode::Repeat,
+                                address_mode_v: ImageAddressMode::Repeat,
+                                ..ImageSamplerDescriptor::nearest()
+                            })
+                        } else {
+                            ImageSampler::linear()
+                        };
+                    })
+                    .load(path.clone())
+            })
+            .collect();
+        let layers = vec![None; textures.len()];
+        let refraction_texture = server
+            .load_builder()
+            .with_settings(|s: &mut ImageLoaderSettings| {
+                s.is_srgb = false;
+                s.sampler = ImageSampler::linear();
+            })
+            .load(spec.refraction.sprite.texture.clone());
         Ok(Self {
             spec,
             textures,
-            layers: [None, None],
+            layers,
+            particles,
+            sprites,
+            additive,
+            refraction_texture,
         })
     }
-    pub fn despawn(self, world: &mut World) {
-        for (entity, _) in self.layers.into_iter().flatten() {
+    pub fn despawn(&mut self, world: &mut World) {
+        for (entity, _) in self.layers.iter_mut().filter_map(Option::take) {
             world.despawn(entity);
         }
     }
@@ -73,7 +137,7 @@ impl Artwork {
         meshes: &mut Assets<Mesh>,
         surfaces: &mut Assets<TitleSurface>,
     ) {
-        for index in 0..2 {
+        for index in 0..self.layers.len() {
             if self.layers[index].is_some() {
                 continue;
             }
@@ -88,9 +152,13 @@ impl Artwork {
             let mesh = meshes.add(batch.mesh());
             let surface = surfaces.add(TitleSurface {
                 color: Some(self.textures[index].clone()),
+                // The UI shares the status atlas with nearest filtering. Reuse
+                // the prepared emote sampler for smooth world-space symbols.
+                sampling: Some(self.textures[if index == STATUS { EMOTES } else { index }].clone()),
                 blend: true,
+                additive: self.additive[index],
                 // Head emotes ignore depth so hair cannot obscure them; dust tests depth.
-                depth_test: index == DUST,
+                depth_test: index > STATUS,
                 depth_write: false,
                 cull: resonance_content::CullFace::None,
                 ..default()
@@ -103,7 +171,14 @@ impl Artwork {
                     Visibility::Hidden,
                     NoFrustumCulling,
                     EffectDraw,
-                    super::draw_order::DrawOrder((1 << 22) + index as u32),
+                    super::draw_order::DrawOrder(
+                        super::draw_order::EFFECTS
+                            + if index <= STATUS {
+                                u16::MAX as u32
+                            } else {
+                                index as u32
+                            },
+                    ),
                 ))
                 .id();
             self.layers[index] = Some((entity, mesh));
@@ -188,6 +263,12 @@ pub(super) fn render(
         for &id in world.emotes.keys() {
             applied.loading(Request::Emote(id));
         }
+        if world.paralysis.is_some() {
+            applied.loading(Request::Paralysis);
+        }
+        for particle in &world.particles {
+            applied.loading(Request::Particle(particle.handle));
+        }
         return;
     }
     let camera = Transform::from_translation(Vec3::from_array(camera.position))
@@ -195,22 +276,45 @@ pub(super) fn render(
     let side = Vec3::new(camera.right().x, camera.right().y, 0.).normalize_or_zero();
     let forward = Vec3::Z.cross(side);
     let brightness = world.brightness();
-    let mut batches: [Batch; 2] = std::array::from_fn(|_| Batch::default());
-    for (&id, effect) in &world.billboards {
-        if effect.recipe != 0 {
+    let mut batches: Vec<_> = (0..art.layers.len()).map(|_| Batch::default()).collect();
+    for particle in &world.particles {
+        let Some((recipe, layer)) = art.particles.get(&particle.kind) else {
             continue;
-        }
+        };
+        let Some(flutter) = &particle.flutter else {
+            continue;
+        };
+        let [x, y, z] = flutter.rotation.map(f32::to_radians);
+        let rgb = particle.rgba.map(|v| (v * 4. / 255.).min(1.) * brightness);
+        batches[*layer].sprite(
+            Vec3::from_array(particle.position),
+            Quat::from_euler(EulerRot::ZYX, z, y, x),
+            [particle.size, particle.size / recipe.aspect_ratio],
+            recipe.uv,
+            [
+                rgb[0],
+                rgb[1],
+                rgb[2],
+                particle.alpha(world.tick).clamp(0., 255.) / 255.,
+            ],
+        );
+        applied.ack(Request::Particle(particle.handle));
+    }
+    for (&id, effect) in &world.billboards {
+        let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
+            continue;
+        };
         let rotation = camera.rotation * Quat::from_rotation_z(effect.rotation[2].to_radians());
-        // Dust colors use a gain of four.
+        // Authored sprite colors use a gain of four.
         let rgb = effect.rgba[..3]
             .iter()
             .map(|v| (f32::from(*v) * 4. / 255.).min(1.) * brightness)
             .collect::<Vec<_>>();
-        batches[DUST].sprite(
+        batches[art.sprites[&effect.recipe]].sprite(
             Vec3::from_array(effect.position),
             rotation,
             effect.size,
-            art.spec.dust_uv,
+            recipe.uv,
             [
                 rgb[0],
                 rgb[1],
@@ -225,15 +329,35 @@ pub(super) fn render(
         .filter(|(_, p)| p.part == 0)
         .map(|(e, p)| (p.actor, (e, p)))
         .collect();
-    for (&id, emote) in &world.emotes {
-        let Some(track) = art.spec.emotes.get(&emote.kind) else {
+    let emotes = world.emotes.iter().map(|(&id, emote)| {
+        (
+            Request::Emote(id),
+            emote.actor,
+            art.spec.emotes.get(&emote.kind),
+            world.tick.saturating_sub(emote.start_tick) as usize,
+            emote.offset,
+            EMOTES,
+        )
+    });
+    let paralysis = world.paralysis.map(|symbol| {
+        (
+            Request::Paralysis,
+            symbol.actor,
+            Some(&art.spec.paralysis),
+            usize::from(symbol.frame),
+            [0.; 3],
+            STATUS,
+        )
+    });
+    for (request, actor, track, age, offset, layer) in emotes.chain(paralysis) {
+        let Some(track) = track else {
             continue;
         };
-        let Some((root, part)) = roots.get(&emote.actor) else {
+        let Some((root, part)) = roots.get(&actor) else {
             continue;
         };
         if !part.prepared {
-            applied.loading(Request::Emote(id));
+            applied.loading(request);
             continue;
         }
         let bone = children
@@ -245,14 +369,14 @@ pub(super) fn render(
         let Ok(anchor) = helper.compute_global_transform(bone) else {
             continue;
         };
-        for sprite in track.frame(world.tick.saturating_sub(emote.start_tick) as usize) {
-            let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + emote.offset[i]);
+        for sprite in track.frame(age) {
+            let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
             let center = anchor.translation() + side * x + forward * y + Vec3::Z * z;
             // Snap emote centers to whole world units; keep their rotated vertices
             // and the independently moving dust particles at full precision.
             let center = center.trunc();
             let rotation = camera.rotation * Quat::from_rotation_z(sprite.rotation.to_radians());
-            batches[EMOTES].sprite(
+            batches[layer].sprite(
                 center,
                 rotation,
                 sprite.size,
@@ -262,7 +386,7 @@ pub(super) fn render(
         }
         // The intro frame can deliberately contain no sprites; the track
         // has still been sampled and handled by this renderer.
-        applied.ack(Request::Emote(id));
+        applied.ack(request);
     }
     for (index, batch) in batches.into_iter().enumerate() {
         if batch.positions.is_empty() {

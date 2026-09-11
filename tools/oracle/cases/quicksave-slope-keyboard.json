@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "updates": 120,
+  "inputs": [
+    {
+      "update": 21,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 22,
+      "keys": [
+        "right",
+        "quicksave"
+      ]
+    },
+    {
+      "update": 23,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 61,
+      "keys": [
+        "quickload"
+      ]
+    },
+    {
+      "update": 62,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "initial",
+    "21": "before-save",
+    "23": "after-save",
+    "60": "before-load",
+    "100": "after-load",
+    "120": "settled",
+    "61": "restored"
+  },
+  "expected": {
+    "120": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": true
+    }
+  }
+}

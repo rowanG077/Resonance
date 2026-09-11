@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Opening Iselia skit: Z, three animated portraits, every subtitle, and return to field control.",
+  "registration": "Same semantic school-grounds checkpoint and Dolphin savestate. Reuse the observed field scenery origin before Z. Register each subtitle by elapsed time since its native call: 62, 78, 76, 49, and 102 updates. The prepared player omits original portrait loading and per-track decoder startup/drain waits; Dolphin media-state observations establish this difference. No pixels or masks are edited. Full frames remain the primary gate. Register field return by the resumed scenery clock (source track 0 = 84 frames, native = 168 ticks).",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/paired-school-grounds.json",
+    "sha256": "f085ba361bd4f26cfd982ace70f9f2dd86e574803a927439fa614607745278e8"
+  },
+  "native_replay": {
+    "path": "skit-playback-keyboard.json",
+    "sha256": "6eaed6263ccae6d786d6145eb09ae8e19c134c442735a1f43afdd44f78daafdb"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3000,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 2,
+        "buttons": [
+          "z"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "first-line",
+      "native": "first-line",
+      "dolphin_vi": 150,
+      "regions": [
+        [
+          245,
+          30,
+          150,
+          33
+        ],
+        [
+          0,
+          384,
+          640,
+          50
+        ]
+      ]
+    },
+    {
+      "name": "lloyd",
+      "native": "lloyd",
+      "dolphin_vi": 300,
+      "regions": [
+        [
+          245,
+          30,
+          150,
+          33
+        ],
+        [
+          0,
+          384,
+          640,
+          50
+        ]
+      ]
+    },
+    {
+      "name": "colette",
+      "native": "colette",
+      "dolphin_vi": 600,
+      "regions": [
+        [
+          245,
+          30,
+          150,
+          33
+        ],
+        [
+          0,
+          384,
+          640,
+          50
+        ]
+      ]
+    },
+    {
+      "name": "genis",
+      "native": "genis",
+      "dolphin_vi": 780,
+      "regions": [
+        [
+          245,
+          30,
+          150,
+          33
+        ],
+        [
+          0,
+          384,
+          640,
+          50
+        ]
+      ]
+    },
+    {
+      "name": "last-line",
+      "native": "last-line",
+      "dolphin_vi": 980,
+      "regions": [
+        [
+          245,
+          30,
+          150,
+          33
+        ],
+        [
+          0,
+          384,
+          640,
+          50
+        ]
+      ]
+    },
+    {
+      "name": "return",
+      "native": "return",
+      "dolphin_vi": 1250,
+      "save_prompt": true,
+      "skit_prompt": true,
+      "ambient_animations": {
+        "999980": "field_12_track_0",
+        "999996": "field_0_track_0",
+        "999998": "field_2_track_0",
+        "-2147483648": "save_point_1_track_0"
+      }
+    }
+  ],
+  "audio": []
+}

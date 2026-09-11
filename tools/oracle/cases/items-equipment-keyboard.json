@@ -1,0 +1,658 @@
+{
+  "version": 1,
+  "presentation_origin": 38084,
+  "session_origin": 34583,
+  "updates": 4270,
+  "inputs": [
+    {
+      "update": 40,
+      "keys": [
+        "menu"
+      ]
+    },
+    {
+      "update": 41,
+      "keys": []
+    },
+    {
+      "update": 91,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 92,
+      "keys": []
+    },
+    {
+      "update": 171,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 172,
+      "keys": []
+    },
+    {
+      "update": 251,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 252,
+      "keys": []
+    },
+    {
+      "update": 331,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 332,
+      "keys": []
+    },
+    {
+      "update": 411,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 412,
+      "keys": []
+    },
+    {
+      "update": 491,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 492,
+      "keys": []
+    },
+    {
+      "update": 571,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 572,
+      "keys": []
+    },
+    {
+      "update": 651,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 652,
+      "keys": []
+    },
+    {
+      "update": 731,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 732,
+      "keys": []
+    },
+    {
+      "update": 811,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 812,
+      "keys": []
+    },
+    {
+      "update": 891,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 892,
+      "keys": []
+    },
+    {
+      "update": 971,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 972,
+      "keys": []
+    },
+    {
+      "update": 1051,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 1052,
+      "keys": []
+    },
+    {
+      "update": 1131,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 1132,
+      "keys": []
+    },
+    {
+      "update": 1211,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 1212,
+      "keys": []
+    },
+    {
+      "update": 1291,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1292,
+      "keys": []
+    },
+    {
+      "update": 1371,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1372,
+      "keys": []
+    },
+    {
+      "update": 1451,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1452,
+      "keys": []
+    },
+    {
+      "update": 1531,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 1532,
+      "keys": []
+    },
+    {
+      "update": 1611,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1612,
+      "keys": []
+    },
+    {
+      "update": 1691,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1692,
+      "keys": []
+    },
+    {
+      "update": 1771,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1772,
+      "keys": []
+    },
+    {
+      "update": 1851,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1852,
+      "keys": []
+    },
+    {
+      "update": 1931,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1932,
+      "keys": []
+    },
+    {
+      "update": 2011,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2012,
+      "keys": []
+    },
+    {
+      "update": 2091,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2092,
+      "keys": []
+    },
+    {
+      "update": 2131,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 2132,
+      "keys": []
+    },
+    {
+      "update": 2171,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2172,
+      "keys": []
+    },
+    {
+      "update": 2251,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2252,
+      "keys": []
+    },
+    {
+      "update": 2331,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 2332,
+      "keys": []
+    },
+    {
+      "update": 2411,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 2412,
+      "keys": []
+    },
+    {
+      "update": 2491,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2492,
+      "keys": []
+    },
+    {
+      "update": 2571,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2572,
+      "keys": []
+    },
+    {
+      "update": 2651,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 2652,
+      "keys": []
+    },
+    {
+      "update": 2731,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2732,
+      "keys": []
+    },
+    {
+      "update": 2811,
+      "keys": [
+        "up"
+      ]
+    },
+    {
+      "update": 2812,
+      "keys": []
+    },
+    {
+      "update": 2891,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2892,
+      "keys": []
+    },
+    {
+      "update": 2971,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2972,
+      "keys": []
+    },
+    {
+      "update": 3051,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 3052,
+      "keys": []
+    },
+    {
+      "update": 3131,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 3132,
+      "keys": []
+    },
+    {
+      "update": 3211,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 3212,
+      "keys": []
+    },
+    {
+      "update": 3291,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 3292,
+      "keys": []
+    },
+    {
+      "update": 3371,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 3372,
+      "keys": []
+    },
+    {
+      "update": 3451,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 3452,
+      "keys": []
+    },
+    {
+      "update": 3531,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3532,
+      "keys": []
+    },
+    {
+      "update": 3611,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3612,
+      "keys": []
+    },
+    {
+      "update": 3691,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3692,
+      "keys": []
+    },
+    {
+      "update": 3771,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3772,
+      "keys": []
+    },
+    {
+      "update": 3851,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3852,
+      "keys": []
+    },
+    {
+      "update": 3931,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3932,
+      "keys": []
+    },
+    {
+      "update": 4011,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 4012,
+      "keys": []
+    },
+    {
+      "update": 4091,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 4092,
+      "keys": []
+    },
+    {
+      "update": 4171,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 4172,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "vi-0",
+    "230": "vi-230",
+    "390": "vi-390",
+    "470": "vi-470",
+    "630": "vi-630",
+    "675": "vi-675",
+    "676": "vi-676",
+    "684": "vi-684",
+    "685": "vi-685",
+    "690": "vi-690",
+    "691": "vi-691",
+    "693": "vi-693",
+    "694": "vi-694",
+    "696": "vi-696",
+    "697": "vi-697",
+    "710": "vi-710",
+    "790": "vi-790",
+    "870": "vi-870",
+    "950": "vi-950",
+    "1270": "vi-1270",
+    "1291": "vi-1291",
+    "1292": "vi-1292",
+    "1293": "vi-1293",
+    "1294": "vi-1294",
+    "1295": "vi-1295",
+    "1296": "vi-1296",
+    "1297": "vi-1297",
+    "1298": "vi-1298",
+    "1299": "vi-1299",
+    "1335": "vi-1335",
+    "1336": "vi-1336",
+    "1344": "vi-1344",
+    "1345": "vi-1345",
+    "1350": "vi-1350",
+    "1351": "vi-1351",
+    "1353": "vi-1353",
+    "1354": "vi-1354",
+    "1356": "vi-1356",
+    "1357": "vi-1357",
+    "1430": "vi-1430",
+    "1510": "vi-1510",
+    "1670": "vi-1670",
+    "1750": "vi-1750",
+    "1830": "vi-1830",
+    "1910": "vi-1910",
+    "1944": "vi-1944",
+    "1945": "vi-1945",
+    "1950": "vi-1950",
+    "1951": "vi-1951",
+    "1953": "vi-1953",
+    "1954": "vi-1954",
+    "1956": "vi-1956",
+    "1957": "vi-1957",
+    "1990": "vi-1990",
+    "1995": "vi-1995",
+    "1996": "vi-1996",
+    "2120": "vi-2120",
+    "2150": "vi-2150",
+    "2184": "vi-2184",
+    "2185": "vi-2185",
+    "2190": "vi-2190",
+    "2191": "vi-2191",
+    "2193": "vi-2193",
+    "2194": "vi-2194",
+    "2196": "vi-2196",
+    "2197": "vi-2197",
+    "2230": "vi-2230",
+    "2235": "vi-2235",
+    "2236": "vi-2236",
+    "2470": "vi-2470",
+    "2550": "vi-2550",
+    "2631": "vi-2631",
+    "2711": "vi-2711",
+    "2791": "vi-2791",
+    "2950": "vi-2950",
+    "3030": "vi-3030",
+    "3430": "vi-3430",
+    "3510": "vi-3510",
+    "3590": "vi-3590",
+    "3670": "vi-3670",
+    "3750": "vi-3750",
+    "3830": "vi-3830",
+    "3910": "vi-3910",
+    "3990": "vi-3990",
+    "4071": "vi-4071",
+    "4151": "vi-4151",
+    "4171": "vi-4171",
+    "4172": "vi-4172",
+    "4173": "vi-4173",
+    "4174": "vi-4174",
+    "4175": "vi-4175",
+    "4176": "vi-4176",
+    "4177": "vi-4177",
+    "4178": "vi-4178",
+    "4179": "vi-4179",
+    "4180": "vi-4180",
+    "4230": "vi-4230"
+  },
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "skit": {
+      "id": 600,
+      "remaining": 1498,
+      "opacity": 255,
+      "control_ticks": 7501,
+      "text_opacity": 255
+    }
+  }
+}

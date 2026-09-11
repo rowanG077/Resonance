@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "System Load confirmation: default Yes and one complete cursor cycle",
+  "registration": "Dolphin begins at the independently recorded populated Save list; native reconstructs an equivalent save in an isolated directory from the free-control checkpoint. Both leave Save and use the field menu's System Load to select the populated slot. Native Main opens on Tech at update 680; Left at 740 selects System, matching source Left at poll 460. The original fn_800C2C98 instructions at 0x800C2F7C..0x800C2FA8 wrap only index 0 to 9; all other Left inputs decrement. The previous extra native Down at 710 selected Items and made Left select Synopsis, so it is removed. Source dump 250 shows System; the old registration's claim that source reopened on Items was incorrect. Native System closes from updates 831 through 838, Main slides through 848, and Load bank is published at 849; bank confirmation at 860 remains unchanged. Register settled Yes once: native update 910 corresponds to Dolphin dump 672; compare the next 25 consecutive images without further adjustment. Source VI observations start at 676; PNG dumps and VI indices differ across buffered rendering and loading. Map 332, story 2500 and player pose remain unchanged. Saved play times and randomized HP/TP differ between fixtures and are not claimed equivalent. Load's authored trailing blank line is retained in the measured popup. No audio acceptance is claimed. Set the shared UI presentation origin once to 39160: observed source VI 676 has UI clock 40070 and pairs native update 910. Every one of this case's 25 frame observations yields the same source-UI-minus-native-update constant. The runtime already used the shared UI clock before the first cleanup; the former fixture registered only the local menu clock. No per-frame clock adjustment, capture movement, source substitution or relaxed gate is applied.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/paired-school-grounds.json",
+    "sha256": "f085ba361bd4f26cfd982ace70f9f2dd86e574803a927439fa614607745278e8"
+  },
+  "native_replay": {
+    "path": "save-load-keyboard.json",
+    "sha256": "29d7a35671ec9851b21584b2552bc799e223c36d3f0326d65fd816e6cfb42d42"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-saved-slot/user/StateSaves/GQSEAF.s01",
+      "sha256": "c6054789283a390bdd3922ab509890e2c670b090c568b24d8d551a8cf7a92916"
+    },
+    "prefix_sha256": "31c39e5fbf6d455deb2b25672659f96ec0235ac95e2216b66921c1f82b8912c3",
+    "start_poll": 78789,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    }
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 2200,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 120,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 300,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 460,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 520,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 600,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 920,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {"name":"load-0","native":"load-0","dolphin":672,"dolphin_vi":676,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-1","native":"load-1","dolphin":673,"dolphin_vi":677,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-2","native":"load-2","dolphin":674,"dolphin_vi":678,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-3","native":"load-3","dolphin":675,"dolphin_vi":679,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-4","native":"load-4","dolphin":676,"dolphin_vi":680,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-5","native":"load-5","dolphin":677,"dolphin_vi":681,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-6","native":"load-6","dolphin":678,"dolphin_vi":682,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-7","native":"load-7","dolphin":679,"dolphin_vi":683,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-8","native":"load-8","dolphin":680,"dolphin_vi":684,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-9","native":"load-9","dolphin":681,"dolphin_vi":685,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-10","native":"load-10","dolphin":682,"dolphin_vi":686,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-11","native":"load-11","dolphin":683,"dolphin_vi":687,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-12","native":"load-12","dolphin":684,"dolphin_vi":688,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-13","native":"load-13","dolphin":685,"dolphin_vi":689,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-14","native":"load-14","dolphin":686,"dolphin_vi":690,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-15","native":"load-15","dolphin":687,"dolphin_vi":691,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-16","native":"load-16","dolphin":688,"dolphin_vi":692,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-17","native":"load-17","dolphin":689,"dolphin_vi":693,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-18","native":"load-18","dolphin":690,"dolphin_vi":694,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-19","native":"load-19","dolphin":691,"dolphin_vi":695,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-20","native":"load-20","dolphin":692,"dolphin_vi":696,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-21","native":"load-21","dolphin":693,"dolphin_vi":697,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-22","native":"load-22","dolphin":694,"dolphin_vi":698,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-23","native":"load-23","dolphin":695,"dolphin_vi":699,"regions":[[124,154,392,174]],"slot_confirmation":true},
+    {"name":"load-24","native":"load-24","dolphin":696,"dolphin_vi":700,"regions":[[124,154,392,174]],"slot_confirmation":true}
+  ],
+  "audio": []
+}

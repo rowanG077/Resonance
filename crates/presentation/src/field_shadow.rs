@@ -37,8 +37,8 @@ impl Artwork {
             instances: BTreeMap::new(),
         }
     }
-    pub(super) fn despawn(self, world: &mut World) {
-        for entity in self.instances.into_values() {
+    pub(super) fn despawn(&mut self, world: &mut World) {
+        for entity in std::mem::take(&mut self.instances).into_values() {
             world.despawn(entity);
         }
     }
@@ -70,12 +70,11 @@ pub(super) fn sync(
         }
         shadows.mesh = Some(meshes.add(mesh));
         shadows.material = Some(surfaces.add(TitleSurface {
-            color: Some(shadows.texture.clone()),
             tint: Vec4::new(0., 0., 0., f32::from(shadows.spec.alpha) / 255.),
             blend: true,
             depth_write: false,
             cull: resonance_content::CullFace::None,
-            ..default()
+            ..TitleSurface::textured(Some(shadows.texture.clone()))
         }));
     }
     let removed: Vec<_> = shadows
@@ -99,8 +98,8 @@ pub(super) fn sync(
                 MeshMaterial3d(shadows.material.as_ref().unwrap().clone()),
                 Transform::default(),
                 Visibility::Hidden,
-                // Draw contact shadows after opaque field actors.
-                DrawOrder(1 << 20),
+                // Contact shadows darken translucent floor effects too.
+                DrawOrder(crate::draw_order::CONTACT_SHADOWS),
                 Shadow(id),
             ))
             .id();

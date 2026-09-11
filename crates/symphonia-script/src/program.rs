@@ -118,13 +118,12 @@ impl Program {
         }
         let mut events = BTreeMap::new();
         for record in analysis.records.iter().filter(|r| r.active()) {
-            if !code.contains_key(&record.pc)
-                || events
-                    .insert((record.kind, record.key), record.pc)
-                    .is_some()
-            {
-                return Err(invalid("invalid or duplicate event entry".into()));
+            if !code.contains_key(&record.pc) {
+                return Err(invalid("invalid event entry".into()));
             }
+            // Lookup scans the resource table in order. Retail skits contain
+            // duplicate keys; the first entry remains the reachable one.
+            events.entry((record.kind, record.key)).or_insert(record.pc);
         }
         let entry = u32::from(header.default_pc);
         if !code.contains_key(&entry) {

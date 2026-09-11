@@ -37,6 +37,8 @@ fn main() -> Result<()> {
                 },
             ),
         ],
+        true,
+        [127; 3],
     )?;
     println!("Recorded {frames} frames to {output}; no audio device");
     Ok(())

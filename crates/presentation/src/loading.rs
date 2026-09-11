@@ -7,7 +7,7 @@ use bevy::{
     },
     prelude::*,
 };
-use resonance_content::prepared::{Cache, Files};
+use resonance_content::prepared::Files;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -42,9 +42,15 @@ impl Drop for LoadTicket {
 #[derive(Resource, Clone, Default)]
 pub(super) struct Resident {
     pub files: Arc<RwLock<Option<Arc<Files>>>>,
+    cache: Arc<Mutex<Cache>>,
     pub active: Arc<AtomicBool>,
     pub memory_reads: Arc<AtomicU64>,
     pub late_reads: Arc<AtomicU64>,
+}
+#[derive(Default)]
+pub(super) struct Cache {
+    pub bytes: resonance_content::prepared::Cache,
+    pub audio: super::field_audio::Cache,
 }
 struct ReaderAdapter {
     resident: Resident,
@@ -99,6 +105,7 @@ impl AssetReader for ReaderAdapter {
 }
 
 pub(super) fn install(app: &mut App, root: &Path) {
+    super::model_preview::register(app, root);
     let resident = Resident::default();
     app.insert_resource(resident.clone());
     let root = root.to_string_lossy().to_string();
@@ -113,40 +120,75 @@ pub(super) fn install(app: &mut App, root: &Path) {
     );
 }
 
-pub(super) struct Prepared {
-    pub session: super::new_game::Session,
-    pub files: Arc<Files>,
-}
+pub(super) type Pending = Task<super::new_game::Session>;
+pub(super) type FieldPending = Task<super::new_game::FieldPackage>;
 #[derive(Resource)]
-pub(super) struct Pending {
-    receiver: Mutex<mpsc::Receiver<Result<Prepared>>>,
+pub(super) struct Task<T: Send + 'static> {
+    receiver: Mutex<mpsc::Receiver<Result<T>>>,
     cancelled: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
     pub started: Instant,
 }
 impl Pending {
-    pub fn new(root: PathBuf) -> Result<Self> {
+    pub fn start(root: PathBuf, checkpoint: Option<Vec<u8>>, resident: &Resident) -> Result<Self> {
+        let cache = resident.cache.clone();
+        Self::spawn(move |stop| {
+            let identity = super::new_game::Session::identity(&root)?;
+            let checkpoint: Option<resonance_game::field::FieldCheckpoint> = checkpoint
+                .map(|bytes| {
+                    resonance_persistence::decode(&bytes, &identity).map(|(_, state)| state)
+                })
+                .transpose()?;
+            let map = checkpoint.as_ref().map_or(5, |c| c.map_id);
+            let mut paths = vec![super::new_game::manifest_path(map)?];
+            if map == 5 {
+                paths.push(super::new_game::manifest_path(340)?);
+            }
+            let mut cache = cache.lock().unwrap();
+            let files = Arc::new(Files::load(
+                &root,
+                &paths.iter().map(String::as_str).collect::<Vec<_>>(),
+                &mut cache.bytes,
+                || stop.load(Ordering::Relaxed),
+            )?);
+            let mut session = super::new_game::Session::load_prepared(
+                &root,
+                files,
+                checkpoint,
+                &mut cache.audio,
+            )?;
+            anyhow::ensure!(
+                session.identity == identity,
+                "cooked content changed during field preparation"
+            );
+            if map == 5 {
+                session.prepare_movie(&root, || stop.load(Ordering::Relaxed))?;
+            }
+            Ok(session)
+        })
+    }
+}
+impl FieldPending {
+    pub fn field(root: PathBuf, map: u32, resident: &Resident) -> Result<Self> {
+        let cache = resident.cache.clone();
+        Self::spawn(move |stop| {
+            super::new_game::FieldPackage::prepare(&root, map, &mut cache.lock().unwrap(), || {
+                stop.load(Ordering::Relaxed)
+            })
+        })
+    }
+}
+impl<T: Send + 'static> Task<T> {
+    pub(super) fn spawn(
+        job: impl FnOnce(Arc<AtomicBool>) -> Result<T> + Send + 'static,
+    ) -> Result<Self> {
         let (send, receive) = mpsc::sync_channel(1);
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop = cancelled.clone();
         let worker = std::thread::Builder::new()
             .name("field-preparation".into())
             .spawn(move || {
-                let result = (|| -> Result<_> {
-                    let files = Arc::new(Files::load(
-                        &root,
-                        &[
-                            "fields/new-game-setup.preload.json",
-                            "fields/iselia-classroom.preload.json",
-                        ],
-                        &mut Cache::default(),
-                        || stop.load(Ordering::Relaxed),
-                    )?);
-                    let mut session = super::new_game::Session::load_prepared(&root, &files)?;
-                    session.prepare_movie(&root, || stop.load(Ordering::Relaxed))?;
-                    Ok(Prepared { session, files })
-                })();
-                let _ = send.send(result);
+                let _ = send.send(job(stop));
             })?;
         Ok(Self {
             receiver: Mutex::new(receive),
@@ -155,7 +197,7 @@ impl Pending {
             started: Instant::now(),
         })
     }
-    pub fn poll(&self) -> Result<Option<Result<Prepared>>> {
+    pub fn poll(&self) -> Result<Option<Result<T>>> {
         match self.receiver.lock().unwrap().try_recv() {
             Ok(value) => Ok(Some(value)),
             Err(mpsc::TryRecvError::Empty) => Ok(None),
@@ -163,7 +205,7 @@ impl Pending {
         }
     }
 }
-impl Drop for Pending {
+impl<T: Send + 'static> Drop for Task<T> {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Relaxed);
         if let Some(worker) = self.worker.take() {
@@ -174,10 +216,13 @@ impl Drop for Pending {
 
 pub(super) fn black_hold(
     pending: Option<Res<Pending>>,
+    field: Option<Res<FieldPending>>,
     session: Option<Res<super::new_game::Session>>,
     resident: Res<Resident>,
     mut outputs: ResMut<Assets<super::materials::TitleOutput>>,
 ) {
-    let held = pending.is_some() || session.is_some() && !resident.active.load(Ordering::Acquire);
+    let held = pending.is_some()
+        || field.is_some()
+        || session.is_some() && !resident.active.load(Ordering::Acquire);
     super::materials::TitleOutput::update(&mut outputs, |b| b.z = f32::from(held));
 }

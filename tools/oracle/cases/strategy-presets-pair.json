@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Strategy command presets: rename, cancel and confirm, restore defaults, edit Guard and preserve current instructions.",
+  "registration": "Start from the paired school grounds save with statistics observed in the Dolphin state. Compare settled Strategy screens after equivalent keyboard/controller inputs. Current instructions and saved battle-command presets remain independent. Full-frame gates include the paused field background; native capture opens no audio device and Dolphin uses a muted profile.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/paired-source-party.json",
+    "sha256": "03dd6f05c2249283fb29bbefde335753df86458e26740c98743499665b7c8a8b"
+  },
+  "native_replay": {
+    "path": "strategy-presets-keyboard.json",
+    "sha256": "2b2b2862043b758a1093f4e707c365d07d647e8332e7bb2e948915c40ab14b32"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 4500,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 600,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 800,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 1000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1200,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1400,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1600,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1800,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 2000,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2400,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2600,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2800,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 3000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3200,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3400,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3600,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "orders",
+      "native": "orders",
+      "dolphin_vi": 350
+    },
+    {
+      "name": "rename",
+      "native": "rename",
+      "dolphin_vi": 450
+    },
+    {
+      "name": "renamed",
+      "native": "renamed",
+      "dolphin_vi": 550
+    },
+    {
+      "name": "cancel-choice",
+      "native": "cancel-choice",
+      "dolphin_vi": 650
+    },
+    {
+      "name": "confirm-choice",
+      "native": "confirm-choice",
+      "dolphin_vi": 750
+    },
+    {
+      "name": "name-saved",
+      "native": "name-saved",
+      "dolphin_vi": 850
+    },
+    {
+      "name": "default",
+      "native": "default",
+      "dolphin_vi": 950
+    },
+    {
+      "name": "guard",
+      "native": "guard",
+      "dolphin_vi": 1050
+    },
+    {
+      "name": "preset-member",
+      "native": "preset-member",
+      "dolphin_vi": 1150
+    },
+    {
+      "name": "preset-setting",
+      "native": "preset-setting",
+      "dolphin_vi": 1250
+    },
+    {
+      "name": "preset-options",
+      "native": "preset-options",
+      "dolphin_vi": 1350
+    },
+    {
+      "name": "preset-preview",
+      "native": "preset-preview",
+      "dolphin_vi": 1450
+    },
+    {
+      "name": "preset-changed",
+      "native": "preset-changed",
+      "dolphin_vi": 1550
+    },
+    {
+      "name": "current-unchanged",
+      "native": "current-unchanged",
+      "dolphin_vi": 1849
+    }
+  ],
+  "audio": []
+}

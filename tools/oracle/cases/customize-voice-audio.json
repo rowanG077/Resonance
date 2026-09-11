@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "description": "Dialogue-volume attenuation over the complete Genis line, using one fixed PCM registration. Subtract the identical zero-volume replay from both source recordings, then compare full/quiet RMS ratios in half-second windows. This validates volume controls, not decoder bit equivalence.",
+  "voice": 655368,
+  "volume": 64,
+  "reference_start_frame": 55866,
+  "frames": 159506,
+  "window_frames": 16014,
+  "minimum_reference_rms": 200,
+  "maximum_level_error_db": 0.02,
+  "reference": {
+    "path": "local/findings-menu/voice64-oracle-v2/user/Dump/Audio/GQSEAF_2026-09-11_08-14-55_dspdump.wav",
+    "sha256": "92c83e598b54c69d8d92d68fdfd494dda34475826edda7d658c466a5072ab4c5"
+  },
+  "full_volume": {
+    "path": "local/findings-menu/voice127-oracle-v2/user/Dump/Audio/GQSEAF_2026-09-11_08-15-01_dspdump.wav",
+    "sha256": "fb3bcb026698fbc4f7492564fc7d280de35435cded269d2c725c3d7d52ec564b"
+  },
+  "baseline": {
+    "path": "local/findings-menu/voice0-oracle-v1/user/Dump/Audio/GQSEAF_2026-09-11_08-16-47_dspdump.wav",
+    "sha256": "45d2b9ccd57c3e18f64a3ab5d27069c2b6acc7351a4dee5e54d04ea57ebb49d4"
+  },
+  "input": {
+    "path": "local/findings-menu/voice-input-v1.json",
+    "sha256": "79e6ec09447807a5fff6162fea832e08cb618c53cdfc61d5519185e8b3c2d2e5"
+  },
+  "source_state": {
+    "path": "local/oracle/classroom-mithos-hold-silent/user/StateSaves/GQSEAF.s01",
+    "sha256": "6f53885ceb539b35ce7386a80016d3f1ad1c7662d17cc9daf201d137fa8f3eb7"
+  },
+  "start_poll": 22315,
+  "controlled_fixture": "local/findings-menu/voice64-fixture-v1/fixture.json",
+  "audio_device": false,
+  "input_dtm": {
+    "path": "local/findings-menu/voice-input-v1.dtm",
+    "sha256": "2feeafb1b46ad2b174f04e7b7aa89a20d98d72a1da9546631189fc39a678047a"
+  },
+  "prefix": {
+    "path": "local/oracle/classroom-mithos-hold-silent/user/StateSaves/GQSEAF.s01.dtm",
+    "sha256": "945bb0ec6c06055d67ec6741230d878911765fc012d86128c16b1db67b9527b7"
+  },
+  "baseline_fixture": "local/findings-menu/voice0-fixture-v1/fixture.json",
+  "native_recording": [
+    "target/debug/examples/record_field_voice",
+    "local/cooked",
+    "OUTPUT",
+    "655368",
+    "159506",
+    "64"
+  ]
+}

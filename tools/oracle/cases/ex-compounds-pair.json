@@ -1,0 +1,620 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "EX compound skills: newly learned highlights, active requirements, bounded navigation, previews, unequipping and reopening.",
+  "registration": "Controlled ex-compound-fixture-v1 adds learned Lloyd compounds 0,11,13 and recent flags 0,13 to copies of the matched EX gem checkpoints. Actual gem and skill choices use controller inputs. Native menu opens at update 40; subsequent inputs use source poll/2. Whole images and EX state compare actual equipped compound IDs independently from stat previews; unused X/Y/Z/Start inputs and reopening test highlight retention. Source video has no presentation at VI 2310,3590,3670,4630; these captures use the following timestamped VI in both engines. No image-based alignment.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/ex-compound-fixture-v1/native.json",
+    "sha256": "5fb57f8a902d099b6554ae8518b456dd0599c4f51646a6d1b215b44a58e3fd96"
+  },
+  "native_replay": {
+    "path": "ex-compounds-keyboard.json",
+    "sha256": "0ab9a854375717502566b19624717834fadac6d7ad2713db0065685e79d0227b"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/ex-compound-fixture-v1/GQSEAF.s01",
+      "sha256": "0ca997b4f457daf861a4e9c8d632ad4d816470aa682e013cb186b12405b9c08b"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 10080,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 5140,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 5300,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 5460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6100,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 6260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6420,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6580,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6740,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 6900,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 7060,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 7220,
+        "duration": 4,
+        "buttons": [
+          "z"
+        ]
+      },
+      {
+        "poll": 7380,
+        "duration": 4,
+        "buttons": [
+          "start"
+        ]
+      },
+      {
+        "poll": 7540,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 7700,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 7860,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 8020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8180,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 8340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8500,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 8660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8820,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 8980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9140,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 9300,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 9460,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 9620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "empty-slots",
+      "native": "vi-390",
+      "dolphin_vi": 390,
+      "ex_state": true
+    },
+    {
+      "name": "tough-preview",
+      "native": "vi-1430",
+      "dolphin_vi": 1430,
+      "ex_state": true
+    },
+    {
+      "name": "new-ex-attack",
+      "native": "vi-1510",
+      "dolphin_vi": 1510,
+      "ex_state": true
+    },
+    {
+      "name": "ex-attack-description",
+      "native": "vi-1590",
+      "dolphin_vi": 1590,
+      "ex_state": true
+    },
+    {
+      "name": "first-compound-lower-bound",
+      "native": "vi-1670",
+      "dolphin_vi": 1670,
+      "ex_state": true
+    },
+    {
+      "name": "personal-preview",
+      "native": "vi-2230",
+      "dolphin_vi": 2230,
+      "ex_state": true
+    },
+    {
+      "name": "old-quick-turn",
+      "native": "vi-2311",
+      "dolphin_vi": 2311,
+      "ex_state": true
+    },
+    {
+      "name": "quick-turn-description",
+      "native": "vi-2470",
+      "dolphin_vi": 2470,
+      "ex_state": true
+    },
+    {
+      "name": "new-unison-force",
+      "native": "vi-3030",
+      "dolphin_vi": 3030,
+      "ex_state": true
+    },
+    {
+      "name": "unison-force-description",
+      "native": "vi-3270",
+      "dolphin_vi": 3270,
+      "ex_state": true
+    },
+    {
+      "name": "third-compound-lower-bound",
+      "native": "vi-3350",
+      "dolphin_vi": 3350,
+      "ex_state": true
+    },
+    {
+      "name": "unused-x",
+      "native": "vi-3510",
+      "dolphin_vi": 3510,
+      "ex_state": true
+    },
+    {
+      "name": "unused-y",
+      "native": "vi-3591",
+      "dolphin_vi": 3591,
+      "ex_state": true
+    },
+    {
+      "name": "unused-z",
+      "native": "vi-3671",
+      "dolphin_vi": 3671,
+      "ex_state": true
+    },
+    {
+      "name": "unused-start",
+      "native": "vi-3750",
+      "dolphin_vi": 3750,
+      "ex_state": true
+    },
+    {
+      "name": "taunt-preview",
+      "native": "vi-4150",
+      "dolphin_vi": 4150,
+      "ex_state": true
+    },
+    {
+      "name": "unequipped-compounds",
+      "native": "vi-4230",
+      "dolphin_vi": 4230,
+      "ex_state": true
+    },
+    {
+      "name": "empty-compound-navigation",
+      "native": "vi-4310",
+      "dolphin_vi": 4310,
+      "ex_state": true
+    },
+    {
+      "name": "restore-preview",
+      "native": "vi-4470",
+      "dolphin_vi": 4470,
+      "ex_state": true
+    },
+    {
+      "name": "restored-compounds",
+      "native": "vi-4550",
+      "dolphin_vi": 4550,
+      "ex_state": true
+    },
+    {
+      "name": "retained-highlight",
+      "native": "vi-4631",
+      "dolphin_vi": 4631,
+      "ex_state": true
+    },
+    {
+      "name": "reopened-highlights",
+      "native": "vi-4950",
+      "dolphin_vi": 4950,
+      "ex_state": true
+    }
+  ],
+  "audio": []
+}

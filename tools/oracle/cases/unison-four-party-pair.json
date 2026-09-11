@@ -1,0 +1,373 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "U. Attack: four-player navigation, grey healing techniques, offensive alternatives, shared assignments and reopening.",
+  "registration": "Controlled inventory-fixture sets formation 1/2/3/4 and teaches Raine Photon (3:113), with original technique order checked against cooked data. Story 1403000 is applied to the initialized Dolphin field and to native at update 40 after the main menu opens. This tests menu behavior, not party recruitment, battle eligibility or later-story field initialization. Inputs after menu opening and images use source poll/2, with matching presentation clocks and saved shortcuts.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/unison-four-party-fixture-v1/native.json",
+    "sha256": "d10f24bf153fba62ec6efd481a662dc5a1b4b1d1e59b34d78d80b05acca2cb33"
+  },
+  "native_replay": {
+    "path": "unison-four-party-keyboard.json",
+    "sha256": "cfc957fb917632443614f24cf8f8dca1c964919344a9d0b9aa564acce14233fa"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/unison-four-party-fixture-v1/GQSEAF.s01",
+      "sha256": "e72e146a187927e5959ffe09f12b9265868b879f5a9acddb937a5e12cb546fb6"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 1403000,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 5260,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 500,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 820,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 980,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1140,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1460,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1940,
+        "duration": 4,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2260,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2580,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2900,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3060,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3220,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 3380,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 3700,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 3860,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4340,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4500,
+        "duration": 4,
+        "buttons": [
+          "x"
+        ]
+      },
+      {
+        "poll": 4660,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 4820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "four-members",
+      "native": "vi-230",
+      "dolphin_vi": 230,
+      "unison_state": true
+    },
+    {
+      "name": "fourth-member",
+      "native": "vi-630",
+      "dolphin_vi": 630,
+      "unison_state": true
+    },
+    {
+      "name": "healing-list",
+      "native": "vi-710",
+      "dolphin_vi": 710,
+      "unison_state": true
+    },
+    {
+      "name": "attack-preview",
+      "native": "vi-790",
+      "dolphin_vi": 790,
+      "unison_state": true
+    },
+    {
+      "name": "attack-assigned",
+      "native": "vi-870",
+      "dolphin_vi": 870,
+      "unison_state": true
+    },
+    {
+      "name": "healing-preview",
+      "native": "vi-1030",
+      "dolphin_vi": 1030,
+      "unison_state": true
+    },
+    {
+      "name": "healing-assigned",
+      "native": "vi-1110",
+      "dolphin_vi": 1110,
+      "unison_state": true
+    },
+    {
+      "name": "second-slot-attack",
+      "native": "vi-1430",
+      "dolphin_vi": 1430,
+      "unison_state": true
+    },
+    {
+      "name": "fourth-member-last-slot",
+      "native": "vi-1590",
+      "dolphin_vi": 1590,
+      "unison_state": true
+    },
+    {
+      "name": "party-lower-bound",
+      "native": "vi-1670",
+      "dolphin_vi": 1670,
+      "unison_state": true
+    },
+    {
+      "name": "party-right-bound",
+      "native": "vi-1750",
+      "dolphin_vi": 1750,
+      "unison_state": true
+    },
+    {
+      "name": "left-column",
+      "native": "vi-1830",
+      "dolphin_vi": 1830,
+      "unison_state": true
+    },
+    {
+      "name": "right-column",
+      "native": "vi-1910",
+      "dolphin_vi": 1910,
+      "unison_state": true
+    },
+    {
+      "name": "reopened-fourth-member",
+      "native": "vi-2070",
+      "dolphin_vi": 2070,
+      "unison_state": true
+    },
+    {
+      "name": "healing-row-restored",
+      "native": "vi-2150",
+      "dolphin_vi": 2150,
+      "unison_state": true
+    },
+    {
+      "name": "healing-removed",
+      "native": "vi-2310",
+      "dolphin_vi": 2310,
+      "unison_state": true
+    },
+    {
+      "name": "removal-retained",
+      "native": "vi-2470",
+      "dolphin_vi": 2470,
+      "unison_state": true
+    }
+  ],
+  "audio": []
+}

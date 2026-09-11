@@ -1,0 +1,2488 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Equip and Tech outer transitions: entry, closing and reopening; retained help, forward list scrolling with ignored early input, equipment paging bounds, and persistent equipment sort mode.",
+  "registration": "Reuses the silent equipment-transitions-source-v1 recording. The Rust equipment-transitions-fixture-v2 grants all 24 Lloyd weapons (items 135-158) on the existing tech-lists fixture, keeping matching native and Dolphin state copies. Native update 64 is source VI zero with the full shared school actor, animation, effect, RNG, background-wait, save-spark and skit origin. All 1,840 observed VIs satisfy UI clock = 38084 + VI and effect clock = 37551 + VI: no source waits are removed, and no presentation/effect advances or animation overrides are used. Y first presents the menu at VI 12; all later actions take effect at source poll/2 + 1. Native action edges map to VI + 64 with release on the next update. Equip is active at VIs 223-872 and 963-1032; Tech is active at 1183-1592 and 1693-1772. Every first child frame has fade 206, and the last child frame has fade 255 before Main resumes at fade 206. All selected images retain the existing 8/1% tolerance, with Main, party and effect gates throughout and the appropriate Equip or Tech gate during each child interval. The route covers forward scrolls including ignored Up at VI 523 and 1403, C-stick page-up/down and last-page rejection, equipment sort toggle at VI 761 and its persistence after reopening, plus retained description transitions. It has no negative row-scroll offsets, shoulder button input, equipment replacement or natural acquisition; those are outside this recording. Video timestamps omit requested VIs 871 and 1031, so those absent images are excluded without changing the source input replay. Main transition state is checked only while Main is visible: its stored fade remains255 throughout child menus, whereas native child pages own independent fades.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/findings-menu/equipment-transitions-fixture-v2/native.json",
+    "sha256": "0af04312d51e9d2b475cea0c08bed4e6df7257e54021f23dfaa54e8760ca76b8"
+  },
+  "native_replay": {
+    "path": "equipment-transitions-keyboard.json",
+    "sha256": "5c8c0db433588ef36e27a7e22b44e416cba374e8113d06a3182bd240b492d161"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/findings-menu/equipment-transitions-fixture-v2/GQSEAF.s01",
+      "sha256": "5f4bde9fdcdeae28762688a64506d68fa72989c1f9cd2ed1a6a74effb0216a5d"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3680,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 4,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 180,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 220,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 2,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 420,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 540,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 600,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 720,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 760,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 800,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 840,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 880,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 920,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 960,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1000,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1040,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1044,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1100,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 1160,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1200,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 1260,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1320,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1380,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          0
+        ]
+      },
+      {
+        "poll": 1440,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1500,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 1520,
+        "duration": 2,
+        "buttons": [
+          "y"
+        ]
+      },
+      {
+        "poll": 1560,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1640,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1720,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1840,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1900,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1980,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2040,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 2160,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 2,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2240,
+        "duration": 2,
+        "buttons": [
+          "left"
+        ]
+      },
+      {
+        "poll": 2280,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2340,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2460,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2520,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2560,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2600,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2640,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2680,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2720,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2760,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2800,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2804,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 2860,
+        "duration": 2,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 2920,
+        "duration": 2,
+        "buttons": [],
+        "c_stick": [
+          128,
+          255
+        ]
+      },
+      {
+        "poll": 2980,
+        "duration": 2,
+        "buttons": [
+          "up"
+        ]
+      },
+      {
+        "poll": 3040,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3100,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3160,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3300,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3360,
+        "duration": 2,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3460,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 3520,
+        "duration": 2,
+        "buttons": [
+          "b"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "origin-0",
+      "native": "origin-0",
+      "dolphin_vi": 0,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "main-first-pose",
+      "native": "main-first-pose",
+      "dolphin_vi": 12,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "main-open",
+      "native": "main-open",
+      "dolphin_vi": 21,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-0",
+      "native": "equip-enter-0",
+      "dolphin_vi": 211,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-1",
+      "native": "equip-enter-1",
+      "dolphin_vi": 212,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-2",
+      "native": "equip-enter-2",
+      "dolphin_vi": 213,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-3",
+      "native": "equip-enter-3",
+      "dolphin_vi": 214,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-4",
+      "native": "equip-enter-4",
+      "dolphin_vi": 215,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-5",
+      "native": "equip-enter-5",
+      "dolphin_vi": 216,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-6",
+      "native": "equip-enter-6",
+      "dolphin_vi": 217,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-7",
+      "native": "equip-enter-7",
+      "dolphin_vi": 218,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-8",
+      "native": "equip-enter-8",
+      "dolphin_vi": 219,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-9",
+      "native": "equip-enter-9",
+      "dolphin_vi": 220,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-10",
+      "native": "equip-enter-10",
+      "dolphin_vi": 221,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-11",
+      "native": "equip-enter-11",
+      "dolphin_vi": 222,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-12",
+      "native": "equip-enter-12",
+      "dolphin_vi": 223,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-13",
+      "native": "equip-enter-13",
+      "dolphin_vi": 224,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-14",
+      "native": "equip-enter-14",
+      "dolphin_vi": 225,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-15",
+      "native": "equip-enter-15",
+      "dolphin_vi": 226,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-16",
+      "native": "equip-enter-16",
+      "dolphin_vi": 227,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-17",
+      "native": "equip-enter-17",
+      "dolphin_vi": 228,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-18",
+      "native": "equip-enter-18",
+      "dolphin_vi": 229,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-19",
+      "native": "equip-enter-19",
+      "dolphin_vi": 230,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-20",
+      "native": "equip-enter-20",
+      "dolphin_vi": 231,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-21",
+      "native": "equip-enter-21",
+      "dolphin_vi": 232,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-enter-22",
+      "native": "equip-enter-22",
+      "dolphin_vi": 233,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-list-enter",
+      "native": "equip-list-enter",
+      "dolphin_vi": 331,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-0",
+      "native": "equip-help-0",
+      "dolphin_vi": 361,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-1",
+      "native": "equip-help-1",
+      "dolphin_vi": 362,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-2",
+      "native": "equip-help-2",
+      "dolphin_vi": 363,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-3",
+      "native": "equip-help-3",
+      "dolphin_vi": 364,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-4",
+      "native": "equip-help-4",
+      "dolphin_vi": 365,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-5",
+      "native": "equip-help-5",
+      "dolphin_vi": 366,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-6",
+      "native": "equip-help-6",
+      "dolphin_vi": 367,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-7",
+      "native": "equip-help-7",
+      "dolphin_vi": 368,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-8",
+      "native": "equip-help-8",
+      "dolphin_vi": 369,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-9",
+      "native": "equip-help-9",
+      "dolphin_vi": 370,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-10",
+      "native": "equip-help-10",
+      "dolphin_vi": 371,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-11",
+      "native": "equip-help-11",
+      "dolphin_vi": 372,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-12",
+      "native": "equip-help-12",
+      "dolphin_vi": 373,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-13",
+      "native": "equip-help-13",
+      "dolphin_vi": 374,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-14",
+      "native": "equip-help-14",
+      "dolphin_vi": 375,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-help-15",
+      "native": "equip-help-15",
+      "dolphin_vi": 376,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-before-scroll",
+      "native": "equip-before-scroll",
+      "dolphin_vi": 520,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-early-up-0",
+      "native": "equip-scroll-early-up-0",
+      "dolphin_vi": 521,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-early-up-1",
+      "native": "equip-scroll-early-up-1",
+      "dolphin_vi": 522,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-early-up-2",
+      "native": "equip-scroll-early-up-2",
+      "dolphin_vi": 523,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-early-up-3",
+      "native": "equip-scroll-early-up-3",
+      "dolphin_vi": 524,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-early-up-4",
+      "native": "equip-scroll-early-up-4",
+      "dolphin_vi": 525,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-next-0",
+      "native": "equip-scroll-next-0",
+      "dolphin_vi": 551,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-next-1",
+      "native": "equip-scroll-next-1",
+      "dolphin_vi": 552,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-next-2",
+      "native": "equip-scroll-next-2",
+      "dolphin_vi": 553,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-next-3",
+      "native": "equip-scroll-next-3",
+      "dolphin_vi": 554,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-next-4",
+      "native": "equip-scroll-next-4",
+      "dolphin_vi": 555,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-scroll-next-5",
+      "native": "equip-scroll-next-5",
+      "dolphin_vi": 556,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-580",
+      "native": "equip-page-580",
+      "dolphin_vi": 580,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-581",
+      "native": "equip-page-581",
+      "dolphin_vi": 581,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-600",
+      "native": "equip-page-600",
+      "dolphin_vi": 600,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-601",
+      "native": "equip-page-601",
+      "dolphin_vi": 601,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-630",
+      "native": "equip-page-630",
+      "dolphin_vi": 630,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-631",
+      "native": "equip-page-631",
+      "dolphin_vi": 631,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-660",
+      "native": "equip-page-660",
+      "dolphin_vi": 660,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-661",
+      "native": "equip-page-661",
+      "dolphin_vi": 661,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-690",
+      "native": "equip-page-690",
+      "dolphin_vi": 690,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-691",
+      "native": "equip-page-691",
+      "dolphin_vi": 691,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-720",
+      "native": "equip-page-720",
+      "dolphin_vi": 720,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-721",
+      "native": "equip-page-721",
+      "dolphin_vi": 721,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-750",
+      "native": "equip-page-750",
+      "dolphin_vi": 750,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-page-751",
+      "native": "equip-page-751",
+      "dolphin_vi": 751,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-sort-0",
+      "native": "equip-sort-0",
+      "dolphin_vi": 760,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-sort-1",
+      "native": "equip-sort-1",
+      "dolphin_vi": 761,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-sort-2",
+      "native": "equip-sort-2",
+      "dolphin_vi": 762,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-0",
+      "native": "equip-close-0",
+      "dolphin_vi": 861,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-1",
+      "native": "equip-close-1",
+      "dolphin_vi": 862,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-2",
+      "native": "equip-close-2",
+      "dolphin_vi": 863,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-3",
+      "native": "equip-close-3",
+      "dolphin_vi": 864,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-4",
+      "native": "equip-close-4",
+      "dolphin_vi": 865,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-5",
+      "native": "equip-close-5",
+      "dolphin_vi": 866,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-6",
+      "native": "equip-close-6",
+      "dolphin_vi": 867,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-7",
+      "native": "equip-close-7",
+      "dolphin_vi": 868,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-8",
+      "native": "equip-close-8",
+      "dolphin_vi": 869,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-9",
+      "native": "equip-close-9",
+      "dolphin_vi": 870,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-11",
+      "native": "equip-close-11",
+      "dolphin_vi": 872,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-12",
+      "native": "equip-close-12",
+      "dolphin_vi": 873,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-13",
+      "native": "equip-close-13",
+      "dolphin_vi": 874,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-14",
+      "native": "equip-close-14",
+      "dolphin_vi": 875,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-15",
+      "native": "equip-close-15",
+      "dolphin_vi": 876,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-16",
+      "native": "equip-close-16",
+      "dolphin_vi": 877,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-17",
+      "native": "equip-close-17",
+      "dolphin_vi": 878,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-18",
+      "native": "equip-close-18",
+      "dolphin_vi": 879,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-19",
+      "native": "equip-close-19",
+      "dolphin_vi": 880,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-20",
+      "native": "equip-close-20",
+      "dolphin_vi": 881,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-21",
+      "native": "equip-close-21",
+      "dolphin_vi": 882,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-0",
+      "native": "equip-reopen-0",
+      "dolphin_vi": 951,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-1",
+      "native": "equip-reopen-1",
+      "dolphin_vi": 952,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-2",
+      "native": "equip-reopen-2",
+      "dolphin_vi": 953,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-3",
+      "native": "equip-reopen-3",
+      "dolphin_vi": 954,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-4",
+      "native": "equip-reopen-4",
+      "dolphin_vi": 955,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-5",
+      "native": "equip-reopen-5",
+      "dolphin_vi": 956,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-6",
+      "native": "equip-reopen-6",
+      "dolphin_vi": 957,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-7",
+      "native": "equip-reopen-7",
+      "dolphin_vi": 958,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-8",
+      "native": "equip-reopen-8",
+      "dolphin_vi": 959,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-9",
+      "native": "equip-reopen-9",
+      "dolphin_vi": 960,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-10",
+      "native": "equip-reopen-10",
+      "dolphin_vi": 961,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-11",
+      "native": "equip-reopen-11",
+      "dolphin_vi": 962,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-12",
+      "native": "equip-reopen-12",
+      "dolphin_vi": 963,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-13",
+      "native": "equip-reopen-13",
+      "dolphin_vi": 964,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-14",
+      "native": "equip-reopen-14",
+      "dolphin_vi": 965,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-15",
+      "native": "equip-reopen-15",
+      "dolphin_vi": 966,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-16",
+      "native": "equip-reopen-16",
+      "dolphin_vi": 967,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-17",
+      "native": "equip-reopen-17",
+      "dolphin_vi": 968,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-18",
+      "native": "equip-reopen-18",
+      "dolphin_vi": 969,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-19",
+      "native": "equip-reopen-19",
+      "dolphin_vi": 970,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-20",
+      "native": "equip-reopen-20",
+      "dolphin_vi": 971,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-21",
+      "native": "equip-reopen-21",
+      "dolphin_vi": 972,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-22",
+      "native": "equip-reopen-22",
+      "dolphin_vi": 973,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-reopen-23",
+      "native": "equip-reopen-23",
+      "dolphin_vi": 974,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-0",
+      "native": "equip-close-again-0",
+      "dolphin_vi": 1021,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-1",
+      "native": "equip-close-again-1",
+      "dolphin_vi": 1022,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-2",
+      "native": "equip-close-again-2",
+      "dolphin_vi": 1023,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-3",
+      "native": "equip-close-again-3",
+      "dolphin_vi": 1024,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-4",
+      "native": "equip-close-again-4",
+      "dolphin_vi": 1025,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-5",
+      "native": "equip-close-again-5",
+      "dolphin_vi": 1026,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-6",
+      "native": "equip-close-again-6",
+      "dolphin_vi": 1027,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-7",
+      "native": "equip-close-again-7",
+      "dolphin_vi": 1028,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-8",
+      "native": "equip-close-again-8",
+      "dolphin_vi": 1029,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-9",
+      "native": "equip-close-again-9",
+      "dolphin_vi": 1030,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-11",
+      "native": "equip-close-again-11",
+      "dolphin_vi": 1032,
+      "equipment_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-12",
+      "native": "equip-close-again-12",
+      "dolphin_vi": 1033,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-13",
+      "native": "equip-close-again-13",
+      "dolphin_vi": 1034,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-14",
+      "native": "equip-close-again-14",
+      "dolphin_vi": 1035,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-15",
+      "native": "equip-close-again-15",
+      "dolphin_vi": 1036,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-16",
+      "native": "equip-close-again-16",
+      "dolphin_vi": 1037,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-17",
+      "native": "equip-close-again-17",
+      "dolphin_vi": 1038,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-18",
+      "native": "equip-close-again-18",
+      "dolphin_vi": 1039,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-19",
+      "native": "equip-close-again-19",
+      "dolphin_vi": 1040,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-20",
+      "native": "equip-close-again-20",
+      "dolphin_vi": 1041,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "equip-close-again-21",
+      "native": "equip-close-again-21",
+      "dolphin_vi": 1042,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-0",
+      "native": "tech-enter-0",
+      "dolphin_vi": 1171,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-1",
+      "native": "tech-enter-1",
+      "dolphin_vi": 1172,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-2",
+      "native": "tech-enter-2",
+      "dolphin_vi": 1173,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-3",
+      "native": "tech-enter-3",
+      "dolphin_vi": 1174,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-4",
+      "native": "tech-enter-4",
+      "dolphin_vi": 1175,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-5",
+      "native": "tech-enter-5",
+      "dolphin_vi": 1176,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-6",
+      "native": "tech-enter-6",
+      "dolphin_vi": 1177,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-7",
+      "native": "tech-enter-7",
+      "dolphin_vi": 1178,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-8",
+      "native": "tech-enter-8",
+      "dolphin_vi": 1179,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-9",
+      "native": "tech-enter-9",
+      "dolphin_vi": 1180,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-10",
+      "native": "tech-enter-10",
+      "dolphin_vi": 1181,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-11",
+      "native": "tech-enter-11",
+      "dolphin_vi": 1182,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-12",
+      "native": "tech-enter-12",
+      "dolphin_vi": 1183,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-13",
+      "native": "tech-enter-13",
+      "dolphin_vi": 1184,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-14",
+      "native": "tech-enter-14",
+      "dolphin_vi": 1185,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-15",
+      "native": "tech-enter-15",
+      "dolphin_vi": 1186,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-16",
+      "native": "tech-enter-16",
+      "dolphin_vi": 1187,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-17",
+      "native": "tech-enter-17",
+      "dolphin_vi": 1188,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-18",
+      "native": "tech-enter-18",
+      "dolphin_vi": 1189,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-19",
+      "native": "tech-enter-19",
+      "dolphin_vi": 1190,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-20",
+      "native": "tech-enter-20",
+      "dolphin_vi": 1191,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-21",
+      "native": "tech-enter-21",
+      "dolphin_vi": 1192,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-22",
+      "native": "tech-enter-22",
+      "dolphin_vi": 1193,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-23",
+      "native": "tech-enter-23",
+      "dolphin_vi": 1194,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-24",
+      "native": "tech-enter-24",
+      "dolphin_vi": 1195,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-25",
+      "native": "tech-enter-25",
+      "dolphin_vi": 1196,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-26",
+      "native": "tech-enter-26",
+      "dolphin_vi": 1197,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-enter-27",
+      "native": "tech-enter-27",
+      "dolphin_vi": 1198,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-before-scroll",
+      "native": "tech-before-scroll",
+      "dolphin_vi": 1400,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-early-up-0",
+      "native": "tech-scroll-early-up-0",
+      "dolphin_vi": 1401,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-early-up-1",
+      "native": "tech-scroll-early-up-1",
+      "dolphin_vi": 1402,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-early-up-2",
+      "native": "tech-scroll-early-up-2",
+      "dolphin_vi": 1403,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-early-up-3",
+      "native": "tech-scroll-early-up-3",
+      "dolphin_vi": 1404,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-early-up-4",
+      "native": "tech-scroll-early-up-4",
+      "dolphin_vi": 1405,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-early-up-5",
+      "native": "tech-scroll-early-up-5",
+      "dolphin_vi": 1406,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-next-0",
+      "native": "tech-scroll-next-0",
+      "dolphin_vi": 1431,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-next-1",
+      "native": "tech-scroll-next-1",
+      "dolphin_vi": 1432,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-next-2",
+      "native": "tech-scroll-next-2",
+      "dolphin_vi": 1433,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-next-3",
+      "native": "tech-scroll-next-3",
+      "dolphin_vi": 1434,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-scroll-next-4",
+      "native": "tech-scroll-next-4",
+      "dolphin_vi": 1435,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-0",
+      "native": "tech-close-0",
+      "dolphin_vi": 1581,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-1",
+      "native": "tech-close-1",
+      "dolphin_vi": 1582,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-2",
+      "native": "tech-close-2",
+      "dolphin_vi": 1583,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-3",
+      "native": "tech-close-3",
+      "dolphin_vi": 1584,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-4",
+      "native": "tech-close-4",
+      "dolphin_vi": 1585,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-5",
+      "native": "tech-close-5",
+      "dolphin_vi": 1586,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-6",
+      "native": "tech-close-6",
+      "dolphin_vi": 1587,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-7",
+      "native": "tech-close-7",
+      "dolphin_vi": 1588,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-8",
+      "native": "tech-close-8",
+      "dolphin_vi": 1589,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-9",
+      "native": "tech-close-9",
+      "dolphin_vi": 1590,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-10",
+      "native": "tech-close-10",
+      "dolphin_vi": 1591,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-11",
+      "native": "tech-close-11",
+      "dolphin_vi": 1592,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-12",
+      "native": "tech-close-12",
+      "dolphin_vi": 1593,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-13",
+      "native": "tech-close-13",
+      "dolphin_vi": 1594,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-14",
+      "native": "tech-close-14",
+      "dolphin_vi": 1595,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-15",
+      "native": "tech-close-15",
+      "dolphin_vi": 1596,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-16",
+      "native": "tech-close-16",
+      "dolphin_vi": 1597,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-17",
+      "native": "tech-close-17",
+      "dolphin_vi": 1598,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-18",
+      "native": "tech-close-18",
+      "dolphin_vi": 1599,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-19",
+      "native": "tech-close-19",
+      "dolphin_vi": 1600,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-20",
+      "native": "tech-close-20",
+      "dolphin_vi": 1601,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-21",
+      "native": "tech-close-21",
+      "dolphin_vi": 1602,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-0",
+      "native": "tech-reopen-0",
+      "dolphin_vi": 1681,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-1",
+      "native": "tech-reopen-1",
+      "dolphin_vi": 1682,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-2",
+      "native": "tech-reopen-2",
+      "dolphin_vi": 1683,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-3",
+      "native": "tech-reopen-3",
+      "dolphin_vi": 1684,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-4",
+      "native": "tech-reopen-4",
+      "dolphin_vi": 1685,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-5",
+      "native": "tech-reopen-5",
+      "dolphin_vi": 1686,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-6",
+      "native": "tech-reopen-6",
+      "dolphin_vi": 1687,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-7",
+      "native": "tech-reopen-7",
+      "dolphin_vi": 1688,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-8",
+      "native": "tech-reopen-8",
+      "dolphin_vi": 1689,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-9",
+      "native": "tech-reopen-9",
+      "dolphin_vi": 1690,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-10",
+      "native": "tech-reopen-10",
+      "dolphin_vi": 1691,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-11",
+      "native": "tech-reopen-11",
+      "dolphin_vi": 1692,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-12",
+      "native": "tech-reopen-12",
+      "dolphin_vi": 1693,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-13",
+      "native": "tech-reopen-13",
+      "dolphin_vi": 1694,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-14",
+      "native": "tech-reopen-14",
+      "dolphin_vi": 1695,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-15",
+      "native": "tech-reopen-15",
+      "dolphin_vi": 1696,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-16",
+      "native": "tech-reopen-16",
+      "dolphin_vi": 1697,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-17",
+      "native": "tech-reopen-17",
+      "dolphin_vi": 1698,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-18",
+      "native": "tech-reopen-18",
+      "dolphin_vi": 1699,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-19",
+      "native": "tech-reopen-19",
+      "dolphin_vi": 1700,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-20",
+      "native": "tech-reopen-20",
+      "dolphin_vi": 1701,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-21",
+      "native": "tech-reopen-21",
+      "dolphin_vi": 1702,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-22",
+      "native": "tech-reopen-22",
+      "dolphin_vi": 1703,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-23",
+      "native": "tech-reopen-23",
+      "dolphin_vi": 1704,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-24",
+      "native": "tech-reopen-24",
+      "dolphin_vi": 1705,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-25",
+      "native": "tech-reopen-25",
+      "dolphin_vi": 1706,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-26",
+      "native": "tech-reopen-26",
+      "dolphin_vi": 1707,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-reopen-27",
+      "native": "tech-reopen-27",
+      "dolphin_vi": 1708,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-0",
+      "native": "tech-close-again-0",
+      "dolphin_vi": 1761,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-1",
+      "native": "tech-close-again-1",
+      "dolphin_vi": 1762,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-2",
+      "native": "tech-close-again-2",
+      "dolphin_vi": 1763,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-3",
+      "native": "tech-close-again-3",
+      "dolphin_vi": 1764,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-4",
+      "native": "tech-close-again-4",
+      "dolphin_vi": 1765,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-5",
+      "native": "tech-close-again-5",
+      "dolphin_vi": 1766,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-6",
+      "native": "tech-close-again-6",
+      "dolphin_vi": 1767,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-7",
+      "native": "tech-close-again-7",
+      "dolphin_vi": 1768,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-8",
+      "native": "tech-close-again-8",
+      "dolphin_vi": 1769,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-9",
+      "native": "tech-close-again-9",
+      "dolphin_vi": 1770,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-10",
+      "native": "tech-close-again-10",
+      "dolphin_vi": 1771,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-11",
+      "native": "tech-close-again-11",
+      "dolphin_vi": 1772,
+      "tech_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-12",
+      "native": "tech-close-again-12",
+      "dolphin_vi": 1773,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-13",
+      "native": "tech-close-again-13",
+      "dolphin_vi": 1774,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-14",
+      "native": "tech-close-again-14",
+      "dolphin_vi": 1775,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-15",
+      "native": "tech-close-again-15",
+      "dolphin_vi": 1776,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-16",
+      "native": "tech-close-again-16",
+      "dolphin_vi": 1777,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-17",
+      "native": "tech-close-again-17",
+      "dolphin_vi": 1778,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-18",
+      "native": "tech-close-again-18",
+      "dolphin_vi": 1779,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-19",
+      "native": "tech-close-again-19",
+      "dolphin_vi": 1780,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-20",
+      "native": "tech-close-again-20",
+      "dolphin_vi": 1781,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    },
+    {
+      "name": "tech-close-again-21",
+      "native": "tech-close-again-21",
+      "dolphin_vi": 1782,
+      "main_menu_state": true,
+      "party_state": true,
+      "effect_state": true
+    }
+  ],
+  "audio": []
+}
