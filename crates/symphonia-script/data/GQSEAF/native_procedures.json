@@ -1493,13 +1493,13 @@
     },
     {
       "opcode": 78,
-      "name": "native_4e",
+      "name": "set_touch_trigger_metadata",
       "handler": "fn_800513CC",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3"
+        "record_key",
+        "action_hint",
+        "preload_hint",
+        "destination_hint"
       ],
       "argument_types": [
         "i32",
@@ -1507,7 +1507,9 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "returns_value": false,
+      "confidence": "semantic-high",
+      "notes": "Updates the first matching status 1 touch trigger: action and preload hints are truncated to 16 bits, destination hint retains 32 bits. Both line and area touch records are eligible. Missing records are unchanged; activation type is preserved.",
       "source": "src/game/fn_800513CC.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -1962,15 +1964,18 @@
     },
     {
       "opcode": 103,
-      "name": "native_67",
+      "name": "open_menu",
       "handler": "fn_8004DF60",
       "arguments": [
-        "arg0"
+        "selector"
       ],
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
+      "returns_value": true,
+      "yields": true,
+      "notes": "Suspends while a script-selected shop or menu is open. Completion returns zero and clears script status globals 0x24 and 0x28, including on cancellation (fn_8005B3F0 state 25). Normal shop IDs select the shared inventory table.",
       "source": "src/game/fn_8004DF60.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -3172,13 +3177,13 @@
     },
     {
       "opcode": 163,
-      "name": "native_a3",
+      "name": "set_camera_eye",
       "handler": "fn_80049E6C",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3"
+        "mode",
+        "x",
+        "y",
+        "z"
       ],
       "argument_types": [
         "i32",
@@ -3186,7 +3191,9 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "returns_value": false,
+      "confidence": "semantic-high",
+      "notes": "Mode 0 sets the selected or entry camera eye; mode 1 translates it. Other modes retain the eye. A following camera refreshes its actor target and derives both current and desired orbit angles/distance. Restarts camera easing.",
       "source": "src/game/fn_80049E6C.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -3299,11 +3306,14 @@
     },
     {
       "opcode": 169,
-      "name": "native_a9",
+      "name": "reset_camera_bounds",
       "handler": "fn_80048B44",
       "arguments": [],
       "argument_types": [],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
+      "returns_value": false,
+      "yields": false,
+      "notes": "Restores the selected or entry camera's position and target bounds to -100000..100000 and clears both settled flags.",
       "source": "src/game/fn_80048B44.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true

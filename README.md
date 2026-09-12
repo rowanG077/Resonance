@@ -8,10 +8,11 @@ Symphonia, built from the ground up using Bevy. The project aims to:
 - Support editing existing events and skits, and creating new ones.
 - Enable players to edit fields and build new areas, storylines and content.
 
-The current playable route runs from startup through New Game and the classroom,
-including NPC conversations and the doorway event. Broader game coverage and
-modding tools remain development goals. The connected school grounds and village
-are under development; their visuals, interactions and save menus are unfinished.
+The playable route runs from startup through New Game, the classroom and Iselia's
+connected grounds, village and interiors, including Halo's shop and the Genis
+cooking tutorial. Milestone 3 adds field menus, ordinary saves and quicksaves,
+skits and Dolphin regression coverage for this route. Broader game coverage and
+modding tools remain in development.
 
 ## Build and cook
 
@@ -23,6 +24,7 @@ these cooked files.
 nix develop
 cargo build --workspace
 target/debug/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
+target/debug/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
 target/debug/resonance-import cook-title --extracted local/extracted/disc1
 target/debug/resonance-import cook-boot
 target/debug/resonance-import cook-title-audio --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
@@ -31,13 +33,18 @@ target/debug/resonance-import cook-intro
 target/debug/resonance-import cook-story-intro
 target/debug/resonance-import cook-classroom
 target/debug/resonance-import cook-classroom-audio --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
-target/debug/resonance-import cook-field --map 332
-target/debug/resonance-import cook-field-audio --map 332 --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
-target/debug/resonance-import cook-field --map 330
-target/debug/resonance-import cook-field-audio --map 330 --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
+for map in 330 331 332 333 334 335 336 337 338 339; do
+  target/debug/resonance-import cook-field --map "$map"
+  target/debug/resonance-import cook-field-audio --map "$map" \
+    --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin \
+    --additional-disc local/extracted/disc2
+done
+target/debug/resonance-import validate-shops --json local/shop-inventories.json
 ```
 
-The current import profile supports North American disc 1, GQSEAF revision 0.
+The current import profile supports North American GQSEAF revision 0.
+Disc 2 supplies later-story voices referenced by Colette's house; the importer
+checks the primary disc first and uses `--additional-disc` for missing archives.
 Extraction is a one-time step. Cooks reuse valid outputs and default to
 `local/extracted/disc1` and `local/cooked`; inspect each command's `--help` for
 other paths. Keep discs, extracted files, cooked assets and recordings in the
@@ -49,18 +56,13 @@ recipes, ingredients, item statistics, EX skill definitions and menu settings in
 Executable addresses and packed table layouts stay inside the importer; the
 player reads the converted records.
 
-Field cooking includes skit scripts, animated portraits and media timing. To
-refresh an existing installation, run `target/debug/resonance-import cook-skits`.
-The English disc's skit tracks are silent; cooking verifies that and retains their
-duration without storing silent audio files. Refresh existing menu assets with
-`target/debug/resonance-import cook-menu`.
-Refresh older shared field effects with `target/debug/resonance-import cook-effects`;
-this also updates their preload manifests.
-`target/debug/resonance-import cook-monsters` prepares the enemy catalogue as
-named JSON records with converted meshes, textures and idle animation clips.
-`cook-menu` includes those records and prepares any missing monster assets.
-For an older cook, also repeat the classroom and field audio commands above to
-include item recovery and menu paging sounds.
+Field cooking includes skit scripts, animated portraits and media timing. The
+English disc's skit tracks are silent; cooking verifies that and retains their
+duration without storing silent audio files. Shared content can be refreshed with
+`cook-skits`, `cook-menu`, `cook-text` and `cook-effects`; dependent field manifests
+refresh with them. After a separate `cook-monsters` run, use `cook-menu` to refresh
+embedded catalogue records. Field audio includes every declared script
+branch and shared menu sounds. Repeat the cooking commands after importer changes.
 
 ## Play
 
@@ -108,21 +110,10 @@ formation order are saved independently; Escape cancels a pending exchange.
 In Items, Q/E changes category while the item list has focus; Left/Right selects
 category tabs. Enter or Down enters a category at its first item, and Page Up/Down
 jumps a full page.
-Open the Collector's Book from Items → Key Items. It records discovered items
-even after they leave inventory, with completion percentages for each category.
-Q/E changes its category; Page Up/Down scrolls a full page.
-Owned world maps also open from Key Items. Select a visited location to browse its
-shops; stock is shown for shops you have visited. Enter opens each list and Escape
-returns to the previous one.
-The owned Monster List opens from Key Items. Left/Right changes the monster,
-Q/E jumps ten entries, Up/Down changes discovered repeat-battle statistics,
-and X opens the selection list. Unscanned statistics remain hidden.
-The owned Training Manual opens from Key Items and shows learned topics.
-Up/Down selects a chapter or topic, Enter opens a chapter, and Page Up/Down
-changes the reading paragraph. Escape returns to chapters, then Items.
-The owned Figurine Book opens from Key Items once you have collected a figurine.
-Up/Down selects a collected figurine, Page Up/Down jumps a page, and Escape returns
-to Items.
+Owned books and world maps open from Items → Key Items. They show discovered
+items, monsters, figurines, learned topics and visited locations/shops. Lists use
+the navigation controls above; the Monster List also uses Left/Right to select,
+Q/E to jump ten entries, Up/Down for repeat-battle statistics and X for its list.
 
 Quicksaves work during free field movement. They restore progress and the player's
 location by restarting the field; animations and music start afresh. Use
@@ -133,7 +124,7 @@ Events, dialogue, menus, movies and transitions reject quicksaves immediately;
 requests are never deferred until control returns. At a memory circle, Confirm
 opens Save. The field menu's System page provides save/load with separate
 filesystem slots. The title's Load option opens the same slots after restarting
-the game. Menu artwork is still being matched to Dolphin.
+the game. Ordinary saves and quicksaves share the same underlying format.
 System → Customize edits saved preferences. Escape applies the draft and returns
 to the main menu; its Cancel action discards edits, and Default restores defaults.
 Music volume previews while editing; effect levels and stereo apply when you leave Customize.
@@ -162,7 +153,6 @@ The supported route has been exercised on ARM Linux; Windows, Steam Deck and
 Apple Silicon macOS hardware validation remains pending. Intel macOS is out
 of scope.
 
-- [Plan and milestone scope](PLAN.md)
 - [SymphoniaScript and native registration](docs/symphonia-script.md)
 - [Audio/video ownership and clocks](docs/audio-video-architecture.md)
 - [Field preparation](docs/field-preloading.md)

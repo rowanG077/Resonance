@@ -1,0 +1,462 @@
+{
+  "version": 1,
+  "presentation_origin": 39134,
+  "updates": 608,
+  "inputs": [
+    {
+      "update": 85,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 87,
+      "keys": []
+    },
+    {
+      "update": 289,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 299,
+      "keys": []
+    },
+    {
+      "update": 329,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 331,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "64": "vi-0",
+    "65": "vi-1",
+    "247": "vi-199",
+    "248": "vi-200",
+    "249": "vi-201",
+    "277": "vi-229",
+    "278": "vi-230",
+    "279": "vi-231",
+    "326": "vi-278",
+    "327": "vi-279",
+    "328": "vi-280",
+    "387": "vi-359",
+    "388": "vi-360",
+    "389": "vi-361",
+    "477": "vi-449",
+    "478": "vi-450",
+    "479": "vi-451",
+    "606": "vi-578",
+    "607": "vi-579",
+    "608": "vi-580"
+  },
+  "ambient_origin": {
+    "update": 64,
+    "flutters": [
+      {
+        "kind": 25,
+        "age": 34,
+        "lifetime": 150,
+        "position": [
+          -1241.349365234375,
+          1681.85498046875,
+          221.89987182617188
+        ],
+        "size": 25,
+        "rgba": [
+          13,
+          48,
+          4,
+          255
+        ],
+        "motion": {
+          "rotation": [
+            4747,
+            21718,
+            29717.97265625
+          ],
+          "fall_speed": 1.659999966621399,
+          "spin": 0.2,
+          "heading": 6,
+          "turn_after": 15
+        }
+      },
+      {
+        "kind": 25,
+        "age": 19,
+        "lifetime": 150,
+        "position": [
+          -1206.065185546875,
+          1670,
+          241.599853515625
+        ],
+        "size": 25,
+        "rgba": [
+          13,
+          48,
+          4,
+          255
+        ],
+        "motion": {
+          "rotation": [
+            16979,
+            13119,
+            11152.00390625
+          ],
+          "fall_speed": 1.9199999570846558,
+          "spin": 0.2,
+          "heading": 0,
+          "turn_after": 15
+        }
+      }
+    ],
+    "background_waits": [
+      {
+        "key": 3000,
+        "pc": 15352,
+        "remaining": 235,
+        "require_control": false
+      },
+      {
+        "key": 3100,
+        "pc": 15460,
+        "remaining": 260,
+        "require_control": false
+      }
+    ],
+    "save_sparks": [],
+    "camera": {
+      "settings": {
+        "axes": [
+          true,
+          true,
+          true
+        ],
+        "fixed_position": [
+          0,
+          0,
+          0
+        ],
+        "angles": [
+          330,
+          0,
+          38
+        ],
+        "offset": [
+          0,
+          0,
+          87
+        ],
+        "distance": 1669,
+        "fov_degrees": 27,
+        "position_bounds": [
+          [
+            -10000,
+            10000
+          ],
+          [
+            -852,
+            805
+          ],
+          [
+            -10000,
+            10000
+          ]
+        ],
+        "target_bounds": [
+          [
+            -10000,
+            10000
+          ],
+          [
+            229,
+            2109
+          ],
+          [
+            -10000,
+            10000
+          ]
+        ],
+        "position_rate": 8,
+        "target_rate": 8
+      },
+      "angles": [
+        330.875,
+        0,
+        38.875
+      ],
+      "distance": 1669.00048828125,
+      "position": [
+        -1940.39501953125,
+        378.119140625,
+        965.7348022460938
+      ],
+      "target": [
+        -2855.4521484375,
+        1513.175048828125,
+        153.404296875
+      ]
+    },
+    "skit": {
+      "id": 600,
+      "control_ticks": 7630,
+      "remaining": 1369,
+      "opacity": 255,
+      "text_opacity": 255
+    },
+    "samples": {
+      "999980": 16,
+      "999996": 16,
+      "999998": 216
+    },
+    "effect_tick": 38686,
+    "random_state": 4100200060,
+    "gameplay_random": "uninitialized",
+    "actors": {
+      "1": {
+        "autonomy": {
+          "behavior": "player",
+          "speed": 0,
+          "home": [
+            -2264.90771484375,
+            1665.865966796875,
+            73.68734741210938
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 75,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          -2855.4521484375,
+          1513.175048828125,
+          66.404296875
+        ],
+        "heading": 218,
+        "target_heading": 218,
+        "animation_slot": 12,
+        "animation_sample": 55,
+        "animation_repeat": true
+      },
+      "101": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -488,
+            123,
+            50
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 76,
+          "initialized": true,
+          "floor_available": false,
+          "conversing": false
+        },
+        "position": [
+          -488,
+          123,
+          50
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      },
+      "102": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -802,
+            423,
+            50
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 162,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          -802,
+          423,
+          50
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      },
+      "103": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            810,
+            2248,
+            50
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 104,
+          "initialized": true,
+          "floor_available": false,
+          "conversing": false
+        },
+        "position": [
+          810,
+          2248,
+          50
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      },
+      "200": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -89,
+            239,
+            -44
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 56,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          -89,
+          239,
+          -44.056644439697266
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": 12,
+        "animation_sample": 11,
+        "animation_repeat": true
+      },
+      "201": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            140,
+            269,
+            -46
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 25,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          140,
+          269,
+          -44.04754638671875
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": 12,
+        "animation_sample": 41,
+        "animation_repeat": true
+      },
+      "202": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -621,
+            36,
+            502
+          ],
+          "radius": 600,
+          "activity": "select",
+          "remaining": -1,
+          "initialized": false,
+          "floor_available": false,
+          "conversing": false
+        },
+        "position": [
+          -621,
+          36,
+          502
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": 12,
+        "animation_sample": 1,
+        "animation_repeat": true
+      },
+      "90020": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            1,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 112,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      }
+    },
+    "eyes": {
+      "1": {
+        "tick": 57,
+        "frame": 0
+      },
+      "200": {
+        "tick": 23,
+        "frame": 0
+      },
+      "201": {
+        "tick": 122,
+        "frame": 0
+      },
+      "202": {
+        "tick": 35,
+        "frame": 0
+      }
+    }
+  },
+  "presentation_advances": {
+    "177": 16,
+    "333": 20
+  }
+}

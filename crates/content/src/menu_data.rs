@@ -118,6 +118,7 @@ pub struct Item {
     pub equipment_stats: [i16; 7],
     #[serde(default)]
     pub properties: EquipmentProperties,
+    /// Base sale value; shop purchase prices apply the trade multiplier.
     pub price: u32,
     pub transforms_to: u16,
     pub field_use: Option<ItemUse>,

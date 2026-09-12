@@ -1,5 +1,5 @@
 use super::*;
-use resonance_content::menu_data::{MapLocation, MapShop};
+use resonance_content::menu_data::{MapLocation, Shop};
 
 pub const LOCATION_ROWS: usize = 9;
 pub const ITEM_ROWS: usize = 8;
@@ -109,7 +109,7 @@ impl Menu {
             })
     }
 
-    pub fn map_shop(&self) -> Option<(u8, &MapShop)> {
+    pub fn map_shop(&self) -> Option<(u8, &Shop)> {
         let &id = self.map_shops().get(self.world_map.shop)?;
         Some((
             id,

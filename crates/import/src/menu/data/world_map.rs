@@ -1,7 +1,12 @@
 use super::*;
-use resonance_content::menu_data::{MapLocation, MapShop, MapShopVariant, WorldMapData};
+use resonance_content::menu_data::{MapLocation, MapShopVariant, Shop, WorldMapData};
 
-pub(super) fn cook(
+const SHOP_COUNT: usize = 52;
+const SHOP_ROW_SIZE: usize = 48;
+const SHOP_MAX_STOCK: usize = 21;
+const SHOP_TABLE: u32 = 0x80230980;
+
+pub(in crate::menu) fn cook(
     executable: &[u8],
     text: &impl Fn(&[u8], usize) -> Result<String>,
 ) -> Result<WorldMapData> {
@@ -69,18 +74,25 @@ pub(super) fn cook(
             (!matches!(id, 0 | 0x100 | 0x200)).then_some((field as u32, id))
         })
         .collect();
-    let shops = dol::slice(executable, 0x80230980, 52 * 48)?
-        .chunks_exact(48)
-        .map(|row| {
+    let shops = dol::slice(executable, SHOP_TABLE, SHOP_COUNT * SHOP_ROW_SIZE)?
+        .chunks_exact(SHOP_ROW_SIZE)
+        .enumerate()
+        .map(|(id, row)| {
             let count = usize::from(half(row, 4));
-            ensure!(count <= 21, "invalid map shop inventory");
-            Ok(MapShop {
+            ensure!(
+                (1..=SHOP_MAX_STOCK).contains(&count),
+                "invalid shop {id} inventory count"
+            );
+            // Unused slots may retain old stock; only the declared count is live.
+            let shop = Shop {
                 name: text(row, 0)?,
                 items: row[6..6 + count * 2]
                     .chunks_exact(2)
                     .map(|v| half(v, 0))
                     .collect(),
-            })
+            };
+            shop.validate(528)?;
+            Ok(shop)
         })
         .collect::<Result<_>>()?;
     Ok(WorldMapData {

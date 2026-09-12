@@ -95,7 +95,11 @@ pub(super) fn cook(
         ensure!(count <= 512, "too many portrait expressions");
         let columns = (count as f32).sqrt().ceil() as u32;
         let rows = (count as u32).div_ceil(columns);
-        let mut atlas = image::RgbaImage::new(width * columns, height * rows);
+        // Each source portrait is clamped independently. Duplicate its edge
+        // texels so linear filtering cannot reach the next atlas expression.
+        let cell_width = width + 2;
+        let cell_height = height + 2;
+        let mut atlas = image::RgbaImage::new(cell_width * columns, cell_height * rows);
         let base = image::RgbaImage::from_raw(width, height, textures[0].2.clone())
             .context("portrait pixels")?;
         let mut variants = Vec::new();
@@ -122,12 +126,12 @@ pub(super) fn cook(
                         }
                     }
                     let n = variants.len() as u32;
-                    let x = n % columns * width;
-                    let y = n / columns * height;
-                    image::imageops::replace(&mut atlas, &pixels, i64::from(x), i64::from(y));
+                    let x = n % columns * cell_width;
+                    let y = n / columns * cell_height;
+                    copy_with_gutter(&mut atlas, &pixels, x, y);
                     variants.push(PortraitVariant {
                         images,
-                        rect: [x, y, width, height],
+                        rect: [x + 1, y + 1, width, height],
                     });
                 }
             }
@@ -159,4 +163,43 @@ pub(super) fn cook(
     }
     println!("Cooked {} portrait expression atlases", result.len());
     Ok(result)
+}
+
+fn copy_with_gutter(atlas: &mut image::RgbaImage, pixels: &image::RgbaImage, x: u32, y: u32) {
+    let (width, height) = pixels.dimensions();
+    for py in 0..height + 2 {
+        for px in 0..width + 2 {
+            let pixel = pixels.get_pixel(
+                px.saturating_sub(1).min(width - 1),
+                py.saturating_sub(1).min(height - 1),
+            );
+            atlas.put_pixel(x + px, y + py, *pixel);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{Rgba, RgbaImage, imageops::sample_bilinear};
+
+    #[test]
+    fn atlas_filtering_matches_the_standalone_clamped_portrait() {
+        let portrait = RgbaImage::from_fn(2, 2, |x, y| {
+            Rgba([40 + x as u8 * 180, y as u8 * 120, 80, (1 - x) as u8 * 255])
+        });
+        let mut atlas = RgbaImage::from_pixel(8, 8, Rgba([255; 4]));
+        copy_with_gutter(&mut atlas, &portrait, 2, 2);
+        // Include samples between an outermost texel's center and image edge,
+        // where an unpadded atlas would pick up its opaque neighbour.
+        for u in [0., 0.125, 0.25, 0.5, 0.75, 0.875, 1.] {
+            for v in [0., 0.125, 0.25, 0.5, 0.75, 0.875, 1.] {
+                assert_eq!(
+                    sample_bilinear(&atlas, (3. + u * 2.) / 8., (3. + v * 2.) / 8.),
+                    sample_bilinear(&portrait, u, v),
+                    "portrait UV ({u}, {v})"
+                );
+            }
+        }
+    }
 }

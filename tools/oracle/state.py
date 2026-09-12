@@ -71,6 +71,12 @@ def inspect(path, library=None):
               "title": {key: u32(address) for key, address in fields.items()}}
     result["title"]["revealed"] = bool(ram[0x35a6c0])
     result["title"]["state_flags"] = struct.unpack_from(">H", ram, 0x35a762)[0]
+    result["action_prompt"] = {
+        "id": u32(0x35a460), "opacity": u32(0x35a464), "remaining": u32(0x35a468),
+    }
+    result["field_presentation"] = {
+        "scene_flags": u32(0x35a760), "control_flags": u32(0x35a73c),
+    }
     # fn_80124BF4: observe the shared generator without advancing it.
     result["random_state"] = u32(0x35a340)
     # Gameplay MT19937 is independent of field animation and particle effects.
@@ -312,6 +318,29 @@ def inspect(path, library=None):
         "position": [floating(0x2c8ed8 + i*4) for i in range(3)],
         "target": [floating(0x2c8ecc + i*4) for i in range(3)],
         "view_matrix": [floating(0x2caf50 + i*4) for i in range(12)],
+    }
+    # Camera properties are persistent settings; the live fractional orbit is
+    # separate oracle state (fn_8004A3F8, fn_8005F1E8).
+    axes = [bool(ram[camera_base + 0x10] & bit) for bit in (4, 2, 1)]
+    result["field_camera"]["position_settled"] = bool(ram[0x35a589])
+    result["field_camera"]["target_settled"] = bool(ram[0x35a588])
+    result["field_camera"]["oracle_origin"] = {
+        "settings": {
+            "axes": axes,
+            "fixed_position": [0.0 if axes[i] else floating(camera_base + 0x34 + i*4) for i in range(3)],
+            "angles": [floating(camera_base + 0x14 + i*4) for i in range(3)],
+            "offset": result["field_camera"]["offset"],
+            "distance": floating(camera_base + 0x20),
+            "fov_degrees": result["field_camera"]["fov_degrees"],
+            "position_bounds": [[floating(camera_base + 0x64 + i*8 + j*4) for j in range(2)] for i in range(3)],
+            "target_bounds": [[floating(camera_base + 0x7c + i*8 + j*4) for j in range(2)] for i in range(3)],
+            "position_rate": floating(0x2c9084 + 0x5c),
+            "target_rate": floating(0x2c9084 + 0x60),
+        },
+        "angles": [floating(0x2c8ec0 + i*4) for i in range(3)],
+        "distance": floating(0x35a590),
+        "position": result["field_camera"]["position"],
+        "target": result["field_camera"]["target"],
     }
     # fn_800262D0 draws this bounded actor table by signed layer, preserving
     # table order within each layer. Read the model and animation observations

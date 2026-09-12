@@ -32,6 +32,13 @@ pub struct Message {
 /// Offsets are relative to the auxiliary region, with 16- or 32-bit entries.
 /// Validate the complete candidate table; its first offset also gives its size.
 pub fn parse(region: &[u8]) -> Result<Vec<Message>, MessageError> {
+    // An empty table stores a zero offset, followed only by word alignment.
+    if (2..=6).contains(&region.len())
+        && region.len().is_multiple_of(2)
+        && region.iter().all(|&byte| byte == 0)
+    {
+        return Ok(Vec::new());
+    }
     let offsets = [4, 2]
         .into_iter()
         .find_map(|width| offsets(region, width))
@@ -166,6 +173,8 @@ mod tests {
         assert_eq!(messages.len(), 3);
         assert_eq!(messages[0], messages[1]);
         assert_ne!(messages[0], messages[2]);
+        assert!(parse(&[0; 6]).unwrap().is_empty());
+        assert!(parse(&[0; 7]).is_err());
         assert!(parse(&[0, 0, 0, 4]).is_err());
         assert!(parse(&[0, 4, 0, 3, b'A', 0]).is_err());
         assert!(parse(&[0, 2, b'A']).is_err());

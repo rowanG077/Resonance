@@ -234,6 +234,46 @@ impl CameraRig {
             &mut self.cameras[self.selected]
         }
     }
+    /// Set (mode 0) or translate (mode 1) the eye and rebuild a following orbit.
+    pub(crate) fn set_eye(&mut self, mode: i32, position: [f32; 3], actors: &BTreeMap<i32, Actor>) {
+        let editing_entry = self.entry.is_some();
+        let camera = self.command_camera();
+        match mode {
+            0 => camera.position = position,
+            1 => camera.position = std::array::from_fn(|i| camera.position[i] + position[i]),
+            _ => {}
+        }
+        if camera.follow {
+            if let Some(actor) = actors.get(&camera.actor) {
+                camera.target = std::array::from_fn(|i| actor.position[i] + camera.offset[i]);
+            }
+            camera.look_offset = std::array::from_fn(|i| camera.target[i] - camera.position[i]);
+            let [x, y, z] = camera.look_offset;
+            camera.distance = (z * z + (x * x + y * y)).sqrt();
+            let direction = if camera.distance == 0. {
+                [0.; 3]
+            } else {
+                camera.look_offset.map(|value| value / camera.distance)
+            };
+            let pitch = direction[2].asin();
+            camera.angles = [
+                if pitch.is_finite() {
+                    pitch.to_degrees().rem_euclid(360.)
+                } else {
+                    0.
+                },
+                0.,
+                (direction[1].atan2(direction[0]).to_degrees() - 90.).rem_euclid(360.),
+            ];
+            if !editing_entry {
+                let (angles, distance) = (camera.angles, camera.distance);
+                self.angles = angles;
+                self.distance = distance;
+            }
+        }
+        self.position_settled = false;
+        self.target_settled = false;
+    }
     pub fn step(&mut self, actors: &BTreeMap<i32, Actor>) {
         if let Some(motion) = &mut self.motion {
             (self.position, self.target) = motion.step(actors);
@@ -300,6 +340,41 @@ impl CameraRig {
             .as_ref()
             .map_or(self.current().fov_degrees, |m| m.fov.value as f32)
     }
+    /// Padded authored framing keeps nearby actors animating as they enter view.
+    /// This uses game coordinates, independent of output resolution.
+    pub(crate) fn animates(&self, position: [f32; 3]) -> bool {
+        use resonance_content::{HEIGHT, SCENE_HEIGHT, WIDTH};
+        const NEAR: f32 = 100.;
+        const FAR: f32 = 40000.;
+        let dot = |a: [f32; 3], b: [f32; 3]| a.into_iter().zip(b).map(|(a, b)| a * b).sum::<f32>();
+        let direction = std::array::from_fn(|i| self.target[i] - self.position[i]);
+        let length = dot(direction, direction).sqrt();
+        let horizontal = direction[0].hypot(direction[1]);
+        if length == 0. || horizontal == 0. {
+            return true;
+        }
+        let forward = direction.map(|v| v / length);
+        let right = [direction[1] / horizontal, -direction[0] / horizontal, 0.];
+        let up = [
+            right[1] * forward[2],
+            -right[0] * forward[2],
+            horizontal / length,
+        ];
+        let offset = std::array::from_fn(|i| position[i] - self.position[i]);
+        let depth = dot(offset, forward);
+        let z = FAR / (FAR - NEAR) * (1. - NEAR / depth);
+        if !(0.2..=1.).contains(&z) {
+            return false;
+        }
+        let scale = 1. / (self.fov_degrees().to_radians() * 0.5).tan() / depth;
+        let x = WIDTH as f32 * 0.5 + dot(offset, right) * scale * HEIGHT as f32 * 0.5;
+        let y = SCENE_HEIGHT as f32 * 0.5 * (1. - dot(offset, up) * scale);
+        if z > 0.85 {
+            (-64. ..=704.).contains(&x) && (-32. ..=640.).contains(&y)
+        } else {
+            (-640. ..=1280.).contains(&x) && (-640. ..=1280.).contains(&y)
+        }
+    }
     pub fn start_path(&mut self) {
         self.motion = Some(MotionCamera {
             mode: 0,
@@ -333,6 +408,45 @@ fn approach(current: &mut [f32; 3], target: [f32; 3], rate: f32, settled: &mut b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn padded_view_keeps_edge_animations_and_rejects_clipped_depths() {
+        let rig = CameraRig {
+            position: [0.; 3],
+            target: [0., 1000., 0.],
+            ..Default::default()
+        };
+        assert!(rig.animates([0., 1000., 0.]));
+        assert!(rig.animates([350., 1000., 0.]));
+        assert!(!rig.animates([400., 1000., 0.]));
+        assert!(!rig.animates([0., -1000., 0.]));
+        assert!(!rig.animates([0., 100., 0.]));
+        assert!(!rig.animates([0., 50000., 0.]));
+    }
+
+    #[test]
+    fn eye_commands_rebuild_follow_orbit_and_isolate_entry_settings() {
+        let actors = [(1, Actor::new(1, [100., 200., 300.]))].into();
+        let mut rig = CameraRig::default();
+        rig.current_mut().follow = true;
+        rig.current_mut().anchor_to_actor = true;
+        rig.set_eye(0, [100., -800., 300.], &actors);
+        assert_eq!(rig.angles, [0.; 3]);
+        assert_eq!(rig.distance, 1000.);
+        rig.step(&actors);
+        assert_eq!(rig.position, [100., -800., 300.]);
+        assert_eq!(rig.target, [100., 200., 300.]);
+        rig.set_eye(1, [0., 0., 1000.], &actors);
+        assert!((rig.angles[0] - 315.).abs() < 0.0001);
+        let live = (rig.position, rig.angles, rig.distance);
+        rig.entry = Some(EntryCamera::following(1));
+        rig.set_eye(0, [100., -800., 387.], &actors);
+        let entry = &rig.entry.as_ref().unwrap().camera;
+        assert_eq!(entry.position, [100., -800., 387.]);
+        assert_eq!(entry.angles, [0.; 3]);
+        assert_eq!(entry.distance, 1000.);
+        assert_eq!((rig.position, rig.angles, rig.distance), live);
+    }
 
     #[test]
     fn checkpoint_rebuilds_follow_view_with_locked_axes() {

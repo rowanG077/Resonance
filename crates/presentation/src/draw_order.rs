@@ -11,8 +11,8 @@ use bevy::{
 };
 use std::collections::HashMap;
 
-#[derive(Component, Clone, Copy, ExtractComponent)]
-pub(super) struct DrawOrder(pub u32);
+#[derive(Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ExtractComponent)]
+pub(super) struct DrawOrder(pub u32, pub usize);
 
 pub(super) const FIELD_TRANSLUCENCY: u32 = 1 << 21;
 pub(super) const CONTACT_SHADOWS: u32 = 3 << 20;
@@ -39,9 +39,14 @@ fn apply(
 ) {
     let orders: HashMap<_, _> = orders
         .iter()
-        .map(|(entity, order)| (*entity, order.0))
+        .map(|(entity, order)| (*entity, *order))
         .collect();
     for phase in phases.values_mut() {
+        // The depth sort is stable. Seed equal material/pass keys with actor
+        // submission order instead of asynchronous scene insertion order.
+        phase
+            .items
+            .sort_by_key(|_, item| orders.get(&item.main_entity()).copied());
         for item in phase.items.values_mut() {
             if let Some(order) = orders.get(&item.main_entity()) {
                 // A common center makes this sort solely by the cooked order,
@@ -49,7 +54,7 @@ fn apply(
                 // changes scheduling only; actual depth tests remain enabled.
                 item.sorting_info = TransparentSortingInfo3d::Sorted {
                     mesh_center: Vec3::ZERO,
-                    depth_bias: *order as f32,
+                    depth_bias: order.0 as f32,
                 };
             }
         }

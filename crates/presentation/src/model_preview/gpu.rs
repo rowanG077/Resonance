@@ -2,6 +2,7 @@ use bevy::{
     core_pipeline::{core_2d::Transparent2d, core_3d::Transparent3d},
     prelude::*,
     render::{
+        extract_resource::ExtractResource,
         render_phase::ViewSortedRenderPhases,
         render_resource::{CachedPipelineState, PipelineCache, PollType},
         renderer::{RenderDevice, RenderQueue},
@@ -17,6 +18,23 @@ use std::{
 };
 #[derive(Resource, Clone, Default)]
 pub(super) struct Shared(pub Arc<Mutex<Report>>);
+
+/// A fresh token is extracted with the pose whose render submission must finish.
+#[derive(Resource, Clone, Default, ExtractResource)]
+pub(super) struct Capture(pub Option<Arc<AtomicBool>>);
+
+pub(super) fn capture_submitted(
+    capture: Res<Capture>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+) {
+    let Some(completed) = &capture.0 else { return };
+    let _ = device.poll(PollType::Poll);
+    if !completed.load(Ordering::Acquire) {
+        let completed = completed.clone();
+        queue.on_submitted_work_done(move || completed.store(true, Ordering::Release));
+    }
+}
 #[derive(Default)]
 pub(super) struct Report {
     pub armed: bool,

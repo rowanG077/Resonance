@@ -1,0 +1,390 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Halo merchant Buy/Sell/Equip and return to Iselia from ordinary free control.",
+  "registration": "Both checkpoints are free control at the Halo counter before greeting; story2500 and observed party/event flags are preserved. Native save is written through typed FieldCheckpoint initialization with the observed camera settings. Native update64 is sourceVI0; one-time actor, eye, scenery and effect origins come from this exact source state. Input edges use source poll/2+1 plus64. Buy/Sell/Equip are actual menu input. No loading waits are simulated; the final post-exit sample is settled in both engines. Full pose/image checks remain strict. Source fn_800C471C updates then draws before fn_8006FF90 presents and rotates XFBs; the restored state has one queued presentation before memory observation zero. Register video_first_vi=-1 uniformly across the whole recording, leaving numeric state VIs and native input timing unchanged. The initial zero-offset trial is retained in final-pairs-v4: all32 states passed, and every14 failed image passed against the next stored present. Physical videoVI241 is absent, so the settled confirmation sample is registered at stateVI239/native303 instead of240/native304; all watched state words at239 and240 are identical except the two advancing clocks. The original passing240 comparison remains in the preserved initial trial. The stored physicalVI1 framebuffer is anomalously blurred: it alone differs across otherwise fixed camera samples0..10, while physical0 and2 are clean. Keep nativeupdate64/vi-0 and its exact source-origin verification as an unscored diagnostic, and first compare sourceVI2/native66 against clean physicalVI3. The original passing0 comparison remains in the preserved initial trial. All32 image/state gates and original tolerances are retained.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/iselia-expansion/halo-native-source-party-v2.json",
+    "sha256": "079948ce3af4290956d9cdf7cc48bf290eec327da6d28dc783428dae72f2a2e0"
+  },
+  "native_replay": {
+    "path": "halo-transactions-keyboard.json",
+    "sha256": "1a243d74b13aa2151489f61167cfbf6b72931f8feea4abecd1d98b7dc325a7e8"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/iselia-expansion/halo-ready-source-v1/user/StateSaves/GQSEAF.s01",
+      "sha256": "3a97df40741aa9504db7bbb8e6294bd3508e001cd2c1481c9f315e392513e575"
+    },
+    "prefix_sha256": "dd10a11d00839c5b4d068de354441b378a86a3eddd74711a45677e3cd58af592",
+    "start_poll": 75191,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": -1
+  },
+  "start": {
+    "map_id": 333,
+    "story": 2500,
+    "position": [
+      -111,
+      123,
+      -48.10704803466797
+    ],
+    "heading": 270
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3000,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 40,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 200,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 360,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 440,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 520,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 600,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 680,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 760,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 840,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 920,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1000,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1080,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1160,
+        "duration": 4,
+        "buttons": [
+          "right"
+        ]
+      },
+      {
+        "poll": 1240,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1480,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1600,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1760,
+        "duration": 4,
+        "buttons": [
+          "b"
+        ]
+      },
+      {
+        "poll": 1960,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 60,
+        "buttons": [],
+        "stick": [
+          128,
+          96
+        ]
+      },
+      {
+        "poll": 2200,
+        "duration": 40,
+        "buttons": [],
+        "stick": [
+          160,
+          128
+        ]
+      },
+      {
+        "poll": 2280,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "halo-transactions-2",
+      "native": "vi-2",
+      "dolphin_vi": 2
+    },
+    {
+      "name": "halo-transactions-140",
+      "native": "vi-140",
+      "dolphin_vi": 140,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-160",
+      "native": "vi-160",
+      "dolphin_vi": 160,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-181",
+      "native": "vi-181",
+      "dolphin_vi": 181,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-200",
+      "native": "vi-200",
+      "dolphin_vi": 200,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-221",
+      "native": "vi-221",
+      "dolphin_vi": 221,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-239",
+      "native": "vi-239",
+      "dolphin_vi": 239,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-261",
+      "native": "vi-261",
+      "dolphin_vi": 261,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-280",
+      "native": "vi-280",
+      "dolphin_vi": 280,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-301",
+      "native": "vi-301",
+      "dolphin_vi": 301,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-341",
+      "native": "vi-341",
+      "dolphin_vi": 341,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-360",
+      "native": "vi-360",
+      "dolphin_vi": 360,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-381",
+      "native": "vi-381",
+      "dolphin_vi": 381,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-400",
+      "native": "vi-400",
+      "dolphin_vi": 400,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-421",
+      "native": "vi-421",
+      "dolphin_vi": 421,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-440",
+      "native": "vi-440",
+      "dolphin_vi": 440,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-461",
+      "native": "vi-461",
+      "dolphin_vi": 461,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-480",
+      "native": "vi-480",
+      "dolphin_vi": 480,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-501",
+      "native": "vi-501",
+      "dolphin_vi": 501,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-541",
+      "native": "vi-541",
+      "dolphin_vi": 541,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-581",
+      "native": "vi-581",
+      "dolphin_vi": 581,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-621",
+      "native": "vi-621",
+      "dolphin_vi": 621,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-650",
+      "native": "vi-650",
+      "dolphin_vi": 650,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-700",
+      "native": "vi-700",
+      "dolphin_vi": 700,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-741",
+      "native": "vi-741",
+      "dolphin_vi": 741,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-801",
+      "native": "vi-801",
+      "dolphin_vi": 801,
+      "shop_state": true
+    },
+    {
+      "name": "halo-transactions-900",
+      "native": "vi-900",
+      "dolphin_vi": 900
+    },
+    {
+      "name": "halo-transactions-950",
+      "native": "vi-950",
+      "dolphin_vi": 950
+    },
+    {
+      "name": "halo-transactions-1040",
+      "native": "vi-1040",
+      "dolphin_vi": 1040
+    },
+    {
+      "name": "halo-transactions-1081",
+      "native": "vi-1081",
+      "dolphin_vi": 1081
+    },
+    {
+      "name": "halo-transactions-1121",
+      "native": "vi-1121",
+      "dolphin_vi": 1121
+    },
+    {
+      "name": "halo-transactions-1399",
+      "native": "vi-1399",
+      "dolphin_vi": 1399
+    }
+  ],
+  "audio": []
+}

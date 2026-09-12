@@ -98,7 +98,8 @@ impl Plugin for FieldRendering {
         super::field_refraction::install(app);
         super::menu_backdrop::install(app);
         super::model_preview::install(app);
-        app.add_plugins(Material2dPlugin::<super::field_ui::Surface>::default())
+        app.init_resource::<super::display::Display>()
+            .add_plugins(Material2dPlugin::<super::field_ui::Surface>::default())
             .init_resource::<Applied>()
             .init_resource::<super::field_pose::Authored>()
             .add_systems(
@@ -120,6 +121,7 @@ impl Plugin for FieldRendering {
                     super::field_pose::attachments,
                     shadows::pose,
                     super::field_effects::render,
+                    ui,
                 )
                     .chain()
                     .after(bevy::app::AnimationSystems)
@@ -148,7 +150,6 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
         super::secondary_motion::bind,
         shadows::sync,
         camera,
-        ui,
     )
         .chain()
 }
@@ -170,7 +171,8 @@ impl Controls {
     }
 
     pub(super) fn consume(&mut self) -> FieldInput {
-        let input = self.input;
+        let mut input = self.input;
+        input.accelerate_dialogue = self.held_accept;
         self.clear_actions();
         self.input.start = false;
         self.input.alternate = false;
@@ -214,8 +216,10 @@ pub(super) struct Surface {
 #[derive(Component)]
 pub(super) struct ActorPart {
     pub(super) actor: i32,
+    instance: u64,
     pub(super) resource: u32,
     pub(super) part: usize,
+    pub(super) creation: Option<resonance_events::ActorCreation>,
     pass: u8,
     materials: Vec<Handle<TitleSurface>>,
     pub(super) prepared: bool,
@@ -320,6 +324,10 @@ pub(super) fn has_live_shadows(world: &mut World) -> bool {
         .iter(world)
         .next()
         .is_some()
+}
+
+pub(super) fn shadow_diagnostic(world: &mut World) -> serde_json::Value {
+    shadows::diagnostic(world)
 }
 
 /// A warm restart keeps meshes, clips, textures and compiled materials alive.
@@ -571,6 +579,7 @@ pub(super) fn advance_live(
 fn camera(
     state: State,
     display: Option<Res<super::display::Display>>,
+    output_stage: Res<super::display::OutputStage>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
     mut applied: ResMut<Applied>,
@@ -597,6 +606,7 @@ fn camera(
     TitleOutput::position(
         &mut outputs,
         preferences.map_or([0; 2], |p| p.screen_position),
+        *output_stage,
     );
     for (mut transform, mut projection) in &mut cameras {
         *transform = Transform::from_translation(Vec3::from_array(camera.position))
@@ -622,7 +632,7 @@ fn camera(
             .as_ref()
             .filter(|fade| fade.white)
             .map_or(0., |fade| {
-                fade.alpha(state.get().events.tick()).clamp(0., 255.) / 255.
+                fade.alpha(state.get().events.tick()) as u8 as f32 / 255.
             });
     });
     applied.ack(Request::Fade);
@@ -639,7 +649,9 @@ fn ui(
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
     roots: Query<(Entity, &ActorPart, &super::field_animation::Rig)>,
     children: Query<&Children>,
-    bones: Query<(&Name, &GlobalTransform)>,
+    names: Query<&Name>,
+    transforms: bevy::transform::helper::TransformHelper,
+    locals: Query<(&Transform, Option<&ChildOf>)>,
     mut exit: MessageWriter<AppExit>,
     mut applied: ResMut<Applied>,
     clock: Option<Res<super::Clock>>,
@@ -649,7 +661,7 @@ fn ui(
         return;
     }
     if !art.ready(&images) {
-        if state.get().menu.is_some() {
+        if state.get().menu.is_some() || state.get().shop.is_some() {
             applied.loading(Request::Menu);
         }
         for &slot in state.get().events.world.dialogue.keys() {
@@ -661,14 +673,25 @@ fn ui(
     let heads = roots
         .iter()
         // A streamed actor's bind pose is not the dialogue attachment pose.
-        // Wait for animation + propagation before retaining its head height.
+        // Sample this tick's animation before retaining the attachment height.
         .filter(|(_, part, rig)| part.part == 0 && rig.sampled)
-        .filter_map(|(root, part, _)| {
+        .filter_map(|(root, part, rig)| {
             children
                 .iter_descendants(root)
-                .filter_map(|entity| bones.get(entity).ok())
-                .find(|(name, _)| name.as_str().starts_with("Bone_atama"))
-                .map(|(_, transform)| (part.actor, transform.translation()))
+                .find(|&entity| {
+                    names
+                        .get(entity)
+                        .is_ok_and(|name| name.as_str().starts_with("Bone_atama"))
+                })
+                .and_then(|entity| {
+                    rig.binding_attachment(entity, &locals).or_else(|| {
+                        transforms
+                            .compute_global_transform(entity)
+                            .ok()
+                            .map(|transform| transform.translation())
+                    })
+                })
+                .map(|position| (part.actor, position))
         })
         .collect();
     match art.render_captions(&state.get().events.world, &mut commands, &mut meshes) {
@@ -703,7 +726,7 @@ fn ui(
         error!("Field dialogue rendering failed: {error:#}");
         exit.write(AppExit::error());
     } else {
-        if state.get().menu.is_some() {
+        if state.get().menu.is_some() || state.get().shop.is_some() {
             applied.ack(Request::Menu);
         }
         if state.get().active_skit.is_some() {
@@ -831,16 +854,18 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     } else {
         let path = match checkpoint.map(|c| c.map_id) {
             None | Some(340) => "fields/iselia-classroom.json".to_owned(),
-            Some(id @ (330 | 332)) => format!("fields/map-{id}.json"),
+            Some(id @ 330..=339) => format!("fields/map-{id}.json"),
             Some(id) => anyhow::bail!("field {id} is outside the oracle route"),
         };
         let assets: FieldAssets = serde_json::from_slice(&fs::read(root.join(path))?)?;
         let messages = serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?;
         let entry = if let Some(checkpoint) = checkpoint {
             let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
-            checkpoint
-                .clone()
-                .entry(&assets, std::sync::Arc::new(data), [330, 332, 340].into())?
+            checkpoint.clone().entry(
+                &assets,
+                std::sync::Arc::new(data),
+                super::new_game::PLAYABLE_FIELDS.into(),
+            )?
         } else {
             Default::default()
         };
@@ -985,6 +1010,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     .insert_resource(Session(session))
     .insert_resource(Manifest(assets))
     .insert_resource(Root(root))
+    .insert_resource(super::display::OutputStage::Framebuffer)
     .insert_resource(Checkpoint {
         output: output.into(),
         since: Instant::now(),
@@ -1342,13 +1368,25 @@ fn instances(
     mut surfaces: ResMut<Assets<TitleSurface>>,
     mut images: ResMut<Assets<Image>>,
     mut sampled: ResMut<super::scene::SampledImages>,
+    instances: Query<&ActorPart>,
 ) {
     if !art.ready {
         return;
     }
     for (&id, actor) in &session.get().events.world.actors {
-        if art.instances.contains_key(&id) {
-            continue;
+        if let Some(entities) = art.instances.get(&id) {
+            if !entities.is_empty()
+                && entities.iter().all(|entity| {
+                    instances.get(*entity).is_ok_and(|part| {
+                        part.instance == actor.instance && part.resource == actor.resource
+                    })
+                })
+            {
+                continue;
+            }
+            for entity in art.instances.remove(&id).unwrap() {
+                commands.entity(entity).despawn();
+            }
         }
         let Some(parts) = art.models.get(&actor.resource) else {
             continue;
@@ -1375,8 +1413,12 @@ fn instances(
                         Transform::default(),
                         ActorPart {
                             actor: id,
+                            instance: actor.instance,
                             resource: actor.resource,
                             part: index,
+                            creation: actor
+                                .creation
+                                .filter(|p| p.tick == session.get().events.tick()),
                             pass,
                             materials,
                             prepared: false,
@@ -1444,6 +1486,7 @@ fn pose(
     mut players: Query<(&mut AnimationPlayer, Option<&AnimationGraphHandle>)>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
     mut node_visibility: Query<&mut Visibility, Without<ActorPart>>,
+    mut draw_orders: Query<&mut DrawOrder>,
     mut applied: ResMut<Applied>,
     effects: Res<super::field_effects::Artwork>,
 ) {
@@ -1475,6 +1518,11 @@ fn pose(
         let Some(actor) = world.actors.get(&instance.actor) else {
             continue;
         };
+        let actor_order = world
+            .actor_order()
+            .iter()
+            .position(|id| *id == instance.actor)
+            .expect("rendered actor has a submission order");
         debug_assert_eq!(
             instance.resource, actor.resource,
             "VM actor {} changed its model without replacing the scene instance at tick {}",
@@ -1642,6 +1690,7 @@ fn pose(
                                     } else {
                                         0
                                     },
+                                actor_order,
                             ),
                         ));
                 }
@@ -1657,6 +1706,11 @@ fn pose(
             instance.prepared = descendants > 0;
         }
         for &(material, entity) in &instance.geometry {
+            if let Ok(mut order) = draw_orders.get_mut(entity)
+                && order.1 != actor_order
+            {
+                order.1 = actor_order;
+            }
             // Hide only geometry attached to the script node; its transform
             // and child bones must remain active.
             let hidden = part.spec.material_nodes.get(material).is_some_and(|nodes| {
@@ -1755,9 +1809,23 @@ fn capture(
     }
     checkpoint.requested = true;
     let path = checkpoint.output.clone();
-    let pose_nodes:Vec<_>=roots.iter().filter(|(_,p)|p.actor==1 && p.part==0).flat_map(|(root,_)|children.iter_descendants(root))
-        .filter_map(|entity|bones.get(entity).ok()).map(|(name,local,global)|serde_json::json!({"name":name.as_str(),"translation":local.translation.to_array(),"rotation":local.rotation.to_array(),"world":global.to_matrix().to_cols_array()})).collect();
-    let actor_poses: Vec<_> = roots.iter().filter(|(_,p)|p.part==0).map(|(root,p)|serde_json::json!({"actor":p.actor,"nodes":children.iter_descendants(root).filter_map(|entity|bones.get(entity).ok()).map(|(name,local,global)|serde_json::json!({"name":name.as_str(),"translation":local.translation.to_array(),"rotation":local.rotation.to_array(),"world":global.to_matrix().to_cols_array()})).collect::<Vec<_>>()})).collect();
+    let nodes = |root| {
+        children
+            .iter_descendants(root)
+            .filter_map(|entity| bones.get(entity).ok())
+            .map(|(name, local, global)| {
+                serde_json::json!({"name":name.as_str(),
+            "translation":local.translation.to_array(),"rotation":local.rotation.to_array(),
+            "world":global.to_matrix().to_cols_array()})
+            })
+    };
+    let pose_nodes: Vec<_> = roots
+        .iter()
+        .filter(|(_, p)| p.actor == 1 && p.part == 0)
+        .flat_map(|(root, _)| nodes(root))
+        .collect();
+    let actor_poses: Vec<_> = roots.iter().filter(|(_,p)|p.part==0)
+        .map(|(root,p)| serde_json::json!({"actor":p.actor,"nodes":nodes(root).collect::<Vec<_>>()})).collect();
     let state = serde_json::json!({"kind":"classroom-development-checkpoint","audio_device":false,"tick":session.0.events.tick(),
         "registered_probe":checkpoint.probe,
         "registered_particle_probe":checkpoint.particle_probe,
@@ -1772,18 +1840,7 @@ fn capture(
         "input_enabled":session.0.events.world.input_enabled,"camera":session.0.events.world.field_camera.as_ref().map(|c|serde_json::json!({"position":c.position,"target":c.target,"fov_degrees":c.fov_degrees()}))});
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
         move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            let result = (|| -> Result<()> {
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                event.image.clone().try_into_dynamic()?.save(&path)?;
-                fs::write(
-                    path.with_extension("json"),
-                    serde_json::to_vec_pretty(&state)?,
-                )?;
-                Ok(())
-            })();
-            match result {
+            match crate::screenshot::write(&event.image, &path, Some(&state)) {
                 Ok(()) => {
                     exit.write(AppExit::Success);
                 }

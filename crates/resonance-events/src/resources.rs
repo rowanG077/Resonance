@@ -30,6 +30,7 @@ pub enum ParticleKind {
 impl ResourceLibrary {
     pub fn names(&self, party: Option<&crate::party::Party>) -> BTreeMap<i32, String> {
         let mut names = self.actor_names.clone();
+        names.extend(self.text.characters.clone());
         if let Some(party) = party {
             names.extend(
                 party

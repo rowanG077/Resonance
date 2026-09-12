@@ -93,6 +93,26 @@ fn record(
         !output.exists(),
         "New Game recording directory already exists"
     );
+    let names = resonance_events::ResourceLibrary {
+        actor_names: resonance_events::ResourceLibrary::character_names(),
+        text: Arc::new(serde_json::from_slice(&fs::read(
+            root.join("game/text.json"),
+        )?)?),
+        ..Default::default()
+    }
+    .names(None);
+    let exit_dialogue = [
+        (
+            format!("{}! Where are you going?", names[&1]),
+            "classroom-exit-genis",
+        ),
+        ("It's research.".into(), "classroom-exit-choice"),
+        ("...Huh? Um, okay.".into(), "classroom-exit-colette"),
+        (
+            format!("{} and {}", names[&2], names[&3]),
+            "classroom-party-joined",
+        ),
+    ];
     fs::create_dir_all(output)?;
     let (mut app, _) = build_app_with_display(
         RunOptions {
@@ -512,14 +532,9 @@ fn record(
                     .filter(|p| !p.closed && p.fully_revealed() && p.accepts_input())
                 {
                     let text: String = dialogue.current().text();
-                    for (prefix, name) in [
-                        ("Lloyd! Where are you going?", "classroom-exit-genis"),
-                        ("It's research.", "classroom-exit-choice"),
-                        ("...Huh? Um, okay.", "classroom-exit-colette"),
-                        ("Colette and Genis", "classroom-party-joined"),
-                    ] {
+                    for (prefix, name) in &exit_dialogue {
                         if text.starts_with(prefix) {
-                            details.push(name);
+                            details.push(*name);
                         }
                     }
                 }
@@ -751,6 +766,7 @@ fn record(
         .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
     let mut metadata = serde_json::json!({
         "kind":"new-game-development-replay", "audio_device":false, "window":false,
+        "output_stage":app.world().resource::<display::OutputStage>(),
         "diagnostic_stop_at":stop_at,
         "resolution":resolution,
         "native_oracle_size":resolution == Resolution::default(),
@@ -970,17 +986,21 @@ pub(super) fn screenshot(
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
         app.update();
         playthrough::check_exit(app)?;
+        super::model_preview::synchronize_capture(app)?;
     }
     let completed = Arc::new(AtomicBool::new(false));
     let captured = completed.clone();
     let failure = failed.clone();
     let framebuffer = app.world().resource::<Framebuffer>().0.clone();
     let secondary = super::secondary_motion::diagnostic(app.world_mut());
+    let shadows = field_view::shadow_diagnostic(app.world_mut());
     let metadata = app.world().get_resource::<new_game::Session>().map(|session| {
         let field = &session.field;
         serde_json::json!({"tick":field.events.tick(),"input_enabled":field.events.world.input_enabled,
+            "output_stage":app.world().resource::<display::OutputStage>(),
             "talking":field.talking, "state_tick_locked":fixed_tick.is_some(),
             "secondary_chains":secondary,
+            "contact_shadows":shadows,
             "camera":field.events.world.field_camera.as_ref().map(|c|serde_json::json!({"position":c.position,"target":c.target,"fov_degrees":c.fov_degrees()})),
             "actors":field.events.world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"resource":a.resource,"position":a.position,"heading":a.heading,"target_heading":a.target_heading,"animation":format!("{:?}",a.animation),"attachment":format!("{:?}",a.attachment),"bone_adjustments":format!("{:?}",a.appearance.bone_adjustments)})).collect::<Vec<_>>(),
             "dialogue_layouts":app.world().resource::<super::field_ui::Artwork>().diagnostic_layouts(field),
@@ -991,22 +1011,7 @@ pub(super) fn screenshot(
     app.world_mut()
         .spawn(Screenshot(framebuffer))
         .observe(move |event: On<ScreenshotCaptured>| {
-            let result = event
-                .image
-                .clone()
-                .try_into_dynamic()
-                .map_err(anyhow::Error::from)
-                .and_then(|image| image.save(&path).map_err(anyhow::Error::from))
-                .and_then(|()| {
-                    if let Some(metadata) = &metadata {
-                        fs::write(
-                            path.with_extension("json"),
-                            serde_json::to_vec_pretty(metadata)?,
-                        )?;
-                    }
-                    Ok(())
-                });
-            if let Err(error) = result {
+            if let Err(error) = crate::screenshot::write(&event.image, &path, metadata.as_ref()) {
                 error!("New Game screenshot failed: {error:#}");
                 failed.store(true, Ordering::Release);
             } else {

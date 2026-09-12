@@ -28,7 +28,7 @@ pub(super) fn apply(
         .map(|c| c.secondary_pose_nodes.as_slice())
         .unwrap_or_default();
     let helper = transforms.p0();
-    let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots) else {
+    let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots, None) else {
         return;
     };
     let mut locals = Vec::new();

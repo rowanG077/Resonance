@@ -96,6 +96,8 @@ def main():
                         help="Diagnostic read-only GDB trace of 1..4096 random calls")
     parser.add_argument("--watch-state", action="store_true",
                         help="Record named game words every VI without enabling the debugger")
+    parser.add_argument("--watch-locations", type=Path, action="append", default=[],
+                        help="Add read-only MemoryWatcher pointer paths from a JSON path-to-name object")
     parser.add_argument("--watch-synopsis", action="store_true",
                         help="Observe Synopsis navigation and all saved scenario records")
     parser.add_argument("--watch-actor", type=int, action="append", default=[],
@@ -157,6 +159,17 @@ def main():
     # Observe that Gecko actually installed the two return instructions. This
     # remains read-only; the enabled game profile performs the requested patch.
     actor_locations = {"80023c10": "focus_patch_word", "8003efa4": "secondary_blur_patch_word"}
+    for source in args.watch_locations:
+        locations = json.loads(source.read_text())
+        if not isinstance(locations, dict) or not all(
+                isinstance(address, str) and isinstance(name, str)
+                for address, name in locations.items()):
+            parser.error("watch-locations must contain a JSON path-to-name object")
+        for address, name in locations.items():
+            if address in actor_locations and actor_locations[address] != name:
+                parser.error(f"conflicting watcher location: {address}")
+            actor_locations[address] = name
+        args.watch_state = True
     # fn_80137FD0 / fn_8013769C: read the envelope itself so voice overlap
     # in a mixed PCM recording cannot conceal an incorrect music fade.
     for group in set(args.watch_volume_group):
@@ -237,6 +250,10 @@ def main():
             actor_locations["802CE4DC"] = "ex_description_fade_word"
             for offset in [0, 4, 8, 0x68, 0x6c]:
                 actor_locations[f"{0x80211fe0 + offset:08X}"] = f"cooking_menu_{offset:02x}_word"
+            for offset in range(0, 0x2c, 4):
+                actor_locations[f"{0x80231340 + offset:08X}"] = f"shop_menu_{offset:02x}_word"
+            for index in range(11):
+                actor_locations[f"{0x802f395c + index * 4:08X}"] = f"shop_basket_{index}_word"
             actor_locations["80231410"] = "unison_mode_slot_word"
             actor_locations["80231414"] = "unison_row_first_word"
             actor_locations["80231418"] = "unison_scroll_party_word"
@@ -291,6 +308,10 @@ def main():
                 actor_locations[pointer] = f"{section}_address"
                 actor_locations[f"{pointer} {offset:x}"] = name
                 if section == "field":
+                    actor_locations[f"{pointer} 0"] = "party_gald_word"
+                    actor_locations[f"{pointer} 1f4c"] = "party_spent_gald_word"
+                    actor_locations[f"{pointer} 1de8"] = "visited_shops_first_word"
+                    actor_locations[f"{pointer} 1dec"] = "visited_shops_last_word"
                     if args.watch_synopsis:
                         for index in range(200):
                             for offset, name in [(0, "record"), (8, "time_hi"), (12, "time_lo")]:
@@ -408,6 +429,17 @@ def main():
                                   (0x802c8fb8, "camera_angle_speed_hi"),
                                   (0x802c8fbc, "camera_angle_speed_lo")]:
                 actor_locations[f'{address:08x}'] = name
+            # Preserve signed Euler targets and the tween's double precision;
+            # a rendered view alone hides a long rotation through equivalent angles.
+            for offset, name in [(0x08, "position"), (0x20, "position_target"),
+                                 (0xa0, "angles"), (0xb8, "angles_target")]:
+                for axis, label in enumerate("xyz"):
+                    for half, part in enumerate(["hi", "lo"]):
+                        address = 0x802c8ee8 + offset + axis * 8 + half * 4
+                        actor_locations[f'{address:08x}'] = f"camera_motion_{name}_{label}_{part}"
+            for offset, name in [(0x48, "fov_hi"), (0x4c, "fov_lo"),
+                                 (0xd8, "angle_frame"), (0xdc, "angle_end")]:
+                actor_locations[f'{0x802c8ee8 + offset:08x}'] = f"camera_motion_{name}"
         # Movie.cpp loads MOVIE.sav and State.cpp checks its .dtm companion.
         shutil.copyfile(initial_state, output / "input.dtm.sav")
         shutil.copyfile(companion, output / "input.dtm.sav.dtm")

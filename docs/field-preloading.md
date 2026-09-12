@@ -20,11 +20,10 @@ target/debug/resonance-import cook-field-preload \
 and cooks geometry, animations, collision, dialogue, declared NPC resources,
 the field's packed model bank and MAP-local models. The bank has its own script-ID
 table; a direct actor ID need not be a separately declared shared NPC resource.
-Maps 330 and 332 extend the classroom's connected exploration route.
+Maps 330–340 cover the classroom and connected Iselia exploration route.
 Standalone character files and grouped archive dependencies resolve through the
 source resource catalog. Cooking rejects declared model/animation IDs without a
-character binding. Tutorial texture packages are identified separately and still
-require overlay recipes; their native requests remain unsupported. Mesh filenames
+character binding. Tutorial texture packages use separate overlay recipes. Mesh filenames
 include their content hash so a changed shared character clip set cannot overwrite
 meshes referenced by another field.
 Field inventories also include skit scenarios, message tables, portrait atlases
@@ -35,9 +34,10 @@ content hashes and existing field inventories together.
 Field particle recipes carry their texture, palette and motion parameters.
 Their texture dependencies and render layers are prepared before activation;
 live particles only update geometry and use the same missing-effect audit.
-`cook-field-audio --map ID --coefficients PATH` handles unvoiced fields with
-literal music/cue declarations and the common sound bank. Dynamic declarations,
-other banks and voiced fields require explicit recipes; they fail cooking.
+`cook-field-audio --map ID --coefficients PATH` inventories audio across declared
+script branches, message voices and shared native service cues. It resolves the
+required sound banks and music, with `--additional-disc PATH` for voice archives
+absent from the primary disc. Unresolved requests fail cooking.
 
 The shared dialogue atlas has a fixed repertoire. Unsupported source-font
 characters share its original fallback bitmap, declared explicitly in the font
@@ -83,7 +83,7 @@ request; checkpoint startup prepares its saved field directly. Field changes
 pause gameplay, retire outgoing audio and publish verified bytes before renderer
 loading begins. Live actors, effects and UI instances retire on handoff; visited
 packages and artwork remain cached. Returns recreate instances from those assets
-and reuse shader and sampler variants. The supported route is 340, 332 and 330;
+and reuse shader and sampler variants. The supported route covers maps 330–340;
 additional destinations need scene-owner bindings and content validation.
 
 Relevant tests: `cargo test -p resonance-import --lib field_preload::`,

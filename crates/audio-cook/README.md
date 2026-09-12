@@ -18,9 +18,10 @@ pitch, ordinary/DLS envelopes, note-off handling, vibrato/tremolo and shared
 reverb. Loops preserve held-note clocks, controls and effect tails. Voice stealing,
 sustain-pedal sequencing and unsupported macros/controllers fail explicitly.
 
-DSP interpolation coefficients are explicit cooking inputs and hash-verified.
+DSP interpolation coefficients are explicit cooking inputs, with hashes recorded
+in the recipes.
 Sample WAVs preserve independent initial and loop traversals. Preview rendering
 uses the same synthesis core as runtime; it cannot establish physical device
 latency or full-route audiovisual timing.
 
-See [offline tools](../../tools/media/README.md) and
+See [offline media tools](../../tools/media/README.md) for codec dependencies.

@@ -2,7 +2,7 @@
 //! established command-line codecs run without opening an audio output device.
 mod cooked_music;
 mod field_audio;
-pub use field_audio::{cook_classroom_audio, cook_field_audio};
+pub use field_audio::cook_field_audio;
 mod movie;
 mod music;
 mod music_score;
@@ -13,7 +13,7 @@ mod sound_buses;
 mod sounds;
 
 pub use cooked_music::{cook_title_audio, render_cooked_title_audio};
-pub use movie::{MovieSource, cook_intro, cook_movie};
+pub use movie::{MovieSource, cook_movie};
 pub use music_score::inspect_title_audio;
 pub use music_voice::{MusicVoiceOptions, render_music_voice, render_title_audio_preview};
 pub use pitched_sample::{PitchedSampleOptions, render_pitched_sample};

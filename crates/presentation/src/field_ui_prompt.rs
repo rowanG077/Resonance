@@ -42,16 +42,16 @@ impl Artwork {
     pub(super) fn render_prompt(
         &mut self,
         session: &FieldSession,
-        presentation_tick: u32,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
         // Menus and skits retain the last field presentation, including its
         // notifications. Their input remains owned by the modal scene.
-        if session.active_skit.is_some() || session.menu.is_some() {
+        if session.active_skit.is_some() || session.menu.is_some() || session.shop.is_some() {
             return Ok(());
         }
         let mut batches = [Batch::default(), Batch::default()];
+        let button_highlight = session.effect_clock.tick() & 32 != 0;
         if let Some(prompt) = session.action_prompt() {
             let glyphs = self
                 .menu
@@ -78,11 +78,7 @@ impl Artwork {
                 [224., 200., 240., 224.],
                 color,
             );
-            let v = if presentation_tick & 32 != 0 {
-                152.
-            } else {
-                176.
-            };
+            let v = if button_highlight { 152. } else { 176. };
             batches[0].quad(
                 [left - 26., 432., left - 2., 456.],
                 [192., v, 216., v + 24.],
@@ -100,11 +96,7 @@ impl Artwork {
             }
         }
         if let Some(prompt) = session.skit_prompt() {
-            let v = if presentation_tick & 32 != 0 {
-                49.
-            } else {
-                73.
-            };
+            let v = if button_highlight { 49. } else { 73. };
             batches[0].quad(
                 [16., 432., 40., 456.],
                 [233., v, 255., v + 22.],

@@ -27,6 +27,19 @@ pub struct Glyph {
     pub character: char,
     pub color: [u8; 3],
     pub delay: u16,
+    pub followed_by_control: bool,
+}
+impl Glyph {
+    /// ASCII box sizing samples the next encoded character, including controls.
+    pub fn measured_character(&self, next: Option<char>) -> char {
+        if !self.character.is_ascii() {
+            self.character
+        } else if self.followed_by_control {
+            ' '
+        } else {
+            next.filter(|&character| character > ' ').unwrap_or(' ')
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceAction {
@@ -67,6 +80,7 @@ pub struct DialoguePlayer {
     voice_durations: Arc<BTreeMap<u32, u32>>,
     glyph_alpha: Vec<u8>,
     instant_glyphs: bool,
+    reveal_handoff: bool,
 }
 impl DialoguePlayer {
     /// Scripts can release a persistent notice after its text has appeared.
@@ -98,7 +112,8 @@ impl DialoguePlayer {
             voice_completion: None,
             voice_durations: Default::default(),
             glyph_alpha: Vec::new(),
-            instant_glyphs: dialogue.flags & 0x1000 != 0,
+            instant_glyphs: dialogue.flags & flags::INSTANT != 0,
+            reveal_handoff: false,
         })
     }
     pub fn current(&self) -> &Page {
@@ -134,10 +149,22 @@ impl DialoguePlayer {
             WindowPhase::Opening(_) | WindowPhase::Text | WindowPhase::Closing(0)
         )
     }
+    /// Selection and ordinary confirmation share the same window retirement.
+    pub fn close(&mut self) {
+        self.phase = WindowPhase::Closing(0);
+    }
     pub fn accepts_input(&self) -> bool {
         self.phase == WindowPhase::Text
             && (self.visible < self.current().glyphs.len()
-                || self.glyph_alpha.last().is_none_or(|alpha| *alpha == 255))
+                || self
+                    .current()
+                    .glyphs
+                    .iter()
+                    .zip(&self.glyph_alpha)
+                    .rfind(|(glyph, _)| glyph.character != '\n')
+                    // Input sees the opacity update after drawing; stored glyph
+                    // opacity is the value presented during this update.
+                    .is_none_or(|(_, alpha)| alpha.saturating_add(GLYPH_ALPHA_STEP) == 255))
     }
     /// Glyph opacity continues rising after text readiness, so a choice can appear
     /// before the final glyph becomes opaque enough to dismiss.
@@ -150,9 +177,9 @@ impl DialoguePlayer {
             && self.operation.is_pending()
             && (self.visible < self.current().glyphs.len() || !self.voice_finished())
     }
-    /// Call once per gameplay update after the window is available. An accept
-    /// press reveals the current page first, then advances on a later press.
-    pub fn step(&mut self, accept: bool) -> Result<Vec<VoiceAction>> {
+    /// A press reveals the page, then advances it on a later press.
+    /// Holding accept accelerates text without repeatedly advancing pages.
+    pub fn step(&mut self, advance: bool, accelerate: bool) -> Result<Vec<VoiceAction>> {
         if self.closed {
             return Ok(Vec::new());
         }
@@ -185,12 +212,15 @@ impl DialoguePlayer {
         for alpha in &mut self.glyph_alpha {
             *alpha = alpha.saturating_add(GLYPH_ALPHA_STEP);
         }
-        let accept = accept && !self.persistent && self.accepts_input();
+        // Give the script its readiness dispatch to install a choice before
+        // another press can dismiss the page that will contain it.
+        let reveal_handoff = std::mem::take(&mut self.reveal_handoff);
+        let advance = advance && !reveal_handoff && !self.persistent && self.accepts_input();
         let next_page =
             self.auto_pages && self.page + 1 < self.pages.len() && self.voice_finished();
-        if (accept || next_page) && self.fully_revealed() {
+        if (advance || next_page) && self.fully_revealed() {
             if self.page + 1 == self.pages.len() {
-                self.phase = WindowPhase::Closing(0);
+                self.close();
                 return Ok(vec![VoiceAction::Stop]);
             }
             self.page += 1;
@@ -198,24 +228,39 @@ impl DialoguePlayer {
             self.glyph_alpha.clear();
             self.delay = 0;
             self.voice_cursor = 0;
-        } else if accept {
+        } else if advance {
             self.visible = self.current().glyphs.len();
             self.delay = 0;
-        } else if self.delay > 0 {
-            self.delay -= 1;
+            self.glyph_alpha.resize(self.visible, 255);
+            self.glyph_alpha.fill(255);
+            self.reveal_handoff = true;
         } else {
             while self.visible < self.current().glyphs.len() {
                 let glyph = &self.current().glyphs[self.visible];
-                self.delay = glyph.delay;
-                self.visible += 1;
+                if glyph.character == '\n' {
+                    self.visible += 1;
+                    continue;
+                }
                 if self.delay > 0 {
                     self.delay -= 1;
                     break;
                 }
+                self.delay = if accelerate && !self.auto_pages && glyph.delay > 0 {
+                    1
+                } else {
+                    glyph.delay
+                };
+                self.visible += 1;
             }
         }
-        self.glyph_alpha
-            .resize(self.visible, if self.instant_glyphs { 255 } else { 0 });
+        for glyph in &self.pages[self.page].glyphs[self.glyph_alpha.len()..self.visible] {
+            self.glyph_alpha
+                .push(if self.instant_glyphs || glyph.character == '\n' {
+                    255
+                } else {
+                    0
+                });
+        }
         let mut voices = Vec::new();
         while let Some(&(position, action)) = self.current().voices.get(self.voice_cursor) {
             if position > self.visible {
@@ -237,14 +282,10 @@ impl DialoguePlayer {
         }
         // Publish readiness only after the final page and voice finish, so the next
         // speaker cannot replace a line that is still being revealed or spoken.
-        if self.page + 1 == self.pages.len() && self.fully_revealed() {
-            // Authored automatic dialogue must not replace a voice before
-            // its cooked duration ends. Explicit player dismissal still skips.
-            if self.voice_finished() {
-                self.operation
-                    .advance(self.page as u32 + 1)
-                    .map_err(anyhow::Error::msg)?;
-            }
+        if self.page + 1 == self.pages.len() && self.fully_revealed() && self.voice_finished() {
+            self.operation
+                .advance(self.page as u32 + 1)
+                .map_err(anyhow::Error::msg)?;
         }
         Ok(voices)
     }
@@ -255,6 +296,7 @@ pub fn step_requests(
     world: &mut resonance_events::GameWorld,
     players: &mut std::collections::BTreeMap<u8, DialoguePlayer>,
     confirm: bool,
+    accelerate: bool,
 ) -> Result<()> {
     players.retain(|slot, p| {
         world
@@ -284,7 +326,10 @@ pub fn step_requests(
         .find(|(_, p)| !p.closed && !p.persistent && p.operation.is_pending())
         .map(|(&slot, _)| slot);
     for (&slot, player) in players.iter_mut() {
-        for voice in player.step(confirm && focus == Some(slot))? {
+        for voice in player.step(
+            confirm && focus == Some(slot),
+            accelerate && focus == Some(slot),
+        )? {
             world.audio_commands.push(match voice {
                 VoiceAction::Play(id) => resonance_events::AudioCommand::Voice(id),
                 VoiceAction::Stop => resonance_events::AudioCommand::StopVoice,
@@ -300,6 +345,11 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
     let mut delay = default_delay;
     let mut count = 0;
     for token in &message.tokens {
+        if matches!(token, TextToken::Control { .. })
+            && let Some(glyph) = pages.last_mut().unwrap().glyphs.last_mut()
+        {
+            glyph.followed_by_control = true;
+        }
         match token {
             TextToken::Text { text } => {
                 for character in text.chars() {
@@ -312,7 +362,8 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
                         pages.last_mut().unwrap().glyphs.push(Glyph {
                             character,
                             color,
-                            delay,
+                            delay: if character == '\n' { 0 } else { delay },
+                            followed_by_control: false,
                         });
                     }
                 }
@@ -399,64 +450,65 @@ mod tests {
     fn attached_window_expands_before_speech_and_finishes_before_vm_resume() {
         let (mut player, _scope) = player("AB", 0);
         for fraction in [0., 0.25, 0.5, 0.75, 1.] {
-            assert!(player.step(true).unwrap().is_empty());
+            assert!(player.step(true, false).unwrap().is_empty());
             assert_eq!(player.opening_fraction(), Some(fraction));
             assert_eq!(player.visible, 0);
             assert!(!player.is_talking());
             assert!(!player.accepts_input());
         }
-        assert_eq!(player.step(false).unwrap(), [VoiceAction::Play(7)]);
+        assert_eq!(player.step(false, false).unwrap(), [VoiceAction::Play(7)]);
         assert_eq!(player.visible, 1);
         assert!(player.is_talking());
-        player.step(false).unwrap();
+        player.step(false, false).unwrap();
         for _ in 0..8 {
-            player.step(false).unwrap();
+            player.step(false, false).unwrap();
         }
-        assert_eq!(player.step(true).unwrap(), [VoiceAction::Stop]);
+        assert_eq!(player.step(true, false).unwrap(), [VoiceAction::Stop]);
         assert!(
             player.window_visible(),
             "dismissal update still draws the page"
         );
         assert!(!player.is_talking());
         for _ in 0..3 {
-            player.step(true).unwrap();
+            player.step(true, false).unwrap();
             assert!(!player.window_visible());
             assert!(!player.closed);
             assert!(player.operation.is_pending());
         }
-        player.step(false).unwrap();
+        player.step(false, false).unwrap();
         assert!(player.closed);
         assert!(player.operation.progress().outcome.is_some());
     }
     #[test]
-    fn final_glyph_fades_before_confirm_can_dismiss_the_page() {
+    fn final_glyph_accepts_confirm_on_its_last_fade_update() {
         let (mut player, _scope) = player("A", 0);
         for _ in 0..6 {
-            player.step(false).unwrap();
+            player.step(false, false).unwrap();
         }
         assert_eq!(player.visible, 1);
         assert!(player.operation.progress().ready);
         assert_eq!(player.glyph_alpha(0), 0);
-        for alpha in [32, 64, 96, 128, 160, 192, 224] {
-            player.step(true).unwrap();
+        for alpha in [32, 64, 96, 128, 160, 192] {
+            player.step(true, false).unwrap();
             assert_eq!(player.glyph_alpha(0), alpha);
             assert!(player.window_visible());
             assert!(!player.accepts_input());
         }
-        assert_eq!(player.step(true).unwrap(), [VoiceAction::Stop]);
-        assert_eq!(player.glyph_alpha(0), 255);
+        assert_eq!(player.step(true, false).unwrap(), [VoiceAction::Stop]);
+        assert_eq!(player.glyph_alpha(0), 224);
+        assert!(player.window_visible());
         assert!(!player.is_talking());
     }
     #[test]
     fn speaker_moves_mouth_through_reveal_and_voice_then_stops() {
-        let (player, _scope) = player("AB", 0x1000);
+        let (player, _scope) = player("AB", flags::INSTANT);
         let mut player = player.with_voice_durations(Arc::new([(7, 10)].into()));
         assert!(player.is_talking());
         for _ in 0..10 {
-            player.step(false).unwrap();
+            player.step(false, false).unwrap();
             assert!(player.is_talking(), "voice outlasts text reveal");
         }
-        player.step(false).unwrap();
+        player.step(false, false).unwrap();
         assert!(!player.is_talking());
         assert!(
             !player.closed,
@@ -466,20 +518,20 @@ mod tests {
 
     #[test]
     fn ready_waits_for_final_page_and_spoken_line_to_finish() {
-        let (player, _scope) = player("AB\u{c}CD", 0x1020);
+        let (player, _scope) = player("AB\u{c}CD", flags::INSTANT | flags::AUTO_PAGES);
         let mut player = player.with_voice_durations(Arc::new([(7, 10)].into()));
-        player.step(false).unwrap();
+        player.step(false, false).unwrap();
         assert!(
             !player.operation.progress().ready,
             "opening a window is not readiness"
         );
         for _ in 0..9 {
-            player.step(false).unwrap();
+            player.step(false, false).unwrap();
         }
         assert_eq!(player.page, 0, "automatic page must wait for its voice");
         assert!(!player.operation.progress().ready);
         for _ in 0..4 {
-            player.step(false).unwrap();
+            player.step(false, false).unwrap();
         }
         assert_eq!(player.page, 1);
         assert!(player.operation.progress().ready);
@@ -489,17 +541,67 @@ mod tests {
         );
     }
     #[test]
-    fn explicit_dismissal_can_skip_a_spoken_line() {
-        let (player, _scope) = player("AB", 0x1000);
+    fn confirm_reveals_one_page_then_can_dismiss_an_unfinished_voice() {
+        let (player, _scope) = player("ABCDE\u{c}F", 0);
         let mut player = player.with_voice_durations(Arc::new([(7, 100)].into()));
-        player.step(true).unwrap();
-        assert!(!player.operation.progress().ready);
-        player.step(true).unwrap();
+        for _ in 0..6 {
+            player.step(false, false).unwrap();
+        }
+        assert_eq!(player.visible, 1);
+        assert!(player.step(true, true).unwrap().is_empty());
+        assert_eq!((player.page, player.visible, player.delay), (0, 5, 0));
+        assert!(player.glyph_alpha.iter().all(|&alpha| alpha == 255));
+        assert!(!player.voice_finished());
+        assert!(player.is_talking());
+        player.step(false, true).unwrap();
+        assert_eq!(player.page, 0, "holding confirm must not advance the page");
+        player.step(true, true).unwrap();
+        assert_eq!((player.page, player.visible), (1, 0));
+        player.step(true, false).unwrap();
+        assert_eq!(player.visible, 1);
+        assert!(!player.voice_finished());
+        assert!(player.step(true, false).unwrap().is_empty());
+        assert_eq!(player.phase, WindowPhase::Text, "script readiness handoff");
+        assert_eq!(player.step(true, false).unwrap(), [VoiceAction::Stop]);
+        assert!(!player.is_talking());
         for _ in 0..4 {
-            player.step(false).unwrap();
+            player.step(false, false).unwrap();
         }
         assert!(player.closed);
         assert!(player.operation.progress().outcome.is_some());
+    }
+    #[test]
+    fn held_accept_accelerates_new_glyphs_without_skipping_a_pending_delay() {
+        let (mut player, _scope) = player("ABCDE\u{c}F", flags::INSTANT);
+        for glyph in &mut player.pages[0].glyphs {
+            glyph.delay = 3;
+        }
+        player.step(false, false).unwrap();
+        assert_eq!((player.visible, player.delay), (1, 2));
+        player.step(false, true).unwrap();
+        assert_eq!((player.visible, player.delay), (1, 1));
+        player.step(false, true).unwrap();
+        assert_eq!((player.visible, player.delay), (1, 0));
+        player.step(false, true).unwrap();
+        assert_eq!((player.visible, player.delay), (2, 0));
+        player.step(false, false).unwrap();
+        assert_eq!((player.visible, player.delay), (3, 2));
+        while !player.fully_revealed() {
+            player.step(false, true).unwrap();
+        }
+        player.step(false, true).unwrap();
+        assert_eq!(player.page, 0, "holding accept never advances a page");
+        player.step(true, false).unwrap();
+        assert_eq!(player.page, 1);
+    }
+    #[test]
+    fn automatic_pages_keep_authored_glyph_delays_while_accept_is_held() {
+        let (mut player, _scope) = player("AB", flags::INSTANT | flags::AUTO_PAGES);
+        player.pages[0].glyphs[0].delay = 3;
+        player.step(true, true).unwrap();
+        assert_eq!((player.visible, player.delay), (1, 2));
+        player.step(true, true).unwrap();
+        assert_eq!((player.visible, player.delay), (1, 1));
     }
     #[test]
     fn page_breaks_preserve_voice_boundaries_color_and_speed() {
@@ -525,7 +627,14 @@ mod tests {
                     value: 0xa0001,
                 },
                 TextToken::Text {
-                    text: "Wake up!".into(),
+                    text: "Wake".into(),
+                },
+                TextToken::Control {
+                    opcode: 3,
+                    value: 2,
+                },
+                TextToken::Text {
+                    text: " up!".into(),
                 },
             ],
         };
@@ -535,7 +644,52 @@ mod tests {
         assert_eq!(pages[1].voices, [(0, VoiceAction::Play(0xa0001))]);
         assert_eq!(pages[1].glyphs[0].color, [255, 0, 0]);
         assert_eq!(pages[1].glyphs[0].delay, 0);
-        assert!(pages[0].glyphs.iter().any(|g| g.character == '\n'));
+        assert_eq!(pages[1].text(), "Wake up!");
+        assert_eq!(pages[1].glyphs[3].color, pages[1].glyphs[4].color);
+        assert!(pages[1].glyphs[3].followed_by_control);
+        assert_eq!(pages[1].glyphs[3].measured_character(Some('X')), ' ');
+        assert_eq!(pages[1].glyphs[2].measured_character(Some('X')), 'X');
+        assert_eq!(pages[1].glyphs[2].measured_character(Some('\n')), ' ');
+        assert_eq!(
+            pages[0]
+                .glyphs
+                .iter()
+                .find(|g| g.character == '\n')
+                .unwrap()
+                .delay,
+            0
+        );
+        let (mut player, _scope) = player("\nA\n\nB\n", 0);
+        for glyph in &mut player.pages[0].glyphs {
+            if glyph.character != '\n' {
+                glyph.delay = 3;
+            }
+        }
+        for _ in 0..6 {
+            player.step(false, false).unwrap();
+        }
+        assert_eq!(
+            player.visible, 4,
+            "line breaks parse with the preceding glyph"
+        );
+        for _ in 0..2 {
+            player.step(false, false).unwrap();
+            assert_eq!(
+                player.visible, 4,
+                "line breaks preserve the pending glyph delay"
+            );
+        }
+        player.step(false, false).unwrap();
+        assert!(player.fully_revealed());
+        assert_eq!(player.glyph_alpha(4), 0);
+        assert_eq!(player.glyph_alpha(5), 255);
+        for _ in 0..6 {
+            player.step(true, false).unwrap();
+            assert_eq!(player.phase, WindowPhase::Text);
+        }
+        player.step(true, false).unwrap();
+        assert_eq!(player.glyph_alpha(4), 224);
+        assert_eq!(player.phase, WindowPhase::Closing(0));
     }
     #[test]
     fn playback_acknowledgement_outlives_nominal_voice_duration() {
@@ -547,18 +701,18 @@ mod tests {
             }
         }
         let completed = Arc::new(AtomicBool::new(false));
-        let (player, _scope) = player("AB", 0x1000);
+        let (player, _scope) = player("AB", flags::INSTANT);
         let mut player = player
             .with_voice_durations(Arc::new([(7, 2)].into()))
             .with_voice_feedback(Some(Arc::new(Feedback(completed.clone()))));
         for _ in 0..100 {
-            player.step(false).unwrap();
+            player.step(false, false).unwrap();
         }
         assert!(!player.voice_finished());
         assert!(!player.operation.progress().ready);
         assert!(player.is_talking());
         completed.store(true, Ordering::Release);
-        player.step(false).unwrap();
+        player.step(false, false).unwrap();
         assert!(player.voice_finished());
         assert!(player.operation.progress().ready);
         assert!(!player.is_talking());

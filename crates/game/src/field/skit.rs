@@ -282,7 +282,12 @@ impl FieldSession {
     pub(super) fn step_skit(&mut self, input: FieldInput) -> Result<()> {
         let skit = self.active_skit.as_mut().context("skit is not active")?;
         skit.events.step()?;
-        crate::dialogue::step_requests(&mut skit.events.world, &mut skit.dialogue, input.interact)?;
+        crate::dialogue::step_requests(
+            &mut skit.events.world,
+            &mut skit.dialogue,
+            input.interact || input.cancel,
+            input.accelerate_dialogue,
+        )?;
         self.events
             .world
             .audio_commands

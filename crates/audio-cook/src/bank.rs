@@ -159,6 +159,10 @@ impl<'a> Bank<'a> {
             .with_context(|| format!("sound {id} is missing"))
     }
 
+    pub fn sound_ids(&self) -> impl Iterator<Item = u16> + '_ {
+        self.sounds.keys().copied()
+    }
+
     /// Event sound banks can reference envelope tables from the resident common
     /// bank. Resolve those references offline, retaining local overrides.
     pub fn inherit_tables(&mut self, common: &Bank<'a>) {
@@ -168,7 +172,7 @@ impl<'a> Bank<'a> {
                 .or_insert(bytes);
         }
     }
-    /// Resident instrument samples are visible to sound-effect macros too.
+    /// Resident common and instrument samples are visible to event macros too.
     /// Keep each directory paired with its own payload and retain local IDs.
     pub fn inherit_samples(&mut self, resident: &Bank<'a>) {
         self.sample_banks
@@ -373,30 +377,32 @@ mod tests {
     }
 
     #[test]
-    fn eraser_macro_preserves_the_signed_auxiliary_midpoint() {
-        // Original cue 236's macros 436/437 start with these words. The
-        // independently observed post-B selector evaluates to 0x2000, so
-        // cooking it as zero would silently remove the shared reverb send.
-        let macro_bytes = [0, 0, 0x1e, 0x4c, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let bank = Bank {
-            sections: [&[]; 4],
-            sample_banks: Vec::new(),
-            objects: [
-                BTreeMap::from([(436, macro_bytes.as_slice())]),
-                BTreeMap::new(),
-                BTreeMap::new(),
-                BTreeMap::new(),
-            ],
-            sounds: BTreeMap::new(),
-            music_groups: BTreeMap::new(),
-        };
-        let resources = crate::compile::programs(&bank, [436]).unwrap();
-        let resonance_audio::data::Command::Auxiliary { bus, value } = resources.programs[&436][0]
-        else {
-            panic!("eraser macro lost its auxiliary selector");
-        };
-        assert_eq!(bus, 1);
-        assert_eq!(u16::from(value) << 7, 0x2000);
+    fn auxiliary_selectors_preserve_the_bus_and_signed_midpoint() {
+        // Cue 153 selects A; eraser cue 236 selects B. Both zero-scale signed
+        // selectors produce 0x2000, retaining their distinct effect sends.
+        for (opcode, expected_bus) in [(0x4b, 0), (0x4c, 1)] {
+            let macro_bytes = [0, 0, 0x1e, opcode, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            let bank = Bank {
+                sections: [&[]; 4],
+                sample_banks: Vec::new(),
+                objects: [
+                    BTreeMap::from([(436, macro_bytes.as_slice())]),
+                    BTreeMap::new(),
+                    BTreeMap::new(),
+                    BTreeMap::new(),
+                ],
+                sounds: BTreeMap::new(),
+                music_groups: BTreeMap::new(),
+            };
+            let resources = crate::compile::programs(&bank, [436]).unwrap();
+            let resonance_audio::data::Command::Auxiliary { bus, value } =
+                resources.programs[&436][0]
+            else {
+                panic!("macro lost its auxiliary selector");
+            };
+            assert_eq!(bus, expected_bus);
+            assert_eq!(u16::from(value) << 7, 0x2000);
+        }
     }
 
     #[test]
@@ -438,6 +444,51 @@ mod tests {
         assert_eq!((inherited.key, inherited.rate), (60, 32000));
         assert_eq!(inherited.pcm, vec![-1; 14]);
         assert!(local.sample(10).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires locally extracted GQSEAF sound banks; no audio device"]
+    fn event_cue_425_uses_the_resident_common_sample() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../local/extracted/disc1/files/S");
+        let common_bytes = std::fs::read(root.join("se.snd")).unwrap();
+        let instrument_bytes = std::fs::read(root.join("inst.snd")).unwrap();
+        let event_bytes = std::fs::read(root.join("se_ev00.snd")).unwrap();
+        let common = Bank::parse(&common_bytes).unwrap();
+        let instruments = Bank::parse(&instrument_bytes).unwrap();
+        let mut event = Bank::parse(&event_bytes).unwrap();
+        event.inherit_tables(&common);
+        event.inherit_tables(&instruments);
+        event.inherit_samples(&instruments);
+        let sound = event.sound(425).unwrap();
+        let layers = crate::instrument::resolve(
+            &event,
+            Page {
+                object: sound.object,
+                priority: 64,
+                max_voices: 255,
+            },
+            sound.key,
+            sound.volume,
+            sound.pan,
+        )
+        .unwrap();
+        let roots = || layers.iter().map(|layer| layer.macro_id);
+        let error = crate::compile::programs(&event, roots()).err().unwrap();
+        assert_eq!(error.to_string(), "sample 135 is missing");
+
+        event.inherit_samples(&common);
+        let resources = crate::compile::programs(&event, roots()).unwrap();
+        let actual = &resources.samples[&135];
+        let expected = common.sample(135).unwrap();
+        assert_eq!((actual.key, actual.rate), (expected.key, expected.rate));
+        assert_eq!(
+            (actual.loop_start, actual.loop_length),
+            (expected.loop_start, expected.loop_length)
+        );
+        assert_eq!(actual.pcm, expected.pcm);
+        assert_eq!(actual.loop_pcm, expected.loop_pcm);
+        assert!(actual.pcm.iter().any(|&sample| sample != 0));
     }
 
     #[test]

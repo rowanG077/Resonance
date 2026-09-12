@@ -5,7 +5,7 @@ pub struct WorldMapData {
     pub names: [String; 2],
     pub locations: BTreeMap<u16, MapLocation>,
     pub field_locations: BTreeMap<u32, u16>,
-    pub shops: Vec<MapShop>,
+    pub shops: Vec<Shop>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,10 +27,48 @@ pub struct MapShopVariant {
     pub shops: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MapShop {
+/// Ordered stock shared by the shop counter and world-map directory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Shop {
     pub name: String,
     pub items: Vec<u16>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShopTrade {
+    Buy,
+    Sell,
+}
+
+impl Item {
+    /// Prices are rounded per unit before the basket quantity is applied.
+    pub fn shop_price(&self, trade: ShopTrade, personal: bool) -> u32 {
+        let percent = match (trade, personal) {
+            (ShopTrade::Buy, false) => 200,
+            (ShopTrade::Buy, true) => 180,
+            (ShopTrade::Sell, false) => 100,
+            (ShopTrade::Sell, true) => 110,
+        };
+        u32::try_from(u64::from(self.price) * percent / 100).unwrap_or(u32::MAX)
+    }
+}
+
+impl Shop {
+    pub fn validate(&self, item_count: usize) -> Result<()> {
+        ensure!(!self.name.is_empty(), "missing shop name");
+        let mut seen = std::collections::BTreeSet::new();
+        ensure!(
+            !self.items.is_empty()
+                && self
+                    .items
+                    .iter()
+                    .all(|&id| { id > 0 && usize::from(id) < item_count && seen.insert(id) }),
+            "shop {:?} has empty, duplicate, or invalid stock",
+            self.name
+        );
+        Ok(())
+    }
 }
 
 impl MapLocation {
@@ -45,6 +83,9 @@ impl MapLocation {
 
 impl WorldMapData {
     pub fn validate(&self, item_count: usize) -> Result<()> {
+        for shop in &self.shops {
+            shop.validate(item_count)?;
+        }
         ensure!(
             self.names.iter().all(|v| !v.is_empty()),
             "missing world map name"
@@ -73,12 +114,7 @@ impl WorldMapData {
         ensure!(
             self.field_locations
                 .values()
-                .all(|id| self.locations.contains_key(id))
-                && self.shops.iter().all(|shop| !shop.name.is_empty()
-                    && shop
-                        .items
-                        .iter()
-                        .all(|&id| id > 0 && usize::from(id) < item_count)),
+                .all(|id| self.locations.contains_key(id)),
             "invalid world map field or shop reference"
         );
         Ok(())

@@ -1,10 +1,12 @@
 //! Development quicksave controls. Player menus use the same checkpoint and store.
+mod fixture;
 mod menu;
 mod menu_probe;
 mod probe;
 mod replay;
+pub use fixture::prepare_checkpoint_fixture;
 pub(crate) use replay::record_live;
-pub use replay::{CheckpointReplay, record_checkpoint};
+pub use replay::{CheckpointReplay, record_checkpoint, record_checkpoint_with_display};
 pub(super) mod title;
 mod title_probe;
 use super::{field_view, loading, new_game};
@@ -117,25 +119,16 @@ pub(super) fn capture(world: &mut World) {
         return;
     }
     state.requested = true;
-    let metadata = serde_json::to_vec_pretty(&serde_json::json!({
+    let metadata = serde_json::json!({
         "checkpoint": checkpoint, "audio_device": false,
         "width": resonance_content::WIDTH, "height": resonance_content::HEIGHT,
         "identity": world.resource::<new_game::Session>().identity,
-    }))
-    .expect("checkpoint serializes");
+    });
     let target = world.resource::<super::Framebuffer>().0.clone();
     use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
     world.spawn(Screenshot(target)).observe(
         move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            let result = (|| -> Result<()> {
-                if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-                    std::fs::create_dir_all(parent)?;
-                }
-                event.image.clone().try_into_dynamic()?.save(&path)?;
-                std::fs::write(path.with_extension("json"), &metadata)?;
-                Ok(())
-            })();
-            if let Err(error) = result {
+            if let Err(error) = crate::screenshot::write(&event.image, &path, Some(&metadata)) {
                 error!("Saved-field capture failed: {error:#}");
                 exit.write(AppExit::error());
             } else {

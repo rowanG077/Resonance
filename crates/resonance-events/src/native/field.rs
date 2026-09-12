@@ -2,6 +2,7 @@
 use super::{NativeHost, NativeResult, require};
 use crate::{
     Actor, Animation, ResourceKind,
+    animation::slot,
     camera::CameraRig,
     world::{Attachment, AudioCommand, BoneAdjustment, Emote, EventRecord, Face, Trigger},
 };
@@ -19,12 +20,14 @@ impl NativeHost<'_> {
         match op {
             NativeCall::CreateSavePoint => {
                 let resource = resonance_content::field::SAVE_POINT_RESOURCE;
-                require(
-                    self.resources.model(resource).is_some_and(|model| {
-                        model.clips.contains_key(&crate::animation::slot::IDLE)
-                    }),
-                    "save-point model or animation is not cooked",
-                )?;
+                let model = self
+                    .resources
+                    .model(resource)
+                    .ok_or("save-point model is not cooked")?;
+                let idle = model
+                    .clips
+                    .get(&slot::IDLE)
+                    .ok_or("save-point animation is not cooked")?;
                 require(
                     self.world.save_points.len() < 16,
                     "save-point limit exceeded",
@@ -36,7 +39,6 @@ impl NativeHost<'_> {
                     "save-point actor ID is occupied",
                 )?;
                 let position = [a[0] as f32, a[1] as f32, a[2] as f32];
-                let model = self.resources.model(resource).unwrap();
                 let mut actor = Actor::new(resource, [position[0], position[1], position[2] + 10.]);
                 actor.grounded = false;
                 actor.collidable = false;
@@ -50,12 +52,8 @@ impl NativeHost<'_> {
                     .filter(|(_, name)| name.starts_with("HID_"))
                     .map(|(i, _)| i as u16)
                     .collect();
-                let mut animation = Animation::new(
-                    resource,
-                    crate::animation::slot::IDLE,
-                    model.clips[&crate::animation::slot::IDLE].duration_ticks,
-                    self.world.tick,
-                );
+                let mut animation =
+                    Animation::new(resource, slot::IDLE, idle.duration_ticks, self.world.tick);
                 animation.rate = 0.1; // Cooked poses use two ticks per authored model frame.
                 actor.animation = Some(animation);
                 self.world.insert_actor(id, actor);
@@ -119,15 +117,23 @@ impl NativeHost<'_> {
                     .world
                     .fade
                     .as_ref()
-                    .map_or(255., |f| f.alpha(self.world.tick));
-                let white = self.world.fade.as_ref().is_some_and(|f| f.white) && from as i32 != 0;
-                self.world.fade = Some(crate::Fade {
-                    start_tick: self.world.tick,
-                    duration: 10,
-                    from,
-                    to: 0.,
-                    white,
-                });
+                    .map_or(255., |f| f.before_update(self.world.tick));
+                if from as i32 == 0 {
+                    self.world.fade = Some(crate::Fade {
+                        start_tick: self.world.tick,
+                        duration: 0,
+                        from: 0.,
+                        to: 0.,
+                        white: false,
+                    });
+                    self.world.input_enabled = true;
+                    // An already clear scene releases input now; only the
+                    // current script waits until the next dispatcher update.
+                    *self.wait = Some(crate::operation::Wait::ControlReleased);
+                    return Ok(NativeResult::Suspend);
+                }
+                let white = self.world.fade.as_ref().is_some_and(|f| f.white);
+                self.world.fade = Some(crate::Fade::new(self.world.tick, 10, from, 0., white));
                 self.world.input_enabled = false;
                 *self.wait = Some(crate::operation::Wait::ControlHandoff(
                     self.world.tick.checked_add(10).ok_or("clock overflow")?,
@@ -246,13 +252,14 @@ impl NativeHost<'_> {
             }
             NativeCall::SetEffectProperty => {
                 require(
-                    matches!(a[1], 134 | 135),
+                    matches!(a[1], 134 | 135 | 143),
                     "effect property is not implemented",
                 )?;
                 if let Some(effect) = self.world.billboards.get_mut(&a[0]) {
                     match a[1] {
                         134 => effect.angular_velocity[2] = a[2] as f32 / 100.,
                         135 => effect.size_delta = a[2] as f32 / 100.,
+                        143 => effect.rotation[2] = a[2] as f32 / 100.,
                         _ => unreachable!(),
                     }
                 }
@@ -482,11 +489,15 @@ impl NativeHost<'_> {
                     if (-299..=-100).contains(&a[0]) && self.world.actors.contains_key(&a[5]) {
                         require((0..=19).contains(&a[4]), "unknown emote recipe")?;
                         require(self.world.emotes.len() < 200, "emote limit exceeded")?;
+                        // Every controller initializes immediately, even when its
+                        // animation does not use the random phase.
+                        let phase = (self.world.random() & 31) as u8;
                         self.world.emotes.insert(
                             a[0],
                             Emote {
                                 actor: a[5],
                                 kind: a[4] as u16,
+                                phase,
                                 offset: [a[1] as f32, a[2] as f32, a[3] as f32],
                                 start_tick: self.world.tick,
                                 duration: (a[7] != -1).then_some(a[7].max(0) as u32),
@@ -540,12 +551,15 @@ impl NativeHost<'_> {
                     .model(resource)
                     .and_then(|m| m.clips.get(&crate::animation::slot::IDLE))
                 {
-                    actor.animation = Some(Animation::new(
-                        resource,
-                        crate::animation::slot::IDLE,
-                        clip.duration_ticks,
-                        self.world.tick,
-                    ));
+                    actor.animation = Some(Animation {
+                        binding_updates: u32::from(self.world.field_camera.is_some()),
+                        ..Animation::new(
+                            resource,
+                            crate::animation::slot::IDLE,
+                            clip.duration_ticks,
+                            self.world.tick,
+                        )
+                    });
                 }
                 self.world.insert_actor(a[0], actor);
             }
@@ -575,9 +589,14 @@ impl NativeHost<'_> {
                     } else {
                         a[0]
                     };
-                    self.world
-                        .select_party_member(self.resources, id)
-                        .map_err(|e| e.to_string())?;
+                    if a[0] == crate::CONTROLLED_ACTOR {
+                        self.world.select_party_member(self.resources, id)
+                    } else {
+                        // An explicit member reloads the controlled actor, even
+                        // when that member is already selected.
+                        self.world.replace_party_member(self.resources, id)
+                    }
+                    .map_err(|e| e.to_string())?;
                 }
             }
             NativeCall::CreateScriptRecord
@@ -604,10 +623,21 @@ impl NativeHost<'_> {
                     height: a[a.len() - 1] as i16 as f32,
                     transition: (op == NativeCall::CreateScriptRecordVariant)
                         .then(|| [a[1] as u32, a[2] as u32, a[3] as u32]),
+                    touch_metadata: [0; 3],
                 });
             }
+            NativeCall::SetTouchTriggerMetadata => {
+                if let Some(trigger) = self
+                    .world
+                    .triggers
+                    .iter_mut()
+                    .find(|trigger| trigger.key == a[0] as u32 && trigger.transition.is_none())
+                {
+                    trigger.touch_metadata = [a[1] as u16 as u32, a[2] as u16 as u32, a[3] as u32];
+                }
+            }
             NativeCall::SetTriggerMetadata => {
-                // Type 1 touch records do not carry interaction metadata.
+                // Only confirmed-interaction records carry this metadata.
                 if let Some(values) = self
                     .world
                     .triggers
@@ -748,6 +778,13 @@ impl NativeHost<'_> {
                 camera.distance = a[3] as f32;
                 camera.follow = true;
             }
+            NativeCall::SetCameraEye => {
+                self.world.field_camera.get_or_insert_default().set_eye(
+                    a[0],
+                    [a[1] as f32, a[2] as f32, a[3] as f32],
+                    &self.world.actors,
+                );
+            }
             NativeCall::SelectActor => {
                 if self.world.actors.contains_key(&a[0]) {
                     let rig = self.world.field_camera.get_or_insert_default();
@@ -767,6 +804,14 @@ impl NativeHost<'_> {
                     rig.target_settled = false;
                     rig.command_camera().offset = offset;
                 }
+            }
+            NativeCall::ResetCameraBounds => {
+                let rig = self.world.field_camera.get_or_insert_default();
+                let camera = rig.command_camera();
+                camera.position_bounds = [[-100000., 100000.]; 3];
+                camera.target_bounds = camera.position_bounds;
+                rig.position_settled = false;
+                rig.target_settled = false;
             }
             _ => return Err(format!("unimplemented native {op:?}")),
         }

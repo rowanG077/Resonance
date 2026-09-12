@@ -18,6 +18,8 @@ pub struct SessionData {
 /// Localized labels are independent of the statistics used for save identity.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GameText {
+    #[serde(default)]
+    pub characters: BTreeMap<i32, String>,
     pub items: BTreeMap<u16, String>,
     pub titles: BTreeMap<u16, String>,
 }

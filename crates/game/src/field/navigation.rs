@@ -218,6 +218,7 @@ mod tests {
             shape: resonance_events::TriggerShape::Line([[-540., -264., 0.], [-540., -380., 0.]]),
             height: 200.,
             transition: None,
+            touch_metadata: [0; 3],
         };
         assert!(!touches_trigger(&trigger, [-440., -320., 0.], 42.));
         assert!(touches_trigger(&trigger, [-499., -320., 0.], 42.));
@@ -238,6 +239,7 @@ mod tests {
             shape: resonance_events::TriggerShape::Quad(points),
             height: 200.,
             transition: None,
+            touch_metadata: [0; 3],
         };
         assert!(touches_trigger(&trigger, [50., 30., 0.], 42.));
         assert!(!touches_trigger(&trigger, [10., 59., 10.], 42.));

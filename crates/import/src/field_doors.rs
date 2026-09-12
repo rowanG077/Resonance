@@ -82,9 +82,15 @@ pub(crate) fn cook(gltf: &Value) -> Result<Vec<Door>> {
         }
         let distance = if pull && width < 0. { -45.287 } else { -55.287 };
         let approach = matrix.transform_point3(Vec3::new(-0.7 * width, distance, 0.));
-        // Character heading zero faces south. Quantize only the standing heading.
-        let heading = (matrix.x_axis.y.atan2(matrix.x_axis.x).to_degrees() + 180.)
+        // Door standing poses use the scaled matrix's first row. Quantization
+        // precedes the quarter turn into the character's south-facing convention.
+        let heading = (matrix
+            .x_axis
+            .x
+            .atan2(matrix.y_axis.x)
+            .mul_add(1_f32.to_degrees(), 180.)
             .trunc()
+            - 90.)
             .rem_euclid(360.);
         let angle = if name.contains("_AUTO_L") { 45. } else { 30. }
             * if pull { 1. } else { -1. }
@@ -134,5 +140,21 @@ mod tests {
         gltf["nodes"][0]["translation"] = json!([10., 20., 3.]);
         gltf["nodes"][2]["children"] = json!([0]);
         assert!(cook(&gltf).is_err(), "cyclic hinges must not hang cooking");
+    }
+
+    #[test]
+    fn scaled_genis_door_keeps_its_observed_standing_heading() {
+        let door = cook(&json!({"nodes":[{
+            "name":"DOOR01_AUTO_S_PUSH_W175e82",
+            "rotation":[0.,0.,0.2206106185913086,0.975361943244934],
+            "scale":[0.949999988079071,1.,1.],
+            "translation":[-2853.958984375,1610.7022705078125,192.68101501464844]
+        }]}))
+        .unwrap()
+        .remove(0);
+        assert_eq!(door.heading, 206.);
+        assert!((door.approach[0] + 2935.7058).abs() < 0.001);
+        assert!((door.approach[1] - 1510.4801).abs() < 0.001);
+        assert_eq!(door.angle, -30.);
     }
 }

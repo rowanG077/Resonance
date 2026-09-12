@@ -14,7 +14,10 @@ use bevy::{
     gltf::Gltf,
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
-    render::{render_resource::TextureFormat, sync_world::MainEntity},
+    render::{
+        extract_resource::ExtractResourcePlugin, render_resource::TextureFormat,
+        sync_world::MainEntity,
+    },
     sprite_render::Material2dPlugin,
     world_serialization::WorldInstanceReady,
 };
@@ -34,9 +37,11 @@ pub(super) fn install(app: &mut App) {
     bevy::asset::embedded_asset!(app, "model_preview.wgsl");
     let shared = gpu::Shared::default();
     app.insert_resource(shared.clone())
+        .init_resource::<gpu::Capture>()
         .add_plugins((
             MaterialPlugin::<Surface>::default(),
             Material2dPlugin::<Composite>::default(),
+            ExtractResourcePlugin::<gpu::Capture>::default(),
         ))
         .add_systems(Startup, setup)
         .add_systems(
@@ -57,8 +62,44 @@ pub(super) fn install(app: &mut App) {
         .insert_resource(shared)
         .add_systems(
             bevy::render::Render,
-            gpu::rendered.in_set(bevy::render::RenderSystems::Cleanup),
+            (gpu::rendered, gpu::capture_submitted).in_set(bevy::render::RenderSystems::Cleanup),
         );
+}
+
+/// Readback must composite a completed offscreen pose, even with pipelined rendering.
+pub(super) fn synchronize_capture(app: &mut App) -> Result<()> {
+    let snapshot = |world: &World| {
+        let field = &world.get_resource::<crate::new_game::Session>()?.field;
+        let menu = field.menu.as_ref()?;
+        let preview = menu.preview()?;
+        Some((
+            field.events.tick(),
+            menu.tick,
+            preview.id,
+            preview.animation_tick,
+        ))
+    };
+    let Some(expected) = snapshot(app.world()) else {
+        return Ok(());
+    };
+    let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    app.world_mut().resource_mut::<gpu::Capture>().0 = Some(completed.clone());
+    let started = Instant::now();
+    while !completed.load(Ordering::Acquire) {
+        ensure!(
+            started.elapsed().as_secs() < 10,
+            "preview render fence timed out"
+        );
+        app.update();
+        crate::playthrough::check_exit(app)?;
+        ensure!(
+            snapshot(app.world()) == Some(expected),
+            "preview advanced during readback"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    app.world_mut().resource_mut::<gpu::Capture>().0 = None;
+    Ok(())
 }
 
 #[derive(Component)]
@@ -528,7 +569,7 @@ impl Part {
                     .remove::<MeshMaterial3d<StandardMaterial>>()
                     .insert((
                         MeshMaterial3d(self.materials[i].clone()),
-                        crate::draw_order::DrawOrder(scene.materials[i].draw_order),
+                        crate::draw_order::DrawOrder(scene.materials[i].draw_order, 0),
                         if hidden {
                             Visibility::Hidden
                         } else {

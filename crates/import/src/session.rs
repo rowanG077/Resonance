@@ -7,6 +7,21 @@ use std::{collections::BTreeMap, fs, path::Path};
 /// Localized display text stays separate from save-compatible item statistics.
 pub(crate) fn cook_text(extracted: &Path, output: &Path) -> Result<String> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
+    let characters = (1..=10)
+        .map(|id| {
+            let address = if id == 10 {
+                0x8035bb80 // The companion's name is initialized separately from party records.
+            } else {
+                0x801f9fc8 + (id - 1) as u32 * 0x118
+            };
+            let name = dol::text(&executable, address)?;
+            ensure!(
+                !name.is_empty() && !name.chars().any(char::is_control),
+                "invalid character name {id}"
+            );
+            Ok((id, name))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
     let mut names = BTreeMap::new();
     for (id, row) in dol::slice(&executable, 0x801fad98, 528 * 60)?
         .chunks_exact(60)
@@ -57,6 +72,7 @@ pub(crate) fn cook_text(extracted: &Path, output: &Path) -> Result<String> {
         }
     }
     let text = resonance_content::session::GameText {
+        characters,
         items: names,
         titles,
     };

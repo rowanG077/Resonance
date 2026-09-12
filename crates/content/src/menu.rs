@@ -3,6 +3,34 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub const SHOP_LABELS: [&str; 25] = [
+    "shop_buy",
+    "shop_sell",
+    "shop_equip",
+    "shop_exit",
+    "shop_status",
+    "shop_empty",
+    "shop_confirm",
+    "shop_yes",
+    "shop_no",
+    "shop_total",
+    "shop_gald",
+    "shop_select",
+    "shop_add",
+    "shop_reduce",
+    "shop_ok",
+    "shop_info",
+    "shop_slash",
+    "shop_thrust",
+    "shop_defense",
+    "shop_accuracy",
+    "shop_evasion",
+    "shop_intelligence",
+    "shop_luck",
+    "shop_attack",
+    "shop_cannot_equip",
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MenuArt {
     pub version: u32,
@@ -146,6 +174,9 @@ impl MenuArt {
             "system",
             "save",
             "go_in",
+            "talk",
+            "shop",
+            "examine",
             "go_out",
             "load",
             "customize",
@@ -166,7 +197,10 @@ impl MenuArt {
             "confirm_load_b",
             "confirm_overwrite_a",
             "confirm_overwrite_b",
-        ] {
+        ]
+        .into_iter()
+        .chain(SHOP_LABELS)
+        {
             ensure!(
                 self.labels.get(key).is_some_and(|s| !s.is_empty()
                     && s.len() <= 128

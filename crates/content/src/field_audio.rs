@@ -3,6 +3,40 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Sounds emitted by native field services rather than scenario instructions.
+/// The cooker includes this catalogue in every field; service dispatch rejects
+/// undeclared IDs so adding a native cue cannot bypass resource preparation.
+#[repr(i16)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceCue {
+    Navigate = 1,
+    Confirm = 2,
+    Cancel = 3,
+    Error = 4,
+    Door = 30,
+    MenuOpen = 33,
+    Page = 38,
+    Recovery = 104,
+    Remedy = 132,
+}
+impl ServiceCue {
+    pub const ALL: &[Self] = &[
+        Self::Navigate,
+        Self::Confirm,
+        Self::Cancel,
+        Self::Error,
+        Self::Door,
+        Self::MenuOpen,
+        Self::Page,
+        Self::Recovery,
+        Self::Remedy,
+    ];
+
+    pub fn from_id(id: i16) -> Option<Self> {
+        Self::ALL.iter().copied().find(|cue| *cue as i16 == id)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Asset {
     pub path: String,

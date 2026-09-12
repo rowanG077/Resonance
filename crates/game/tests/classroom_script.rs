@@ -1271,13 +1271,29 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
         assert!(!menu_in_motion(menu), "menu transition did not finish");
         cue
     };
-    press_menu(&mut menu, accept);
+    let healing = menu.selected_technique().unwrap();
+    assert_eq!(menu.step(accept), Some(2));
+    assert_eq!(menu.tech.description_previous, Some(healing));
+    assert_eq!(menu.tech.description_fade, 224);
+    for _ in 0..15 {
+        menu.step(Default::default());
+    }
+    assert_eq!(menu.tech.description_previous, None);
+    assert_eq!(menu.tech_description(), None);
+    assert_eq!(menu.selected_technique(), Some(healing));
     assert_eq!((menu.tech.focus, menu.tech.target), (Focus::Target, 0));
     assert_eq!(press_menu(&mut menu, Up.input()), None);
     assert_eq!(press_menu(&mut menu, accept), Some(104));
     press_menu(&mut menu, Down.input());
     assert_eq!(press_menu(&mut menu, accept), Some(4));
     press_menu(&mut menu, cancel);
+    assert_eq!(menu.tech.description_previous, None);
+    assert_eq!(menu.tech.description_fade, 224);
+    assert_eq!(menu.tech_description(), Some(healing));
+    for _ in 0..15 {
+        menu.step(Default::default());
+    }
+    assert_eq!(menu.tech.description_previous, Some(healing));
     menu.tech.row = menu
         .technique_list()
         .iter()
@@ -2743,11 +2759,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
     });
     advance_to(&mut session, |s| s.checkpoint().is_ok(), |_, _| false);
     assert!(session.skit_prompt().is_none());
-    for _ in 0..1199 {
-        session.step(Default::default()).unwrap();
-    }
-    assert!(session.skit_prompt().is_none());
-    session.step(Default::default()).unwrap();
+    advance_to(&mut session, |s| s.skit_prompt().is_some(), |_, _| false);
     let prompt = session.skit_prompt().expect("timed notification missing");
     assert_eq!(
         (prompt.id, prompt.title, prompt.opacity),
@@ -2940,8 +2952,36 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
         player.position = approach;
         player.face(180.);
         assert_eq!(session.interaction_target(), Some(id));
+        // Teleporting to a probe can queue an aisle touch handler. Let it
+        // retire before sending the interaction that this fixture measures.
+        for _ in 0..4 {
+            session.step(Idle.input()).unwrap();
+            if session.player_has_control() {
+                break;
+            }
+        }
+        assert!(
+            session.player_has_control(),
+            "probe {id}, story {} did not settle: {:?}",
+            session.story_progress().unwrap(),
+            session.events.pending_operations()
+        );
+        assert_eq!(session.interaction_target(), Some(id), "settled probe {id}");
+        if id == 202 {
+            assert_eq!(
+                session.action_prompt().map(|p| p.action),
+                Some(resonance_game::field::FieldAction::Examine),
+                "the hole must advertise its interaction before confirmation"
+            );
+        }
         session.step(Accept.input()).unwrap();
-        assert!(!session.player_has_control());
+        assert!(
+            !session.player_has_control(),
+            "probe {id}, story {} did not start at {:?}",
+            session.story_progress().unwrap(),
+            session.events.world.actors[&session.events.world.controlled_actor].position
+        );
+        assert!(session.action_prompt().is_none());
         let mut pages = BTreeMap::new();
         for tick in 0..2000 {
             for p in session.dialogue.values().filter(|p| !p.closed) {
@@ -2970,6 +3010,18 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
         let mut session = classroom(classroom_entry(&data, party, story));
         advance_to(&mut session, FieldSession::player_has_control, |_, _| false);
         assert!(!session.events.world.actors[&202].visible);
+        // Consecutive source positions across the hole's interaction boundary.
+        for (y, target) in [(492., None), (496., Some(202))] {
+            let player = session.events.world.actors.get_mut(&1).unwrap();
+            player.position = [-441., y, 0.];
+            player.face(180.);
+            session.step(Idle.input()).unwrap();
+            assert_eq!(session.interaction_target(), target);
+            assert_eq!(
+                session.action_prompt().map(|p| p.action),
+                target.map(|_| resonance_game::field::FieldAction::Examine)
+            );
+        }
         let hole = interact(&mut session, 202);
         assert_eq!(hole[0], "When did this hole get here?");
         if story == 1000 {
@@ -3062,6 +3114,7 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
                     &mut events.world,
                     &mut dialogue,
                     tick % 30 == 10,
+                    false,
                 )?;
                 events.world.audio_commands.clear();
                 for portrait in events.world.skit.as_ref().unwrap().portraits.values() {
@@ -3156,7 +3209,7 @@ fn eraser_impact_keeps_sound_motion_and_seeded_dust_together() {
         actor: 100,
         position: [0., -10., 0.],
         animation_slot: 80,
-        animation_sample: 20.,
+        animation_sample: 19.5,
         duration_updates: 21,
         accept_updates: Vec::new(),
     };
@@ -3183,7 +3236,9 @@ fn eraser_impact_keeps_sound_motion_and_seeded_dust_together() {
     );
     let animation = world.actors[&100].animation.as_ref().unwrap();
     assert_eq!(world.tick - animation.phase_tick, 40);
-    assert_eq!(animation.sample(world.tick, 0, 70.), 20.5);
+    // The binding callback holds sample zero; the script waits 40 updates at
+    // half speed before issuing the impact sound and all eight dust sprites.
+    assert_eq!(animation.sample(world.tick, 0, 70.), 20.);
     let observed = [
         ([90., -635., 140.], 1.3, 1.),
         ([70., -635., 140.], 2.48, 1.),
@@ -3202,8 +3257,24 @@ fn eraser_impact_keeps_sound_motion_and_seeded_dust_together() {
         assert_eq!(p.angular_velocity, [0., 0., spin]);
         assert_eq!(p.alpha(world.tick), 75.);
     }
-    for _ in 0..20 {
+    for age in 1..=20 {
         session.step(FieldInput::default()).unwrap();
+        if age == 5 {
+            // Independent Dolphin impact checkpoint: authored time 11.25
+            // (cooked sample 22.5), dust timer 175, first size 16.5 and alpha 70.
+            let world = &session.events.world;
+            assert_eq!(
+                world.actors[&100]
+                    .animation
+                    .as_ref()
+                    .unwrap()
+                    .sample(world.tick, 0, 70.),
+                22.5
+            );
+            let first = world.billboards.values().next().unwrap();
+            assert!((first.size[0] - 16.5).abs() < 0.0001);
+            assert_eq!(first.alpha(world.tick), 70.);
+        }
     }
     for (p, &(_, growth, spin)) in session.events.world.billboards.values().zip(&observed) {
         assert!((p.size[0] - (10. + growth * 20.)).abs() < 0.0001);
@@ -3450,6 +3521,7 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
         let mut saw_question = false;
         let mut saw_choice = false;
         let mut joins = 0;
+        let mut pastor_yaw = Vec::new();
         let mut checked_clips = std::collections::BTreeSet::new();
         for _ in 0..20000 {
             let choosing = session
@@ -3477,6 +3549,24 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
                     ..Default::default()
                 })
                 .unwrap();
+            if stay
+                && let Some(camera) = session.events.world.field_camera.as_ref()
+                && let Some(motion) = &camera.motion
+            {
+                let [x, y, z] = motion.position.value;
+                let [pitch, _, yaw] = motion.angles.value;
+                if (-439.001..=-264.999).contains(&x)
+                    && (-931.001..=-910.999).contains(&y)
+                    && (282.999..=313.001).contains(&z)
+                    && (71.999..=76.001).contains(&pitch)
+                    && pastor_yaw.last().is_none_or(|last| *last > -14.999)
+                {
+                    // The sixty-update pastor pan crosses zero, not a full revolution.
+                    assert!((-15.001..=15.001).contains(&yaw), "pastor yaw {yaw}");
+                    assert!((yaw - (15. - (pitch - 72.) * 7.5)).abs() < 0.001);
+                    pastor_yaw.push(yaw);
+                }
+            }
             for emote in session.events.world.emotes.values() {
                 assert!(
                     effects.emotes.contains_key(&emote.kind),
@@ -3514,6 +3604,15 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
             }
         }
         assert!(saw_question && saw_choice);
+        if stay {
+            assert!(pastor_yaw.len() >= 59, "pastor pan was not exercised");
+            assert!(pastor_yaw.iter().any(|yaw| yaw.abs() < 0.251));
+            assert!(
+                pastor_yaw
+                    .last()
+                    .is_some_and(|yaw| (*yaw + 15.).abs() < 0.001)
+            );
+        }
         assert!(
             session.events.world.input_enabled,
             "doorway stalled (stay={stay}): waits {:?}; pages {:?}",
@@ -3700,14 +3799,28 @@ fn original_classroom_reaches_control_walks_and_runs_every_child_conversation() 
             .get(&0)
             .is_some_and(|p| p.operation.id() == operation.id())
     );
-    // Opening, glyph fade, dismissal, and service completion are distinct
-    // visible stages even when confirm is pressed on every update.
-    for _ in 0..32 {
-        session.step(Accept.input()).unwrap();
-        if operation.progress().outcome.is_some() {
-            break;
-        }
-    }
+    advance_to(
+        &mut session,
+        |s| s.dialogue[&0].accepts_input() && !s.dialogue[&0].fully_revealed(),
+        |_, _| false,
+    );
+    session.step(Accept.input()).unwrap();
+    assert!(
+        operation.is_pending(),
+        "an early press must not dismiss text"
+    );
+    assert!(session.dialogue[&0].fully_revealed());
+    assert!(!session.dialogue[&0].closed);
+    // Let each page reveal and fade normally before issuing its advance edge.
+    advance_to(
+        &mut session,
+        |_| operation.progress().outcome.is_some(),
+        |s, _| {
+            s.dialogue
+                .get(&0)
+                .is_some_and(|p| readable(p) && p.accepts_input())
+        },
+    );
     for _ in 0..4 {
         if session.events.world.input_enabled {
             break;

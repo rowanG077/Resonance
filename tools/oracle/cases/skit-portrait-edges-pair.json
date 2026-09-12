@@ -1,0 +1,650 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Opening Iselia skit: consecutive portrait texture-edge and authored-border checks for Lloyd and Genis, with full-frame comparisons retained.",
+  "registration": "Reuse skit-playback source/save/input pins and the accepted Lloyd subtitle registration: Dolphin VI 300 pairs with native update 1601. Across every source VI 291..309, skit 600, media 65544, media status 0x01030101, panel and text alpha remain unchanged; scene_ticks advances exactly once per VI (240..258), with no media startup, drain or subtitle handoff. Thus each consecutive native update 1592..1610 maps directly. Preserve full frames and add narrow portrait-edge and authored-border regions; no pixels, clocks, masks or tolerances are changed. Focused regions check Lloyd’s right texture edge above the underlying 3D actor, Genis’s left texture edge, and the full-height left and right authored Lloyd borders. The first diagnostic’s wider transparent strip also sampled the 3D Lloyd/savepoint background, and its interior box sampled mouth animation: those pre-existing differences are retained as separate diagnostics. The original player starts its media clock after decoder startup, while this replay aligns subtitles and the prepared player starts immediately, so mouth phase is not a border/gutter assertion. No full-frame gates, thresholds, source pins or time origins change.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/milestone-3/paired-school-grounds.json",
+    "sha256": "f085ba361bd4f26cfd982ace70f9f2dd86e574803a927439fa614607745278e8"
+  },
+  "native_replay": {
+    "path": "skit-portrait-edges-keyboard.json",
+    "sha256": "cbad721e61debbdaa355c5fab7057f63c6c5f39df8dac0265b6ff13d24b19884"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "start_poll": 76169,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 332,
+    "story": 2500,
+    "position": [
+      1968.5966,
+      1005.5622,
+      0
+    ],
+    "heading": 276
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 3000,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 2,
+        "buttons": [
+          "z"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "portrait-edge-291",
+      "native": "portrait-edge-291",
+      "dolphin_vi": 291,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-292",
+      "native": "portrait-edge-292",
+      "dolphin_vi": 292,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-293",
+      "native": "portrait-edge-293",
+      "dolphin_vi": 293,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-294",
+      "native": "portrait-edge-294",
+      "dolphin_vi": 294,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-295",
+      "native": "portrait-edge-295",
+      "dolphin_vi": 295,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-296",
+      "native": "portrait-edge-296",
+      "dolphin_vi": 296,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-297",
+      "native": "portrait-edge-297",
+      "dolphin_vi": 297,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-298",
+      "native": "portrait-edge-298",
+      "dolphin_vi": 298,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-299",
+      "native": "portrait-edge-299",
+      "dolphin_vi": 299,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-300",
+      "native": "portrait-edge-300",
+      "dolphin_vi": 300,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-301",
+      "native": "portrait-edge-301",
+      "dolphin_vi": 301,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-302",
+      "native": "portrait-edge-302",
+      "dolphin_vi": 302,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-303",
+      "native": "portrait-edge-303",
+      "dolphin_vi": 303,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-304",
+      "native": "portrait-edge-304",
+      "dolphin_vi": 304,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-305",
+      "native": "portrait-edge-305",
+      "dolphin_vi": 305,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-306",
+      "native": "portrait-edge-306",
+      "dolphin_vi": 306,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-307",
+      "native": "portrait-edge-307",
+      "dolphin_vi": 307,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-308",
+      "native": "portrait-edge-308",
+      "dolphin_vi": 308,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    },
+    {
+      "name": "portrait-edge-309",
+      "native": "portrait-edge-309",
+      "dolphin_vi": 309,
+      "regions": [
+        [
+          297,
+          10,
+          6,
+          176
+        ],
+        [
+          337,
+          75,
+          6,
+          160
+        ],
+        [
+          130,
+          101,
+          4,
+          132
+        ],
+        [
+          285,
+          101,
+          4,
+          132
+        ]
+      ]
+    }
+  ],
+  "audio": []
+}

@@ -64,6 +64,12 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Refresh localized labels and the field manifests that depend on them.
+pub fn cook_text(extracted: &Path, output: &Path) -> Result<()> {
+    let path = session::cook_text(extracted, output)?;
+    field::refresh_shared(output, &[path])
+}
+
 /// Extract a disc once. All subsequent conversion uses this filesystem tree.
 pub fn extract(disc_path: &Path, output: &Path) -> Result<()> {
     let disc = DiscReader::new(disc_path, &DiscOptions::default())?;

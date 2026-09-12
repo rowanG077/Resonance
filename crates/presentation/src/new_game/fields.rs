@@ -3,13 +3,14 @@ use super::super::loading::Cache;
 use super::*;
 use resonance_content::prepared::Files;
 
-pub(super) const PLAYABLE_FIELDS: [u32; 3] = [330, 332, 340];
+pub(crate) const PLAYABLE_FIELDS: [u32; 11] =
+    [330, 331, 332, 333, 334, 335, 336, 337, 338, 339, 340];
 
 pub(crate) fn manifest_path(map: u32) -> Result<String> {
     Ok(match map {
         5 => "fields/new-game-setup.preload.json".into(),
         340 => "fields/iselia-classroom.preload.json".into(),
-        330 | 332 => format!("fields/map-{map}.preload.json"),
+        330..=339 => format!("fields/map-{map}.preload.json"),
         _ => anyhow::bail!("field {map} is not available in this build"),
     })
 }

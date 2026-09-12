@@ -34,7 +34,8 @@ impl NativeHost<'_> {
             10 => self.registers[0] = path.actor,
             11 => path.offset.request(xyz, a[4])?,
             12 => self.registers[..3].copy_from_slice(&path.offset.value.map(|v| v as i32)),
-            14 => path.angles.request(xyz.map(|v| v.rem_euclid(360.)), a[4])?,
+            // Preserve signed endpoints: a pan from 15 to -15 crosses zero.
+            14 => path.angles.request(xyz.map(|v| v % 360.), a[4])?,
             18 => self.registers[..3].copy_from_slice(&path.angles.value.map(|v| v as i32)),
             _ => return Err(format!("camera path command {} is not implemented", a[0])),
         }

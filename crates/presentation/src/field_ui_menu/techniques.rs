@@ -271,24 +271,23 @@ impl Drawing<'_> {
             _ => (),
         }
         self.offset = [0., slide(136)];
-        if focus == Focus::Target {
-            self.offset = [0.; 2];
-            let anchor = self.tech_target(menu)?;
-            self.opacity = 255;
-            return Ok(anchor);
-        }
         if menu.tech.description_opacity != 255
             && let Some(previous) = menu.tech.description_previous
         {
             self.opacity = 255 - menu.tech.description_opacity;
             self.technique_description(menu, previous)?;
         }
-        if let Some(selected) = menu.selected_technique() {
+        if let Some(selected) = menu.tech_description() {
             self.opacity = crossfade_opacity(
                 menu.tech.description_opacity,
                 255 - menu.tech.transition.page_fade,
             );
             self.technique_description(menu, selected)?;
+        }
+        if focus == Focus::Target {
+            self.offset = [0.; 2];
+            self.opacity = 255;
+            return self.tech_target(menu);
         }
         self.offset = [
             0.,
@@ -518,7 +517,7 @@ impl Drawing<'_> {
         self.opacity = 255;
         self.quad(
             FONT,
-            [0., 0., 640., 448.],
+            self.screen,
             [0.5; 4],
             [0., 0., 0., f32::from(opacity >> 1) / 255.],
         );

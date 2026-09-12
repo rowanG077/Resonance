@@ -73,12 +73,11 @@ impl Autonomy {
     }
     pub fn begin_conversation(&mut self) {
         self.conversing = true;
-        self.select(Activity::Idle);
     }
     /// A rejected floor probe requests a new direction on the next update.
     pub fn resolve_floor(&mut self, available: bool) {
         self.floor_available = available;
-        if !available {
+        if !available && !self.conversing {
             self.remaining = -1;
         }
     }
@@ -88,11 +87,13 @@ impl Autonomy {
 pub(crate) struct AmbientMotion {
     pub walking: bool,
     pub paused: bool,
+    pub selecting: bool,
 }
 impl Actor {
     pub(crate) fn step_autonomy(
         &mut self,
         free_control: bool,
+        conversation_active: bool,
         player: Option<[f32; 3]>,
         random: &mut impl FnMut() -> u32,
     ) -> AmbientMotion {
@@ -101,12 +102,18 @@ impl Actor {
             return intent;
         };
         if self.motion.is_some() {
+            ai.conversing = false;
             ai.select(Activity::Select);
             return intent;
         }
-        if ai.conversing && free_control {
-            ai.conversing = false;
-            ai.select(Activity::Select);
+        if ai.conversing {
+            if !conversation_active {
+                ai.conversing = false;
+                ai.select(Activity::Select);
+            }
+            // Conversation leaves the decision timer alone. Resume through a
+            // separate selection update before initializing another activity.
+            return intent;
         }
         if ai.activity == Activity::Select {
             ai.select(match ai.behavior {
@@ -119,8 +126,10 @@ impl Actor {
                 }
                 _ => Activity::Walk,
             });
-            // Player input selects the idle action before the actor update.
-            if ai.behavior != Behavior::Player {
+            // Free player input selects idle before the actor update. Events
+            // leave selection and initialization to separate actor updates.
+            if ai.behavior != Behavior::Player || !free_control {
+                intent.selecting = true;
                 return intent;
             }
         }
@@ -134,7 +143,7 @@ impl Actor {
                     ai.initialized = true;
                 }
                 ai.remaining -= 1;
-                if ai.remaining < -1 && !ai.conversing {
+                if ai.remaining < -1 {
                     ai.select(Activity::Select);
                 }
             }
@@ -162,13 +171,14 @@ impl Actor {
                         self.target_heading += (random() & 63) as f32 - 32.;
                         match ai.behavior {
                             Behavior::WanderNearHome
-                                if self
-                                    .position
-                                    .iter()
-                                    .zip(ai.home)
-                                    .map(|(a, b)| (a - b).powi(2))
-                                    .sum::<f32>()
-                                    > ai.radius * ai.radius =>
+                                if ai.radius < 0.
+                                    || self
+                                        .position
+                                        .iter()
+                                        .zip(ai.home)
+                                        .map(|(a, b)| (a - b).powi(2))
+                                        .sum::<f32>()
+                                        > ai.radius * ai.radius =>
                             {
                                 ai.remaining = 60;
                                 self.target_heading = heading(self.position, ai.home);

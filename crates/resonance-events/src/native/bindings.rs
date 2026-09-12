@@ -46,6 +46,7 @@ impl Host for NativeHost<'_> {
         CreateScriptRecordVariant(11) -> () = field;
         CreateAreaTrigger(14) -> () = field;
         SetTriggerMetadata(4) -> () = field;
+        SetTouchTriggerMetadata(4) -> () = field;
         ChangeField(5) -> () = field;
         ConfigureRendering(2) -> () = dispatch;
         PreloadField(1) -> () = field;
@@ -71,6 +72,7 @@ impl Host for NativeHost<'_> {
         YieldCommand(2) -> () = dispatch;
         RandomMod(1) -> i32 = field;
         ShowChoice(5) -> i32 = dispatch;
+        OpenMenu(1) -> i32 = request_menu;
         SetEventBit(1) -> () = field;
         ClearEventBit(1) -> () = field;
         TestEventBit(1) -> i32 = field;
@@ -89,9 +91,11 @@ impl Host for NativeHost<'_> {
         SelectCamera(1) -> i32 = field;
         SetCameraProperty(2) -> i32 = field;
         GetCameraProperty(1) -> i32 = field;
+        SetCameraEye(4) -> () = field;
         SetCameraTransitionValues(4) -> () = field;
         SelectActor(1) -> () = field;
         SetCameraPosition(3) -> () = field;
+        ResetCameraBounds(0) -> () = field;
         PlayCameraTrack(3) -> () = dispatch;
         MeasureActorGeometry(3) -> i32 = field;
         SetActorFace(2) -> () = field;

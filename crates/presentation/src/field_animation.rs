@@ -4,12 +4,15 @@ use bevy::prelude::*;
 
 #[derive(Component)]
 pub(super) struct Rig {
-    /// At least one animated pose has reached transform propagation.
+    /// At least one animated pose has been evaluated.
     pub(super) sampled: bool,
     bones: Vec<(Entity, Transform)>,
     previous: Vec<Transform>,
     from: Vec<Transform>,
+    presented: Vec<Transform>,
+    binding_pose: Vec<Transform>,
     clip: Option<(u32, u16, u32)>,
+    late_binding: bool,
 }
 
 pub(super) fn bind(
@@ -39,8 +42,11 @@ pub(super) fn bind(
             sampled: false,
             bones,
             from: previous.clone(),
+            presented: previous.clone(),
+            binding_pose: Vec::new(),
             previous,
             clip: None,
+            late_binding: false,
         });
     }
 }
@@ -65,6 +71,63 @@ fn mix(from: Transform, to: Transform, weight: f32) -> Transform {
     }
 }
 
+impl Rig {
+    fn blend_bone(&mut self, index: usize, pose: &mut Transform, weight: f32, hold: bool) {
+        if weight < 1. {
+            *pose = mix(self.from[index], *pose, weight);
+        }
+        if hold {
+            if self.binding_pose.is_empty() {
+                self.binding_pose.clone_from(&self.presented);
+            }
+            self.binding_pose[index] = *pose;
+            *pose = self.presented[index];
+            return;
+        }
+        self.presented[index] = *pose;
+        // Interrupted blends retain their completed source pose. The binding
+        // frame separately holds the last displayed, potentially blended pose.
+        if weight >= 1. {
+            self.previous[index] = *pose;
+        }
+    }
+
+    /// Event attachments can observe a binding before its first model draw.
+    pub(super) fn binding_attachment(
+        &self,
+        mut entity: Entity,
+        transforms: &Query<(&Transform, Option<&ChildOf>)>,
+    ) -> Option<Vec3> {
+        if self.binding_pose.is_empty() {
+            return None;
+        }
+        let mut result = GlobalTransform::IDENTITY;
+        loop {
+            let (&current, parent) = transforms.get(entity).ok()?;
+            let local = self
+                .bones
+                .iter()
+                .position(|&(bone, _)| bone == entity)
+                .map_or(current, |index| {
+                    let base = self.presented[index];
+                    let binding = self.binding_pose[index];
+                    // Preserve the script/secondary adjustments applied after
+                    // blending, while replacing the held animation underneath.
+                    Transform {
+                        translation: binding.translation + (current.translation - base.translation),
+                        rotation: binding.rotation * (base.rotation.inverse() * current.rotation),
+                        scale: binding.scale * (current.scale / base.scale),
+                    }
+                });
+            result = GlobalTransform::from(local) * result;
+            let Some(parent) = parent else {
+                return Some(result.translation());
+            };
+            entity = parent.parent();
+        }
+    }
+}
+
 pub(super) fn blend(
     state: State,
     mut rigs: Query<(&ActorPart, &mut Rig)>,
@@ -72,26 +135,28 @@ pub(super) fn blend(
 ) {
     let world = &state.get().events.world;
     for (part, mut rig) in &mut rigs {
-        let animation = world
-            .actors
-            .get(&part.actor)
-            .and_then(|a| a.animation.as_ref());
+        let actor = world.actors.get(&part.actor);
+        let animation = actor.and_then(|a| a.animation.as_ref());
         let key = animation.map(|a| (a.resource, a.slot, a.start_tick));
         if key != rig.clip {
+            // Event bindings occur after the actor's draw. Preserve that pose
+            // for the binding frame, including repeated captures of this tick.
+            rig.late_binding = rig.clip.is_some()
+                && animation.is_some_and(|a| {
+                    a.binding_timing == resonance_events::animation::BindingTiming::AfterDraw
+                        && a.start_tick == world.tick
+                });
             rig.from = rig.previous.clone();
             rig.clip = key;
+        }
+        let hold = rig.late_binding && animation.is_some_and(|a| a.start_tick == world.tick);
+        if !hold {
+            rig.binding_pose.clear();
         }
         let weight = animation.map_or(1., |a| a.blend_weight(world.tick));
         for i in 0..rig.bones.len() {
             if let Ok(mut transform) = nodes.get_mut(rig.bones[i].0) {
-                if weight < 1. {
-                    *transform = mix(rig.from[i], *transform, weight);
-                }
-                // An interrupted blend keeps its original source pose. Cache
-                // only completed poses, before mouth, cloth and bone overrides.
-                if weight >= 1. {
-                    rig.previous[i] = *transform;
-                }
+                rig.blend_bone(i, &mut transform, weight, hold);
             }
         }
         rig.sampled = true;
@@ -107,13 +172,18 @@ mod tests {
         let rest = Transform::IDENTITY;
         let mut world = World::new();
         let bone = world.spawn(old).id();
-        world.spawn(Rig {
-            sampled: false,
-            bones: vec![(bone, rest)],
-            previous: vec![old],
-            from: vec![old],
-            clip: None,
-        });
+        let rig = world
+            .spawn(Rig {
+                sampled: false,
+                bones: vec![(bone, rest)],
+                previous: vec![old],
+                from: vec![old],
+                presented: vec![old],
+                binding_pose: Vec::new(),
+                clip: None,
+                late_binding: false,
+            })
+            .id();
         let mut schedule = Schedule::default();
         schedule.add_systems(restore);
         schedule.run(&mut world);
@@ -130,6 +200,62 @@ mod tests {
         let end = mix(old, rest, 1.);
         assert_eq!(end.translation, Vec3::ZERO);
         assert!(end.rotation.angle_between(Quat::IDENTITY) < 0.001);
+
+        // A binding during this unfinished blend holds the actual visible
+        // midpoint, but its later cross-fade still starts at the completed pose.
+        let mut rig = world.get_mut::<Rig>(rig).unwrap();
+        let mut pose = rest;
+        rig.blend_bone(0, &mut pose, 0.5, false);
+        assert_eq!(pose, middle);
+        let next = Transform::from_xyz(-8., 2., 6.);
+        rig.from = rig.previous.clone();
+        for _ in 0..2 {
+            pose = next;
+            rig.blend_bone(0, &mut pose, 0.25, true);
+            assert_eq!(pose, middle);
+        }
+        assert_eq!(rig.previous, vec![old]);
+        pose = next;
+        rig.blend_bone(0, &mut pose, 0.25, false);
+        assert_eq!(pose, mix(old, next, 0.25));
+    }
+
+    #[test]
+    fn dialogue_attachment_observes_binding_without_changing_the_drawn_pose() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let root = world.spawn(Transform::from_xyz(100., 200., 0.)).id();
+        let quarter_turn = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let adjusted = Transform::from_rotation(quarter_turn);
+        let neck = world.spawn((adjusted, ChildOf(root))).id();
+        let held_head = Transform::from_xyz(0., 10., 20.);
+        let head = world.spawn((held_head, ChildOf(neck))).id();
+        let held = vec![Transform::IDENTITY, held_head];
+        let rig = world
+            .spawn(Rig {
+                sampled: true,
+                bones: vec![(neck, held[0]), (head, held_head)],
+                previous: held.clone(),
+                from: held.clone(),
+                presented: held,
+                binding_pose: vec![adjusted, Transform::from_xyz(0., 10., 19.)],
+                clip: None,
+                late_binding: true,
+            })
+            .id();
+        let position = world
+            .run_system_once(
+                move |rigs: Query<&Rig>, transforms: Query<(&Transform, Option<&ChildOf>)>| {
+                    rigs.get(rig).unwrap().binding_attachment(head, &transforms)
+                },
+            )
+            .unwrap()
+            .unwrap();
+        // The new animation adds a quarter turn; the script's existing quarter
+        // turn still applies, while the displayed neck/head remain unchanged.
+        assert!(position.distance(Vec3::new(100., 190., 19.)) < 0.0001);
+        assert_eq!(*world.get::<Transform>(neck).unwrap(), adjusted);
+        assert_eq!(*world.get::<Transform>(head).unwrap(), held_head);
     }
 
     #[test]
@@ -169,7 +295,10 @@ mod tests {
             bones: vec![(entity, authored)],
             previous: vec![authored],
             from: vec![authored],
+            presented: vec![authored],
+            binding_pose: Vec::new(),
             clip: None,
+            late_binding: false,
         });
         world.get_mut::<Transform>(bone).unwrap().translation = Vec3::ZERO;
         world.run_system_once(restore).unwrap();

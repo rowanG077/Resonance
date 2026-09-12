@@ -128,27 +128,6 @@ impl MovieSource {
     }
 }
 
-/// Convert the opening using an offline HVQM4 decoder and standard FFmpeg
-/// codecs. Audio stream selection remains explicit during oracle validation.
-pub fn cook_intro(
-    extracted: &Path,
-    output: &Path,
-    video_decoder: &Path,
-    audio_decoder: &Path,
-    ffmpeg: &Path,
-    audio_stream: u8,
-) -> Result<()> {
-    cook_movie(
-        extracted,
-        output,
-        video_decoder,
-        audio_decoder,
-        ffmpeg,
-        audio_stream,
-        MovieSource::Opening,
-    )
-}
-
 /// Convert a source movie to a standard, device-independent cooked asset.
 pub fn cook_movie(
     extracted: &Path,

@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "updates": 1610,
+  "inputs": [
+    {
+      "update": 1408,
+      "keys": [
+        "skit"
+      ]
+    },
+    {
+      "update": 1409,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "1397": "notification",
+    "1408": "opening",
+    "1592": "portrait-edge-291",
+    "1593": "portrait-edge-292",
+    "1594": "portrait-edge-293",
+    "1595": "portrait-edge-294",
+    "1596": "portrait-edge-295",
+    "1597": "portrait-edge-296",
+    "1598": "portrait-edge-297",
+    "1599": "portrait-edge-298",
+    "1600": "portrait-edge-299",
+    "1601": "portrait-edge-300",
+    "1602": "portrait-edge-301",
+    "1603": "portrait-edge-302",
+    "1604": "portrait-edge-303",
+    "1605": "portrait-edge-304",
+    "1606": "portrait-edge-305",
+    "1607": "portrait-edge-306",
+    "1608": "portrait-edge-307",
+    "1609": "portrait-edge-308",
+    "1610": "portrait-edge-309"
+  },
+  "presentation_origin": 36154,
+  "ambient_origin": {
+    "update": 1397,
+    "samples": {
+      "999980": 76,
+      "999996": 76,
+      "999998": 1076,
+      "-2147483648": 115.2978515625
+    },
+    "save_sparks": [
+      {
+        "save_point": 0,
+        "age": 7,
+        "offset": [
+          -29,
+          -19
+        ],
+        "size": 35,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 31,
+        "offset": [
+          -9,
+          -6
+        ],
+        "size": 37,
+        "speed_eighths": 41
+      },
+      {
+        "save_point": 0,
+        "age": 59,
+        "offset": [
+          8,
+          22
+        ],
+        "size": 32,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 55,
+        "offset": [
+          24,
+          4
+        ],
+        "size": 41,
+        "speed_eighths": 46
+      },
+      {
+        "save_point": 0,
+        "age": 51,
+        "offset": [
+          16,
+          -29
+        ],
+        "size": 40,
+        "speed_eighths": 29
+      },
+      {
+        "save_point": 0,
+        "age": 47,
+        "offset": [
+          -3,
+          -18
+        ],
+        "size": 41,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 43,
+        "offset": [
+          6,
+          8
+        ],
+        "size": 42,
+        "speed_eighths": 44
+      },
+      {
+        "save_point": 0,
+        "age": 39,
+        "offset": [
+          15,
+          -19
+        ],
+        "size": 41,
+        "speed_eighths": 27
+      },
+      {
+        "save_point": 0,
+        "age": 35,
+        "offset": [
+          17,
+          25
+        ],
+        "size": 34,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 27,
+        "offset": [
+          -14,
+          -7
+        ],
+        "size": 43,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 23,
+        "offset": [
+          5,
+          19
+        ],
+        "size": 36,
+        "speed_eighths": 21
+      },
+      {
+        "save_point": 0,
+        "age": 19,
+        "offset": [
+          21,
+          9
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      },
+      {
+        "save_point": 0,
+        "age": 15,
+        "offset": [
+          -3,
+          -29
+        ],
+        "size": 41,
+        "speed_eighths": 30
+      },
+      {
+        "save_point": 0,
+        "age": 11,
+        "offset": [
+          22,
+          31
+        ],
+        "size": 35,
+        "speed_eighths": 35
+      },
+      {
+        "save_point": 0,
+        "age": 3,
+        "offset": [
+          -11,
+          14
+        ],
+        "size": 37,
+        "speed_eighths": 36
+      }
+    ]
+  },
+  "expected": {
+    "1408": {
+      "map_id": 332,
+      "story": 2500,
+      "free_control": false
+    }
+  }
+}

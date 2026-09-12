@@ -80,6 +80,18 @@ impl NativeHost<'_> {
                         self.world.loaded_resources.contains_key(&value),
                         "wait refers to an unloaded resource",
                     )?;
+                    if let Some(observations) = self.resource_waits {
+                        let observation = observations.front().ok_or("unobserved resource wait")?;
+                        require(
+                            observation.request_tick == self.world.tick
+                                && self.resources.bindings.get(&observation.resource)
+                                    == self.world.loaded_resources.get(&value),
+                            "resource request differs from the observed tick or resource",
+                        )?;
+                        *self.resource_wait = Some(*observation);
+                        *self.wait = Some(Wait::Tick(observation.resume_tick));
+                        return Ok(NativeResult::Suspend);
+                    }
                 }
                 // Scene readiness already made cooked dependencies resident.
                 return Ok(NativeResult::Continue(None));

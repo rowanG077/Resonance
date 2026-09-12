@@ -124,7 +124,7 @@ impl Drawing<'_> {
         let top = top + ((456. - top) * f32::from(255 - state.text_opacity) / 256.).trunc();
         self.opacity = state.text_opacity / 2;
         self.plane = 2;
-        self.quad(FONT, [0., 0., 640., 448.], [0.5; 4], [0., 0., 0., 1.]);
+        self.quad(FONT, self.screen, [0.5; 4], [0., 0., 0., 1.]);
         self.opacity = state.text_opacity;
         self.shade([16., top, 620., top + height]);
         self.plane = 3;

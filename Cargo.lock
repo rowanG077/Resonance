@@ -4480,6 +4480,7 @@ dependencies = [
  "anyhow",
  "clap",
  "resonance-import",
+ "serde_json",
 ]
 
 [[package]]
@@ -4547,6 +4548,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "symphonia-script",
  "time",
 ]
 
