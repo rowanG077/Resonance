@@ -86,20 +86,6 @@ pub struct PreparedAttack {
 }
 
 impl PreparedAttack {
-    pub fn contacts(&self) -> impl Iterator<Item = &Arc<MeleeDefinition>> {
-        self.events.iter().filter_map(|(_, event)| match event {
-            AttackEvent::Contact { definition, .. } => Some(definition),
-            _ => None,
-        })
-    }
-
-    pub fn weapon_flights(&self) -> impl Iterator<Item = &Arc<WeaponFlightDefinition>> {
-        self.events.iter().filter_map(|(_, event)| match event {
-            AttackEvent::Throw(definition) => Some(definition),
-            _ => None,
-        })
-    }
-
     pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
             self.events.windows(2).all(|pair| pair[0].0 <= pair[1].0),
@@ -112,7 +98,11 @@ impl PreparedAttack {
         let mut contact_end = None;
         for (at, event) in &self.events {
             match event {
-                AttackEvent::Contact { duration, .. } => {
+                AttackEvent::Contact {
+                    definition,
+                    duration,
+                } => {
+                    definition.validate()?;
                     ensure!(*duration > 0, "empty melee window");
                     ensure!(
                         contact_end.is_none_or(|end| u32::from(*at) >= end),
@@ -127,10 +117,10 @@ impl PreparedAttack {
                     "invalid attack movement"
                 ),
                 AttackEvent::Projectile(projectile) => projectile.validate()?,
+                AttackEvent::Throw(definition) => definition.validate()?,
                 AttackEvent::Voice(_)
                 | AttackEvent::Notice { .. }
                 | AttackEvent::Trail { .. }
-                | AttackEvent::Throw(_)
                 | AttackEvent::Pose(_)
                 | AttackEvent::WeaponVisibility(_)
                 | AttackEvent::PassThrough(_)
