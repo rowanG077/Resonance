@@ -31,10 +31,10 @@ pub const VISIBLE_PARTY: usize = 4;
 pub const MAIN_COLUMNS: usize = 5;
 const MAIN_SLIDE_STEP: u8 = 25;
 const SYSTEM_SLIDE_STEP: u8 = 32;
-const DESCRIPTION_FADE_START: u8 = 240;
+pub(crate) const DESCRIPTION_FADE_START: u8 = 240;
 
 /// Return the incoming text opacity before advancing the crossfade.
-fn fade_description(fade: &mut u8, changed: bool) -> u8 {
+pub(crate) fn fade_description(fade: &mut u8, changed: bool) -> u8 {
     if *fade == 0 && changed {
         *fade = DESCRIPTION_FADE_START;
     }
@@ -287,6 +287,8 @@ impl Menu {
         if self.page == Page::Main {
             // Entry advances once before presenting the first sliding pose.
             self.main_fade = 231 - MAIN_SLIDE_STEP;
+        } else if self.page == Page::Equip {
+            self.equipment = equipment::Equipment::opening();
         }
     }
     pub fn main_animating(&self) -> bool {

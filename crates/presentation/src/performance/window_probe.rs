@@ -279,13 +279,7 @@ fn drive(
             let path = probe.output.join(format!("{name}.png"));
             commands.spawn(Screenshot::primary_window()).observe(
                 move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                    if let Err(error) = event
-                        .image
-                        .clone()
-                        .try_into_dynamic()
-                        .map_err(anyhow::Error::from)
-                        .and_then(|image| image.save(&path).map_err(anyhow::Error::from))
-                    {
+                    if let Err(error) = crate::screenshot::write(&event.image, &path, None) {
                         error!("Fixed-resolution probe screenshot failed: {error:#}");
                         exit.write(AppExit::error());
                     }

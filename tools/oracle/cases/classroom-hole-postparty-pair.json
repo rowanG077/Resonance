@@ -1,0 +1,1318 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Naturally examine the classroom hole after the pastor event, checking the corner action hint, prepared-actor fade-in, dotted-bubble growth and retirement, and return to player control.",
+  "registration": "Source VI 0 defines the unchanged source-observed actor, eye, RNG and UI origins and native update 0. One complete source-presentation mapping applies to every input edge, capture, expected state and replay duration: native_update = source_vi minus the number of source VIs with no emitted video presentation at or before it. Actual video packet timestamps verify the complete missing-presentation intervals 331..340. These are interrupted field callbacks: the last missing VI is followed by the same callback's completed presentation, not an extra actor update. Source UI advances throughout; presentation_advances restores skipped UI ticks at the first retained presentation. Field effects receive no extra ticks. Inputs retain their key sequence/order; all original scored source VIs, regions and strict thresholds are unchanged. The source first visible fade at VI6012 remains represented, where applicable. The later pastor resource waits continue actor/effect/UI clocks and are NOT collapsed: their exact per-resource VI boundaries are unobserved, and a mere frame shift would not preserve the advancing actor/RNG state. They remain strict diagnostics; no production storage waits or new replay API were introduced. Complete packet/memory proof and previous pins are in timeline-provenance.json. Audio is recorded silently without an audio gate. The saved source VI 0 still defines all actor/eye/RNG/UI origins and native update 0 remains captured, but its initial image is not scored: independent raw-video checks found a one-frame globally softened source presentation with every camera word unchanged across VI 0..5. The first scored sample instead compares source VI 1 with native update 1, allowing both engines their ordinary one animation update; it is never compared with native update 0. The original first gate name is retained for report continuity and its thresholds/regions are unchanged. Evidence: local/iselia-followup/oracle/hole-first-presents-v1/finding.json, SHA256 66363bb8a6aab528254bdc66996d54b45f28332fd9c1b902dbc399cf36d52b59. No other source registration changes.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/iselia-followup/oracle/hole-native-save.json",
+    "sha256": "6181dd057c4ee83e89cb781da0668866bec5c667ec8b1a82a3bf46e242947a04"
+  },
+  "native_replay": {
+    "path": "classroom-hole-postparty-keyboard.json",
+    "sha256": "8c45b74531483838eb2acd25e32305b3c7bb305dd8c13c81b726ba49f8eed494"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/oracle/classroom-exit-complete-silent/user/StateSaves/GQSEAF.s01",
+      "sha256": "b15e60d6059da7193cf1a8d58d7be2b7e92b65077482167da94bc323af94d3e1"
+    },
+    "prefix_sha256": "1ba5dc0ac7bcbc4a585e89688f6e3fc69b63f7bde450aeeb90dc956acbe5a71a",
+    "start_poll": 50715,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 340,
+    "story": 2000,
+    "position": [
+      -441,
+      -284,
+      0
+    ],
+    "heading": 0
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 8000,
+    "rtc": 1700000000,
+    "from_save_state": true,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 414,
+        "buttons": [],
+        "stick": [
+          128,
+          160
+        ]
+      },
+      {
+        "poll": 480,
+        "duration": 26,
+        "buttons": [],
+        "stick": [
+          160,
+          128
+        ]
+      },
+      {
+        "poll": 540,
+        "duration": 4,
+        "buttons": [],
+        "stick": [
+          128,
+          160
+        ]
+      },
+      {
+        "poll": 620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "hole-0000",
+      "native": "hole-0001",
+      "dolphin_vi": 1,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-0011",
+      "native": "hole-0011",
+      "dolphin_vi": 11,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-0100",
+      "native": "hole-0100",
+      "dolphin_vi": 100,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-0195",
+      "native": "hole-0195",
+      "dolphin_vi": 195,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0200",
+      "native": "hole-0200",
+      "dolphin_vi": 200,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0205",
+      "native": "hole-0205",
+      "dolphin_vi": 205,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0206",
+      "native": "hole-0206",
+      "dolphin_vi": 206,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0207",
+      "native": "hole-0207",
+      "dolphin_vi": 207,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0208",
+      "native": "hole-0208",
+      "dolphin_vi": 208,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0209",
+      "native": "hole-0209",
+      "dolphin_vi": 209,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0210",
+      "native": "hole-0210",
+      "dolphin_vi": 210,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0211",
+      "native": "hole-0211",
+      "dolphin_vi": 211,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0212",
+      "native": "hole-0212",
+      "dolphin_vi": 212,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0213",
+      "native": "hole-0213",
+      "dolphin_vi": 213,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0214",
+      "native": "hole-0214",
+      "dolphin_vi": 214,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0215",
+      "native": "hole-0215",
+      "dolphin_vi": 215,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0216",
+      "native": "hole-0216",
+      "dolphin_vi": 216,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0217",
+      "native": "hole-0217",
+      "dolphin_vi": 217,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0218",
+      "native": "hole-0218",
+      "dolphin_vi": 218,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0219",
+      "native": "hole-0219",
+      "dolphin_vi": 219,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0220",
+      "native": "hole-0220",
+      "dolphin_vi": 220,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0221",
+      "native": "hole-0221",
+      "dolphin_vi": 221,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0222",
+      "native": "hole-0222",
+      "dolphin_vi": 222,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0223",
+      "native": "hole-0223",
+      "dolphin_vi": 223,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0224",
+      "native": "hole-0224",
+      "dolphin_vi": 224,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0225",
+      "native": "hole-0225",
+      "dolphin_vi": 225,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0226",
+      "native": "hole-0226",
+      "dolphin_vi": 226,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0227",
+      "native": "hole-0227",
+      "dolphin_vi": 227,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0228",
+      "native": "hole-0228",
+      "dolphin_vi": 228,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0229",
+      "native": "hole-0229",
+      "dolphin_vi": 229,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0230",
+      "native": "hole-0230",
+      "dolphin_vi": 230,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0231",
+      "native": "hole-0231",
+      "dolphin_vi": 231,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0232",
+      "native": "hole-0232",
+      "dolphin_vi": 232,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0233",
+      "native": "hole-0233",
+      "dolphin_vi": 233,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0239",
+      "native": "hole-0239",
+      "dolphin_vi": 239,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0260",
+      "native": "hole-0260",
+      "dolphin_vi": 260,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0270",
+      "native": "hole-0270",
+      "dolphin_vi": 270,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0300",
+      "native": "hole-0300",
+      "dolphin_vi": 300,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0310",
+      "native": "hole-0310",
+      "dolphin_vi": 310,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0311",
+      "native": "hole-0311",
+      "dolphin_vi": 311,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0312",
+      "native": "hole-0312",
+      "dolphin_vi": 312,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0320",
+      "native": "hole-0320",
+      "dolphin_vi": 320,
+      "action_prompt": true,
+      "regions": [
+        [
+          440,
+          404,
+          188,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-fade-in-start",
+      "native": "hole-fade-in-start",
+      "dolphin_vi": 342,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-0345",
+      "native": "hole-0345",
+      "dolphin_vi": 346,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0346",
+      "native": "hole-0346",
+      "dolphin_vi": 347,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0347",
+      "native": "hole-0347",
+      "dolphin_vi": 348,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0348",
+      "native": "hole-0348",
+      "dolphin_vi": 349,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0349",
+      "native": "hole-0349",
+      "dolphin_vi": 350,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0350",
+      "native": "hole-0350",
+      "dolphin_vi": 351,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0351",
+      "native": "hole-0351",
+      "dolphin_vi": 352,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0352",
+      "native": "hole-0352",
+      "dolphin_vi": 353,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0353",
+      "native": "hole-0353",
+      "dolphin_vi": 354,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0354",
+      "native": "hole-0354",
+      "dolphin_vi": 355,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0355",
+      "native": "hole-0355",
+      "dolphin_vi": 356,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0356",
+      "native": "hole-0356",
+      "dolphin_vi": 357,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0357",
+      "native": "hole-0357",
+      "dolphin_vi": 358,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0358",
+      "native": "hole-0358",
+      "dolphin_vi": 359,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0359",
+      "native": "hole-0359",
+      "dolphin_vi": 360,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0360",
+      "native": "hole-0360",
+      "dolphin_vi": 361,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0361",
+      "native": "hole-0361",
+      "dolphin_vi": 362,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0362",
+      "native": "hole-0362",
+      "dolphin_vi": 363,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0363",
+      "native": "hole-0363",
+      "dolphin_vi": 364,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0364",
+      "native": "hole-0364",
+      "dolphin_vi": 365,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0365",
+      "native": "hole-0365",
+      "dolphin_vi": 366,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0370",
+      "native": "hole-0370",
+      "dolphin_vi": 371,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0375",
+      "native": "hole-0375",
+      "dolphin_vi": 376,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0380",
+      "native": "hole-0380",
+      "dolphin_vi": 381,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0390",
+      "native": "hole-0390",
+      "dolphin_vi": 391,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0400",
+      "native": "hole-0400",
+      "dolphin_vi": 401,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0410",
+      "native": "hole-0410",
+      "dolphin_vi": 411,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-bubble-late",
+      "native": "hole-bubble-late",
+      "dolphin_vi": 416,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-bubble-last",
+      "native": "hole-bubble-last",
+      "dolphin_vi": 417,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-bubble-retirement",
+      "native": "hole-bubble-retirement",
+      "dolphin_vi": 418,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-after-bubble",
+      "native": "hole-after-bubble",
+      "dolphin_vi": 419,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0420",
+      "native": "hole-0420",
+      "dolphin_vi": 421,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0430",
+      "native": "hole-0430",
+      "dolphin_vi": 431,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0440",
+      "native": "hole-0440",
+      "dolphin_vi": 441,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0450",
+      "native": "hole-0450",
+      "dolphin_vi": 451,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0460",
+      "native": "hole-0460",
+      "dolphin_vi": 461,
+      "action_prompt": true,
+      "regions": [
+        [
+          298,
+          90,
+          60,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "hole-0500",
+      "native": "hole-0500",
+      "dolphin_vi": 501,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-0700",
+      "native": "hole-0700",
+      "dolphin_vi": 700,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-1000",
+      "native": "hole-1000",
+      "dolphin_vi": 1000,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-1800",
+      "native": "hole-1800",
+      "dolphin_vi": 1800,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-3000",
+      "native": "hole-3000",
+      "dolphin_vi": 3000,
+      "action_prompt": true
+    },
+    {
+      "name": "hole-3800",
+      "native": "hole-3800",
+      "dolphin_vi": 3800,
+      "action_prompt": true
+    }
+  ],
+  "audio": []
+}

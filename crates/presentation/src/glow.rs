@@ -70,7 +70,7 @@ pub(super) fn setup(
     commands.spawn((
         GlowMesh,
         // Draw scene effects after models and lights.
-        super::draw_order::DrawOrder((1 << 24) - 1),
+        super::draw_order::DrawOrder((1 << 24) - 1, 0),
         Mesh3d(meshes.add(Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,

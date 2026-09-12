@@ -1,4 +1,5 @@
 //! One invocation verifies fixtures, replays both engines, and runs named gates.
+mod resource_waits;
 use super::*;
 use serde_json::{Value, json};
 use std::{
@@ -18,6 +19,8 @@ struct Pair {
     disc_sha256: String,
     native_save: Fixture,
     native_replay: Fixture,
+    #[serde(default)]
+    resource_wait_source: Option<resource_waits::Source>,
     dolphin: Dolphin,
     start: Start,
     replay: ReplayCase,
@@ -128,6 +131,9 @@ struct Frame {
     tech_navigation_state: bool,
     #[serde(default)]
     equipment_state: bool,
+    /// Compare shop navigation, baskets, transactions and the equipment handoff.
+    #[serde(default)]
+    shop_state: bool,
     #[serde(default)]
     inventory_state: bool,
     /// Compare persistent cooking choices, training, inventory and party vitals.
@@ -203,6 +209,7 @@ pub(super) fn run(
     let native_spec: Value = serde_json::from_slice(&fs::read(&replay)?)?;
     let source_script = append_dtm(&pair.replay, &fs::read(&prefix)?, pair.dolphin.start_poll)?;
     let input_hash = format!("{:x}", Sha256::digest(&source_script));
+    resource_waits::verify(&pair, base, &native_spec, &input_hash)?;
     let reference = references.dolphin.map(Path::canonicalize).transpose()?;
     let native_reference = references.native.map(Path::canonicalize).transpose()?;
     if let Some(path) = &reference {
@@ -291,6 +298,13 @@ pub(super) fn run(
         &output.join("state.log"),
     )?;
     let observed: Value = serde_json::from_slice(&fs::read(output.join("source-state.json"))?)?;
+    if let Some(prompt) = native_spec["ambient_origin"].get("action_prompt") {
+        verify_action_prompt_origin(prompt, &observed)?;
+    }
+    if let Some(camera) = native_spec["ambient_origin"].get("camera") {
+        let saved: Value = serde_json::from_slice(&fs::read(&save)?)?;
+        verify_camera_origin(camera, &observed, &saved["state"]["camera"])?;
+    }
     if let Some(actors) = native_spec["ambient_origin"]["actors"].as_object() {
         for (id, origin) in actors {
             let id: i64 = id.parse()?;
@@ -551,6 +565,10 @@ pub(super) fn run(
     let native_record: Value =
         serde_json::from_slice(&fs::read(output.join("native/recording.json"))?)?;
     ensure!(
+        native_record["output_stage"] == "framebuffer",
+        "Dolphin frame dumps require native framebuffer captures, before display positioning"
+    );
+    ensure!(
         native_record["complete"] == true
             && native_record["audio_device"] == false
             && native_record["keyboard_input"] == true
@@ -715,16 +733,6 @@ pub(super) fn run(
         .collect::<Result<_>>()?;
     let mut states = Vec::new();
     let mut passed = true;
-    let source_base_phase = memory
-        .values()
-        .next()
-        .and_then(|state| state["presentation_counter"].as_u64())
-        .context("missing source presentation phase")?;
-    let native_base_phase = native_record["captures"]
-        .as_array()
-        .and_then(|captures| captures.first())
-        .and_then(|capture| capture["presentation_counter"].as_u64())
-        .context("missing native presentation phase")?;
     for frame in &pair.frames {
         let source_state = memory
             .get(&frame.dolphin_vi)
@@ -782,15 +790,7 @@ pub(super) fn run(
             .abs();
         let prompt = |enabled: bool, kind| {
             enabled
-                .then(|| {
-                    field_prompt(
-                        kind,
-                        native_state,
-                        source_state,
-                        source_base_phase,
-                        native_base_phase,
-                    )
-                })
+                .then(|| field_prompt(kind, native_state, source_state))
                 .transpose()
         };
         let save = prompt(frame.save_prompt, Prompt::Save)?;
@@ -962,6 +962,7 @@ pub(super) fn run(
             ("ex_skills", frame.ex_state, ex_state),
             ("unison", frame.unison_state, unison_state),
             ("equipment", frame.equipment_state, equipment_state),
+            ("shop", frame.shop_state, shop_state),
             ("inventory", frame.inventory_state, inventory_state),
             ("cooking", frame.cooking_state, cooking_state),
         ] {
@@ -1297,6 +1298,7 @@ fn verify_frame_observations(frame: &Frame, source: &Value) -> Result<()> {
     }
     if frame.save_prompt || frame.action_prompt || frame.skit_prompt {
         require("field_control_flags_word")?;
+        require("scene_flags_word")?;
         let suppressed = source["field_control_flags_word"].as_u64().unwrap() >> 24 != 0;
         for (enabled, prefix, id) in [
             (
@@ -1345,6 +1347,14 @@ fn verify_frame_observations(frame: &Frame, source: &Value) -> Result<()> {
     }
     if frame.inventory_state || frame.equipment_state {
         observed_inventory(source)?;
+    }
+    if frame.shop_state {
+        ShopState::observe(source).with_context(|| {
+            format!(
+                "frame {} at VI {} requires Shop observations",
+                frame.name, frame.dolphin_vi
+            )
+        })?;
     }
     if frame.inventory_state || frame.equipment_state || frame.tech_state {
         for character in 0..9 {
@@ -2188,7 +2198,10 @@ fn cooking_state(native: &Value, source: &Value) -> Result<Value> {
     let word = |key: &str| -> Result<u32> { Ok(observed_word(source, key)?.try_into()?) };
     let [full, recipe, chef, _] = word("cooking_settings_word")?.to_be_bytes();
     let party = if native["menu"].is_null() {
-        &native["checkpoint"]["progress"]["party"]
+        // Older captures only recorded party progress when a restart was allowed.
+        native
+            .get("persistent_party")
+            .unwrap_or(&native["checkpoint"]["progress"]["party"])
     } else {
         &native["menu"]["party"]
     };
@@ -2300,6 +2313,138 @@ fn inventory_state(native: &Value, source: &Value) -> Result<Value> {
         "scroll":{"expected":scroll,"actual":(native_scroll + native_scroll.signum()) % 5},
         "target":{"expected":target,"actual":menu["inventory"]["target"]},"members":members,
         "items":{"expected":counts,"actual":menu["party"]["items"]},"passed":passed}))
+}
+
+struct ShopState {
+    expected: Value,
+    compare_list: bool,
+    compare_description: bool,
+}
+
+impl ShopState {
+    fn observe(source: &Value) -> Result<Self> {
+        let observed = |key: &str| -> Result<u32> {
+            u32::try_from(observed_word(source, key)?)
+                .with_context(|| format!("invalid Shop observation {key}"))
+        };
+        let word = |offset: u8| observed(&format!("shop_menu_{offset:02x}_word"));
+        ensure!(
+            observed("scene_flags_word")? >> 24 == 2,
+            "source shop is not active"
+        );
+        let party = word(4)?;
+        let navigation = word(16)?;
+        let mode = navigation & 65535;
+        let focus = match mode {
+            0 => json!("root"),
+            1 => json!("categories"),
+            2 => json!("items"),
+            3 => json!("characters"),
+            4 => json!("equipment"),
+            5 => {
+                ensure!(navigation >> 16 <= 1, "invalid shop confirmation choice");
+                json!({"confirm":{"yes":navigation >> 16 == 0}})
+            }
+            6 => json!("empty"),
+            _ => anyhow::bail!("invalid shop focus {mode}"),
+        };
+        let selection = word(20)?;
+        let choice = match selection >> 16 {
+            0 => "buy",
+            1 => "sell",
+            2 => "equip",
+            3 => "leave",
+            other => anyhow::bail!("invalid shop choice {other}"),
+        };
+        ensure!(selection & 65535 < 52, "invalid shop ID");
+        ensure!(
+            matches!(party & 255, 0 | 2),
+            "invalid shop equipment handoff"
+        );
+        let equipment = party & 255 == 2;
+        let visited = [
+            observed("visited_shops_first_word")?,
+            observed("visited_shops_last_word")?,
+        ];
+        let visited: Vec<_> = (0..52)
+            .filter(|id| visited[id / 32] & (1 << (id % 32)) != 0)
+            .collect();
+        let mut expected = json!({
+            "id":selection & 65535,"choice":choice,"focus":focus,
+            "fade":word(28)? >> 24,"total":word(24)?,"equipment":equipment,
+            "gald":observed("party_gald_word")?,"spent_gald":observed("party_spent_gald_word")?,
+            "visited":visited,"items":observed_inventory(source)?,"clock":observed("ui_clock")?
+        });
+        // Checkout leaves obsolete basket rows behind at Root. Equip uses the same buffer.
+        let compare_list = mode != 0 && !equipment;
+        if compare_list {
+            let list = word(8)?;
+            let count = list >> 16;
+            ensure!(count <= 528, "invalid shop list length {count}");
+            let rows = (0..count)
+                .map(|index| {
+                    let packed = observed(&format!("shop_basket_{}_word", index / 2))?;
+                    let entry = ((packed >> (16 - index % 2 * 16)) & 65535) as u16;
+                    let id = entry >> 6;
+                    ensure!((1..528).contains(&id), "invalid shop basket item {id}");
+                    Ok(json!({"id":id,"quantity":entry & 63}))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let position = word(12)?;
+            expected["rows"] = json!(rows);
+            expected["row"] = json!(list & 65535);
+            expected["first"] = json!(position >> 16);
+            expected["scroll"] = json!(position as u16 as i16);
+            if choice == "sell" {
+                ensure!(party >> 24 < 7, "invalid shop category");
+                expected["category"] = json!(party >> 24);
+            }
+            if matches!(mode, 3 | 4) {
+                expected["character"] = json!((party >> 8) & 255);
+            }
+        }
+        let compare_description = matches!(mode, 1..=4) && !equipment;
+        if compare_description {
+            let description = word(36)?;
+            expected["description_previous"] = match (description >> 16) as i16 {
+                0 => json!("None"),
+                id @ 1..=527 => json!({"Item":id}),
+                category @ -8..=-2 => json!({"Category":-category - 1}),
+                other => anyhow::bail!("invalid shop description {other}"),
+            };
+            expected["description_fade"] = json!((description >> 8) & 255);
+        }
+        Ok(Self {
+            expected,
+            compare_list,
+            compare_description,
+        })
+    }
+
+    fn compare(self, native: &Value) -> Result<Value> {
+        ensure!(native["shop"].is_object(), "missing native shop snapshot");
+        let mut actual = native["shop"].clone();
+        actual["equipment"] = json!(native["menu"]["page"] == "Equip");
+        actual["clock"] = native["presentation_counter"].clone();
+        if self.compare_list {
+            let scroll = actual["scroll"].as_i64().context("missing Shop scroll")?;
+            actual["scroll"] = json!((scroll + scroll.signum()) % 5);
+        }
+        if self.compare_description {
+            let opacity = actual["description_opacity"]
+                .as_u64()
+                .context("missing Shop description opacity")?;
+            ensure!(opacity <= 255, "invalid Shop description opacity");
+            // The capture observes memory after drawing; the snapshot retains the drawn opacity.
+            actual["description_fade"] = json!((255 - opacity).saturating_sub(16));
+        }
+        let passed = matching_fields(&actual, &self.expected);
+        Ok(json!({"expected":self.expected,"actual":actual,"passed":passed}))
+    }
+}
+
+fn shop_state(native: &Value, source: &Value) -> Result<Value> {
+    ShopState::observe(source)?.compare(native)
 }
 
 fn equipment_state(native: &Value, source: &Value) -> Result<Value> {
@@ -2682,8 +2827,45 @@ fn observed_float(state: &Value, key: &str) -> Result<f64> {
     Ok(f64::from(value))
 }
 
-/// The source updates particles after drawing. Reconstruct their visible birth
-/// parameters, rather than accepting arbitrary poses from a comparison fixture.
+fn verify_action_prompt_origin(origin: &Value, source: &Value) -> Result<()> {
+    let presentation = &source["field_presentation"];
+    let scene = observed_word(presentation, "scene_flags")?;
+    let control = observed_word(presentation, "control_flags")?;
+    ensure!(
+        scene >> 24 == 0 && scene & 0x7f == 7 && control >> 24 == 0,
+        "action hint origin requires active source field control"
+    );
+    let id = observed_word(origin, "id")?;
+    let opacity = observed_word(origin, "opacity")?;
+    let remaining = observed_word(origin, "remaining")?;
+    ensure!(
+        (1..=u64::from(u8::MAX)).contains(&id)
+            && (1..=255).contains(&opacity)
+            && (1..30).contains(&remaining)
+            && *origin == source["action_prompt"],
+        "action hint origin differs from observed source state"
+    );
+    Ok(())
+}
+
+fn verify_camera_origin(origin: &Value, source: &Value, saved: &Value) -> Result<()> {
+    let camera = &source["field_camera"];
+    ensure!(
+        camera["position_settled"] == true && camera["target_settled"] == true,
+        "camera origin requires an observed settled view"
+    );
+    ensure!(
+        origin.is_object()
+            && camera["oracle_origin"].is_object()
+            && same_values(origin, &camera["oracle_origin"])
+            && saved.is_object()
+            && same_values(&origin["settings"], saved),
+        "camera origin differs from observed pose or saved desired settings"
+    );
+    Ok(())
+}
+
+/// Reconstruct visible birth parameters from particles observed after drawing.
 fn verify_spark_origin(sparks: &[Value], source: &Value, effect_tick: Option<u64>) -> Result<()> {
     let points: Vec<_> = source["actors"]
         .as_array()
@@ -2692,8 +2874,8 @@ fn verify_spark_origin(sparks: &[Value], source: &Value, effect_tick: Option<u64
         .filter(|a| a["draw_callback"] == "8000e720")
         .collect();
     ensure!(
-        points.len() == 1,
-        "spark registration requires one observed emitter"
+        points.len() == 1 || (points.is_empty() && sparks.is_empty()),
+        "spark registration requires one observed emitter unless both are absent"
     );
     let particles: Vec<_> = source["particles"]
         .as_array()
@@ -2799,13 +2981,7 @@ enum Prompt {
     Skit,
 }
 
-fn field_prompt(
-    kind: Prompt,
-    native: &Value,
-    source: &Value,
-    source_base_phase: u64,
-    native_base_phase: u64,
-) -> Result<Value> {
+fn field_prompt(kind: Prompt, native: &Value, source: &Value) -> Result<Value> {
     let name = match kind {
         Prompt::Save => "save",
         Prompt::Action => "action",
@@ -2847,19 +3023,27 @@ fn field_prompt(
         value.remove("title"); // Text is checked by the image gate.
     }
     let native_phase = native
-        .get("presentation_counter")
+        .get("effect_counter")
         .and_then(Value::as_u64)
-        .or_else(|| native.get("tick").and_then(Value::as_u64))
         .context("missing native prompt phase")?;
     let source_phase =
         observed_word(source, "presentation_counter").context("missing source prompt phase")?;
-    let blink_matches = alpha == 0
-        || suppressed
-        || native_phase.wrapping_sub(native_base_phase) & 32
-            == source_phase.wrapping_sub(source_base_phase) & 32;
+    let scene = observed_word(source, "scene_flags_word").context("missing source scene")?;
+    let source_field = scene >> 24 == 0 && scene & 0x7f == 7;
+    let native_field = ["menu", "shop", "skit"]
+        .into_iter()
+        .all(|key| native[key].is_null());
+    let blink_matches = (source_field && native_field)
+        .then_some(alpha == 0 || suppressed || native_phase & 32 == source_phase & 32);
+    let not_checked_reason = blink_matches
+        .is_none()
+        .then_some("a nonfield scene retains the previous prompt presentation");
     Ok(
         json!({"expected":expected,"actual":actual,"blink_matches":blink_matches,
-        "passed":actual.as_ref().is_some_and(|p| *p == expected) && blink_matches}),
+        "not_checked_reason":not_checked_reason,
+        "field_presentation":{"native_active":native_field,"source_active":source_field},
+        "passed":actual.as_ref().is_some_and(|p| *p == expected)
+            && native_field == source_field && blink_matches.unwrap_or(true)}),
     )
 }
 
@@ -2956,6 +3140,114 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cooking_observations_do_not_require_a_restartable_checkpoint() {
+        let mut source = json!({"cooking_settings_word":0,"cooking_known_word":0});
+        for index in 0..132 {
+            let key = match index {
+                10 => "ex_gem_inventory_word".into(),
+                124 => "ex_max_inventory_word".into(),
+                _ => format!("inventory_{index}_word"),
+            };
+            source[key] = json!(0);
+        }
+        for character in 0..9 {
+            source[format!("tech_character_{character}_vitals_word")] = json!((100 << 16) | 10);
+            source[format!("tech_character_{character}_conditions_word")] = json!(0);
+            for index in 0..6 {
+                source[format!("cooking_character_{character}_training_{index}_word")] = json!(0);
+            }
+        }
+        let party = json!({"cooking":{"known":0,"full":false,"recipe":0,"chef":0},
+            "items":{},"members":vec![json!({"hp":100,"tp":10,"conditions":0,"cooking":vec![0;24]});9]});
+        let mut native = json!({"persistent_party":party,"checkpoint":null,"menu":null});
+        assert_eq!(cooking_state(&native, &source).unwrap()["passed"], true);
+        native["persistent_party"]["members"][0]["hp"] = json!(99);
+        assert_eq!(cooking_state(&native, &source).unwrap()["passed"], false);
+        native["persistent_party"] = party.clone();
+        native["menu"] = json!({"party":party});
+        native["menu"]["party"]["items"] = json!({"1":1});
+        assert_eq!(cooking_state(&native, &source).unwrap()["passed"], false);
+        native["menu"] = Value::Null;
+        native["checkpoint"] = json!({"progress":{"party":party}});
+        native["persistent_party"] = Value::Null;
+        assert!(cooking_state(&native, &source).is_err());
+        native.as_object_mut().unwrap().remove("persistent_party");
+        assert_eq!(cooking_state(&native, &source).unwrap()["passed"], true);
+    }
+
+    #[test]
+    fn action_hint_origins_require_exact_observations_and_field_control() {
+        let origin = json!({"id":2,"opacity":255,"remaining":29});
+        let source = json!({"action_prompt":origin,
+            "field_presentation":{"scene_flags":0x87,"control_flags":0}});
+        assert!(verify_action_prompt_origin(&origin, &source).is_ok());
+        for (key, value) in [("id", 1), ("opacity", 254), ("remaining", 28)] {
+            let mut changed = origin.clone();
+            changed[key] = json!(value);
+            assert!(verify_action_prompt_origin(&changed, &source).is_err());
+            let mut missing = source.clone();
+            missing["action_prompt"]
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+            assert!(verify_action_prompt_origin(&origin, &missing).is_err());
+        }
+        for (key, value) in [
+            ("scene_flags", 0x01000087),
+            ("scene_flags", 0x8b),
+            ("control_flags", 0x01000000),
+        ] {
+            let mut inactive = source.clone();
+            inactive["field_presentation"][key] = json!(value);
+            assert!(verify_action_prompt_origin(&origin, &inactive).is_err());
+        }
+        assert!(verify_action_prompt_origin(&origin, &json!({"action_prompt":origin})).is_err());
+    }
+
+    #[test]
+    fn camera_origins_require_settled_observations_and_unchanged_settings() {
+        let settings = json!({"angles":[330,0,38],"distance":1669});
+        let origin = json!({"settings":settings,"angles":[330.875,0,38.875],
+            "distance":1669.00048828125,"position":[-1940,378,965],"target":[-2855,1513,153]});
+        let mut source = json!({"field_camera":{"position_settled":true,
+            "target_settled":true,"oracle_origin":origin}});
+        assert!(verify_camera_origin(&origin, &source, &settings).is_ok());
+        assert!(verify_camera_origin(&origin, &json!({}), &settings).is_err());
+        source["field_camera"]["position_settled"] = json!(false);
+        assert!(verify_camera_origin(&origin, &source, &settings).is_err());
+        source["field_camera"]["position_settled"] = json!(true);
+        let mut changed = origin.clone();
+        changed["angles"][0] = json!(330);
+        assert!(verify_camera_origin(&changed, &source, &settings).is_err());
+        changed = settings.clone();
+        changed["distance"] = json!(1670);
+        assert!(verify_camera_origin(&origin, &source, &changed).is_err());
+    }
+
+    #[test]
+    fn spark_origins_verify_empty_fields_and_preserve_particle_evidence() {
+        let empty = json!({"actors":[],"particles":[]});
+        assert!(verify_spark_origin(&[], &empty, Some(10)).is_ok());
+        assert!(verify_spark_origin(&[], &json!({"actors":[]}), Some(10)).is_err());
+        let spark = json!({"save_point":0,"age":1,"offset":[0,0],"size":20,"speed_eighths":8});
+        assert!(verify_spark_origin(std::slice::from_ref(&spark), &empty, Some(10)).is_err());
+        let mut source = json!({"actors":[],"particles":[{
+            "recipe_address":"8020a4d8","timer":58,"velocity":[0,0,1],
+            "size":[20,20],"position":[0,0,2],"rotation":[0,0,11]
+        }]});
+        assert!(verify_spark_origin(&[], &source, Some(10)).is_err());
+        let emitter = json!({"draw_callback":"8000e720","position":[0,0,0]});
+        source["actors"] = json!([emitter]);
+        assert!(verify_spark_origin(std::slice::from_ref(&spark), &source, Some(10)).is_ok());
+        source["particles"][0]["position"][2] = json!(3);
+        assert!(verify_spark_origin(&[spark], &source, Some(10)).is_err());
+        source["particles"] = json!([]);
+        assert!(verify_spark_origin(&[], &source, Some(10)).is_ok());
+        source["actors"] = json!([emitter, emitter]);
+        assert!(verify_spark_origin(&[], &source, Some(10)).is_err());
+    }
+
+    #[test]
     fn legacy_save_point_alias_requires_the_same_raw_word() {
         let mut capture = json!({"memory_watch":{"locations":{
             "8035a73c":"field_control_flags_word"
@@ -2998,6 +3290,131 @@ mod tests {
         assert!(!save_point_alias(&capture));
         capture["memory_watch"]["locations"] = json!({"8035a73c 0":"field_control_flags_word"});
         assert!(!save_point_alias(&capture));
+    }
+
+    #[test]
+    fn shop_gate_checks_money_and_baskets_without_reading_inactive_shared_storage() {
+        // Halo after selling one Apple Gel: 450 Gald, 100 spent, three gels remain.
+        let mut source = json!({
+            "presentation_counter":37351,"ui_clock":37784,"scene_flags_word":0x02000087,
+            "shop_menu_04_word":0x00030000,"shop_menu_08_word":0x00030000,
+            "shop_menu_0c_word":0,"shop_menu_10_word":2,"shop_menu_14_word":0x00010001,
+            "shop_menu_18_word":0,"shop_menu_1c_word":0,"shop_menu_24_word":0x0000e000,
+            "shop_basket_0_word":0x004000c0,"shop_basket_1_word":0x02c00000,
+            "party_gald_word":450,"party_spent_gald_word":100,
+            "visited_shops_first_word":2,"visited_shops_last_word":0
+        });
+        for index in 0..132 {
+            let key = match index {
+                10 => "ex_gem_inventory_word".into(),
+                124 => "ex_max_inventory_word".into(),
+                _ => format!("inventory_{index}_word"),
+            };
+            source[key] = json!(if index == 0 { 3 << 16 } else { 0 });
+        }
+        let frame: Frame = serde_json::from_value(json!({
+            "name":"sale","native":"sale","dolphin_vi":1641,"shop_state":true
+        }))
+        .unwrap();
+        verify_frame_observations(&frame, &source).unwrap();
+        let native = json!({"presentation_counter":37784,"menu":null,"shop":{
+            "id":1,"choice":"sell","focus":"items","row":0,"first":0,"category":0,
+            "rows":[{"id":1,"quantity":0},{"id":3,"quantity":0},{"id":11,"quantity":0}],
+            "total":0,"fade":0,"scroll":0,"description_previous":"None","description_opacity":15,
+            "gald":450,"spent_gald":100,"visited":[1],"items":{"1":3}
+        }});
+        assert_eq!(shop_state(&native, &source).unwrap()["passed"], true);
+        for (key, value) in [
+            ("gald", json!(400)),
+            ("spent_gald", json!(0)),
+            ("items", json!({"1":4})),
+        ] {
+            let mut wrong = native.clone();
+            wrong["shop"][key] = value;
+            assert_eq!(shop_state(&wrong, &source).unwrap()["passed"], false);
+        }
+        let mut wrong = native.clone();
+        wrong["shop"]["rows"][0]["quantity"] = json!(1);
+        assert_eq!(shop_state(&wrong, &source).unwrap()["passed"], false);
+        for key in source.as_object().unwrap().keys() {
+            let mut missing = source.clone();
+            missing.as_object_mut().unwrap().remove(key);
+            assert!(
+                verify_frame_observations(&frame, &missing).is_err(),
+                "accepted missing {key}"
+            );
+        }
+        let mut overflow = source.clone();
+        overflow["party_gald_word"] = json!(u64::from(u32::MAX) + 1);
+        assert!(ShopState::observe(&overflow).is_err());
+        source["shop_menu_10_word"] = json!(0);
+        source["shop_menu_14_word"] = json!(0x00020001);
+        source["shop_menu_04_word"] = json!(0x00030002);
+        source["shop_menu_1c_word"] = json!(0xff000002_u32);
+        source.as_object_mut().unwrap().remove("shop_basket_0_word");
+        source.as_object_mut().unwrap().remove("shop_basket_1_word");
+        let mut equipment = native;
+        equipment["menu"] = json!({"page":"Equip"});
+        equipment["shop"]["choice"] = json!("equip");
+        equipment["shop"]["focus"] = json!("root");
+        equipment["shop"]["fade"] = json!(255);
+        assert_eq!(shop_state(&equipment, &source).unwrap()["passed"], true);
+        equipment["menu"] = Value::Null;
+        assert_eq!(shop_state(&equipment, &source).unwrap()["passed"], false);
+    }
+
+    #[test]
+    fn prompt_blink_checks_the_absolute_rendered_effect_phase() {
+        let source = json!({
+            "presentation_counter":32,"field_control_flags_word":0,"scene_flags_word":0x87,
+            "action_prompt":1,"action_prompt_alpha":255,"action_prompt_remaining":29,
+        });
+        let mut native = json!({
+            "effect_counter":32,"presentation_counter":0,
+            "action_prompt":{"id":1,"opacity":255,"text_opacity":255},
+        });
+        assert_eq!(
+            field_prompt(Prompt::Action, &native, &source).unwrap()["passed"],
+            true
+        );
+        native["effect_counter"] = json!(0);
+        native["presentation_counter"] = json!(32);
+        assert_eq!(
+            field_prompt(Prompt::Action, &native, &source).unwrap()["blink_matches"],
+            false
+        );
+        native.as_object_mut().unwrap().remove("effect_counter");
+        assert!(field_prompt(Prompt::Action, &native, &source).is_err());
+    }
+
+    #[test]
+    fn modal_prompt_checks_preserve_scene_and_content_gates() {
+        for (scene, modal) in [(0x01000087, "menu"), (0x02000087, "shop"), (0x8b, "skit")] {
+            let source = json!({
+                "presentation_counter":32,"field_control_flags_word":0,"scene_flags_word":scene,
+                "action_prompt":1,"action_prompt_alpha":255,"action_prompt_remaining":29,
+            });
+            let mut native = json!({
+                "effect_counter":0,"presentation_counter":32,
+                "action_prompt":{"id":1,"opacity":255,"text_opacity":255},
+            });
+            native[modal] = json!({});
+            let result = field_prompt(Prompt::Action, &native, &source).unwrap();
+            assert_eq!(result["passed"], true);
+            assert!(result["blink_matches"].is_null());
+            assert!(result["not_checked_reason"].is_string());
+            native[modal] = Value::Null;
+            assert_eq!(
+                field_prompt(Prompt::Action, &native, &source).unwrap()["passed"],
+                false
+            );
+            native[modal] = json!({});
+            native["action_prompt"]["opacity"] = json!(254);
+            assert_eq!(
+                field_prompt(Prompt::Action, &native, &source).unwrap()["passed"],
+                false
+            );
+        }
     }
 
     #[test]

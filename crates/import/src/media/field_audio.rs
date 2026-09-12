@@ -5,7 +5,8 @@ use resonance_audio::package::Package;
 use resonance_audio_cook::{bank::Bank, compile, song::Song};
 use resonance_content::field_audio::{Asset, FieldAudio, Voice};
 use serde_json::json;
-use std::{collections::BTreeMap, fs, path::Path, time::Duration};
+use std::{collections::BTreeMap, fs, io::ErrorKind, path::Path, time::Duration};
+mod resources;
 
 /// Resolve the saved setting through CRI attenuation and the stream mixer.
 /// The runtime consumes amplitudes, without executable addresses or codec tables.
@@ -25,221 +26,73 @@ fn voice_gains(executable: &[u8]) -> Result<Vec<f32>> {
         .collect()
 }
 
-pub fn cook_classroom_audio(
-    extracted: &Path,
-    output: &Path,
-    coefficients: &Path,
-    decoder: &Path,
-) -> Result<()> {
-    let workspace = Workspace::open(extracted, output)?;
-    let executable = fs::read(workspace.extracted.join("sys/main.dol"))?;
-    let decoder = Tool::resolve(decoder)?;
-    let coefficient_bytes = fs::read(coefficients)?;
-    let bank_bytes = fs::read(workspace.extracted.join("files/S/inst.snd"))?;
-    let reverbs = super::music::title_reverbs(&executable)?;
-    let voice_path = voice_path(&executable, 0xa0000)?;
-    let archive = fs::read(workspace.extracted.join("files").join(&voice_path))?;
-    let mut sources = BTreeMap::new();
-    for source in [
-        music_path(&executable, 7)?,
-        music_path(&executable, 82)?,
-        "S/se.snd".into(),
-        "S/se_ev02.snd".into(),
-    ] {
-        sources.insert(
-            source.clone(),
-            hash_file(&workspace.extracted.join("files").join(source))?,
-        );
-    }
-    let recipe = json!({"version":3,"executable_sha256":crate::digest(&executable),"instrument_bank_sha256":crate::digest(&bank_bytes),
-        "coefficients_sha256":crate::digest(&coefficient_bytes),"voice_archive":voice_path,"voice_archive_sha256":crate::digest(&archive),
-        "voice_decoder_sha256":decoder.hash,"compiler_sha256":hash_file(&std::env::current_exe()?)?,"sources":sources,"audio_device":false});
-    let metadata = workspace.output.join("fields/iselia-classroom-audio.json");
-    if let Some(previous) = super::json_file(&metadata)
-        && let Ok(previous) = serde_json::from_value::<FieldAudio>(previous)
-        && previous.recipe == recipe
-        && previous.music.keys().copied().eq([7, 82])
-        && previous
-            .sounds
-            .keys()
-            .copied()
-            .eq([1, 2, 3, 4, 33, 38, 80, 104, 132, 236, 452])
-        && previous
-            .voices
-            .keys()
-            .copied()
-            .eq((0..32).chain([0x173, 0x174]).map(|index| 0xa0000 + index))
-        && current(&workspace.output, &previous)?
-    {
-        println!("Classroom audio is current");
-        crate::field::refresh_preloads(&workspace.output)?;
-        return Ok(());
-    }
-    let music = cook_music(
-        &workspace,
-        &executable,
-        &coefficient_bytes,
-        [7, 82],
-        reverbs,
-    )?;
-    let sounds = cook_sounds(
-        &workspace,
-        &executable,
-        &coefficient_bytes,
-        reverbs,
-        "field-sound",
-        &[
-            ("S/se.snd", vec![1, 2, 3, 4, 33, 38, 80, 104, 132, 236]),
-            ("S/se_ev02.snd", vec![452]),
-        ],
-    )?;
-    let members = crate::afs::parse(&archive)?;
-    let intermediate = workspace.output.join("intermediate/field-voices");
-    fs::create_dir_all(&intermediate)?;
-    fs::create_dir_all(workspace.output.join("audio/voices"))?;
-    let mut voices = BTreeMap::new();
-    // Control-9 IDs reached in the opening classroom. The doorway conversation
-    // is unvoiced; its party-join fanfare is a separate score-backed cue.
-    for index in (0..32u32).chain([0x173, 0x174]) {
-        let id = 0xa0000 + index;
-        let member = members
-            .get(index as usize)
-            .context("spoken line is missing from its AFS archive")?;
-        let raw = intermediate.join(format!("{id:08x}.ahx"));
-        fs::write(&raw, member.data)?;
-        let path = format!("audio/voices/{id:08x}.wav");
-        let target = workspace.output.join(&path);
-        let temporary = target.with_extension("partial.wav");
-        let mut command = decoder.command(&intermediate);
-        command.arg("-i").arg("-o").arg(&temporary).arg(&raw);
-        super::process::pipe(
-            &mut command,
-            &intermediate.join(format!("{id:08x}.log")),
-            Duration::from_secs(30),
-            |_| Ok(()),
-        )?;
-        let mut wave = hound::WavReader::open(&temporary)?;
-        let spec = wave.spec();
-        ensure!(
-            spec.bits_per_sample == 16
-                && spec.sample_format == hound::SampleFormat::Int
-                && spec.sample_rate == 32000
-                && (1..=2).contains(&spec.channels)
-                && (1..=32_000_000).contains(&wave.duration()),
-            "voice decoder did not produce bounded 32 kHz PCM16"
-        );
-        let frames = wave.duration();
-        let pcm = wave
-            .samples::<i16>()
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        drop(wave);
-        // The AHX header describes the nominal synthesis rate. As with the
-        // music bank, Dolphin consumes these samples at the actual DAC clock.
-        // Relabel the WAV in Rust; preserve every decoded sample unchanged.
-        write_pcm16(&temporary, spec.channels, super::PLAYBACK_RATE, pcm)?;
-        fs::rename(&temporary, &target)?;
-        voices.insert(
-            id,
-            Voice {
-                asset: Asset {
-                    path,
-                    sha256: hash_file(&target)?,
-                },
-                frames,
-                sample_rate: super::PLAYBACK_RATE,
-                source_sample_rate: spec.sample_rate,
-                channels: spec.channels,
-                source_name: member.name.into(),
-                source_sha256: crate::digest(member.data),
-            },
-        );
-    }
-    let manifest = FieldAudio {
-        version: FieldAudio::VERSION,
-        voice_gains: voice_gains(&executable)?,
-        music,
-        sounds,
-        voices,
-        recipe,
-    };
-    manifest.validate()?;
-    write_json(
-        &workspace.output.join("fields/iselia-classroom-audio.json"),
-        &serde_json::to_value(&manifest)?,
-    )?;
-    println!(
-        "Cooked {} music scores, {} cues, and {} spoken lines without playback",
-        manifest.music.len(),
-        manifest.sounds.len(),
-        manifest.voices.len()
-    );
-    crate::field::refresh_preloads(&workspace.output)?;
-    Ok(())
-}
-
-/// Cook unvoiced field scripts with statically declared music and common cues.
-/// Voiced or dynamically selected banks still require their own complete recipe.
+/// Cook every declared scenario branch, message voice and native service cue.
 pub fn cook_field_audio(
     extracted: &Path,
     output: &Path,
     map_id: u32,
     coefficients: &Path,
+    decoder: &Path,
+    additional_disc: Option<&Path>,
 ) -> Result<()> {
-    use crate::field_resources::{declarations, literal_calls};
-    use symphonia_script::{NativeCall, message, scenario};
     let workspace = Workspace::open(extracted, output)?;
-    let source = crate::field::source_for_id(extracted, map_id)?;
-    let map = crate::field::MapArchive::open(&source)?;
-    let script = map.section(6)?;
-    let messages = message::parse(&script[scenario::parse_header(script)?.auxiliary_offset()..])?;
-    ensure!(
-        !messages
-            .iter()
-            .flat_map(|m| &m.tokens)
-            .any(|t| matches!(t, message::Token::Control { opcode: 9, .. })),
-        "field {map_id} needs a spoken-line recipe"
-    );
-    let music_ids = literal_calls(script, NativeCall::AudioCommand, 1)?
-        .into_iter()
-        .filter_map(|id| u16::try_from(id).ok())
-        .collect::<Vec<_>>();
-    let mut sounds = literal_calls(script, NativeCall::PlaySoundSimple, 2)?;
-    ensure!(
-        literal_calls(script, NativeCall::SelectAudioBank, 1)?
-            .iter()
-            .all(|id| id & 7 == 0),
-        "field {map_id} needs an additional sound-bank recipe"
-    );
-    sounds.extend(literal_calls(script, NativeCall::PlaySound, 4)?);
-    sounds.extend([1, 2, 3, 4, 30, 33, 38, 0x68, 0x84]); // Menus, item recovery and scenery doors.
-    if declarations(script)?.save_point {
-        sounds.extend([0x21, 0x68]); // Activation and proximity cues.
+    if let Some(disc) = additional_disc {
+        validate_additional_disc(disc)?;
     }
-    let sound_ids: Vec<_> = sounds
-        .into_iter()
-        .map(u16::try_from)
-        .collect::<Result<_, _>>()?;
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let coefficient_bytes = fs::read(coefficients)?;
+    let map = crate::field::MapArchive::open(&crate::field::source_for_id(extracted, map_id)?)
+        .with_context(|| format!("read field {map_id} source archive"))?;
+    let executable = read_file(&extracted.join("sys/main.dol"))?;
+    let resources = resources::Resources::read(extracted, &executable, map.section(6)?)
+        .with_context(|| format!("inventory field {map_id} audio"))?;
+    let coefficients = read_file(coefficients)?;
+    let decoder = (!resources.voices.is_empty())
+        .then(|| Tool::resolve(decoder))
+        .transpose()?;
+    let mut archives = BTreeMap::new();
     let mut sources = BTreeMap::new();
-    for name in ["S/inst.snd".to_owned(), "S/se.snd".into()]
+    let mut voice_sources = BTreeMap::new();
+    for group in resources
+        .voices
+        .iter()
+        .map(|id| id & 0xffff_0000)
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        let source = voice_path(&executable, group)?;
+        let (bytes, disc) = voice_archive(extracted, additional_disc, &source)
+            .with_context(|| format!("read field {map_id} voice group {group:#x}"))?;
+        voice_sources.insert(
+            group,
+            json!({"game":"GQSEAF", "revision":0, "disc":disc,
+            "path":source,"sha256":crate::digest(&bytes)}),
+        );
+        archives.insert(group, bytes);
+    }
+    for source in ["S/inst.snd".to_owned()]
         .into_iter()
+        .chain(resources.banks.iter().map(|(source, _)| source.clone()))
         .chain(
-            music_ids
+            resources
+                .music
                 .iter()
                 .map(|id| music_path(&executable, *id))
                 .collect::<Result<Vec<_>>>()?,
         )
     {
         sources.insert(
-            name.clone(),
-            hash_file(&extracted.join("files").join(name))?,
+            source.clone(),
+            hash_file(&extracted.join("files").join(&source))
+                .with_context(|| format!("hash field {map_id} audio source {source}"))?,
         );
     }
-    let recipe = json!({"version":1,"map_id":map_id,"map_sha256":map.source_sha256,
-        "executable_sha256":crate::digest(&executable),"coefficients_sha256":crate::digest(&coefficient_bytes),
-        "compiler_sha256":hash_file(&std::env::current_exe()?)?,"sources":sources,"audio_device":false});
-    let metadata = output.join(format!("fields/map-{map_id}-audio.json"));
+    let recipe = json!({"version":5,"map_id":map_id,"map_sha256":map.source_sha256,"sound_banks":resources.banks,
+        "executable_sha256":crate::digest(&executable),"coefficients_sha256":crate::digest(&coefficients),
+        "voice_decoder_sha256":decoder.as_ref().map(|tool| &tool.hash),
+        "compiler_sha256":hash_file(&std::env::current_exe()?)?,"sources":sources,"voice_sources":voice_sources,"audio_device":false});
+    let metadata = output.join(if map_id == 340 {
+        "fields/iselia-classroom-audio.json".into()
+    } else {
+        format!("fields/map-{map_id}-audio.json")
+    });
     if let Some(previous) = super::json_file(&metadata)
         && let Ok(previous) = serde_json::from_value::<FieldAudio>(previous)
         && previous.recipe == recipe
@@ -247,13 +100,17 @@ pub fn cook_field_audio(
             .music
             .keys()
             .copied()
-            .eq(music_ids.iter().map(|id| *id as i16))
+            .eq(resources.music.iter().map(|id| *id as i16))
         && previous
             .sounds
             .keys()
             .copied()
-            .eq(sound_ids.iter().map(|id| *id as i16))
-        && previous.voices.is_empty()
+            .eq(resources.sounds.iter().map(|id| *id as i16))
+        && previous
+            .voices
+            .keys()
+            .copied()
+            .eq(resources.voices.iter().copied())
         && current(output, &previous)?
     {
         println!("Field {map_id} audio is current");
@@ -266,29 +123,105 @@ pub fn cook_field_audio(
         music: cook_music(
             &workspace,
             &executable,
-            &coefficient_bytes,
-            music_ids,
+            &coefficients,
+            resources.music,
             reverbs,
         )?,
         sounds: cook_sounds(
             &workspace,
             &executable,
-            &coefficient_bytes,
+            &coefficients,
             reverbs,
             "field-sound",
-            &[("S/se.snd", sound_ids)],
+            &resources.banks,
         )?,
-        voices: BTreeMap::new(),
+        voices: if let Some(decoder) = decoder {
+            cook_voices(&workspace, &decoder, &archives, &resources.voices)?
+        } else {
+            BTreeMap::new()
+        },
         recipe,
     };
     manifest.validate()?;
     write_json(&metadata, &serde_json::to_value(&manifest)?)?;
     println!(
-        "Cooked field {map_id}: {} scores and {} cues without playback",
+        "Cooked field {map_id}: {} scores, {} cues, {} voices without playback",
         manifest.music.len(),
-        manifest.sounds.len()
+        manifest.sounds.len(),
+        manifest.voices.len()
     );
     crate::field::refresh_preloads(output)
+}
+
+fn cook_voices(
+    workspace: &Workspace,
+    decoder: &Tool,
+    archives: &BTreeMap<u32, Vec<u8>>,
+    ids: &std::collections::BTreeSet<u32>,
+) -> Result<BTreeMap<u32, Voice>> {
+    let intermediate = workspace.output.join("intermediate/field-voices");
+    fs::create_dir_all(&intermediate)?;
+    fs::create_dir_all(workspace.output.join("audio/voices"))?;
+    let mut voices = BTreeMap::new();
+    for (&group, archive) in archives {
+        let members = crate::afs::parse(archive)?;
+        for &id in ids.range(group..=(group | 0xffff)) {
+            let member = members
+                .get((id & 0xffff) as usize)
+                .context("spoken line is missing from its AFS archive")?;
+            let raw = intermediate.join(format!("{id:08x}.ahx"));
+            fs::write(&raw, member.data)?;
+            let path = format!("audio/voices/{id:08x}.wav");
+            let target = workspace.output.join(&path);
+            let temporary = target.with_extension("partial.wav");
+            let mut command = decoder.command(&intermediate);
+            command.arg("-i").arg("-o").arg(&temporary).arg(&raw);
+            super::process::pipe(
+                &mut command,
+                &intermediate.join(format!("{id:08x}.log")),
+                Duration::from_secs(30),
+                |_| Ok(()),
+            )?;
+            let mut wave = hound::WavReader::open(&temporary)
+                .with_context(|| format!("read decoded voice {id:#x}: {}", temporary.display()))?;
+            let spec = wave.spec();
+            ensure!(
+                spec.bits_per_sample == 16
+                    && spec.sample_format == hound::SampleFormat::Int
+                    && spec.sample_rate == 32000
+                    && (1..=2).contains(&spec.channels)
+                    && (1..=32_000_000).contains(&wave.duration()),
+                "voice decoder did not produce bounded 32 kHz PCM16"
+            );
+            let frames = wave.duration();
+            let pcm = wave
+                .samples::<i16>()
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            drop(wave);
+            // The AHX header describes the nominal synthesis rate. As with the
+            // music bank, Dolphin consumes these samples at the actual DAC clock.
+            // Relabel the WAV in Rust; preserve every decoded sample unchanged.
+            write_pcm16(&temporary, spec.channels, super::PLAYBACK_RATE, pcm)?;
+            fs::rename(&temporary, &target)?;
+            voices.insert(
+                id,
+                Voice {
+                    asset: Asset {
+                        path,
+                        sha256: hash_file(&target)
+                            .with_context(|| format!("hash cooked voice {}", target.display()))?,
+                    },
+                    frames,
+                    sample_rate: super::PLAYBACK_RATE,
+                    source_sample_rate: spec.sample_rate,
+                    channels: spec.channels,
+                    source_name: member.name.into(),
+                    source_sha256: crate::digest(member.data),
+                },
+            );
+        }
+    }
+    Ok(voices)
 }
 
 fn cook_music(
@@ -298,12 +231,12 @@ fn cook_music(
     ids: impl IntoIterator<Item = u16>,
     reverbs: [[f32; 5]; 2],
 ) -> Result<BTreeMap<i16, Asset>> {
-    let bytes = fs::read(workspace.extracted.join("files/S/inst.snd"))?;
+    let bytes = read_file(&workspace.extracted.join("files/S/inst.snd"))?;
     let bank = Bank::parse(&bytes)?;
     ids.into_iter()
         .map(|id| {
             let source = music_path(executable, id)?;
-            let bytes = fs::read(workspace.extracted.join("files").join(&source))?;
+            let bytes = read_file(&workspace.extracted.join("files").join(&source))?;
             ensure!(
                 crate::dol::slice(executable, 0x802108b0 + u32::from(id), 1)? == [1],
                 "field music {id} requires another reverb preset"
@@ -340,7 +273,8 @@ fn current(root: &Path, manifest: &FieldAudio) -> Result<bool> {
         if hash_file(&root.join(&voice.asset.path)).ok().as_ref() != Some(&voice.asset.sha256) {
             return Ok(false);
         }
-        let wave = hound::WavReader::open(root.join(&voice.asset.path))?;
+        let wave = hound::WavReader::open(root.join(&voice.asset.path))
+            .with_context(|| format!("read cooked voice {}", voice.asset.path))?;
         let spec = wave.spec();
         if wave.duration() != voice.frames
             || spec.sample_rate != voice.sample_rate
@@ -360,24 +294,30 @@ pub(super) fn cook_sounds(
     coefficients: &[u8],
     reverbs: [[f32; 5]; 2],
     prefix: &str,
-    banks: &[(&str, Vec<u16>)],
+    banks: &[(impl AsRef<str>, Vec<u16>)],
 ) -> Result<BTreeMap<i16, Asset>> {
     use resonance_audio::{
         data::{Event, EventKind, Score},
         music_voice::Controls,
     };
     let mut assets = BTreeMap::new();
-    let common_bytes = fs::read(workspace.extracted.join("files/S/se.snd"))?;
+    let common_bytes = read_file(&workspace.extracted.join("files/S/se.snd"))?;
     let common = Bank::parse(&common_bytes)?;
-    let instrument_bytes = fs::read(workspace.extracted.join("files/S/inst.snd"))?;
+    let instrument_bytes = read_file(&workspace.extracted.join("files/S/inst.snd"))?;
     let instruments = Bank::parse(&instrument_bytes)?;
     for (source, ids) in banks {
-        let bytes = fs::read(workspace.extracted.join("files").join(source))?;
+        let source = source.as_ref();
+        let bytes = read_file(&workspace.extracted.join("files").join(source))?;
         let mut bank = Bank::parse(&bytes)?;
         bank.inherit_tables(&common);
         bank.inherit_tables(&instruments);
         bank.inherit_samples(&instruments);
+        bank.inherit_samples(&common);
         for &id in ids {
+            ensure!(
+                !assets.contains_key(&(id as i16)),
+                "ambiguous cooked sound {id}"
+            );
             let sound = bank.sound(id)?;
             let layers = resonance_audio_cook::instrument::resolve(
                 &bank,
@@ -390,7 +330,8 @@ pub(super) fn cook_sounds(
                 sound.volume,
                 sound.pan,
             )?;
-            let resources = compile::programs(&bank, layers.iter().map(|l| l.macro_id))?;
+            let resources = compile::programs(&bank, layers.iter().map(|l| l.macro_id))
+                .with_context(|| format!("compile {source} sound {id}"))?;
             let score = Score {
                 initial_bpm_1024: 120 * 1024,
                 loop_start_tick: 0,
@@ -453,10 +394,41 @@ fn cook_package(
     )?;
     Package::load(&workspace.output, &path)?;
     Ok(Asset {
-        sha256: hash_file(&workspace.output.join(&path))?,
+        sha256: hash_file(&workspace.output.join(&path))
+            .with_context(|| format!("hash cooked audio {path}"))?,
         path,
     })
 }
+fn read_file(path: &Path) -> Result<Vec<u8>> {
+    fs::read(path).with_context(|| format!("read {}", path.display()))
+}
+
+fn validate_additional_disc(disc: &Path) -> Result<()> {
+    ensure!(
+        read_file(&disc.join("sys/boot.bin"))?.get(..8) == Some(b"GQSEAF\x01\0"),
+        "additional voice disc must be GQSEAF revision 0 disc 2: {}",
+        disc.display()
+    );
+    Ok(())
+}
+
+fn voice_archive(primary: &Path, additional: Option<&Path>, source: &str) -> Result<(Vec<u8>, u8)> {
+    let path = primary.join("files").join(source);
+    match fs::read(&path) {
+        Ok(bytes) => Ok((bytes, 1)),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            let additional = additional.with_context(|| {
+                format!(
+                    "voice archive {} is missing; extract Disc 2 and supply --additional-disc",
+                    path.display()
+                )
+            })?;
+            Ok((read_file(&additional.join("files").join(source))?, 2))
+        }
+        Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
+    }
+}
+
 fn string(executable: &[u8], address: u32) -> Result<String> {
     let bytes = crate::dol::slice(executable, address, 64)?;
     let end = bytes
@@ -486,5 +458,63 @@ fn voice_path(executable: &[u8], group: u32) -> Result<String> {
             return string(executable, u32::from_be_bytes(entry[..4].try_into()?));
         }
     }
-    anyhow::bail!("voice group is not in the original resource table")
+    anyhow::bail!("voice group {group:#x} is not in the original resource table")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn additional_voice_disc_only_fills_missing_sources_and_requires_matching_disc_identity() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "resonance-voice-disc-{}-{nonce}",
+            std::process::id()
+        ));
+        let primary = root.join("disc1");
+        let additional = root.join("disc2");
+        for directory in [
+            primary.join("files/EV"),
+            additional.join("files/EV"),
+            additional.join("sys"),
+        ] {
+            fs::create_dir_all(directory).unwrap();
+        }
+        let source = "EV/voices.afs";
+        let first = primary.join("files").join(source);
+        let second = additional.join("files").join(source);
+        fs::write(additional.join("sys/boot.bin"), b"GQSEAF\x01\0").unwrap();
+        validate_additional_disc(&additional).unwrap();
+        fs::write(&first, b"primary").unwrap();
+        fs::write(&second, b"additional").unwrap();
+        assert_eq!(
+            voice_archive(&primary, Some(&additional), source).unwrap(),
+            (b"primary".to_vec(), 1)
+        );
+        fs::remove_file(&first).unwrap();
+        assert_eq!(
+            voice_archive(&primary, Some(&additional), source).unwrap(),
+            (b"additional".to_vec(), 2)
+        );
+        assert!(
+            voice_archive(&primary, None, source)
+                .unwrap_err()
+                .to_string()
+                .contains("--additional-disc")
+        );
+        fs::create_dir(&first).unwrap();
+        assert!(
+            voice_archive(&primary, Some(&additional), source).is_err(),
+            "non-missing primary errors must not fall back"
+        );
+        for boot in [b"GQSEAF\0\0", b"GQSEAF\x01\x01", b"GQSPAF\x01\0"] {
+            fs::write(additional.join("sys/boot.bin"), boot).unwrap();
+            assert!(validate_additional_disc(&additional).is_err());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -19,7 +19,7 @@ pub fn run_quicksave_probe(
     output: &Path,
     transitions: bool,
 ) -> Result<()> {
-    let mut app = app(root, checkpoint, output)?;
+    let mut app = app(root, checkpoint, output, crate::Resolution::default())?;
     let completed = Arc::new(AtomicBool::new(false));
     app.insert_resource(Probe {
         started: Instant::now(),
@@ -40,7 +40,12 @@ pub fn run_quicksave_probe(
     Ok(())
 }
 
-pub(super) fn app(root: &Path, checkpoint: &Path, output: &Path) -> Result<App> {
+pub(super) fn app(
+    root: &Path,
+    checkpoint: &Path,
+    output: &Path,
+    resolution: crate::Resolution,
+) -> Result<App> {
     app_with_saves(
         root,
         output,
@@ -49,9 +54,15 @@ pub(super) fn app(root: &Path, checkpoint: &Path, output: &Path) -> Result<App> 
             quick_slot: Some("probe".into()),
             load: Some(checkpoint.into()),
         },
+        resolution,
     )
 }
-pub(super) fn app_with_saves(root: &Path, output: &Path, saves: SaveOptions) -> Result<App> {
+pub(super) fn app_with_saves(
+    root: &Path,
+    output: &Path,
+    saves: SaveOptions,
+    resolution: crate::Resolution,
+) -> Result<App> {
     ensure!(!output.exists(), "probe output must be a fresh directory");
     fs::create_dir_all(output)?;
     let (mut app, _) = crate::build_app_with_display(
@@ -71,7 +82,7 @@ pub(super) fn app_with_saves(root: &Path, output: &Path, saves: SaveOptions) -> 
             record_playthrough: None,
             record_title_ticks: 0,
         },
-        crate::Resolution::default(),
+        resolution,
     )?;
     // The application was built without a window/device; run its normal updates.
     // Setup must choose an offscreen target before automatic capture is disabled.
@@ -278,13 +289,7 @@ pub(super) fn capture(world: &mut World, path: PathBuf, done: &Arc<AtomicBool>) 
     let target = world.resource::<crate::Framebuffer>().0.clone();
     world.spawn(Screenshot(target)).observe(
         move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            let result = event
-                .image
-                .clone()
-                .try_into_dynamic()
-                .map_err(anyhow::Error::from)
-                .and_then(|image| image.save(&path).map_err(Into::into));
-            if let Err(error) = result {
+            if let Err(error) = crate::screenshot::write(&event.image, &path, None) {
                 error!("Probe capture failed: {error:#}");
                 exit.write(AppExit::error());
             }

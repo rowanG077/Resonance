@@ -14,7 +14,7 @@ use bevy::{
     transform::helper::TransformHelper,
 };
 use resonance_content::{
-    effect::{FieldEffects, FlutterRecipe, RefractionRecipe},
+    effect::{FieldEffects, FlutterRecipe, RefractionRecipe, VerticalAnchor},
     field::FieldAssets,
 };
 use std::{collections::BTreeMap, fs, path::Path};
@@ -178,6 +178,7 @@ impl Artwork {
                             } else {
                                 index as u32
                             },
+                        0,
                     ),
                 ))
                 .id();
@@ -202,15 +203,32 @@ impl Batch {
         uv: [f32; 4],
         color: [f32; 4],
     ) {
+        self.anchored_sprite(center, rotation, size, uv, color, VerticalAnchor::Center);
+    }
+    fn anchored_sprite(
+        &mut self,
+        center: Vec3,
+        rotation: Quat,
+        size: [f32; 2],
+        uv: [f32; 4],
+        color: [f32; 4],
+        anchor: VerticalAnchor,
+    ) {
         let right = rotation * Vec3::X * (size[0] / 2.).trunc();
-        let up = rotation * Vec3::Y * (size[1] / 2.).trunc();
+        let [above, below] = match anchor {
+            VerticalAnchor::Center => [(size[1] / 2.).trunc(); 2],
+            VerticalAnchor::Bottom => [size[1], 0.],
+            VerticalAnchor::Top => [0., size[1]],
+        };
+        let up = rotation * Vec3::Y * above;
+        let down = rotation * Vec3::Y * below;
         let base = self.positions.len() as u32;
         self.positions.extend(
             [
                 center - right + up,
                 center + right + up,
-                center + right - up,
-                center - right - up,
+                center + right - down,
+                center - right - down,
             ]
             .map(|v| v.to_array()),
         );
@@ -335,6 +353,7 @@ pub(super) fn render(
             emote.actor,
             art.spec.emotes.get(&emote.kind),
             world.tick.saturating_sub(emote.start_tick) as usize,
+            emote.phase,
             emote.offset,
             EMOTES,
         )
@@ -345,11 +364,12 @@ pub(super) fn render(
             symbol.actor,
             Some(&art.spec.paralysis),
             usize::from(symbol.frame),
+            0,
             [0.; 3],
             STATUS,
         )
     });
-    for (request, actor, track, age, offset, layer) in emotes.chain(paralysis) {
+    for (request, actor, track, age, phase, offset, layer) in emotes.chain(paralysis) {
         let Some(track) = track else {
             continue;
         };
@@ -369,19 +389,25 @@ pub(super) fn render(
         let Ok(anchor) = helper.compute_global_transform(bone) else {
             continue;
         };
-        for sprite in track.frame(age) {
+        for sprite in track.frame_with_phase(age, phase) {
             let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
             let center = anchor.translation() + side * x + forward * y + Vec3::Z * z;
             // Snap emote centers to whole world units; keep their rotated vertices
             // and the independently moving dust particles at full precision.
             let center = center.trunc();
             let rotation = camera.rotation * Quat::from_rotation_z(sprite.rotation.to_radians());
-            batches[layer].sprite(
+            batches[layer].anchored_sprite(
                 center,
                 rotation,
                 sprite.size,
                 sprite.uv,
-                [brightness, brightness, brightness, 1.],
+                [
+                    brightness,
+                    brightness,
+                    brightness,
+                    f32::from(sprite.alpha) / 255.,
+                ],
+                sprite.vertical_anchor,
             );
         }
         // The intro frame can deliberately contain no sprites; the track
@@ -401,5 +427,37 @@ pub(super) fn render(
             .expect("effect layer was not prepared");
         *meshes.get_mut(handle).expect("effect mesh is retained") = mesh;
         commands.entity(*entity).insert(Visibility::Inherited);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emote_vertical_anchors_preserve_odd_integer_heights() {
+        for (anchor, expected) in [
+            (VerticalAnchor::Center, [1., 1., -1., -1.]),
+            (VerticalAnchor::Bottom, [3., 3., 0., 0.]),
+            (VerticalAnchor::Top, [0., 0., -3., -3.]),
+        ] {
+            let mut batch = Batch::default();
+            batch.anchored_sprite(
+                Vec3::ZERO,
+                Quat::IDENTITY,
+                [3.; 2],
+                [0.; 4],
+                [1.; 4],
+                anchor,
+            );
+            assert_eq!(
+                batch.positions.iter().map(|p| p[1]).collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                batch.positions.iter().map(|p| p[0]).collect::<Vec<_>>(),
+                [-1., 1., 1., -1.]
+            );
+        }
     }
 }

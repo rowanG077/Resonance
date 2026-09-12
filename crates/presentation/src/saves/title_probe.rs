@@ -21,6 +21,7 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
             directory: Some(directory.into()),
             ..Default::default()
         },
+        crate::Resolution::default(),
     )?;
     let completed = Arc::new(AtomicBool::new(false));
     app.insert_resource(Probe {

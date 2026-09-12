@@ -1,7 +1,7 @@
 //! Fixed-tick secondary bone motion, applied after skeletal animation.
 //! The inverted outline hull consumes the primary skeleton's result.
 use super::field_view::{ActorPart, Art, State};
-use bevy::{prelude::*, transform::helper::TransformHelper};
+use bevy::{math::Affine3A, prelude::*, transform::helper::TransformHelper};
 use resonance_content::secondary_motion::Chain;
 use std::collections::BTreeMap;
 
@@ -10,6 +10,8 @@ pub(super) struct Rig {
     bones: BTreeMap<u16, Bone>,
     chains: Vec<(Chain, Simulation)>,
     tick: Option<u32>,
+    creation: Option<resonance_events::ActorCreation>,
+    pose: BTreeMap<u16, GlobalTransform>,
 }
 struct Bone {
     entity: Entity,
@@ -56,6 +58,8 @@ impl Rig {
                 .map(|chain| (chain, Simulation::default()))
                 .collect(),
             tick: None,
+            creation: None,
+            pose: BTreeMap::new(),
         })
     }
 
@@ -66,6 +70,7 @@ impl Rig {
         tick: u32,
         settle: bool,
         animated_roots: &[u16],
+        initial: Option<Affine3A>,
     ) -> Option<BTreeMap<u16, GlobalTransform>> {
         let authored: BTreeMap<_, _> = self
             .bones
@@ -86,6 +91,7 @@ impl Rig {
             300
         } else {
             self.tick
+                .or(self.creation.map(|p| p.tick))
                 .map_or(1, |previous| tick.saturating_sub(previous).min(16))
         };
         let mut output = BTreeMap::new();
@@ -107,6 +113,15 @@ impl Rig {
             } else {
                 chain.attraction
             };
+            let initial = initial.filter(|_| self.tick.is_none() && !settle);
+            if let Some(transform) = initial {
+                simulation.reset(
+                    &targets
+                        .iter()
+                        .map(|&p| transform.transform_point3(p))
+                        .collect::<Vec<_>>(),
+                );
+            }
             simulation.advance(chain, &targets, plane, attraction, steps);
             for (index, joint) in chain.joints.iter().enumerate().take(chain.joints.len() - 1) {
                 let mut pose = authored[&joint.node].compute_transform();
@@ -132,6 +147,7 @@ impl Rig {
         }
 
         self.tick = Some(tick);
+        self.pose.clone_from(&output);
         Some(output)
     }
 
@@ -181,18 +197,19 @@ pub(super) fn diagnostic(world: &mut World) -> serde_json::Value {
 pub(super) fn bind(
     mut commands: Commands,
     art: Res<Art>,
-    actors: Query<(Entity, &ActorPart), Without<Rig>>,
+    mut actors: Query<(Entity, &mut ActorPart), Without<Rig>>,
     children: Query<&Children>,
     nodes: Query<(&Name, &Transform, &ChildOf)>,
     meshes: Query<(), With<Mesh3d>>,
 ) {
-    for (root, actor) in &actors {
+    for (root, mut actor) in &mut actors {
         let spec = &art.models[&actor.resource][actor.part].spec;
         if !actor.prepared || spec.secondary_motion.is_empty() {
             continue;
         }
         let names = super::field_pose::named_bones(root, &children, &nodes, &meshes);
-        if let Some(rig) = Rig::new(spec, &names) {
+        if let Some(mut rig) = Rig::new(spec, &names) {
+            rig.creation = actor.creation.take();
             commands.entity(root).insert(rig);
         }
     }
@@ -233,17 +250,43 @@ pub(super) fn apply(
             let Some(actor) = state.get().events.world.actors.get(&part.actor) else {
                 continue;
             };
+            // Offscreen actors keep their last model pose and dynamics. Move
+            // the clock forward so returning onscreen does not catch up the
+            // skipped simulation ticks; a new rig still evaluates once.
+            if actor.animation_culled && rig.tick.is_some() {
+                rig.tick = Some(tick);
+                poses.insert(part.actor, rig.pose.clone());
+                continue;
+            }
             let animated_roots = part
                 .active_clip
                 .and_then(|index| art.models[&part.resource][part.part].spec.clips.get(index))
                 .map(|clip| clip.secondary_pose_nodes.as_slice())
                 .unwrap_or_default();
+            let yaw = actor.appearance.fixed_heading.unwrap_or(actor.heading);
+            // Constructor evaluation precedes same-tick script movement. Keep
+            // its pose for a new rig, while restored and running actors retain
+            // their normal initialization/history.
+            let initial = rig.creation.filter(|_| rig.tick.is_none()).map(|p| {
+                if p.position == actor.position && p.heading == yaw {
+                    Affine3A::IDENTITY
+                } else {
+                    let transform = |position, heading: f32| {
+                        Affine3A::from_rotation_translation(
+                            Quat::from_rotation_z(heading.to_radians()),
+                            Vec3::from_array(position),
+                        )
+                    };
+                    transform(p.position, p.heading) * transform(actor.position, yaw).inverse()
+                }
+            });
             if let Some(output) = rig.advance(
                 &helper,
-                actor.appearance.fixed_heading.unwrap_or(actor.heading),
+                yaw,
                 tick,
                 state.checkpoint.is_some(),
                 animated_roots,
+                initial,
             ) {
                 poses.insert(part.actor, output);
             }
@@ -287,6 +330,12 @@ struct Simulation {
     targets: Vec<Vec3>,
 }
 impl Simulation {
+    fn reset(&mut self, targets: &[Vec3]) {
+        self.positions = targets.to_vec();
+        self.previous = targets.to_vec();
+        self.velocity = vec![Vec3::ZERO; targets.len()];
+        self.targets = targets.to_vec();
+    }
     fn advance(
         &mut self,
         chain: &Chain,
@@ -295,18 +344,15 @@ impl Simulation {
         attraction: f32,
         steps: u32,
     ) {
-        if self.positions.len() != targets.len() || self.positions[0].distance(targets[0]) > 100. {
-            self.positions = targets.to_vec();
-            self.previous = targets.to_vec();
-            self.velocity = vec![Vec3::ZERO; targets.len()];
-            self.targets = targets.to_vec();
+        if self.positions.len() != targets.len() {
+            self.reset(targets);
         }
+        let previous_targets = std::mem::take(&mut self.targets);
         for step in 0..steps {
             // Catch-up ticks consume interpolated authored targets; rendering
             // additional frames without a field tick does not advance physics.
             let t = (step + 1) as f32 / steps as f32;
-            let targets: Vec<_> = self
-                .targets
+            let targets: Vec<_> = previous_targets
                 .iter()
                 .zip(targets)
                 .map(|(a, b)| a.lerp(*b, t))
@@ -314,8 +360,16 @@ impl Simulation {
             for (index, joint) in chain.joints.iter().enumerate() {
                 let position = self.positions[index];
                 self.positions[index] += (targets[index] - position) * attraction
-                    + Vec3::new(0., 0., -0.98 * joint.gravity)
-                    + self.velocity[index];
+                    + Vec3::new(0., 0., -0.98 * joint.gravity);
+            }
+            // Attraction can pull a large displacement within the chain's
+            // recovery radius. Test afterwards, before applying momentum.
+            if self.positions[0].distance(targets[0]) > 100. {
+                self.reset(&targets);
+            } else {
+                for (position, velocity) in self.positions.iter_mut().zip(&self.velocity) {
+                    *position += *velocity;
+                }
             }
             let lengths: Vec<_> = targets.windows(2).map(|p| p[0].distance(p[1])).collect();
             for _ in 0..10 {
@@ -396,8 +450,12 @@ mod tests {
             );
         }
         assert_eq!(simulation.positions, saved);
+        let pulled: Vec<_> = targets.iter().map(|p| *p + Vec3::X * 150.).collect();
+        simulation.reset(&targets);
+        simulation.advance(&chain, &pulled, None, 0.5, 1);
+        assert!(simulation.positions[3].distance(pulled[3]) > 1.);
         let moved: Vec<_> = targets.iter().map(|p| *p + Vec3::X * 1000.).collect();
-        simulation.advance(&chain, &moved, None, chain.attraction, 0);
+        simulation.advance(&chain, &moved, None, chain.attraction, 1);
         assert_eq!(simulation.positions, moved);
         assert!(simulation.velocity.iter().all(|v| *v == Vec3::ZERO));
     }

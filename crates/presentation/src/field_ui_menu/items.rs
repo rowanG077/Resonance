@@ -262,7 +262,14 @@ impl Drawing<'_> {
     }
 
     pub(super) fn item_description(&mut self, menu: &Menu, id: u16) -> Result<()> {
-        let data = &menu.resources.as_ref().unwrap().data;
+        self.item_description_data(&menu.resources.as_ref().unwrap().data, id)
+    }
+
+    pub(super) fn item_description_data(
+        &mut self,
+        data: &resonance_content::menu_data::MenuData,
+        id: u16,
+    ) -> Result<()> {
         let item = &data.items[usize::from(id)];
         self.sprite_rect(
             self.spec.sprites.item_images[usize::from(id)],
@@ -474,12 +481,28 @@ impl Drawing<'_> {
     }
 
     fn item_equipment_marker(&mut self, menu: &Menu, member: usize, item: u16, at: [f32; 2]) {
-        let resources = menu.resources.as_ref().unwrap();
+        self.equipment_marker_data(
+            menu.resources.as_ref().unwrap(),
+            menu.party(),
+            member,
+            item,
+            at,
+        );
+    }
+
+    pub(super) fn equipment_marker_data(
+        &mut self,
+        resources: &resonance_game::menu::Resources,
+        party: &resonance_events::party::Party,
+        member: usize,
+        item: u16,
+        at: [f32; 2],
+    ) {
         let definition = &resources.session.items[usize::from(item)];
         let Some(kind) = definition.equipment_kind else {
             return;
         };
-        let character = &menu.party().members[member];
+        let character = &party.members[member];
         let (rect, duration, color) = if definition.allowed_characters & (1 << member) == 0 {
             (self.spec.sprites.tech_ranks[1], 20, WHITE)
         } else if character.equipment.contains(&item) {

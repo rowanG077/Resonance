@@ -10,6 +10,13 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Cook localized character, item and title names without changing save definitions.
+    CookText {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        output: PathBuf,
+    },
     /// Cook figurine catalogue records and shared animated model previews.
     CookFigurines {
         #[arg(long, default_value = "local/extracted/disc1")]
@@ -40,6 +47,16 @@ enum Action {
         output: PathBuf,
         #[arg(long, default_value = "ktx")]
         ktx: PathBuf,
+    },
+    /// Compare every cooked shop inventory and price with the original disc data.
+    ValidateShops {
+        #[arg(long, default_value = "local/extracted/disc1")]
+        extracted: PathBuf,
+        #[arg(long, default_value = "local/cooked")]
+        cooked: PathBuf,
+        /// Write the full inventory and pricing report to this JSON file.
+        #[arg(long)]
+        json: Option<PathBuf>,
     },
     /// Refresh shared field sprites and dependent preload manifests.
     CookEffects {
@@ -86,7 +103,7 @@ enum Action {
         #[arg(long, default_value = "vgmstream-cli")]
         voice_decoder: PathBuf,
     },
-    /// Cook an unvoiced field's declared music and common cues without playback.
+    /// Cook a field's declared music, cues, and spoken lines without playback.
     CookFieldAudio {
         #[arg(long)]
         map: u32,
@@ -96,6 +113,11 @@ enum Action {
         output: PathBuf,
         #[arg(long)]
         coefficients: PathBuf,
+        #[arg(long, default_value = "vgmstream-cli")]
+        voice_decoder: PathBuf,
+        /// Additional extracted disc containing voices absent from the primary disc.
+        #[arg(long)]
+        additional_disc: Option<PathBuf>,
     },
     /// Cook the New Game story movie with the same verified offline pipeline.
     CookStoryIntro {
@@ -303,6 +325,7 @@ struct MediaPaths {
 
 fn main() -> anyhow::Result<()> {
     match Args::parse().command {
+        Action::CookText { extracted, output } => resonance_import::cook_text(&extracted, &output),
         Action::CookFigurines {
             extracted,
             output,
@@ -320,12 +343,45 @@ fn main() -> anyhow::Result<()> {
             output,
             ktx,
         } => resonance_import::menu::cook_all(&extracted, &output, &ktx),
+        Action::ValidateShops {
+            extracted,
+            cooked,
+            json,
+        } => {
+            let report = resonance_import::menu::validate_shops(&extracted, &cooked)?;
+            if let Some(path) = json {
+                if let Some(parent) = path
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+            }
+            println!(
+                "Checked {} shops, {} stock entries, {} prices, and {} story variants.",
+                report.shops.len(),
+                report.stock_entries,
+                report.price_checks,
+                report.story_variants
+            );
+            Ok(())
+        }
         Action::CookFieldAudio {
             map,
             extracted,
             output,
             coefficients,
-        } => resonance_import::media::cook_field_audio(&extracted, &output, map, &coefficients),
+            voice_decoder,
+            additional_disc,
+        } => resonance_import::media::cook_field_audio(
+            &extracted,
+            &output,
+            map,
+            &coefficients,
+            &voice_decoder,
+            additional_disc.as_deref(),
+        ),
         Action::CookSkits {
             extracted,
             output,
@@ -342,11 +398,13 @@ fn main() -> anyhow::Result<()> {
             output,
             coefficients,
             voice_decoder,
-        } => resonance_import::media::cook_classroom_audio(
+        } => resonance_import::media::cook_field_audio(
             &extracted,
             &output,
+            340,
             &coefficients,
             &voice_decoder,
+            None,
         ),
         Action::CookStoryIntro {
             paths,
@@ -380,7 +438,7 @@ fn main() -> anyhow::Result<()> {
             extracted,
             output,
             ktx,
-        } => resonance_import::field::cook_classroom(&extracted, &output, &ktx),
+        } => resonance_import::field::cook_field(&extracted, 340, &output, &ktx),
         Action::CookField {
             map,
             extracted,
@@ -508,13 +566,14 @@ fn main() -> anyhow::Result<()> {
             video_decoder,
             audio_decoder,
             audio_stream,
-        } => resonance_import::media::cook_intro(
+        } => resonance_import::media::cook_movie(
             &paths.extracted,
             &paths.output,
             &video_decoder,
             &audio_decoder,
             &paths.ffmpeg,
             audio_stream,
+            resonance_import::media::MovieSource::Opening,
         ),
     }
 }

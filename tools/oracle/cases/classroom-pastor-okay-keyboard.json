@@ -1,0 +1,765 @@
+{
+  "version": 1,
+  "updates": 6189,
+  "presentation_origin": 19627,
+  "inputs": [
+    {
+      "update": 11,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 111,
+      "keys": []
+    },
+    {
+      "update": 131,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 153,
+      "keys": []
+    },
+    {
+      "update": 171,
+      "keys": [
+        "left"
+      ]
+    },
+    {
+      "update": 196,
+      "keys": []
+    },
+    {
+      "update": 496,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 498,
+      "keys": []
+    },
+    {
+      "update": 996,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 998,
+      "keys": []
+    },
+    {
+      "update": 1496,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1498,
+      "keys": []
+    },
+    {
+      "update": 1996,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1998,
+      "keys": []
+    },
+    {
+      "update": 2496,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2498,
+      "keys": []
+    },
+    {
+      "update": 2996,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 2998,
+      "keys": []
+    },
+    {
+      "update": 3196,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 3198,
+      "keys": []
+    },
+    {
+      "update": 3496,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3498,
+      "keys": []
+    },
+    {
+      "update": 3996,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 3998,
+      "keys": []
+    },
+    {
+      "update": 4496,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 4498,
+      "keys": []
+    },
+    {
+      "update": 4996,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 4998,
+      "keys": []
+    },
+    {
+      "update": 5496,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 5498,
+      "keys": []
+    },
+    {
+      "update": 5996,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 5998,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "0": "pastor-0000",
+    "1": "pastor-0001",
+    "11": "pastor-0011",
+    "110": "pastor-0110",
+    "132": "pastor-0132",
+    "154": "pastor-0154",
+    "171": "pastor-0171",
+    "196": "pastor-entry-fade-start",
+    "204": "pastor-entry-fade-middle",
+    "211": "pastor-entry-fade-end",
+    "245": "pastor-0250",
+    "495": "pastor-0500",
+    "3001": "pastor-3006",
+    "3196": "pastor-3201",
+    "3496": "pastor-3501",
+    "5041": "pastor-entrance-fade-start",
+    "5049": "pastor-entrance-fade-middle",
+    "5056": "pastor-entrance-fade-end",
+    "5309": "pastor-group-fade-start",
+    "5317": "pastor-group-fade-middle",
+    "5324": "pastor-group-fade-end",
+    "5496": "pastor-5501",
+    "5580": "pastor-5585",
+    "5581": "pastor-5586",
+    "5582": "pastor-5587",
+    "5583": "pastor-5588",
+    "5584": "pastor-5589",
+    "5585": "pastor-5590",
+    "5586": "pastor-5591",
+    "5587": "pastor-5592",
+    "5588": "pastor-5593",
+    "5589": "pastor-5594",
+    "5590": "pastor-5595",
+    "5591": "pastor-5596",
+    "5592": "pastor-5597",
+    "5593": "pastor-5598",
+    "5594": "pastor-5599",
+    "5595": "pastor-5600",
+    "5596": "pastor-5601",
+    "5597": "pastor-5602",
+    "5598": "pastor-5603",
+    "5599": "pastor-5604",
+    "5600": "pastor-5605",
+    "5601": "pastor-5606",
+    "5602": "pastor-5607",
+    "5603": "pastor-5608",
+    "5604": "pastor-5609",
+    "5605": "pastor-5610",
+    "5606": "pastor-5611",
+    "5607": "pastor-5612",
+    "5608": "pastor-5613",
+    "5609": "pastor-5614",
+    "5610": "pastor-5615",
+    "5611": "pastor-5616",
+    "5612": "pastor-5617",
+    "5613": "pastor-5618",
+    "5614": "pastor-5619",
+    "5615": "pastor-5620",
+    "5616": "pastor-5621",
+    "5617": "pastor-5622",
+    "5618": "pastor-5623",
+    "5619": "pastor-5624",
+    "5620": "pastor-5625",
+    "5621": "pastor-5626",
+    "5622": "pastor-5627",
+    "5623": "pastor-5628",
+    "5624": "pastor-5629",
+    "5625": "pastor-5630",
+    "5626": "pastor-5631",
+    "5627": "pastor-5632",
+    "5628": "pastor-5633",
+    "5629": "pastor-5634",
+    "5630": "pastor-5635",
+    "5631": "pastor-5636",
+    "5632": "pastor-5637",
+    "5633": "pastor-5638",
+    "5634": "pastor-5639",
+    "5635": "pastor-5640",
+    "5636": "pastor-5641",
+    "5637": "pastor-5642",
+    "5638": "pastor-5643",
+    "5639": "pastor-5644",
+    "5640": "pastor-5645",
+    "5641": "pastor-5646",
+    "5642": "pastor-5647",
+    "5695": "pastor-5700",
+    "5995": "pastor-6000",
+    "6052": "pastor-exit-fade-start",
+    "6060": "pastor-exit-fade-middle",
+    "6067": "pastor-exit-fade-end",
+    "6189": "pastor-6200"
+  },
+  "expected": {
+    "0": {
+      "map_id": 340,
+      "story": 1000,
+      "free_control": true
+    },
+    "196": {
+      "map_id": 340,
+      "story": 1000,
+      "free_control": false
+    },
+    "6189": {
+      "map_id": 340,
+      "story": 1000,
+      "free_control": false
+    }
+  },
+  "ambient_origin": {
+    "update": 0,
+    "samples": {},
+    "effect_tick": 19201,
+    "random_state": 1221868113,
+    "gameplay_random": "uninitialized",
+    "actors": {
+      "1": {
+        "autonomy": {
+          "behavior": "player",
+          "speed": 0,
+          "home": [
+            92,
+            -679,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 11,
+          "floor_available": true
+        },
+        "position": [
+          -88,
+          -229,
+          0
+        ],
+        "heading": 180,
+        "target_heading": 180,
+        "animation_slot": 12,
+        "animation_sample": 35,
+        "animation_repeat": true
+      },
+      "2": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -73,
+            -134,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": false,
+          "remaining": -1,
+          "floor_available": false
+        },
+        "position": [
+          -73,
+          -134,
+          0
+        ],
+        "heading": 180,
+        "target_heading": 180,
+        "animation_slot": 12,
+        "animation_sample": 64,
+        "animation_repeat": false
+      },
+      "3": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            303,
+            224,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 58,
+          "floor_available": true
+        },
+        "position": [
+          303,
+          224,
+          0
+        ],
+        "heading": 134,
+        "target_heading": 134,
+        "animation_slot": 12,
+        "animation_sample": 56,
+        "animation_repeat": true
+      },
+      "200": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -69,
+            437,
+            27
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 74,
+          "floor_available": true
+        },
+        "position": [
+          -69,
+          437,
+          27
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      },
+      "201": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -546,
+            -340,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 139,
+          "floor_available": true
+        },
+        "position": [
+          -546,
+          -340,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      },
+      "202": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -376,
+            591,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 134,
+          "floor_available": false
+        },
+        "position": [
+          -376,
+          591,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      },
+      "203": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            290,
+            528,
+            200
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 2,
+          "floor_available": true
+        },
+        "position": [
+          290,
+          528,
+          200
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      },
+      "301": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            3,
+            544,
+            27
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 1,
+          "floor_available": true
+        },
+        "position": [
+          3,
+          544,
+          27.141002655029297
+        ],
+        "heading": 181,
+        "target_heading": 181,
+        "animation_slot": 12,
+        "animation_sample": 56,
+        "animation_repeat": true
+      },
+      "302": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            303,
+            361,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 40,
+          "floor_available": true
+        },
+        "position": [
+          303,
+          361,
+          0
+        ],
+        "heading": 89,
+        "target_heading": 89,
+        "animation_slot": 12,
+        "animation_sample": 1,
+        "animation_repeat": true
+      },
+      "303": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -147,
+            159,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 14,
+          "floor_available": true
+        },
+        "position": [
+          -147,
+          159,
+          0
+        ],
+        "heading": 124,
+        "target_heading": 124,
+        "animation_slot": 12,
+        "animation_sample": 56,
+        "animation_repeat": true
+      },
+      "304": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -200,
+            -548,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 85,
+          "floor_available": true
+        },
+        "position": [
+          -200,
+          -548,
+          0
+        ],
+        "heading": 88,
+        "target_heading": 88,
+        "animation_slot": 12,
+        "animation_sample": 17,
+        "animation_repeat": true
+      },
+      "305": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -100,
+            -547,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 152,
+          "floor_available": true
+        },
+        "position": [
+          -100,
+          -547,
+          0
+        ],
+        "heading": 269,
+        "target_heading": 269,
+        "animation_slot": 12,
+        "animation_sample": 25,
+        "animation_repeat": true
+      },
+      "306": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            299,
+            -381,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 11,
+          "floor_available": true
+        },
+        "position": [
+          299,
+          -381,
+          0
+        ],
+        "heading": 135,
+        "target_heading": 135,
+        "animation_slot": 12,
+        "animation_sample": 49,
+        "animation_repeat": true
+      },
+      "90020": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            1,
+            0,
+            0
+          ],
+          "radius": 600,
+          "conversing": false,
+          "activity": "idle",
+          "initialized": true,
+          "remaining": 34,
+          "floor_available": true
+        },
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      }
+    },
+    "eyes": {
+      "1": {
+        "tick": 2,
+        "frame": 0
+      },
+      "2": {
+        "tick": 42,
+        "frame": 0
+      },
+      "3": {
+        "tick": 23,
+        "frame": 0
+      },
+      "301": {
+        "tick": 80,
+        "frame": 0
+      },
+      "302": {
+        "tick": 90,
+        "frame": 0
+      },
+      "303": {
+        "tick": 33,
+        "frame": 0
+      },
+      "304": {
+        "tick": 132,
+        "frame": 0
+      },
+      "305": {
+        "tick": 8,
+        "frame": 1
+      },
+      "306": {
+        "tick": 54,
+        "frame": 0
+      }
+    },
+    "flutters": [],
+    "background_waits": [],
+    "save_sparks": [],
+    "poison_puffs": [],
+    "action_prompt": {
+      "id": 2,
+      "opacity": 255,
+      "remaining": 29
+    }
+  },
+  "presentation_advances": {
+    "193": 5,
+    "6001": 6
+  },
+  "resource_waits": [
+    {
+      "pc": 12777,
+      "resource": 131137,
+      "request_tick": 5021,
+      "resume_tick": 5038
+    },
+    {
+      "pc": 13234,
+      "resource": 262192,
+      "request_tick": 5299,
+      "resume_tick": 5309
+    },
+    {
+      "pc": 14216,
+      "resource": 196725,
+      "request_tick": 6024,
+      "resume_tick": 6029
+    },
+    {
+      "pc": 14234,
+      "resource": 262261,
+      "request_tick": 6029,
+      "resume_tick": 6034
+    },
+    {
+      "pc": 14252,
+      "resource": 327797,
+      "request_tick": 6034,
+      "resume_tick": 6038
+    },
+    {
+      "pc": 14321,
+      "resource": 196726,
+      "request_tick": 6038,
+      "resume_tick": 6043
+    },
+    {
+      "pc": 14339,
+      "resource": 262262,
+      "request_tick": 6043,
+      "resume_tick": 6048
+    },
+    {
+      "pc": 14357,
+      "resource": 327798,
+      "request_tick": 6048,
+      "resume_tick": 6052
+    }
+  ]
+}

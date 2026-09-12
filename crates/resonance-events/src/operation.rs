@@ -108,6 +108,8 @@ pub(crate) enum Wait {
     },
     Tick(u32),
     ControlHandoff(u32),
+    /// Input is released; the caller resumes at the next dispatcher update.
+    ControlReleased,
     Camera {
         after: u32,
     },
@@ -119,28 +121,30 @@ pub(crate) enum Wait {
     ActorHeading(i32),
     ActorAnimation(i32),
     Complete(Operation),
-    Choice(Operation),
+    Choice {
+        result: Operation,
+        window: Box<Wait>,
+    },
+    Menu(Operation),
     Ready(Operation),
     Position(Operation, u32),
 }
 impl Wait {
     pub fn poll(&mut self, world: &crate::GameWorld) -> Result<bool, String> {
-        if let Self::Service {
-            condition,
-            ready_at,
-        } = self
-        {
-            if let Some(ready) = *ready_at {
-                return Ok(world.tick > ready);
-            }
-            if !condition.poll(world)? {
+        let operation = match self {
+            Self::Service {
+                condition,
+                ready_at,
+            } => {
+                if let Some(ready) = *ready_at {
+                    return Ok(world.tick > ready);
+                }
+                if condition.poll(world)? {
+                    *ready_at = Some(world.tick);
+                }
                 return Ok(false);
             }
-            *ready_at = Some(world.tick);
-            return Ok(false);
-        }
-        let operation = match self {
-            Self::Service { .. } => unreachable!(),
+            Self::ControlReleased => return Ok(true),
             Self::SkitMedia { id, position } => {
                 let scene = world
                     .skit
@@ -193,26 +197,21 @@ impl Wait {
                         .and_then(|rig| rig.motion.as_ref())
                         .is_none_or(|m| m.settled(*channel)));
             }
-            Self::Complete(op) | Self::Choice(op) | Self::Ready(op) | Self::Position(op, _) => op,
+            Self::Choice { result, .. } => result,
+            Self::Complete(op) | Self::Menu(op) | Self::Ready(op) | Self::Position(op, _) => op,
         };
         let progress = operation.progress();
         match progress.outcome {
             Some(Outcome::Cancelled) => Err(format!("operation {} was cancelled", operation.id())),
-            Some(Outcome::Completed(_)) => Ok(true),
+            Some(Outcome::Completed(_)) => match self {
+                Self::Choice { window, .. } => window.poll(world),
+                _ => Ok(true),
+            },
             None => Ok(match self {
-                Self::Complete(_) | Self::Choice(_) => false,
+                Self::Complete(_) | Self::Choice { .. } | Self::Menu(_) => false,
                 Self::Ready(_) => progress.ready,
                 Self::Position(_, target) => progress.ready && progress.position >= *target,
-                Self::Service { .. }
-                | Self::Tick(_)
-                | Self::ControlHandoff(_)
-                | Self::Camera { .. }
-                | Self::CameraPath { .. }
-                | Self::ActorMotion(_)
-                | Self::ActorAnimation(_)
-                | Self::ActorHeading(_)
-                | Self::Voice => unreachable!(),
-                Self::SkitMedia { .. } => unreachable!(),
+                _ => unreachable!("non-operation waits returned above"),
             }),
         }
     }

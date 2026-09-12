@@ -150,15 +150,38 @@ pub struct RefractionRecipe {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmoteTrack {
     pub anchor: String,
+    /// Frames are interleaved by the controller's initial random phase.
+    #[serde(default = "single_phase")]
+    pub phase_count: u8,
     pub intro: Vec<Vec<Sprite>>,
     pub cycle: Vec<Vec<Sprite>>,
 }
+fn single_phase() -> u8 {
+    1
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerticalAnchor {
+    #[default]
+    Center,
+    Bottom,
+    Top,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sprite {
     pub offset: [f32; 3],
     pub size: [f32; 2],
     pub uv: [f32; 4],
     pub rotation: f32,
+    #[serde(default)]
+    pub vertical_anchor: VerticalAnchor,
+    #[serde(default = "opaque")]
+    pub alpha: u8,
+}
+fn opaque() -> u8 {
+    255
 }
 impl FieldEffects {
     pub fn validate(&self) -> Result<()> {
@@ -196,7 +219,16 @@ impl FieldEffects {
         for track in self.emotes.values().chain([&self.paralysis]) {
             ensure!(
                 !track.anchor.is_empty()
+                    && (1..=16).contains(&track.phase_count)
                     && !track.cycle.is_empty()
+                    && track
+                        .intro
+                        .len()
+                        .is_multiple_of(usize::from(track.phase_count))
+                    && track
+                        .cycle
+                        .len()
+                        .is_multiple_of(usize::from(track.phase_count))
                     && track.intro.len() + track.cycle.len() <= 4096,
                 "invalid emote track"
             );
@@ -220,11 +252,48 @@ impl FieldEffects {
     }
 }
 impl EmoteTrack {
-    pub fn frame(&self, age: usize) -> &[Sprite] {
-        if age < self.intro.len() {
-            &self.intro[age]
+    pub fn frame_with_phase(&self, age: usize, phase: u8) -> &[Sprite] {
+        let phases = usize::from(self.phase_count);
+        let phase = usize::from(phase) % phases;
+        let intro = self.intro.len() / phases;
+        if age < intro {
+            &self.intro[age * phases + phase]
         } else {
-            &self.cycle[(age - self.intro.len()) % self.cycle.len()]
+            &self.cycle[((age - intro) % (self.cycle.len() / phases)) * phases + phase]
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emote_phase_variants_preserve_age_and_legacy_defaults() {
+        let legacy = serde_json::json!({
+            "anchor":"head", "intro":[[]], "cycle":[[{
+                "offset":[0.,0.,0.], "size":[3.,3.], "uv":[0.,0.,1.,1.], "rotation":0.
+            }]]
+        });
+        let mut track: EmoteTrack = serde_json::from_value(legacy).unwrap();
+        assert!(track.frame_with_phase(0, 0).is_empty());
+        assert_eq!(track.frame_with_phase(1, 31)[0].alpha, 255);
+        assert!(matches!(
+            track.frame_with_phase(1, 0)[0].vertical_anchor,
+            VerticalAnchor::Center
+        ));
+
+        let mut alternate = track.cycle[0].clone();
+        alternate[0].alpha = 30;
+        track.phase_count = 2;
+        track.intro = vec![Vec::new(); 2];
+        track
+            .cycle
+            .extend([alternate.clone(), alternate, track.cycle[0].clone()]);
+        assert!(track.frame_with_phase(0, 1).is_empty());
+        assert_eq!(track.frame_with_phase(1, 0)[0].alpha, 255);
+        assert_eq!(track.frame_with_phase(1, 31)[0].alpha, 30);
+        assert_eq!(track.frame_with_phase(2, 0)[0].alpha, 30);
+        assert_eq!(track.frame_with_phase(3, 0)[0].alpha, 255);
     }
 }

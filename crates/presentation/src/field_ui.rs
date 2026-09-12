@@ -167,11 +167,19 @@ impl MenuOverlay {
     pub fn render(
         &mut self,
         menu: Option<&resonance_game::menu::Menu>,
+        resolution: super::Resolution,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        self.artwork
-            .render(menu, &self.font, &self.dialogue, 0, commands, meshes)
+        self.artwork.render(
+            menu::Source::Title(menu),
+            &self.font,
+            &self.dialogue,
+            0,
+            resolution,
+            commands,
+            meshes,
+        )
     }
     pub fn despawn(self, world: &mut World) {
         for layer in self.artwork.layers {
@@ -456,14 +464,20 @@ impl Artwork {
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
     ) -> Result<()> {
-        self.render_prompt(session, presentation_tick, commands, meshes)?;
-        self.skits
-            .render(session.active_skit.as_ref(), &self.font, commands, meshes)?;
+        self.render_prompt(session, commands, meshes)?;
+        self.skits.render(
+            session.active_skit.as_ref(),
+            &self.font,
+            self.resolution,
+            commands,
+            meshes,
+        )?;
         self.menu.render(
-            session.menu.as_ref(),
+            menu::Source::Field(session),
             &self.font,
             &self.spec,
             presentation_tick,
+            self.resolution,
             commands,
             meshes,
         )?;
@@ -582,9 +596,8 @@ impl Artwork {
                 frame_coverage.with_solid(&batches[layer::BEVEL], &self.spec, opening.is_some())?;
             let [left, top, _, _] = rect;
             if let Some(choice) = world.choices.get(&slot)
-                && choice.operation.is_pending()
                 && player.fully_revealed()
-                && player.accepts_input()
+                && (player.accepts_input() || !choice.operation.is_pending())
             {
                 let y =
                     super::choice_cursor::drawing_y(top + f32::from(choice.selected_line) * 25.);
@@ -695,7 +708,7 @@ impl Artwork {
             {
                 // The continue marker’s pulse follows scene age, not window age.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
-                let phase = (world.tick % 90) as f32 * 4.0f32.to_radians();
+                let phase = (session.effect_clock.tick() % 90) as f32 * 4.0f32.to_radians();
                 batches[layer::FRAME].quad(
                     [rect[2] - 28., bottom, rect[2] - 4., bottom + 24.],
                     if preferences.is_some_and(|s| s.window == 2) {
@@ -703,7 +716,7 @@ impl Artwork {
                     } else {
                         [224., 120., 248., 144.]
                     },
-                    [1., 1., 1., phase.sin().abs()],
+                    [1., 1., 1., (phase.sin().abs() * 255.).trunc() / 255.],
                 );
             }
             for (index, mut batch) in batches.into_iter().enumerate() {
@@ -940,20 +953,9 @@ fn layout(
                     lines += 1.;
                 }
             } else {
-                // ASCII box sizing measures the following character, with
-                // newline/end treated as a space. This retained layout quirk
-                // affects box width but not individual glyph placement.
-                let measured = if glyph.character.is_ascii() {
-                    page.glyphs.get(index + 1).map_or(' ', |next| {
-                        if next.character <= ' ' {
-                            ' '
-                        } else {
-                            next.character
-                        }
-                    })
-                } else {
-                    glyph.character
-                };
+                // Box sizing retains control boundaries; glyph placement does not.
+                let measured =
+                    glyph.measured_character(page.glyphs.get(index + 1).map(|next| next.character));
                 let advance = font
                     .glyphs
                     .get(&measured)
@@ -981,7 +983,7 @@ fn layout(
     let actor = request
         .speaker_actor
         .and_then(|id| session.events.world.actors.get(&id).map(|a| (id, a)));
-    let pointer = actor
+    let mut pointer = actor
         .filter(|_| {
             request.flags & flags::POINTER != 0
                 || matches!(request.anchor, DialogueAnchor::Actor(_))
@@ -1018,6 +1020,11 @@ fn layout(
                             },
                 )
             });
+            if let Some(pointer) = &mut pointer {
+                // Attached pointers share the box anchor's X. The torso-height
+                // probe still selects whether the box belongs above or below.
+                pointer[0] = x;
+            }
             // Anchor an upper box at the head and a lower box below the feet;
             // position and pointer orientation must change together.
             (

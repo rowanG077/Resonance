@@ -86,6 +86,7 @@ fn advance(
 }
 fn render(
     mut commands: Commands,
+    display: Res<crate::display::Display>,
     menu: Option<Res<LoadMenu>>,
     art: Option<ResMut<MenuOverlay>>,
     images: Res<Assets<Image>>,
@@ -97,7 +98,12 @@ fn render(
     };
     art.prepare(&mut commands, &mut meshes);
     if art.ready(&images)
-        && let Err(error) = art.render(menu.as_ref().map(|m| &m.0), &mut commands, &mut meshes)
+        && let Err(error) = art.render(
+            menu.as_ref().map(|m| &m.0),
+            display.0,
+            &mut commands,
+            &mut meshes,
+        )
     {
         error!("Load menu rendering failed: {error:#}");
         exit.write(AppExit::error());

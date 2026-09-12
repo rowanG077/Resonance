@@ -48,17 +48,21 @@ pub(crate) struct MapArchive {
 
 impl MapArchive {
     pub fn open(source: &Path) -> Result<Self> {
-        let bytes = fs::read(source)?;
-        let mut cabinet = cab::Cabinet::new(Cursor::new(&bytes))?;
-        let name = source
-            .with_extension("bin")
-            .file_name()
-            .and_then(|n| n.to_str())
-            .context("map file name")?
-            .to_ascii_uppercase();
+        Self::decode(&fs::read(source)?)
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self> {
+        let mut cabinet = cab::Cabinet::new(Cursor::new(bytes))?;
+        // Some payloads retain DOS short names, independent of the outer archive.
+        let names: Vec<_> = cabinet
+            .folder_entries()
+            .flat_map(|folder| folder.file_entries())
+            .map(|entry| entry.name().to_owned())
+            .collect();
+        ensure!(names.len() == 1, "field archive needs one payload");
         let mut expanded = Vec::new();
         cabinet
-            .read_file(&name)?
+            .read_file(&names[0])?
             .take(64 * 1024 * 1024 + 1)
             .read_to_end(&mut expanded)?;
         ensure!(
@@ -69,16 +73,15 @@ impl MapArchive {
         Ok(Self {
             bytes: expanded,
             sections,
-            source_sha256: digest(&bytes),
+            source_sha256: digest(bytes),
         })
     }
     pub fn section(&self, index: usize) -> Result<&[u8]> {
-        let range = self
-            .sections
-            .get(index)
-            .and_then(Option::as_ref)
-            .context("missing map section")?;
-        Ok(&self.bytes[range.clone()])
+        self.optional_section(index).context("missing map section")
+    }
+    pub fn optional_section(&self, index: usize) -> Option<&[u8]> {
+        let range = self.sections.get(index)?.as_ref()?;
+        Some(&self.bytes[range.clone()])
     }
 }
 
@@ -181,12 +184,6 @@ pub fn inspect(source: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Cook the classroom's static environment, scenario, dialogue and collision.
-/// Character packages are resolved separately from the shared resource tables.
-pub fn cook_classroom(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
-    cook_field(extracted, 340, output, ktx)
-}
-
 pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> Result<()> {
     use crate::media::{Tool, Workspace, hash_file};
     use crate::scene::{PartSource, cook_part};
@@ -286,11 +283,7 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
                 draw_order: draw_order as u32,
                 depth_write: index != 2,
                 translation: [0.; 3],
-                autoplay: if map_id == 340 {
-                    None
-                } else {
-                    Some(map.section(index + 1)?)
-                },
+                autoplay: map.optional_section(index + 1),
                 animation_slots: &[],
                 clip_prefix: &name,
                 extra_clips: &[],
@@ -328,7 +321,11 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
         messages: messages_path.clone(),
         parts,
         ground: collision(map.section(4)?)?,
-        regions: collision(map.section(5)?)?,
+        regions: map
+            .optional_section(5)
+            .map(collision)
+            .transpose()?
+            .unwrap_or_default(),
         doors,
         actors: crate::character::cook_field(extracted, output, ktx, map_id, &map)?,
         contact_shadow: crate::field_shadow::cook(extracted, output, ktx)?,
@@ -659,6 +656,30 @@ fn collision(bytes: &[u8]) -> Result<Vec<resonance_content::field::CollisionGrou
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn archive_uses_its_payload_name_and_rejects_ambiguity() {
+        use std::io::Write;
+        for names in [&["ISA_I0~1.BIN"][..], &["A.BIN", "B.BIN"][..]] {
+            let mut builder = cab::CabinetBuilder::new();
+            let folder = builder.add_folder(cab::CompressionType::None);
+            for name in names {
+                folder.add_file(*name);
+            }
+            let mut writer = builder.build(Cursor::new(Vec::new())).unwrap();
+            while let Some(mut file) = writer.next_file().unwrap() {
+                for value in [1u32, 8, 42] {
+                    file.write_all(&value.to_be_bytes()).unwrap();
+                }
+            }
+            let archive = MapArchive::decode(&writer.finish().unwrap().into_inner());
+            if names.len() == 1 {
+                assert_eq!(archive.unwrap().section(0).unwrap(), 42u32.to_be_bytes());
+            } else {
+                assert!(archive.is_err());
+            }
+        }
+    }
+
     #[test]
     fn section_aliases_do_not_hide_following_payloads() {
         let mut map = Vec::new();

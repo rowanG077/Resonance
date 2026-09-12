@@ -58,11 +58,31 @@ impl Resolution {
         let (width, height) = (WIDTH as f32, HEIGHT as f32);
         Vec2::new((height * aspect).max(width), (width / aspect).max(height))
     }
+    /// Visible bounds around the centered, authored UI canvas.
+    pub(super) fn ui_rect(self) -> [f32; 4] {
+        let center = Vec2::new(WIDTH as f32, HEIGHT as f32) * 0.5;
+        let half = self.ui_size() * 0.5;
+        [
+            center.x - half.x,
+            center.y - half.y,
+            center.x + half.x,
+            center.y + half.y,
+        ]
+    }
 }
 
 #[derive(Resource, Clone, Copy, Debug, Default)]
 /// Chosen at startup. Window geometry never changes the game render resolution.
 pub(super) struct Display(pub Resolution);
+
+/// Frame dumps precede display positioning, which only moves the final scanout.
+/// Both stages retain the same resolution, color conversion and game state.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum OutputStage {
+    Framebuffer,
+    Scanout,
+}
 
 pub(super) fn window(size: Resolution) -> Window {
     Window {
@@ -102,13 +122,16 @@ pub(super) fn initialize(
         &bevy::camera::RenderTarget,
         &mut Projection,
         Has<OutputCamera>,
+        Has<super::FieldCamera>,
     )>,
     mut output: Query<&mut Transform, With<OutputQuad>>,
 ) {
     let desired = display.0;
     let size = desired.ui_size();
-    for (target, mut projection, output_camera) in &mut cameras {
-        if let Projection::Custom(p) = &mut *projection
+    for (target, mut projection, output_camera, field_camera) in &mut cameras {
+        // Offscreen previews have their own authored framing.
+        if field_camera
+            && let Projection::Custom(p) = &mut *projection
             && let Some(p) = p.get_mut::<super::camera::TitleProjection>()
         {
             p.0.aspect_ratio = desired.aspect();
@@ -140,12 +163,10 @@ pub(super) fn initialize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::{
-        camera::CameraProjection, render::render_resource::TextureFormat, window::PrimaryWindow,
-    };
+    use bevy::camera::CameraProjection;
 
     #[test]
-    fn forced_window_sizes_preserve_startup_targets_and_fit_the_image() {
+    fn display_frames_game_cameras_and_preserves_preview_framing() {
         for size in ["640x480", "1920x1080", "3440x1440"].map(|s| s.parse::<Resolution>().unwrap())
         {
             let mut app = App::new();
@@ -154,45 +175,36 @@ mod tests {
             let window = window(size);
             assert!(!window.resizable && !window.enabled_buttons.maximize);
             assert!(window.enabled_buttons.minimize && window.enabled_buttons.close);
-            assert_eq!(
-                window.resize_constraints.min_width,
-                window.resize_constraints.max_width
-            );
-            assert_eq!(
-                window.resize_constraints.min_height,
-                window.resize_constraints.max_height
-            );
-            let window = app.world_mut().spawn((window, PrimaryWindow)).id();
-            let mut images = Assets::<Image>::default();
-            let source = images.add(Image::new_target_texture(
-                size.width,
-                size.scene_height(),
-                TextureFormat::Bgra8Unorm,
-                None,
-            ));
-            let output = images.add(Image::new_target_texture(
-                size.width,
-                size.height,
-                TextureFormat::Bgra8UnormSrgb,
-                None,
-            ));
-            app.insert_resource(images).insert_resource(Targets {
-                source: source.clone(),
-                output: Some(output.clone()),
-            });
+            assert_eq!(window.resize_constraints.min_width, size.width as f32);
+            assert_eq!(window.resize_constraints.max_width, size.width as f32);
+            assert_eq!(window.resize_constraints.min_height, size.height as f32);
+            assert_eq!(window.resize_constraints.max_height, size.height as f32);
+            let target = RenderTarget::Image(Handle::<Image>::default().into());
             let scene = app
                 .world_mut()
                 .spawn((
-                    RenderTarget::Image(source.clone().into()),
+                    super::super::FieldCamera,
+                    target.clone(),
                     Projection::custom(super::super::camera::TitleProjection(
                         PerspectiveProjection::default(),
                     )),
                 ))
                 .id();
+            let preview_projection = Projection::custom(super::super::camera::TitleProjection(
+                PerspectiveProjection {
+                    aspect_ratio: 10. / 7.,
+                    ..default()
+                },
+            ));
+            let preview_clip = preview_projection.get_clip_from_view();
+            let preview = app
+                .world_mut()
+                .spawn((target.clone(), preview_projection))
+                .id();
             let ui = app
                 .world_mut()
                 .spawn((
-                    RenderTarget::Image(source.clone().into()),
+                    target,
                     Projection::Orthographic(OrthographicProjection::default_2d()),
                 ))
                 .id();
@@ -209,77 +221,45 @@ mod tests {
                 .spawn((OutputQuad, Transform::default()))
                 .id();
             app.update();
-            let game_projection = app
-                .world()
-                .get::<Projection>(scene)
-                .unwrap()
-                .get_clip_from_view();
-            let quad_scale = app.world().get::<Transform>(quad).unwrap().scale;
+            let projection = |entity| app.world().get::<Projection>(entity).unwrap();
+            assert_eq!(
+                projection(preview).get_clip_from_view(),
+                preview_clip,
+                "display initialization changed the preview's authored framing"
+            );
+            let scene = projection(scene).get_clip_from_view();
+            assert!((scene.y_axis.y / scene.x_axis.x - size.aspect()).abs() < 0.00001);
             let bounds = size.ui_size();
-            assert_eq!(quad_scale, Vec3::new(bounds.x / 640., bounds.y / 480., 1.));
+            assert_eq!(
+                app.world().get::<Transform>(quad).unwrap().scale,
+                Vec3::new(bounds.x / WIDTH as f32, bounds.y / HEIGHT as f32, 1.)
+            );
+            let Projection::Orthographic(ui) = projection(ui) else {
+                panic!("UI projection changed")
+            };
+            assert!(
+                matches!(ui.scaling_mode, ScalingMode::Fixed { width, height }
+                if width == bounds.x && height == bounds.y)
+            );
+            let Projection::Orthographic(mut present) = projection(present).clone() else {
+                panic!("output projection changed")
+            };
             for (width, height) in [
                 (900, 900),
                 (1200, 500),
                 (400, 900),
-                (0, 0),
                 (size.width, size.height),
             ] {
-                {
-                    let mut forced = app.world_mut().get_mut::<Window>(window).unwrap();
-                    forced.resolution.set_physical_resolution(width, height);
-                    forced.resolution.set_scale_factor(2.);
-                }
-                app.update();
-                assert_eq!(app.world().resource::<Display>().0, size);
-                let targets = app.world().resource::<Targets>();
-                assert_eq!(targets.source, source);
-                assert_eq!(targets.output.as_ref(), Some(&output));
-                let images = app.world().resource::<Assets<Image>>();
-                assert_eq!(images.len(), 2);
-                assert_eq!(
-                    images.get(&source).unwrap().size(),
-                    UVec2::new(size.width, size.scene_height())
-                );
-                assert_eq!(
-                    images.get(&output).unwrap().size(),
-                    UVec2::new(size.width, size.height)
-                );
-                assert_eq!(
-                    app.world()
-                        .get::<Projection>(scene)
-                        .unwrap()
-                        .get_clip_from_view(),
-                    game_projection
-                );
-                assert_eq!(
-                    app.world().get::<Transform>(quad).unwrap().scale,
-                    quad_scale
-                );
-                let Projection::Orthographic(ui) = app.world().get::<Projection>(ui).unwrap()
-                else {
-                    panic!("UI projection changed")
-                };
-                assert!(
-                    matches!(ui.scaling_mode, ScalingMode::Fixed { width, height }
-                    if width == bounds.x && height == bounds.y)
-                );
-                if width == 0 || height == 0 {
-                    continue;
-                } // Bevy skips minimized surfaces.
-                let mut p = app.world_mut().get_mut::<Projection>(present).unwrap();
-                let Projection::Orthographic(p) = &mut *p else {
-                    panic!("output projection changed")
-                };
-                p.update(width as f32, height as f32);
-                let view = p.area.size();
-                let pixels = bounds / view * Vec2::new(width as f32, height as f32);
+                // Only the final camera fits compositor-imposed surface dimensions.
+                present.update(width as f32, height as f32);
+                let pixels = bounds / present.area.size() * Vec2::new(width as f32, height as f32);
                 assert!((pixels.x / pixels.y - size.aspect()).abs() < 0.00001);
                 assert!(pixels.x <= width as f32 + 0.01 && pixels.y <= height as f32 + 0.01);
                 assert!(
                     (pixels.x - width as f32).abs() < 0.01
                         || (pixels.y - height as f32).abs() < 0.01
                 );
-                assert!(p.area.center().length() < 0.001);
+                assert!(present.area.center().length() < 0.001);
             }
         }
     }

@@ -86,14 +86,18 @@ impl Tech {
 }
 
 impl Menu {
+    pub fn tech_description(&self) -> Option<TechniqueShortcut> {
+        self.selected_technique()
+            .filter(|_| !self.tech_target_visible())
+    }
     pub(super) fn remember_tech_description(&mut self) {
         if self.tech.description_fade == 0 {
-            self.tech.description_previous = self.selected_technique();
+            self.tech.description_previous = self.tech_description();
         }
     }
     pub(super) fn fade_tech_description(&mut self) {
         let changed = self.tech.description_fade == 0
-            && self.tech.description_previous != self.selected_technique();
+            && self.tech.description_previous != self.tech_description();
         self.tech.description_opacity = fade_description(&mut self.tech.description_fade, changed);
     }
     fn close_tech_banner(&mut self, focus: Focus) {

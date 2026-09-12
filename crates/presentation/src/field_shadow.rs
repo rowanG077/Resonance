@@ -44,7 +44,44 @@ impl Artwork {
     }
 }
 #[derive(Component)]
-pub(super) struct Shadow(i32);
+pub(super) struct Shadow(i32, u64);
+
+pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
+    let shadows: BTreeMap<_, _> = world
+        .query::<(&Shadow, &Transform, &Visibility)>()
+        .iter(world)
+        .map(|(shadow, transform, visibility)| {
+            (
+                shadow.0,
+                serde_json::json!({
+                    "position": transform.translation.to_array(),
+                    "rotation": transform.rotation.to_array(),
+                    "visible": *visibility != Visibility::Hidden,
+                }),
+            )
+        })
+        .collect();
+    let Some(session) = world.get_resource::<crate::new_game::Session>() else {
+        return serde_json::Value::Null;
+    };
+    serde_json::Value::Array(
+        session
+            .field
+            .events
+            .world
+            .actors
+            .iter()
+            .map(|(&id, actor)| {
+                serde_json::json!({
+                    "actor": id,
+                    "casts_shadow": actor.casts_shadow,
+                    "ground": session.field.ground_surface(actor.position).map(|s| s.height),
+                    "quad": shadows.get(&id),
+                })
+            })
+            .collect(),
+    )
+}
 
 pub(super) fn sync(
     mut commands: Commands,
@@ -99,8 +136,8 @@ pub(super) fn sync(
                 Transform::default(),
                 Visibility::Hidden,
                 // Contact shadows darken translucent floor effects too.
-                DrawOrder(crate::draw_order::CONTACT_SHADOWS),
-                Shadow(id),
+                DrawOrder(crate::draw_order::CONTACT_SHADOWS, 0),
+                Shadow(id, actor.instance),
             ))
             .id();
         shadows.instances.insert(id, entity);
@@ -114,7 +151,7 @@ pub(super) fn pose(
     actors: Query<&ActorPart>,
     mut transforms: ParamSet<(
         TransformHelper,
-        Query<(&Shadow, &mut Transform, &mut Visibility)>,
+        Query<(&mut Shadow, &mut Transform, &mut Visibility)>,
     )>,
     mut applied: ResMut<Applied>,
 ) {
@@ -140,7 +177,7 @@ pub(super) fn pose(
             ))
         })
         .collect();
-    for (shadow, mut transform, mut visibility) in &mut transforms.p1() {
+    for (mut shadow, mut transform, mut visibility) in &mut transforms.p1() {
         let Some(actor) = state.get().events.world.actors.get(&shadow.0) else {
             continue;
         };
@@ -150,14 +187,22 @@ pub(super) fn pose(
         if actor.visible
             && !actor.appearance.model_hidden
             && actor.casts_shadow
-            && let (Some(surface), Some(anchor)) = (surface, anchor)
+            && let Some(anchor) = anchor
         {
+            // A missing floor keeps the actor's height and last floor tilt.
+            // A replacement actor starts with a horizontal shadow.
             transform.translation = Vec3::new(
                 anchor.x,
                 anchor.y,
-                surface.height + art.shadows.spec.height_offset,
+                surface.map_or(actor.position[2], |s| s.height) + art.shadows.spec.height_offset,
             );
-            transform.rotation = Quat::from_rotation_arc(Vec3::Z, Vec3::from_array(surface.normal));
+            if let Some(surface) = surface {
+                transform.rotation =
+                    Quat::from_rotation_arc(Vec3::Z, Vec3::from_array(surface.normal));
+            } else if shadow.1 != actor.instance {
+                transform.rotation = Quat::IDENTITY;
+            }
+            shadow.1 = actor.instance;
             *visibility = Visibility::Inherited;
             applied.ack(Request::Shadow(shadow.0));
         }

@@ -25,8 +25,8 @@ pub struct CheckpointReplay {
     /// quickloads reset this clock; source savestates retain it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_origin: Option<u64>,
-    /// Controlled menu fixtures change progress once the main menu owns input.
-    /// Field initialization and free-control services run at the saved story.
+    /// Controlled fixtures change live progress at free field control or Main.
+    /// Initialization runs at the saved story, matching a live source-state edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     story_origin: Option<StoryOrigin>,
     pub inputs: Vec<KeyboardInput>,
@@ -35,6 +35,10 @@ pub struct CheckpointReplay {
     /// Updates during which the source produced no presentation (loading).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub presentation_pauses: Vec<PresentationStall>,
+    /// Source effect-counter stalls during loading. Gameplay still updates;
+    /// only the oracle's effect phase omits these observed increments.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effect_pauses: Vec<PresentationStall>,
     /// Extra UI ticks for source VIs omitted from the native gameplay timeline.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub presentation_advances: BTreeMap<u32, u32>,
@@ -51,6 +55,10 @@ pub struct CheckpointReplay {
     /// change its start time; native asset preparation does not emulate those waits.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     preview_origins: BTreeMap<u32, PreviewOrigin>,
+    /// Source-observed resource waits. Ticks are relative replay updates;
+    /// installation converts them to this field runtime's clock once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    resource_waits: Vec<resonance_events::ResourceWaitObservation>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
@@ -80,6 +88,11 @@ pub struct PresentationStall {
     pub start: u32,
     pub end: u32,
 }
+impl PresentationStall {
+    fn contains(&self, update: u32) -> bool {
+        (self.start..=self.end).contains(&update)
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExpectedField {
@@ -95,9 +108,15 @@ struct ExpectedField {
 struct AmbientOrigin {
     update: u32,
     samples: BTreeMap<i32, f32>,
+    /// A settled source view may retain fractional orbit angles that saves omit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    camera: Option<CameraOrigin>,
     /// Running effect phase, independent of paused field animation and UI time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     effect_tick: Option<u32>,
+    /// Retained post-draw hint state omitted by ordinary saves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    action_prompt: Option<ActionPromptOrigin>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     random_state: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -118,6 +137,86 @@ struct AmbientOrigin {
     /// Source-observed transient notification phase; never part of a save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     skit: Option<SkitOrigin>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActionPromptOrigin {
+    id: u8,
+    opacity: u8,
+    remaining: u8,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CameraOrigin {
+    settings: resonance_events::camera::CameraSettings,
+    angles: [f32; 3],
+    distance: f32,
+    position: [f32; 3],
+    target: [f32; 3],
+}
+impl CameraOrigin {
+    fn apply(
+        &self,
+        rig: &mut resonance_events::camera::CameraRig,
+        actors: &BTreeMap<i32, resonance_events::Actor>,
+        player: i32,
+    ) -> Result<()> {
+        ensure!(
+            rig.settings(player).map_err(anyhow::Error::msg)? == self.settings,
+            "camera origin changes the saved follow settings"
+        );
+        ensure!(
+            self.angles.iter().all(|v| (0. ..360.).contains(v))
+                && (1. ..=100_000.).contains(&self.distance)
+                && self
+                    .position
+                    .iter()
+                    .chain(&self.target)
+                    .all(|v| v.is_finite() && v.abs() <= 100_000.),
+            "invalid observed camera pose"
+        );
+        rig.snap_follow_view(actors);
+        rig.angles = self.angles;
+        rig.distance = self.distance;
+        rig.position = self.position;
+        rig.target = self.target;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod camera_origin_tests {
+    use super::*;
+
+    #[test]
+    fn observed_fractional_orbit_does_not_change_saved_settings() {
+        use resonance_events::camera::CameraRig;
+        let actors = [(1, resonance_events::Actor::new(0, [-2855., 1513., 66.]))].into();
+        let mut rig = CameraRig::default();
+        let camera = rig.current_mut();
+        camera.actor = 1;
+        camera.follow = true;
+        camera.anchor_to_actor = true;
+        camera.angles = [330., 0., 38.];
+        camera.distance = 1669.;
+        let settings = rig.settings(1).unwrap();
+        let mut origin = CameraOrigin {
+            settings: settings.clone(),
+            angles: [330.875, 0., 38.875],
+            distance: 1669.0005,
+            position: [-1940., 378., 965.],
+            target: [-2855., 1513., 153.],
+        };
+        origin.apply(&mut rig, &actors, 1).unwrap();
+        assert_eq!((rig.angles, rig.distance), (origin.angles, origin.distance));
+        assert_eq!((rig.position, rig.target), (origin.position, origin.target));
+        assert_eq!(rig.settings(1).unwrap(), settings);
+        origin.settings.distance += 1.;
+        assert!(origin.apply(&mut rig, &actors, 1).is_err());
+        origin.settings = settings;
+        origin.position[0] = f32::NAN;
+        assert!(origin.apply(&mut rig, &actors, 1).is_err());
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -193,6 +292,9 @@ impl AmbientOrigin {
             field.player_has_control(),
             "ambient origin requires free player control"
         );
+        if let Some(prompt) = &self.action_prompt {
+            field.apply_action_prompt_origin(prompt.id, prompt.opacity, prompt.remaining)?;
+        }
         let effect_tick = self.effect_tick.unwrap_or(field.effect_clock.tick());
         let world = &mut field.events.world;
         let sparks = self
@@ -280,6 +382,17 @@ impl AmbientOrigin {
         for (&actor, origin) in &self.actors {
             field.events.apply_actor_origin(actor, origin)?;
         }
+        if let Some(camera) = &self.camera {
+            let world = &mut field.events.world;
+            camera.apply(
+                world
+                    .field_camera
+                    .as_mut()
+                    .context("missing field camera")?,
+                &world.actors,
+                world.controlled_actor,
+            )?;
+        }
         if let Some(flutters) = &self.flutters {
             field.events.apply_flutter_origin(flutters)?;
         }
@@ -362,6 +475,22 @@ impl Key {
     }
 }
 impl CheckpointReplay {
+    fn register_effect_clock(
+        &self,
+        update: u32,
+        clock: &mut resonance_game::clock::PresentationClock,
+    ) {
+        let extra = self.effect_advances.get(&update).copied().unwrap_or(0);
+        let paused = self.effect_pauses.iter().any(|p| p.contains(update));
+        // FieldSession::step still advances once. Cancel only that effect tick.
+        *clock = resonance_game::clock::PresentationClock::new(
+            clock
+                .tick()
+                .wrapping_add(extra)
+                .wrapping_sub(u32::from(paused)),
+        );
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
             self.story_origin
@@ -414,15 +543,25 @@ impl CheckpointReplay {
             "preview origin exceeds replay duration"
         );
         ensure!(
-            self.presentation_pauses
-                .iter()
-                .all(|pause| { pause.start <= pause.end && pause.end <= self.updates })
-                && self
-                    .presentation_pauses
-                    .windows(2)
-                    .all(|w| w[0].end < w[1].start),
-            "invalid presentation pause ranges"
+            self.resource_waits.iter().all(|o| {
+                o.request_tick > 0
+                    && o.request_tick < o.resume_tick
+                    && o.resume_tick <= self.updates
+            }) && self
+                .resource_waits
+                .windows(2)
+                .all(|w| w[0].request_tick <= w[1].request_tick),
+            "invalid replay resource wait schedule"
         );
+        for pauses in [&self.presentation_pauses, &self.effect_pauses] {
+            ensure!(
+                pauses
+                    .iter()
+                    .all(|p| p.start > 0 && p.start <= p.end && p.end <= self.updates)
+                    && pauses.windows(2).all(|w| w[0].end < w[1].start),
+                "invalid replay clock pause ranges"
+            );
+        }
         ensure!(
             self.presentation_advances
                 .iter()
@@ -448,8 +587,8 @@ impl CheckpointReplay {
             ensure!(
                 origin.update == *self.captures.first_key_value().unwrap().0
                     && origin.samples.len() <= 32
-                    && origin.eyes.len() <= 8
-                    && origin.actors.len() <= 8
+                    && origin.eyes.len() <= 32
+                    && origin.actors.len() <= 32
                     && origin.background_waits.len() <= 32
                     && origin
                         .flutters
@@ -457,6 +596,8 @@ impl CheckpointReplay {
                         .is_none_or(|leaves| leaves.len() <= 32)
                     && (origin.random_state.is_none() || origin.save_sparks.is_some())
                     && (!origin.samples.is_empty()
+                        || origin.camera.is_some()
+                        || origin.action_prompt.is_some()
                         || origin.gameplay_random.is_some()
                         || origin.poison_puffs.is_some()
                         || origin.skit.is_some()
@@ -476,6 +617,13 @@ impl CheckpointReplay {
                     && origin.samples.values().all(|v| v.is_finite()),
                 "ambient origin must register the first capture with bounded finite samples"
             );
+            ensure!(
+                origin
+                    .action_prompt
+                    .as_ref()
+                    .is_none_or(|p| p.opacity > 0 && (1..30).contains(&p.remaining)),
+                "action hint origin requires visible retained state"
+            );
         }
         Ok(())
     }
@@ -487,8 +635,18 @@ pub fn record_checkpoint(
     output: &Path,
     spec: &CheckpointReplay,
 ) -> Result<()> {
+    record_checkpoint_with_display(root, save, output, spec, crate::Resolution::default())
+}
+
+pub fn record_checkpoint_with_display(
+    root: &Path,
+    save: &Path,
+    output: &Path,
+    spec: &CheckpointReplay,
+    resolution: crate::Resolution,
+) -> Result<()> {
     spec.validate()?;
-    let mut app = probe::app(root, save, output)?;
+    let mut app = probe::app(root, save, output, resolution)?;
     let began = Instant::now();
     while app.plugins_state() == PluginsState::Adding {
         ensure!(
@@ -541,6 +699,34 @@ pub(crate) fn record_live(
     let mut initial = serde_json::to_value(checkpoint(app.world_mut())?)?;
     initial["presentation_counter"] =
         serde_json::json!(app.world().resource::<crate::Clock>().0.tick());
+    let resource_wait_origin_tick = app
+        .world()
+        .resource::<new_game::Session>()
+        .field
+        .events
+        .tick();
+    if !spec.resource_waits.is_empty() {
+        let observations = spec
+            .resource_waits
+            .iter()
+            .map(|o| {
+                Ok(resonance_events::ResourceWaitObservation {
+                    request_tick: resource_wait_origin_tick
+                        .checked_add(o.request_tick)
+                        .context("resource request clock overflow")?,
+                    resume_tick: resource_wait_origin_tick
+                        .checked_add(o.resume_tick)
+                        .context("resource resume clock overflow")?,
+                    ..*o
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        app.world_mut()
+            .resource_mut::<new_game::Session>()
+            .field
+            .events
+            .register_resource_wait_observations(observations)?;
+    }
     attach(app, mixer)?;
     let mut wave = hound::WavWriter::create(
         output.join("audio.partial.wav"),
@@ -572,16 +758,18 @@ pub(crate) fn record_live(
                     clock.0.tick().wrapping_add(ticks),
                 );
             }
-            if let Some(&ticks) = spec.effect_advances.get(&update) {
-                let field = &mut app.world_mut().resource_mut::<new_game::Session>().field;
-                field.effect_clock = resonance_game::clock::PresentationClock::new(
-                    field.effect_clock.tick().wrapping_add(ticks),
-                );
-            }
+            spec.register_effect_clock(
+                update,
+                &mut app
+                    .world_mut()
+                    .resource_mut::<new_game::Session>()
+                    .field
+                    .effect_clock,
+            );
             app.world_mut().resource_mut::<crate::PresentationPause>().0 = spec
                 .presentation_pauses
                 .iter()
-                .any(|pause| (pause.start..=pause.end).contains(&update));
+                .any(|pause| pause.contains(update));
             if let Some(input) = inputs.next_if(|input| input.update == update) {
                 // Feed the input plugin so one-shot keys survive its per-frame
                 // edge reset, just as they do when received from a window.
@@ -621,26 +809,33 @@ pub(crate) fn record_live(
             && origin.update == update
         {
             let mut session = app.world_mut().resource_mut::<new_game::Session>();
-            let menu = session
-                .field
-                .menu
-                .as_mut()
-                .context("story fixture requires an open menu")?;
+            let field = &mut session.field;
             ensure!(
-                menu.page == resonance_game::menu::Page::Main,
-                "story fixture must start at the main menu"
+                field.story_progress()? == origin.from,
+                "story origin differs from the live field"
             );
-            let progress = &mut menu
-                .checkpoint
-                .as_mut()
-                .context("missing menu checkpoint")?
-                .progress;
-            ensure!(
-                progress.script_globals[16] == origin.from,
-                "story origin differs from the saved field"
-            );
-            progress.script_globals[16] = origin.to;
-            session.field.events.set_global(16, origin.to)?;
+            if let Some(menu) = &mut field.menu {
+                ensure!(
+                    menu.page == resonance_game::menu::Page::Main,
+                    "story fixture must start at the main menu"
+                );
+                let progress = &mut menu
+                    .checkpoint
+                    .as_mut()
+                    .context("missing menu checkpoint")?
+                    .progress;
+                ensure!(
+                    progress.script_globals[16] == origin.from,
+                    "story origin differs from the saved field"
+                );
+                progress.script_globals[16] = origin.to;
+            } else {
+                ensure!(
+                    field.player_has_control(),
+                    "story fixture requires free field control"
+                );
+            }
+            field.events.set_global(16, origin.to)?;
         }
         if let Some(origin) = &spec.ambient_origin
             && origin.update == update
@@ -816,6 +1011,18 @@ pub(crate) fn record_live(
                     })
                 })
                 .collect();
+            let shop = field.shop.as_ref().map(|s| {
+                let party = field.events.world.party.as_ref().expect("shop party");
+                serde_json::json!({
+                    "id":s.id,"choice":s.choice,"focus":s.focus,"row":s.row,"first":s.first,
+                    "category":s.category,"character":s.character,"rows":s.rows,
+                    "prices":s.rows.iter().map(|r|s.unit_price(r.id,party)).collect::<Vec<_>>(),
+                    "total":s.total(party),"fade":s.fade,"scroll":s.scroll,
+                    "description_previous":s.description_previous,"description_opacity":s.description_opacity,
+                    "statistics":s.statistics,"items":party.items,"gald":party.gald,
+                    "spent_gald":party.spent_gald,"visited":party.travel.visited_shops
+                })
+            });
             captures.push(
                 serde_json::json!({"name":name, "update":update, "audio_frame":frames,
                 "audio_settings":app.world().get_resource::<crate::field_audio::Control>().map(|c|c.settings()),
@@ -866,7 +1073,9 @@ pub(crate) fn record_live(
                 "controlled_actor":field.events.world.controlled_actor,
                 "party":field.events.world.party.as_ref().map(|p| serde_json::json!({
                     "formation":p.formation,"field_leader":p.field_leader,"leader_locked":p.leader_locked})),
+                "persistent_party":field.events.world.party,
                 "menu":menu,
+                "shop":shop,
                 "checkpoint":field.checkpoint().ok()}),
             );
         }
@@ -876,6 +1085,13 @@ pub(crate) fn record_live(
             && written.load(Ordering::Acquire) as usize == spec.captures.len(),
         "checkpoint replay did not capture every requested frame"
     );
+    if !spec.resource_waits.is_empty() {
+        app.world()
+            .resource::<new_game::Session>()
+            .field
+            .events
+            .finish_resource_wait_observations()?;
+    }
     wave.finalize()?;
     fs::rename(output.join("audio.partial.wav"), output.join("audio.wav"))?;
     let late = app
@@ -884,10 +1100,13 @@ pub(crate) fn record_live(
         .late_reads
         .load(Ordering::Relaxed);
     ensure!(late == 0, "checkpoint replay read an unprepared asset");
+    let resolution = app.world().resource::<crate::display::Display>().0;
     fs::write(
         output.join("recording.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
-            "complete":true,"audio_device":false,"keyboard_input":true,"width":640,"height":480,
+            "complete":true,"audio_device":false,"keyboard_input":true,"width":resolution.width,"height":resolution.height,
+            "output_stage":app.world().resource::<crate::display::OutputStage>(),
+            "resource_waits":spec.resource_waits,"resource_wait_origin_tick":resource_wait_origin_tick,
             "updates":spec.updates,"audio_frames":frames,"late_reads":late,"initial":initial,"captures":captures,
             "identity":app.world().resource::<new_game::Session>().identity,
             "audio_commands":app.world().resource::<crate::field_audio::Trace>().0,
@@ -932,4 +1151,52 @@ fn wait_ready(app: &mut App, initial: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use resonance_game::clock::{PlayTime, PresentationClock};
+
+    #[test]
+    fn classroom_loading_registers_source_effect_ticks_without_skipping_updates() {
+        let mut spec: CheckpointReplay = serde_json::from_str(include_str!(
+            "../../../../tools/oracle/cases/classroom-return-keyboard.json"
+        ))
+        .unwrap();
+        spec.validate().unwrap();
+        let origin = spec.ambient_origin.as_ref().unwrap();
+        let mut clock = PresentationClock::new(origin.effect_tick.unwrap());
+        let mut play_time = PlayTime::default();
+        // Consecutive source observations bracket both loading stalls.
+        let observations = [
+            (2411, 34186),
+            (2412, 34186),
+            (2427, 34186),
+            (2428, 34187),
+            (3091, 34850),
+            (3092, 34850),
+            (3121, 34850),
+            (3122, 34851),
+            (3337, 35066),
+        ];
+        for update in origin.update + 1..=spec.updates {
+            spec.register_effect_clock(update, &mut clock);
+            clock.advance();
+            play_time.advance();
+            if let Some((_, expected)) = observations.iter().find(|(tick, _)| *tick == update) {
+                assert_eq!(clock.tick(), *expected, "update {update}");
+            }
+        }
+        assert_eq!(play_time.total(), 1100);
+        for (start, end) in [(0, 1), (4, 3), (3337, 3338)] {
+            spec.effect_pauses = vec![PresentationStall { start, end }];
+            assert!(spec.validate().is_err());
+        }
+        spec.effect_pauses = vec![
+            PresentationStall { start: 1, end: 2 },
+            PresentationStall { start: 2, end: 3 },
+        ];
+        assert!(spec.validate().is_err());
+    }
 }

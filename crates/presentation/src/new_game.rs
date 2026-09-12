@@ -4,8 +4,7 @@ use super::audio_output::Player as AudioPlayer;
 use super::{Events, PendingAudio, PendingInput, RunOptions, audio, movie};
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
-use fields::PLAYABLE_FIELDS;
-pub(super) use fields::{FieldPackage, manifest_path};
+pub(super) use fields::{FieldPackage, PLAYABLE_FIELDS, manifest_path};
 use resonance_content::{MovieAsset, field::FieldAssets, prepared::Files};
 use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldSession};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
@@ -49,7 +48,10 @@ impl Session {
         let mut hash = Sha256::new();
         hash.update(b"Resonance/GQSEAF/rev0/field-checkpoint/1");
         hash.update(std::fs::read(root.join("game/session-data.json"))?);
-        for map in std::iter::once(5).chain(PLAYABLE_FIELDS) {
+        // Schema 1's compatibility inputs stay fixed when new fields become
+        // playable. Each added package is independently checked on preparation;
+        // changing shared data or these original scripts still changes the identity.
+        for map in [5, 330, 332, 340] {
             let path = manifest_path(map)?.replace(".preload.json", ".json");
             let field: FieldAssets = serde_json::from_slice(&std::fs::read(root.join(path))?)?;
             field.validate()?;
@@ -110,6 +112,7 @@ impl Session {
                 .entry(&initial.assets, data.clone(), PLAYABLE_FIELDS.into())?
         } else {
             FieldEntry {
+                kind: Default::default(),
                 menu_data: None,
                 play_time: Default::default(),
                 persistent: resonance_events::PersistentState {
@@ -256,10 +259,9 @@ pub(super) fn initialize_checkpoint(
     checkpoint: &FieldCheckpoint,
 ) -> Result<()> {
     // Field setup may yield; never confirm dialogue to make a checkpoint loadable.
+    let mut settled = false;
     for _ in 0..120 {
-        if field.checkpoint().is_ok() {
-            break;
-        }
+        let had_control = field.checkpoint().is_ok();
         ensure!(
             !field.events.world.blocked_by_movie()
                 && field
@@ -277,14 +279,21 @@ pub(super) fn initialize_checkpoint(
                 && field.events.world.field_transition.is_none(),
             "saved progression restarts a foreground event"
         );
+        // Input release follows actor updates. A complete ordinary pose update
+        // may also queue a touch handler; let it retire before accepting the load.
         field.step(Default::default())?;
+        if had_control && field.checkpoint().is_ok() {
+            settled = true;
+            break;
+        }
     }
-    // Input release happens after actor updates. Evaluate the normal player
-    // pose once, then discard its blend from the temporary setup pose.
-    field.step(Default::default())?;
     field
         .checkpoint()
         .context("saved field did not return player control")?;
+    ensure!(
+        settled,
+        "saved field did not keep control through a complete update"
+    );
     let world = &mut field.events.world;
     let player = world
         .actors

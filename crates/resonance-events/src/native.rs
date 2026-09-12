@@ -11,6 +11,7 @@ use symphonia_script_vm::{Memory, NativeResult};
 mod bindings;
 mod camera_path;
 mod field;
+mod menu;
 mod party;
 mod skit;
 mod wait;
@@ -33,6 +34,8 @@ pub(crate) struct NativeHost<'a> {
     pub events: &'a mut Vec<EventCommand>,
     pub next_handle: &'a mut i32,
     pub wait: &'a mut Option<Wait>,
+    pub resource_waits: Option<&'a std::collections::VecDeque<crate::ResourceWaitObservation>>,
+    pub resource_wait: &'a mut Option<crate::ResourceWaitObservation>,
 }
 fn require(ok: bool, what: &str) -> Result<(), String> {
     if ok { Ok(()) } else { Err(what.into()) }
@@ -202,7 +205,11 @@ impl NativeHost<'_> {
                     ),
                     opening_actor: (a[2] == -1
                         && a[3] != crate::CONTROLLED_ACTOR
-                        && self.world.actors.contains_key(&a[3]))
+                        && self
+                            .world
+                            .actors
+                            .get(&a[3])
+                            .is_some_and(|actor| actor.heading != actor.target_heading))
                     .then_some(a[3]),
                     flags,
                     dimensions,
@@ -219,9 +226,10 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::GetActorProperty | NativeCall::SetActorProperty => {
-                // Property writes return the previous value.
+                // Ordinary property writes return the previous value.
                 require(
-                    matches!(a[1], 1..=4 | 7..=13 | 16 | 17 | 46),
+                    matches!(a[1], 1..=4 | 7..=13 | 15..=17 | 46 | 66 | 112)
+                        && (a[1] != 112 || op == NativeCall::GetActorProperty),
                     "actor property shim is not implemented",
                 )?;
                 let id = if a[0] == crate::CONTROLLED_ACTOR {
@@ -229,6 +237,44 @@ impl NativeHost<'_> {
                 } else {
                     a[0]
                 };
+                if a[1] == 112 {
+                    let luck = if (1..=9).contains(&id) {
+                        let party = self
+                            .world
+                            .party
+                            .as_ref()
+                            .ok_or("party is not initialized")?;
+                        let data = self
+                            .resources
+                            .menu_data
+                            .as_ref()
+                            .ok_or("menu data is not cooked")?;
+                        i32::from(party.members[id as usize - 1].stats(data).luck)
+                    } else {
+                        0
+                    };
+                    return Ok(NativeResult::Continue(Some(luck)));
+                }
+                if a[1] == 66 {
+                    let luck = if op == NativeCall::SetActorProperty
+                        && (1..=9).contains(&id)
+                        && self.world.actors.contains_key(&id)
+                    {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        let member = &mut party.members[id as usize - 1];
+                        member.luck =
+                            (crate::world::random(&mut self.world.random_state) % 100) as u8;
+                        // This command rerolls luck; its value argument is unused.
+                        i32::from(member.luck) * 10
+                    } else {
+                        0
+                    };
+                    return Ok(NativeResult::Continue(Some(luck)));
+                }
                 let Some(actor) = self.world.actors.get_mut(&id) else {
                     return Ok(NativeResult::Continue(Some(0)));
                 };
@@ -242,6 +288,13 @@ impl NativeHost<'_> {
                     11 => i32::from(!actor.casts_shadow),
                     12 => i32::from(actor.appearance.model_hidden),
                     13 => i32::from(!actor.cull_outside_view),
+                    15 => {
+                        actor
+                            .autonomy
+                            .as_ref()
+                            .ok_or("actor wandering state is missing")?
+                            .radius as i32
+                    }
                     16 => i32::from(actor.appearance.expression),
                     17 => actor.properties.get(&17).copied().unwrap_or(2),
                     46 => i32::from(!actor.depth_write),
@@ -269,6 +322,7 @@ impl NativeHost<'_> {
                         11 => actor.casts_shadow = a[2] & 1 == 0,
                         12 => actor.appearance.model_hidden = a[2] & 1 != 0,
                         13 => actor.cull_outside_view = a[2] & 1 == 0,
+                        15 => actor.autonomy.as_mut().unwrap().radius = a[2] as f32,
                         16 => actor.appearance.expression = a[2] as u8,
                         17 => {
                             actor.properties.insert(17, i32::from(a[2] as i16));
@@ -430,7 +484,13 @@ impl NativeHost<'_> {
                     cancel_allowed: a[4] & 0x100 == 0,
                     timeout_ticks: (a[3] > 0).then_some(a[3] as u16),
                 };
-                *self.wait = Some(Wait::Choice(choice.operation.clone()));
+                *self.wait = Some(Wait::Choice {
+                    result: choice.operation.clone(),
+                    window: Box::new(Wait::Service {
+                        condition: Box::new(Wait::Complete(dialogue.operation.clone())),
+                        ready_at: None,
+                    }),
+                });
                 if let Some(old) = self.world.choices.insert(slot, choice) {
                     old.operation.cancel();
                 }
@@ -445,14 +505,14 @@ impl NativeHost<'_> {
                     .world
                     .fade
                     .as_ref()
-                    .map_or(255., |f| f.alpha(self.world.tick));
-                self.world.fade = Some(Fade {
-                    start_tick: self.world.tick,
-                    duration: (a[1] as u32).max(1),
+                    .map_or(255., |f| f.before_update(self.world.tick));
+                self.world.fade = Some(Fade::new(
+                    self.world.tick,
+                    a[1] as u32,
                     from,
-                    to: if a[0] & 1 == 0 { 0. } else { 255. },
-                    white: a[0] >= 2,
-                });
+                    if a[0] & 1 == 0 { 0. } else { 256. },
+                    a[0] >= 2,
+                ));
             }
             NativeCall::YieldCommand => return self.yield_command(a[0], a[1]),
             // This command only consumes its argument; the VM has already done that.

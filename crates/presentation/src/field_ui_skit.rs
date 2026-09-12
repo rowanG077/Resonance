@@ -94,6 +94,7 @@ impl Artwork {
         &mut self,
         playback: Option<&resonance_game::field::SkitPlayback>,
         font: &BitmapFont,
+        resolution: crate::Resolution,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
@@ -115,14 +116,15 @@ impl Artwork {
             "too many skit portraits to render"
         );
         let tick = playback.events.tick();
+        let rect @ [left, _, right, _] = resolution.ui_rect();
         let mut background = Batch::default();
-        background.quad([0., 0., 640., 480.], [0.5; 4], [0., 0., 0., 0.5]);
+        background.quad(rect, [0.5; 4], [0., 0., 0., 0.5]);
         self.layers[0].update_mesh(background, [font.width, font.height], meshes)?;
         self.layers[0].show(true, commands);
         let mut text = Batch::default();
         if let Some(start) = scene.panel_started {
             let opacity = ((tick.saturating_sub(start) + 1) * 4).min(144) as f32 / 255.;
-            text.quad([0., 384., 640., 468.], [0.5; 4], [0., 0., 0., opacity]);
+            text.quad([left, 384., right, 468.], [0.5; 4], [0., 0., 0., opacity]);
         }
         centered(
             &mut text,

@@ -4,6 +4,8 @@ use anyhow::{Context, Result, ensure};
 use resonance_content::menu::{MenuArt, MenuSprites, MenuTexture, WindowArt};
 use std::{fs, path::Path};
 mod data;
+mod shops;
+pub use shops::{ShopInventoryCheck, ShopInventoryValidation, ShopItemCheck, validate_shops};
 
 /// Refresh the shared player menus and their field preparation manifests.
 pub fn cook_all(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
@@ -138,7 +140,35 @@ pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path, ktx: &Pat
             ("system", 0x8035d44c),
             ("save", 0x8035cc70),
             ("go_in", 0x8035af14),
+            ("talk", 0x8035af1c),
+            ("shop", 0x8035af24),
+            ("examine", 0x8035af2c),
             ("go_out", 0x8035af8c),
+            ("shop_buy", 0x8035d4c0),
+            ("shop_sell", 0x8035d4c4),
+            ("shop_equip", 0x8035d4cc),
+            ("shop_exit", 0x8035d4d4),
+            ("shop_status", 0x801aad34),
+            ("shop_empty", 0x801aad44),
+            ("shop_confirm", 0x801aad60),
+            ("shop_yes", 0x8035d4dc),
+            ("shop_no", 0x8035d4e0),
+            ("shop_total", 0x8035d4e4),
+            ("shop_gald", 0x8035d4ec),
+            ("shop_select", 0x801aad6c),
+            ("shop_add", 0x801aad78),
+            ("shop_reduce", 0x801aad84),
+            ("shop_ok", 0x8035d4f4),
+            ("shop_info", 0x801aad90),
+            ("shop_slash", 0x8035d4f8),
+            ("shop_thrust", 0x8035d4fc),
+            ("shop_defense", 0x8035d500),
+            ("shop_accuracy", 0x8035d504),
+            ("shop_evasion", 0x8035d508),
+            ("shop_intelligence", 0x8035d50c),
+            ("shop_luck", 0x8035d510),
+            ("shop_attack", 0x8035d514),
+            ("shop_cannot_equip", 0x801aada0),
             ("load", 0x8035cc68),
             ("customize", 0x8019a9a0),
             ("empty", 0x8035cc58),

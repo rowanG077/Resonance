@@ -12,6 +12,12 @@ pub mod slot {
     pub const EVENT_WALK: u16 = 120;
     pub const EVENT_RUN: u16 = 124;
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingTiming {
+    BeforeDraw,
+    AfterDraw,
+}
+
 #[derive(Debug, Clone)]
 pub struct Animation {
     pub resource: u32,
@@ -25,6 +31,8 @@ pub struct Animation {
     pub start_tick: u32,
     /// Explicit native binding evaluates once before the ordinary actor update.
     pub binding_updates: u32,
+    /// VM bindings can be observed by attachments before their first model draw.
+    pub binding_timing: BindingTiming,
     /// Last seek/rate update; changing speed does not restart a cross-fade.
     pub phase_tick: u32,
     pub repeat: bool,
@@ -44,6 +52,7 @@ impl Animation {
             loop_start: 0.,
             blend_ticks: 0,
             binding_updates: 0,
+            binding_timing: BindingTiming::BeforeDraw,
             repeat: true,
             paused_at: None,
             paused_ticks: 0,

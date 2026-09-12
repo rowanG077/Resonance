@@ -195,7 +195,7 @@ fn capture(
               mut recording: ResMut<Recording>,
               mut exit: MessageWriter<AppExit>| {
             let result = (|| -> Result<()> {
-                event.image.clone().try_into_dynamic()?.save(&path)?;
+                crate::screenshot::write(&event.image, &path, None)?;
                 fs::write(path.with_extension("json"), serde_json::to_vec(&state)?)?;
                 Ok(())
             })();

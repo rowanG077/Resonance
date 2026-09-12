@@ -117,11 +117,12 @@ fn fixture() -> Fixture {
                     "numbers":[0,0,1,1],"leader":[0,0,1,1],
                     "number_colors":vec![[[255;4];2];18],"bar_colors":vec![[[255;4];4];3],"names":vec!["Name";9]},
                 "labels":(["tech","unison","strategy","status","synopsis","items",
-                    "ex_skill","equip","cooking","system","save","go_in","go_out","load","customize",
+                    "ex_skill","equip","cooking","system","save","go_in","talk","shop","examine","go_out","load","customize",
                     "empty","time","encounter","combo","next","gald","play_time","encounters","max_combo",
                     "yes","no","confirm_save_a","confirm_save_b","confirm_load_a","confirm_load_b",
                     "confirm_overwrite_a","confirm_overwrite_b"]
-                    .into_iter().map(|key|(key,key)).collect::<BTreeMap<_,_>>())}),
+                    .into_iter().chain(resonance_content::menu::SHOP_LABELS)
+                    .map(|key|(key,key)).collect::<BTreeMap<_,_>>())}),
         ),
         (
             "ui/dialogue.json",

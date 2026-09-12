@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Iselia school revisit: enter the classroom, walk to the desks, and return outside; timestamped video checks across both field changes.",
-  "registration": "Start with the same semantic school checkpoint and 2237-update warm-up as the door case. Register only scenery samples 0/2/12 at 52/252/52. Native update 2237 + N uses Dolphin VI N selected from lossless RGB video timestamps; first video frame is VI 0. The 16-update presentation pause at native updates 2378..2393 records Dolphin's black field-loading gap: simulation continues, but no frame is presented. The registered loading image pairs native update 2410 with Dolphin VI 220, the first matching black handoff frame; subsequent visible frames continue at their semantic VI. VI 849 is explicitly captured on both sides because the source has no presentation at VI 850. No animation, notification or audio state is loaded from the quicksave. Audio is recorded to files only, with no accepted audio gate.",
+  "registration": "Start with the same semantic school checkpoint and 2237-update warm-up as the door case. Register only scenery samples 0/2/12 at 52/252/52. Native update 2237 + N uses Dolphin VI N selected from lossless RGB video timestamps; first video frame is VI 0. The 16-update presentation pause at native updates 2378..2393 records Dolphin's black field-loading gap: simulation continues, but no frame is presented. The registered loading image pairs native update 2410 with Dolphin VI 220, the first matching black handoff frame; subsequent visible frames continue at their semantic VI. VI 849 is explicitly captured on both sides because the source has no presentation at VI 850. No animation, notification or audio state is loaded from the quicksave. Audio is recorded to files only, with no accepted audio gate. Effect phase is independently registered to source counter 34012 at native update 2237. Memory observations hold this counter at 34186 for source VI175..190 and at 34850 for VI855..884, while the UI counter continues advancing. Oracle-only effect pauses at native 2412..2427 and 3092..3121 reproduce those missing effect increments without pausing gameplay, inputs or event execution. The existing UI pause is unchanged. The black corridor-loading sample keeps its separate semantic VI 220 mapping and makes no absolute effect-counter claim.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/classroom-door-quicksave.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "classroom-return-keyboard.json",
-    "sha256": "a11f2ef2f2bd45bf1d2c3e91e7dfcba940f73bfdf6718c9d2f2f44ad6dcae03e"
+    "sha256": "5f0336edbbdf169cf0831a7a512d4a34a9f86650f9cb52cbd4352313c39f91df"
   },
   "dolphin": {
     "state": {

@@ -9,6 +9,7 @@ resonance-audio-device.workspace = true
 bevy.workspace = true
 resonance-content.workspace = true
 resonance-game.workspace = true
+symphonia-script.workspace = true
 resonance-persistence.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true

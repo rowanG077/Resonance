@@ -344,7 +344,7 @@ impl Drawing<'_> {
         self.plane = 2;
         self.quad(
             FONT,
-            [0., 0., 640., 448.],
+            self.screen,
             [0.5; 4],
             [0., 0., 0., f32::from(popup.opacity >> 1) / 255.],
         );

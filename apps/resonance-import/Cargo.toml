@@ -10,3 +10,4 @@ path = "src/main.rs"
 resonance-import.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+serde_json.workspace = true

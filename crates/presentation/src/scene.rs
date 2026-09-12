@@ -298,7 +298,7 @@ pub(super) fn prepare_field(
                 .remove::<MeshMaterial3d<StandardMaterial>>()
                 .insert((
                     MeshMaterial3d(binding.surface.clone()),
-                    DrawOrder(binding.draw_order),
+                    DrawOrder(binding.draw_order, 0),
                 ));
         }
     }

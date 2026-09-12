@@ -1,0 +1,392 @@
+{
+  "version": 1,
+  "presentation_origin": 37531,
+  "updates": 1464,
+  "inputs": [
+    {
+      "update": 85,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 87,
+      "keys": []
+    },
+    {
+      "update": 165,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 167,
+      "keys": []
+    },
+    {
+      "update": 245,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 247,
+      "keys": []
+    },
+    {
+      "update": 285,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 287,
+      "keys": []
+    },
+    {
+      "update": 325,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 327,
+      "keys": []
+    },
+    {
+      "update": 365,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 367,
+      "keys": []
+    },
+    {
+      "update": 405,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 407,
+      "keys": []
+    },
+    {
+      "update": 445,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 447,
+      "keys": []
+    },
+    {
+      "update": 485,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 487,
+      "keys": []
+    },
+    {
+      "update": 525,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 527,
+      "keys": []
+    },
+    {
+      "update": 565,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 567,
+      "keys": []
+    },
+    {
+      "update": 605,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 607,
+      "keys": []
+    },
+    {
+      "update": 645,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 647,
+      "keys": []
+    },
+    {
+      "update": 685,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 687,
+      "keys": []
+    },
+    {
+      "update": 805,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 807,
+      "keys": []
+    },
+    {
+      "update": 865,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 867,
+      "keys": []
+    },
+    {
+      "update": 945,
+      "keys": [
+        "cancel"
+      ]
+    },
+    {
+      "update": 947,
+      "keys": []
+    },
+    {
+      "update": 1045,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1047,
+      "keys": []
+    },
+    {
+      "update": 1115,
+      "keys": [
+        "down"
+      ]
+    },
+    {
+      "update": 1145,
+      "keys": []
+    },
+    {
+      "update": 1165,
+      "keys": [
+        "right"
+      ]
+    },
+    {
+      "update": 1185,
+      "keys": []
+    },
+    {
+      "update": 1205,
+      "keys": [
+        "interact"
+      ]
+    },
+    {
+      "update": 1207,
+      "keys": []
+    }
+  ],
+  "captures": {
+    "64": "vi-0",
+    "66": "vi-2",
+    "204": "vi-140",
+    "224": "vi-160",
+    "245": "vi-181",
+    "264": "vi-200",
+    "285": "vi-221",
+    "303": "vi-239",
+    "325": "vi-261",
+    "344": "vi-280",
+    "365": "vi-301",
+    "405": "vi-341",
+    "424": "vi-360",
+    "445": "vi-381",
+    "464": "vi-400",
+    "485": "vi-421",
+    "504": "vi-440",
+    "525": "vi-461",
+    "544": "vi-480",
+    "565": "vi-501",
+    "605": "vi-541",
+    "645": "vi-581",
+    "685": "vi-621",
+    "714": "vi-650",
+    "764": "vi-700",
+    "805": "vi-741",
+    "865": "vi-801",
+    "964": "vi-900",
+    "1014": "vi-950",
+    "1104": "vi-1040",
+    "1145": "vi-1081",
+    "1185": "vi-1121",
+    "1463": "vi-1399"
+  },
+  "ambient_origin": {
+    "update": 64,
+    "flutters": [],
+    "background_waits": [],
+    "save_sparks": [],
+    "skit": {
+      "id": 600,
+      "control_ticks": 7357,
+      "remaining": 1642,
+      "opacity": 255,
+      "text_opacity": 255
+    },
+    "samples": {
+      "999996": 72,
+      "999998": 72
+    },
+    "effect_tick": 37022,
+    "random_state": 173218893,
+    "gameplay_random": "uninitialized",
+    "actors": {
+      "1": {
+        "autonomy": {
+          "behavior": "player",
+          "speed": 0,
+          "home": [
+            0,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 52,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          -111,
+          123,
+          -48.10704803466797
+        ],
+        "heading": 270,
+        "target_heading": 270,
+        "animation_slot": 12,
+        "animation_sample": 38,
+        "animation_repeat": true
+      },
+      "500": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -302,
+            122,
+            -25
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 16,
+          "initialized": true,
+          "floor_available": false,
+          "conversing": false
+        },
+        "position": [
+          -302,
+          122,
+          -25
+        ],
+        "heading": 90,
+        "target_heading": 90,
+        "animation_slot": 12,
+        "animation_sample": 72,
+        "animation_repeat": true
+      },
+      "501": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            -209,
+            122,
+            -25
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 30,
+          "initialized": true,
+          "floor_available": false,
+          "conversing": false
+        },
+        "position": [
+          -209,
+          122,
+          -25
+        ],
+        "heading": 90,
+        "target_heading": 90,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      },
+      "90020": {
+        "autonomy": {
+          "behavior": "stationary",
+          "speed": 0,
+          "home": [
+            1,
+            0,
+            0
+          ],
+          "radius": 600,
+          "activity": "idle",
+          "remaining": 128,
+          "initialized": true,
+          "floor_available": true,
+          "conversing": false
+        },
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "heading": 0,
+        "target_heading": 0,
+        "animation_slot": null,
+        "animation_sample": 0,
+        "animation_repeat": false
+      }
+    },
+    "eyes": {
+      "1": {
+        "tick": 21,
+        "frame": 0
+      },
+      "500": {
+        "tick": 32,
+        "frame": 0
+      }
+    }
+  }
+}

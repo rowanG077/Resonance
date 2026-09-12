@@ -122,7 +122,9 @@ pub(crate) fn resolve(
                         tokens.push(TextToken::Text {
                             text: names
                                 .get(&id)
-                                .ok_or("message character name is missing")?
+                                .ok_or_else(|| {
+                                    format!("message character name {id} is not cooked")
+                                })?
                                 .clone(),
                         });
                     }

@@ -288,7 +288,7 @@ impl Drawing<'_> {
         self.opacity = 255;
         self.quad(
             FONT,
-            [0., 0., 640., 448.],
+            self.screen,
             [0.5; 4],
             [0., 0., 0., f32::from(opacity / 2) / 255.],
         );

@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Genis house ordinary entry and return at story2500.",
+  "registration": "The doorstep state was reached by ordinary source movement and completing the one-time Genis reminder; event flags are31/204/374 and cooking275 is clear. Both saves start free control at exactly the observed pose and camera. Native update64 is sourceVI0, input edges are sourcepoll/2+1 plus64. At the first capture, the source-verified settled live camera origin restores fractional angles[330.875,0,38.875] and distance1669.00048828125 while desired saved angles[330,0,38] remain unchanged; the truncated orbit easing retains this fraction indefinitely. Source loading duration is not simulated; only settled arrivals are sampled. Indoor/outdoor field animation restarts are deliberately not adjusted after entry, so the initial run can reveal any remaining visual registration or runtime gap without relaxing image/pose gates. Complete timeline normalization now uses native_update = 64 + source_vi - collapsed loading VIs. Inclusive source loading intervals: 113..128, 285..304. This same mapping applies to all input edges, captures, expected states and replay duration; source target VIs, key order and all strict gates are unchanged. The source UI advances through loading, so presentation_advances restores those skipped UI ticks once at each first retained update; field effects receive no extra ticks. Original video confirms black presentation or absent output during these blocking loads. Actor clearing, field initialization, placement and RNG draws at completion are preserved as semantic setup work, not falsely described as immutable memory. No idle, dialogue or visible animation ticks are removed. Full source interval evidence and old/new pins are in timeline-provenance.json.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/iselia-expansion/genis-native-source-party-v2.json",
+    "sha256": "b705b251756eb5ef7ae8d68823612ff8cd7e4957c569a3ef40aed69c813c59ea"
+  },
+  "native_replay": {
+    "path": "genis-roundtrip-keyboard.json",
+    "sha256": "2db5a41b18dfb16d15fa54eabe6135fd151dbe5072c79d8121d246da9b521b6c"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/iselia-expansion/genis-ready-source-v1/user/StateSaves/GQSEAF.s01",
+      "sha256": "22aa28707c7b37cf8ac877c6ae67cc6bbac39ff4cf8367d8453710ef446e8825"
+    },
+    "prefix_sha256": "c26ccebcabf57c5f1285b95bb59dc01d2f39042b30eb82d51e44b7fb62eb56e9",
+    "start_poll": 78397,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 330,
+    "story": 2500,
+    "position": [
+      -2855.4521484375,
+      1513.175048828125,
+      66.404296875
+    ],
+    "heading": 218
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 1400,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 40,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 480,
+        "duration": 20,
+        "buttons": [],
+        "stick": [
+          128,
+          96
+        ]
+      },
+      {
+        "poll": 560,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "genis-roundtrip-0",
+      "native": "vi-0",
+      "dolphin_vi": 0,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-roundtrip-200",
+      "native": "vi-200",
+      "dolphin_vi": 200,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-roundtrip-230",
+      "native": "vi-230",
+      "dolphin_vi": 230,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-roundtrip-279",
+      "native": "vi-279",
+      "dolphin_vi": 279,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-roundtrip-360",
+      "native": "vi-360",
+      "dolphin_vi": 360,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-roundtrip-450",
+      "native": "vi-450",
+      "dolphin_vi": 450,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-roundtrip-579",
+      "native": "vi-579",
+      "dolphin_vi": 579,
+      "cooking_state": true
+    }
+  ],
+  "audio": []
+}

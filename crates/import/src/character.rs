@@ -7,7 +7,15 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::field::ActorAssets;
-use std::{fs, ops::Range, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    ops::Range,
+    path::Path,
+};
+
+const PARTY_MODEL_FILES: u32 = 0x801face4;
+const PARTY_ANIMATION_NAMES: u32 = 0x8017e4c0;
 
 fn word(data: &[u8], at: usize) -> Result<usize> {
     Ok(crate::read::u32(data, at)? as usize)
@@ -115,6 +123,20 @@ pub(crate) fn texture_palette(primary: &[u8], secondary: &[u8]) -> Result<Vec<u8
     Ok(data)
 }
 
+/// Unlike the party archives, the shared event bank mixes models and clips.
+/// Bind its clips to the model used by the event, never to a transient actor ID.
+fn special_clip_model(resource: u32) -> Result<u32> {
+    Ok(match resource {
+        0x10004 | 0x1000b | 0x1000c | 0x10012 | 0x10013 | 0x10016 => 1,
+        0x10107 => 2,
+        0x10206 | 0x10207 => 3,
+        0x10802 | 0x10804 => 9,
+        0x10a20 | 0x10a21 => 0x2000d,
+        0x10a30 | 0x10a31 => 0x2000e,
+        _ => anyhow::bail!("event animation {resource:#x} needs a model binding"),
+    })
+}
+
 pub(crate) fn cook_field(
     extracted: &Path,
     output: &Path,
@@ -123,18 +145,72 @@ pub(crate) fn cook_field(
     map: &crate::field::MapArchive,
 ) -> Result<Vec<ActorAssets>> {
     let files = extracted.join("files");
-    let npc = fs::read(files.join("npc_all.bin"))?;
-    let special = fs::read(files.join("d.d"))?;
-    let colette_clips = fs::read(files.join("col_all.bin"))?;
-    let lloyd_clips = fs::read(files.join("llo_all.bin"))?;
-    let genis_clips = fs::read(files.join("gen_all.bin"))?;
+    let executable = fs::read(extracted.join("sys/main.dol"))?;
     let declarations = crate::field_resources::declarations(map.section(6)?)?;
+    let groups: BTreeSet<_> = (1..=5)
+        .chain(
+            declarations
+                .resources
+                .iter()
+                .map(|id| id >> 16)
+                .filter(|g| *g > 0),
+        )
+        .collect();
+    let archives: BTreeMap<_, _> = groups
+        .into_iter()
+        .map(|group| -> Result<_> {
+            let path = crate::field_resources::source_path(&executable, &files, group << 16)?;
+            Ok((group, fs::read(files.join(path))?))
+        })
+        .collect::<Result<_>>()?;
+    let clip = |resource: u32| -> Result<SourceClip<'_>> {
+        Ok(SourceClip {
+            slot: 12,
+            resource: Some(resource),
+            bytes: archive_entry(&archives[&(resource >> 16)], (resource & 0xffff) as usize)?,
+        })
+    };
+    let mut declared_clips = BTreeMap::<u32, Vec<u32>>::new();
+    let mut declared_packages = Vec::new();
+    for &resource in &declarations.resources {
+        let model = match resource >> 16 {
+            1 => {
+                if word(clip(resource)?.bytes, 0)? == 31 {
+                    declared_packages.push(resource);
+                    continue;
+                }
+                special_clip_model(resource)?
+            }
+            // The nine party animation archives follow the shared and NPC banks.
+            group @ 3..=11 => group - 2,
+            _ => continue,
+        };
+        declared_clips.entry(model).or_default().push(resource);
+    }
     let mut model_resources = declarations.resources.clone();
     let mut assets = Vec::new();
     let package = |id, name: &str, data: &[u8]| cook(id, name, data, data, &[], output, ktx);
-    for (id, name) in [(1, "lloyd"), (2, "collet"), (3, "genius"), (4, "refill")] {
-        let model = fs::read(files.join(format!("{name}000.bin")))?;
-        let animation = fs::read(files.join(format!("{name}.bin")))?;
+    let party: BTreeSet<_> = (1..=4)
+        .chain(declared_clips.keys().copied().filter(|id| *id <= 9))
+        .collect();
+    for id in party {
+        let model_pointer = crate::read::u32(
+            // Five costume pointers per party member; use the default costume.
+            crate::dol::slice(&executable, PARTY_MODEL_FILES + (id - 1) * 5 * 4, 4)?,
+            0,
+        )?;
+        let model_path = crate::dol::text(&executable, model_pointer)?;
+        let name = model_path
+            .strip_suffix("000.bin")
+            .context("unexpected default party model path")?;
+        let model = fs::read(files.join(&model_path))?;
+        let animation_path = crate::dol::text(&executable, PARTY_ANIMATION_NAMES + (id - 1) * 12)?;
+        let animation_path = if files.join(&animation_path).is_file() {
+            animation_path
+        } else {
+            animation_path.to_ascii_lowercase()
+        };
+        let animation = fs::read(files.join(animation_path))?;
         let service = fs::read(files.join(format!("{name}_ex.bin")))?;
         let service_ranges = sections(&service)?;
         let doors = [20, 24]
@@ -155,7 +231,7 @@ pub(crate) fn cook_field(
             Ok(SourceClip {
                 slot: 12,
                 resource: Some(0x10000 + i as u32),
-                bytes: archive_entry(&special, i)?,
+                bytes: archive_entry(&archives[&1], i)?,
             })
         })
         .collect::<Result<_>>()?;
@@ -164,28 +240,23 @@ pub(crate) fn cook_field(
             resource: Some(resonance_content::field::DOOR_MOTION_RESOURCE_BASE + id),
             bytes,
         }));
-        let (archive, family, indices): (&[u8], u32, &[usize]) = match id {
-            1 => (&lloyd_clips, 3, &[48, 103, 117, 118]),
-            2 => (&colette_clips, 4, &[47, 48, 117, 118]),
-            3 => (&genis_clips, 5, &[80, 117, 118]),
-            _ => (&[], 0, &[]),
+        let indices: &[u32] = match id {
+            1 => &[48, 103, 117, 118],
+            2 => &[47, 48, 117, 118],
+            3 => &[80, 117, 118],
+            _ => &[],
         };
         for &index in indices {
-            extra.push(SourceClip {
-                slot: 12,
-                resource: Some((family << 16) + index as u32),
-                bytes: archive_entry(archive, index)?,
-            });
+            extra.push(clip(((id + 2) << 16) + index)?);
         }
         if id == 2 {
-            // The research branch deliberately plays llo_all entry 48 on
-            // Colette. Animation archive families do not constrain which
-            // compatible skeleton may consume a clip; bind it to her model.
-            extra.push(SourceClip {
-                slot: 12,
-                resource: Some(0x30030),
-                bytes: archive_entry(&lloyd_clips, 48)?,
-            });
+            // Colette's research interaction uses Lloyd's compatible clip 48.
+            extra.push(clip(0x30030)?);
+        }
+        for &resource in declared_clips.get(&id).into_iter().flatten() {
+            if !extra.iter().any(|clip| clip.resource == Some(resource)) {
+                extra.push(clip(resource)?);
+            }
         }
         assets.push(cook(id, name, &model, &animation, &extra, output, ktx)?);
     }
@@ -195,14 +266,24 @@ pub(crate) fn cook_field(
         .filter(|id| **id >> 16 == 2)
         .map(|id| (*id & 0xffff) as usize)
     {
-        let data = archive_entry(&npc, index)?;
-        assets.push(package(
-            0x20000 + index as u32,
+        let id = 0x20000 + index as u32;
+        let data = archive_entry(&archives[&2], index)?;
+        let extra = declared_clips
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .map(|id| clip(*id))
+            .collect::<Result<Vec<_>>>()?;
+        assets.push(cook(
+            id,
             &format!("npc-{index}"),
             data,
+            data,
+            &extra,
+            output,
+            ktx,
         )?);
     }
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
     for &id in declarations.resources.range(..=u32::from(u16::MAX)) {
         let path = crate::field_resources::source_path(&executable, &files, id)?;
         let data = fs::read(files.join(&path))?;
@@ -224,13 +305,15 @@ pub(crate) fn cook_field(
         );
         assets.push(package(id, &format!("resource-{id}"), &data)?);
     }
-    for index in (2660..=2661).filter(|_| map_id == 340) {
-        let data = archive_entry(&special, index)?;
-        assets.push(package(
-            0x10000 + index as u32,
-            &format!("classroom-prop-{index}"),
-            data,
-        )?);
+    for resource in declared_packages {
+        let index = (resource & 0xffff) as usize;
+        let data = archive_entry(&archives[&1], index)?;
+        let name = if (2660..=2661).contains(&index) {
+            format!("classroom-prop-{index}")
+        } else {
+            format!("resource-{resource}")
+        };
+        assets.push(package(resource, &name, data)?);
     }
     if map_id != 340 {
         for (id, data) in field_models(map.section(7)?)? {

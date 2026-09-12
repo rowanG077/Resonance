@@ -12,7 +12,7 @@ use std::{
 };
 
 pub fn run_menu_probe(root: &Path, checkpoint: &Path, output: &Path) -> Result<()> {
-    let mut app = probe::app(root, checkpoint, output)?;
+    let mut app = probe::app(root, checkpoint, output, crate::Resolution::default())?;
     let completed = Arc::new(AtomicBool::new(false));
     app.insert_resource(Probe {
         output: output.into(),

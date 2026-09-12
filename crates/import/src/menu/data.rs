@@ -13,7 +13,7 @@ mod status;
 mod strategy;
 mod synopsis;
 mod text;
-mod world_map;
+pub(super) mod world_map;
 
 pub(super) fn cook(executable: &[u8], output: &Path) -> Result<()> {
     let half = |row: &[u8], at| u16::from_be_bytes(row[at..at + 2].try_into().unwrap());

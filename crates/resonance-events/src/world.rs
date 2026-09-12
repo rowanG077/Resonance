@@ -2,6 +2,10 @@ use crate::animation::{Animation, slot};
 use std::collections::BTreeMap;
 #[derive(Debug, Clone)]
 pub struct Actor {
+    /// Replacing an actor invalidates its retained presentation instance.
+    pub instance: u64,
+    /// Constructor pose, before subsequent script commands reposition the actor.
+    pub creation: Option<ActorCreation>,
     pub resource: u32,
     pub position: [f32; 3],
     pub visible: bool,
@@ -17,6 +21,8 @@ pub struct Actor {
     pub turn_speed: f32,
     pub appearance: Appearance,
     pub cull_outside_view: bool,
+    /// Last actor update's view test; animation and secondary motion share it.
+    pub animation_culled: bool,
     pub grounded: bool,
     pub collidable: bool,
     pub casts_shadow: bool,
@@ -26,9 +32,17 @@ pub struct Actor {
     pub scripted_animation: bool,
     pub idle_animation: u16,
 }
+#[derive(Debug, Clone, Copy)]
+pub struct ActorCreation {
+    pub tick: u32,
+    pub position: [f32; 3],
+    pub heading: f32,
+}
 impl Actor {
     pub fn new(resource: u32, position: [f32; 3]) -> Self {
         Self {
+            instance: 0,
+            creation: None,
             resource,
             position,
             visible: true,
@@ -41,6 +55,7 @@ impl Actor {
             turn_speed: 5.,
             appearance: Appearance::default(),
             cull_outside_view: true,
+            animation_culled: false,
             grounded: true,
             collidable: true,
             casts_shadow: true,
@@ -196,8 +211,10 @@ pub struct GameWorld {
     pub tick: u32,
     pub skit: Option<crate::skit::Scene>,
     pub skit_request: Option<crate::skit::Request>,
+    pub menu_request: Option<crate::menu::Request>,
     pub actors: BTreeMap<i32, Actor>,
     pub(crate) actor_order: Vec<i32>,
+    pub(crate) next_actor_instance: u64,
     pub camera: Option<CameraTrack>,
     pub particles: Vec<Particle>,
     pub fade: Option<Fade>,
@@ -280,6 +297,8 @@ pub struct EventRecord {
 pub struct Emote {
     pub actor: i32,
     pub kind: u16,
+    /// Low five bits of the shared visual random draw at creation.
+    pub phase: u8,
     pub offset: [f32; 3],
     pub start_tick: u32,
     pub duration: Option<u32>,
@@ -319,6 +338,8 @@ pub struct Trigger {
     /// Confirmed trigger records contain an interaction indicator followed by
     /// destination/preload hints.
     pub transition: Option<[u32; 3]>,
+    /// Touch-trigger action and destination/preload hints, independent of activation.
+    pub touch_metadata: [u32; 3],
 }
 #[derive(Debug, Clone)]
 pub enum TriggerShape {
@@ -326,7 +347,18 @@ pub enum TriggerShape {
     Quad([[f32; 3]; 4]),
 }
 impl GameWorld {
-    pub fn insert_actor(&mut self, id: i32, actor: Actor) {
+    /// Controlled actor first, followed by other actors in creation order.
+    pub fn actor_order(&self) -> &[i32] {
+        &self.actor_order
+    }
+    pub fn insert_actor(&mut self, id: i32, mut actor: Actor) {
+        self.next_actor_instance += 1;
+        actor.instance = self.next_actor_instance;
+        actor.creation = Some(ActorCreation {
+            tick: self.tick,
+            position: actor.position,
+            heading: actor.appearance.fixed_heading.unwrap_or(actor.heading),
+        });
         if !self.actor_order.contains(&id) {
             self.actor_order.push(id);
         }
@@ -378,10 +410,40 @@ pub struct Fade {
     pub white: bool,
 }
 impl Fade {
+    pub(crate) fn new(start_tick: u32, duration: u32, from: f32, target: f32, white: bool) -> Self {
+        // Fade-out wakes the overlay at opacity one while retaining the rate
+        // calculated from its previous opacity toward 256 (display clips at 255).
+        let initial = if target > from && from as i32 == 0 {
+            1.
+        } else {
+            from
+        };
+        Self {
+            start_tick,
+            duration: if duration == 0 { 10 } else { duration },
+            from: initial,
+            to: target + (initial - from),
+            white,
+        }
+    }
+    /// Commands see the preceding presentation, or an earlier command this update.
+    pub(crate) fn before_update(&self, tick: u32) -> f32 {
+        if tick <= self.start_tick {
+            self.from
+        } else {
+            self.alpha(tick - 1)
+        }
+    }
     pub fn alpha(&self, tick: u32) -> f32 {
+        if self.duration == 0 {
+            return self.to.clamp(0., 255.);
+        }
+        // The controller advances before drawing, including its creation update.
+        let elapsed = tick
+            .checked_sub(self.start_tick)
+            .map_or(0, |n| n.saturating_add(1));
         (self.from
-            + (self.to - self.from) * (tick - self.start_tick).min(self.duration) as f32
-                / self.duration as f32)
+            + (self.to - self.from) * elapsed.min(self.duration) as f32 / self.duration as f32)
             .clamp(0., 255.)
     }
 }

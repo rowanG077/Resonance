@@ -83,6 +83,7 @@ fn sync(
     mut materials: ResMut<Assets<Material>>,
     views: Query<Entity, With<super::FieldCamera>>,
     resident: Option<Res<super::loading::Resident>>,
+    display: Res<super::display::Display>,
     mut backdrop: Local<Option<Backdrop>>,
 ) {
     let Some((_, output)) = outputs.iter().next() else {
@@ -102,7 +103,7 @@ fn sync(
         let entity = commands
             .spawn((
                 Quad,
-                Mesh2d(meshes.add(Rectangle::new(640., 480.))),
+                Mesh2d(meshes.add(Rectangle::from_size(display.0.ui_size()))),
                 MeshMaterial2d(material.clone()),
                 Transform::from_xyz(0., 0., 90.),
             ))
@@ -126,7 +127,7 @@ fn sync(
         .or_else(|| state.live.as_ref().map(|s| &s.field));
     let identity = field.map(|f| (f.map_id, f.events.tick()));
     // Closing has one fully transparent pose before field simulation resumes.
-    let held = field.is_some_and(|f| f.menu.is_some())
+    let held = field.is_some_and(|f| f.menu.is_some() || f.shop.is_some())
         || backdrop.held && identity.is_some() && identity == backdrop.field;
     // Submit the transparent quad during preparation, then only draw it for menus.
     let warming = field.is_some() && resident.is_some_and(|r| !r.active.load(Ordering::Acquire));

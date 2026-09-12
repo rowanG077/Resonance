@@ -65,7 +65,7 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
     applied.expected = expected(&state.get().events.world, |resource| {
         art.models.get(&resource).map_or(1, Vec::len)
     });
-    if state.get().menu.is_some() {
+    if state.get().menu.is_some() || state.get().shop.is_some() {
         applied.expected.insert(Request::Menu);
     }
     if state.get().active_skit.is_some() {
@@ -86,7 +86,7 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
             for part in art.secondary_parts(actor.resource) {
                 applied.expected.insert(Request::SecondaryMotion(id, part));
             }
-            if actor.casts_shadow && state.get().ground_surface(actor.position).is_some() {
+            if actor.casts_shadow {
                 applied.expected.insert(Request::Shadow(id));
             }
         }
@@ -228,6 +228,7 @@ mod tests {
             resonance_events::Emote {
                 actor: 1,
                 kind: 4,
+                phase: 0,
                 offset: [0.; 3],
                 start_tick: 0,
                 duration: None,

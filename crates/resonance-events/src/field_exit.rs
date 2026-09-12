@@ -20,6 +20,7 @@ pub(crate) struct DoorExit {
 }
 #[derive(Debug, Clone)]
 enum Phase {
+    Prepare,
     Approach,
     Walking(u32),
     Facing,
@@ -66,25 +67,12 @@ impl GameWorld {
                 return Err("door scenery actor is missing".into());
             }
             let actor = self.actors.get_mut(&self.controlled_actor).unwrap();
-            if let Some(clip) = resources
-                .model(actor.resource)
-                .and_then(|m| m.clips.get(&slot::EVENT_IDLE))
-            {
-                let mut animation = Animation::new(
-                    actor.resource,
-                    slot::EVENT_IDLE,
-                    clip.duration_ticks,
-                    self.tick,
-                );
-                animation.blend_ticks = 8;
-                actor.animation = Some(animation);
-            }
             actor.scripted_animation = true;
             self.preload_field = Some(request.map);
             self.field_exit = Some(DoorExit {
                 request,
                 door,
-                phase: Phase::Approach,
+                phase: Phase::Prepare,
             });
         } else {
             self.field_transition = Some(request);
@@ -102,6 +90,24 @@ impl GameWorld {
             .get_mut(&self.controlled_actor)
             .ok_or("door approach actor is missing")?;
         match exit.phase {
+            Phase::Prepare => {
+                // A request preserves the current pose until the door service
+                // runs. Preparation does not start the approach in the same poll.
+                if let Some(clip) = resources
+                    .model(actor.resource)
+                    .and_then(|m| m.clips.get(&slot::EVENT_IDLE))
+                {
+                    let mut animation = Animation::new(
+                        actor.resource,
+                        slot::EVENT_IDLE,
+                        clip.duration_ticks,
+                        self.tick,
+                    );
+                    animation.blend_ticks = 8;
+                    actor.animation = Some(animation);
+                }
+                exit.phase = Phase::Approach;
+            }
             Phase::Approach => {
                 actor.scripted_animation = false;
                 actor.motion = Some(ActorMotion {
@@ -140,18 +146,13 @@ impl GameWorld {
                     .as_ref()
                     .ok_or("door-opening animation disappeared")?;
                 if animation.elapsed(self.tick, 0) >= OPENING_CONTACT_TICK {
-                    // Alpha starts at one and advances immediately on contact.
-                    // The endpoint is clipped by Fade, preserving the authored rate.
-                    let alpha = self.fade.as_ref().map_or(0., |f| f.alpha(self.tick));
-                    self.fade = Some(Fade {
-                        start_tick: self.tick - 1,
-                        duration: FADE_TICKS,
-                        from: alpha.max(1.),
-                        to: 256. + if alpha == 0. { 1. } else { 0. },
-                        white: false,
-                    });
+                    let alpha = self
+                        .fade
+                        .as_ref()
+                        .map_or(0., |f| f.before_update(self.tick));
+                    self.fade = Some(Fade::new(self.tick, FADE_TICKS, alpha, 256., false));
                     self.audio_commands.push(AudioCommand::Sound {
-                        id: 30,
+                        id: resonance_content::field_audio::ServiceCue::Door as i16,
                         volume: 127,
                         pan: 64,
                         slot: None,

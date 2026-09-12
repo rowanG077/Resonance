@@ -38,6 +38,8 @@ mod field_animation;
 mod field_audio;
 pub use field_audio::record_field_audio;
 mod field_audit;
+mod field_events;
+pub use field_events::check_field_events;
 mod field_effects;
 mod field_pose;
 mod field_probe;
@@ -52,8 +54,8 @@ mod movie;
 mod new_game;
 mod saves;
 pub use saves::{
-    CheckpointReplay, SaveOptions, record_checkpoint, run_menu_probe, run_quicksave_probe,
-    run_title_load_probe,
+    CheckpointReplay, SaveOptions, prepare_checkpoint_fixture, record_checkpoint,
+    record_checkpoint_with_display, run_menu_probe, run_quicksave_probe, run_title_load_probe,
 };
 mod new_game_capture;
 mod secondary_motion;
@@ -65,6 +67,7 @@ mod performance;
 pub use performance::{PerformanceOptions, run_frame_benchmark, run_movie_probe, run_window_probe};
 mod playthrough;
 mod scene;
+mod screenshot;
 pub use field_probe::{ClassroomProbe, ParticleProbe};
 pub use field_view::{
     FieldMovement, FieldSequence, capture_classroom, capture_classroom_particles,
@@ -317,6 +320,11 @@ fn build_app_with_display(
     let render_ready = RenderReady::default();
     app.insert_resource(render_ready.clone())
         .insert_resource(display::Display(resolution))
+        .insert_resource(if capture_only {
+            display::OutputStage::Framebuffer
+        } else {
+            display::OutputStage::Scanout
+        })
         .insert_resource(bevy::winit::WinitSettings::continuous())
         .insert_resource(CaptureStart(Instant::now()))
         .insert_resource(PendingAudio(music))
@@ -944,18 +952,9 @@ fn capture(
             "particles": world.particles.len(),
         });
     }
-    let state = serde_json::to_vec_pretty(&metadata).expect("capture state serializes");
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
         move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-            let result = (|| -> Result<()> {
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                event.image.clone().try_into_dynamic()?.save(&path)?;
-                fs::write(path.with_extension("json"), &state)?;
-                Ok(())
-            })();
-            match result {
+            match screenshot::write(&event.image, &path, Some(&metadata)) {
                 Ok(()) => {
                     exit.write(AppExit::Success);
                 }

@@ -13,15 +13,25 @@ pub mod navigation;
 mod prompt;
 pub mod replay;
 mod save_point;
+pub mod shop;
 mod skit;
 pub use checkpoint::FieldCheckpoint;
 pub use prompt::{ActionPrompt, FieldAction};
 pub use skit::Playback as SkitPlayback;
 pub use skit::SkitPrompt;
 
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum EntryKind {
+    #[default]
+    Arrival,
+    /// Rebuild the saved scene before resolving its final camera view.
+    Restore,
+}
+
 /// Typed field-entry data; a transition carries state, never old scene handles.
 #[derive(Default)]
 pub struct FieldEntry {
+    pub kind: EntryKind,
     pub play_time: crate::clock::PlayTime,
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
@@ -41,6 +51,8 @@ pub struct FieldInput {
     pub direction: [f32; 2],
     pub run: bool,
     pub interact: bool,
+    /// Held accept accelerates dialogue without repeating interaction/advance edges.
+    pub accelerate_dialogue: bool,
     /// Open the currently announced skit (GameCube Z / keyboard Z).
     pub skit: bool,
     pub cancel: bool,
@@ -64,6 +76,8 @@ pub struct FieldSession {
     pub map_id: u32,
     pub events: EventRuntime,
     pub menu: Option<crate::menu::Menu>,
+    pub shop: Option<shop::Shop>,
+    menu_operation: Option<resonance_events::Operation>,
     menu_resources: Option<Arc<crate::menu::Resources>>,
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
     choices: crate::choice::ChoicePlayer,
@@ -99,6 +113,8 @@ impl FieldSession {
     /// do not take control and are intentionally excluded from this query.
     pub fn player_has_control(&self) -> bool {
         self.menu.is_none()
+            && self.shop.is_none()
+            && self.events.world.menu_request.is_none()
             && self.active_skit.is_none()
             && self.events.world.skit_request.is_none()
             && self.events.player_has_control()
@@ -135,7 +151,9 @@ impl FieldSession {
             .apply_origin(id, control_ticks, remaining, opacity, text_opacity)
     }
     pub fn action_prompt(&self) -> Option<ActionPrompt> {
-        self.action_hints.prompt.filter(|_| self.menu.is_none())
+        self.action_hints
+            .prompt
+            .filter(|_| self.menu.is_none() && self.shop.is_none())
     }
 
     pub fn story_progress(&self) -> Result<i32> {
@@ -190,6 +208,8 @@ impl FieldSession {
             map_id: assets.map_id,
             events: start_with_entry(script, messages, assets, entry)?,
             menu: None,
+            shop: None,
+            menu_operation: None,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
             lighting: BTreeMap::new(),
@@ -224,6 +244,33 @@ impl FieldSession {
             )?;
             return Ok(());
         }
+        if let Some(request) = self.events.world.menu_request.take() {
+            ensure!(
+                self.menu.is_none() && self.shop.is_none(),
+                "nested field menu"
+            );
+            match request.target {
+                resonance_events::menu::Target::Shop(id) => {
+                    self.shop = Some(shop::Shop::open(
+                        id,
+                        self.menu_resources
+                            .clone()
+                            .context("shop resources are missing")?,
+                        self.events
+                            .world
+                            .party
+                            .as_mut()
+                            .context("shop party is missing")?,
+                        request.operation,
+                    )?);
+                }
+                resonance_events::menu::Target::Main => {
+                    self.open_menu(crate::menu::Page::Main, self.menu_checkpoint()?, false);
+                    self.menu_operation = Some(request.operation);
+                    return Ok(());
+                }
+            }
+        }
         if let Some(menu) = &mut self.menu {
             menu.set_play_time(self.play_time);
             let cue = menu.step(input);
@@ -231,12 +278,38 @@ impl FieldSession {
                 self.events.world.party = Some(party);
                 self.events.world.gameplay_random = gameplay_random;
             }
-            if menu.closed {
-                self.events.restore_field_leader()?;
+            if let Some(shop) = &mut self.shop
+                && (menu.closed || menu.page == crate::menu::Page::Main)
+            {
                 self.menu = None;
-                self.events.world.input_enabled = true;
+                shop.return_from_equipment();
+            } else if menu.closed {
+                self.menu = None;
+                self.events.restore_field_leader()?;
+                if let Some(operation) = self.menu_operation.take() {
+                    operation.complete(Some(0)).map_err(anyhow::Error::msg)?;
+                } else {
+                    self.events.world.input_enabled = true;
+                }
             }
-            self.menu_sound(cue);
+            self.menu_sound(cue)?;
+            return Ok(());
+        }
+        if let Some(shop) = &mut self.shop {
+            let cue = shop.step(
+                input,
+                self.events
+                    .world
+                    .party
+                    .as_mut()
+                    .context("shop party is missing")?,
+            )?;
+            if shop.closed {
+                self.shop = None;
+            } else if shop.take_equipment_request() {
+                self.open_menu(crate::menu::Page::Equip, self.menu_checkpoint()?, false);
+            }
+            self.menu_sound(cue.map(|cue| cue as i16))?;
             return Ok(());
         }
         let at_circle = self.events.world.save_points.iter().any(|p| p.active);
@@ -248,13 +321,11 @@ impl FieldSession {
             } else {
                 crate::menu::Page::Slots(crate::menu::Mode::Save)
             };
-            let mut menu = crate::menu::Menu::new(page, Some(checkpoint), at_circle);
-            menu.begin_opening();
-            menu.resources = self.menu_resources.clone();
-            menu.set_play_time(self.play_time);
-            self.menu = Some(menu);
+            self.open_menu(page, checkpoint, at_circle);
             self.events.world.input_enabled = false;
-            self.menu_sound(Some(0x21));
+            self.menu_sound(Some(
+                resonance_content::field_audio::ServiceCue::MenuOpen as i16,
+            ))?;
             return Ok(());
         }
         if input.skit && self.player_has_control() {
@@ -282,6 +353,8 @@ impl FieldSession {
             .map(|(&id, a)| (id, a.position))
             .collect();
         let conversation_facing = &mut self.conversation_facing;
+        let active_triggers = &mut self.active_triggers;
+        let mut action = None;
         let mut resolved = BTreeMap::new();
         self.events.step_with_motion(
             self.effect_clock.tick(),
@@ -325,9 +398,7 @@ impl FieldSession {
                         });
                         // Derive facing before adding world coordinates: subtracting
                         // rounded positions can push a whole-degree angle across its boundary.
-                        let heading = (delta != [0.; 2]).then(|| {
-                            (delta[1].atan2(delta[0]).to_degrees() + 90.).rem_euclid(360.)
-                        });
+                        let heading = (delta != [0.; 2]).then(|| movement_heading(delta));
                         player_destination = Some((id, target, heading));
                         let actor = events.world.actors.get_mut(&id).unwrap();
                         // Facing and locomotion follow input, even when a wall blocks
@@ -363,9 +434,9 @@ impl FieldSession {
                         }
                     }
                 }
-                Ok(player_destination)
+                Ok((player_destination, !events.world.input_enabled))
             },
-            |player_destination, id, actor, previous| {
+            |(player_destination, scripted_control), id, actor, previous| {
                 if let Some((player, target, heading)) = *player_destination
                     && id == player
                 {
@@ -379,9 +450,9 @@ impl FieldSession {
                     if id != controlled_actor
                         && actor.collidable
                         && actor.motion.is_none()
-                        && actor
-                            .autonomy
-                            .is_some_and(|a| a.activity == resonance_events::Activity::Walk)
+                        && actor.autonomy.is_some_and(|a| {
+                            a.activity == resonance_events::Activity::Walk && !a.conversing
+                        })
                     {
                         const BODY_SEPARATION: f32 = 35.;
                         const BODY_HEIGHT: f32 = 60.;
@@ -407,18 +478,32 @@ impl FieldSession {
                     if let Some(autonomy) = &mut actor.autonomy {
                         autonomy.resolve_floor(position.is_some());
                     }
-                    actor.position = position.unwrap_or(previous);
+                    actor.position = position.unwrap_or_else(|| {
+                        if id == controlled_actor && *scripted_control {
+                            // Authored approaches can leave the floor at a doorway.
+                            // Keep their horizontal motion and hold the last height.
+                            [actor.position[0], actor.position[1], previous[2]]
+                        } else {
+                            previous
+                        }
+                    });
                 }
                 resolved.insert(id, actor.position);
             },
-            |world| {
-                conditions::step(world, self.effect_clock.tick())?;
+            |events| {
+                conditions::step(&mut events.world, self.effect_clock.tick())?;
                 self.save_points
-                    .step_effects(world, self.effect_clock.tick())
+                    .step_effects(&mut events.world, self.effect_clock.tick())?;
+                if can_trigger && events.world.input_enabled {
+                    // Contacts queue their script after movement and before this
+                    // update's VM dispatch, including confirmed door entries.
+                    action = Self::step_triggers(events, active_triggers, input.interact)?;
+                }
+                Ok(())
             },
         )?;
         let action = if can_trigger && self.events.world.input_enabled {
-            self.step_triggers(input.interact)?
+            action.or(self.interaction_action()?)
         } else {
             None
         };
@@ -457,8 +542,10 @@ impl FieldSession {
             if actor.grounded
                 && actor.resource < SCENERY_RESOURCE_BASE
                 && actor.resource != 24
-                // Newly spawned/repositioned actors still need their initial
-                // floor height. Preserve positions already resolved this tick.
+                // A script can move an actor after its movement update. New
+                // actors retain their spawn height until their first update;
+                // cloth and hair must see that initial pose before grounding.
+                && resolved.contains_key(id)
                 && resolved.get(id) != Some(&actor.position)
                 && let Some(z) = self.walkmesh.height(actor.position, 32.)
             {
@@ -483,8 +570,20 @@ impl FieldSession {
         Ok(())
     }
 
-    fn menu_sound(&mut self, cue: Option<i16>) {
+    fn open_menu(&mut self, page: crate::menu::Page, checkpoint: FieldCheckpoint, at_circle: bool) {
+        let mut menu = crate::menu::Menu::new(page, Some(checkpoint), at_circle);
+        menu.begin_opening();
+        menu.resources = self.menu_resources.clone();
+        menu.set_play_time(self.play_time);
+        self.menu = Some(menu);
+    }
+
+    fn menu_sound(&mut self, cue: Option<i16>) -> Result<()> {
         if let Some(id) = cue {
+            ensure!(
+                resonance_content::field_audio::ServiceCue::from_id(id).is_some(),
+                "native menu emitted undeclared service cue {id}"
+            );
             self.events
                 .world
                 .audio_commands
@@ -495,9 +594,14 @@ impl FieldSession {
                     slot: None,
                 });
         }
+        Ok(())
     }
-    fn step_triggers(&mut self, confirm: bool) -> Result<Option<FieldAction>> {
-        let world = &self.events.world;
+    fn step_triggers(
+        events: &mut EventRuntime,
+        active: &mut std::collections::BTreeSet<u32>,
+        confirm: bool,
+    ) -> Result<Option<FieldAction>> {
+        let world = &events.world;
         let Some(actor) = world.actors.get(&world.controlled_actor) else {
             return Ok(None);
         };
@@ -520,22 +624,21 @@ impl FieldSession {
             })
             .cloned()
             .collect();
-        self.active_triggers
-            .retain(|key| touching.iter().any(|t| t.key == *key));
+        active.retain(|key| touching.iter().any(|t| t.key == *key));
         let action = touching
             .iter()
-            .filter_map(|t| t.transition.map(|v| v[0]))
+            .map(|t| t.transition.unwrap_or(t.touch_metadata)[0])
             .find(|id| *id != 0)
             .map(FieldAction::from_id)
             .transpose()?
             .flatten();
         for trigger in touching {
             let confirmed = trigger.transition.is_some();
-            if (confirmed && !confirm) || self.active_triggers.contains(&trigger.key) {
+            if (confirmed && !confirm) || active.contains(&trigger.key) {
                 continue;
             }
-            if self.events.trigger(trigger.key, confirmed)? {
-                self.active_triggers.insert(trigger.key);
+            if events.trigger(trigger.key, confirmed)? {
+                active.insert(trigger.key);
                 break;
             }
         }
@@ -586,9 +689,10 @@ impl FieldSession {
                 .map(|(slot, _)| *slot)
         });
         for (slot, player) in &mut self.dialogue {
-            for voice in
-                player.step(input.interact && choice_slot.is_none() && focus == Some(*slot))?
-            {
+            for voice in player.step(
+                (input.interact || input.cancel) && choice_slot.is_none() && focus == Some(*slot),
+                input.accelerate_dialogue && focus == Some(*slot),
+            )? {
                 self.events.world.audio_commands.push(match voice {
                     crate::dialogue::VoiceAction::Play(id) => {
                         self.events.world.voice = Some(resonance_events::VoicePlayback {
@@ -624,9 +728,10 @@ impl FieldSession {
             self.talking.entry(actor).or_insert(self.events.tick());
         }
         if let Some(slot) = choice_slot {
+            use resonance_content::field_audio::ServiceCue;
             let player = self
                 .dialogue
-                .get(&slot)
+                .get_mut(&slot)
                 .ok_or_else(|| anyhow::anyhow!("choice dialogue player is missing"))?;
             let choice = self.events.world.choices.get_mut(&slot).unwrap();
             let lines = 1 + player
@@ -659,7 +764,7 @@ impl FieldSession {
                     .world
                     .audio_commands
                     .push(resonance_events::AudioCommand::Sound {
-                        id: 1,
+                        id: ServiceCue::Navigate as i16,
                         pan: 64,
                         volume: 127,
                         slot: None,
@@ -667,17 +772,23 @@ impl FieldSession {
             }
             if let Some(reason) = reason {
                 choice.finish(reason).map_err(anyhow::Error::msg)?;
-                player
-                    .operation
-                    .complete(None)
-                    .map_err(anyhow::Error::msg)?;
+                player.close();
+                self.events.world.voice = None;
+                self.events
+                    .world
+                    .audio_commands
+                    .push(resonance_events::AudioCommand::StopVoice);
                 use resonance_events::dialogue::ChoiceExit;
                 if reason != ChoiceExit::Timeout {
                     self.events
                         .world
                         .audio_commands
                         .push(resonance_events::AudioCommand::Sound {
-                            id: if reason == ChoiceExit::Confirm { 2 } else { 3 },
+                            id: if reason == ChoiceExit::Confirm {
+                                ServiceCue::Confirm
+                            } else {
+                                ServiceCue::Cancel
+                            } as i16,
                             pan: 64,
                             volume: 127,
                             slot: None,
@@ -688,6 +799,10 @@ impl FieldSession {
         Ok(focus.is_some())
     }
     pub fn interaction_target(&self) -> Option<i32> {
+        // Field actors initialize the same radius, independently of model scale.
+        const ACTOR_RADIUS: f32 = 42.;
+        const REACH: f32 = (1.4_f64 * (2. * ACTOR_RADIUS) as f64) as f32;
+        const HEIGHT: f32 = 145.;
         let id = self.events.world.controlled_actor;
         let player = self.events.world.actors.get(&id)?;
         let angle = player.heading.to_radians();
@@ -706,9 +821,9 @@ impl FieldSession {
                 let distance = dx.hypot(dy);
                 let facing = dx * angle.sin() - dy * angle.cos();
                 (distance > 0.
-                    && distance <= 130.
-                    && facing >= distance * 0.25
-                    && (actor.position[2] - player.position[2]).abs() < 80.)
+                    && distance < REACH
+                    && (f64::from(-facing / distance).sin() as f32).to_degrees() < -22.5
+                    && (actor.position[2] - player.position[2]).abs() <= HEIGHT)
                     .then_some((*id, distance))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -740,6 +855,12 @@ impl FieldSession {
             .cloned()
             .unwrap_or_default()
     }
+}
+
+fn movement_heading([x, y]: [f32; 2]) -> f32 {
+    // Fuse the conversion: separate rounding can turn 0.9999976 degrees into
+    // exactly 1, changing the whole-degree facing selected by actor movement.
+    y.atan2(x).mul_add(1_f32.to_degrees(), 90.).rem_euclid(360.)
 }
 
 pub fn start(
@@ -831,13 +952,15 @@ fn start_with_entry(
     }
     let leader = world.party.as_ref().map_or(1, |p| p.field_leader);
     world.controlled_actor = i32::from(leader);
-    // Both the camera orbit anchor and look target follow the player; updating
-    // only the target leaves the eye orbiting the wrong point.
+    let entry_camera = entry.camera.or_else(|| {
+        (entry.kind == EntryKind::Arrival)
+            .then(|| resonance_events::camera::EntryCamera::following(world.controlled_actor))
+    });
     let mut camera = resonance_events::camera::CameraRig::default();
     camera.current_mut().follow = true;
     camera.current_mut().anchor_to_actor = true;
     camera.current_mut().actor = world.controlled_actor;
-    if let Some(entry) = entry.camera {
+    if let Some(entry) = entry_camera {
         camera.angles = entry.camera.angles;
         camera.distance = entry.camera.distance;
         camera.position_rate = entry.position_rate;
@@ -895,6 +1018,7 @@ fn start_with_entry(
             },
         );
         let mut instance = Actor::new(resource, [0.; 3]);
+        instance.cull_outside_view = false;
         instance.grounded = false;
         instance.collidable = false;
         instance.casts_shadow = false;
@@ -913,6 +1037,15 @@ fn start_with_entry(
         }
         world.insert_actor(actor, instance);
     }
+    if entry.kind == EntryKind::Arrival {
+        // Resolve the entrance before scripts configure the live camera.
+        // Saved scenes resolve their view after setup and player placement.
+        world
+            .field_camera
+            .as_mut()
+            .unwrap()
+            .snap_follow_view(&world.actors);
+    }
     EventRuntime::with_state(
         Arc::new(Program::decode(script)?),
         Arc::new(resources),
@@ -925,33 +1058,42 @@ fn start_with_entry(
 mod tests {
     use super::*;
     use symphonia_script::{
-        Width,
+        NativeCall, Width,
         message::{Message, Token},
     };
 
-    fn choice_session() -> FieldSession {
-        fn native(words: &mut Vec<u16>, op: u8, arguments: &[i32]) {
-            for &value in arguments {
-                words.extend([
-                    0x0200,
-                    value as u16,
-                    (value as u32 >> 16) as u16,
-                    0x3000,
-                    0x4000,
-                ]);
-            }
-            words.push(0x2000 | u16::from(op));
+    fn native(words: &mut Vec<u16>, op: NativeCall, arguments: &[i32]) {
+        for &value in arguments {
+            words.extend([
+                0x0200,
+                value as u16,
+                (value as u32 >> 16) as u16,
+                0x3000,
+                0x4000,
+            ]);
         }
+        words.push(0x2000 | op as u16);
+    }
+
+    fn choice_session() -> FieldSession {
         let mut code = vec![4, 0, 0, 0];
-        native(&mut code, 0x0c, &[0, 0x20, -2, 1, 0, 0, 0, 1]);
-        native(&mut code, 0x64, &[3, 0]);
-        native(&mut code, 0x0c, &[1, 0, -2, 7, 0, 0, 0, 2]);
-        native(&mut code, 0x64, &[3, 1]);
-        native(&mut code, 0x66, &[1, 1, 2, 0, 0x100]);
+        native(
+            &mut code,
+            NativeCall::ConfigureDialogue,
+            &[0, 0x20, -2, 1, 0, 0, 0, 1],
+        );
+        native(&mut code, NativeCall::YieldCommand, &[3, 0]);
+        native(
+            &mut code,
+            NativeCall::ConfigureDialogue,
+            &[1, 0, -2, 7, 0, 0, 0, 2],
+        );
+        native(&mut code, NativeCall::YieldCommand, &[3, 1]);
+        native(&mut code, NativeCall::ShowChoice, &[1, 1, 2, 0, 0x100]);
         code.extend([0x3000, 0x1200, 0x100, 0x1200, 0x20, 0x3010, 0x3000]);
-        native(&mut code, 0x0a, &[0]);
-        native(&mut code, 0x0a, &[1]);
-        native(&mut code, 0x61, &[]);
+        native(&mut code, NativeCall::CloseDialogue, &[0]);
+        native(&mut code, NativeCall::CloseDialogue, &[1]);
+        native(&mut code, NativeCall::EnableMappedInput, &[]);
         code.push(0x20ff);
         let resources = ResourceLibrary {
             messages: ["", "Question?", "Yes\nNo"]
@@ -968,6 +1110,8 @@ mod tests {
             play_time: Default::default(),
             effect_clock: Default::default(),
             menu: None,
+            shop: None,
+            menu_operation: None,
             conversation_facing: None,
             active_triggers: Default::default(),
             save_points: Default::default(),
@@ -1001,6 +1145,167 @@ mod tests {
             .unwrap(),
             light_regions: None,
             lighting: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn line_contacts_dispatch_before_presenting_the_same_update() {
+        for confirmed in [false, true] {
+            let mut code = vec![10, 0, 0, 1, 0, if confirmed { 2 } else { 1 }, 0, 42, 0, 1];
+            code.push(0x20ff);
+            native(&mut code, NativeCall::DisableMappedInput, &[]);
+            native(&mut code, NativeCall::SetTransitionMode, &[1, 20]);
+            native(&mut code, NativeCall::YieldCommand, &[0, 20]);
+            code.push(0x20ff);
+            let mut session = choice_session();
+            session.events = EventRuntime::new(
+                Arc::new(
+                    Program::decode(
+                        &code
+                            .into_iter()
+                            .flat_map(u16::to_be_bytes)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap(),
+                ),
+                Arc::new(ResourceLibrary::default()),
+            )
+            .unwrap();
+            session.walkmesh =
+                navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+                    surface: 0,
+                    vertices: vec![
+                        [-1000., -1000., 0.],
+                        [1000., -1000., 0.],
+                        [-1000., 1000., 0.],
+                    ],
+                    triangles: vec![[0, 1, 2]],
+                }])
+                .unwrap();
+            let world = &mut session.events.world;
+            world.input_enabled = true;
+            world.fade = Some(resonance_events::Fade {
+                start_tick: 0,
+                duration: 1,
+                from: 0.,
+                to: 0.,
+                white: false,
+            });
+            world.controlled_actor = 1;
+            world.insert_actor(1, Actor::new(1, [-496., -317., 0.]));
+            world.triggers.push(resonance_events::Trigger {
+                key: 42,
+                shape: resonance_events::TriggerShape::Line([
+                    [-540., -264., 0.],
+                    [-540., -380., 0.],
+                ]),
+                height: 200.,
+                transition: confirmed.then_some([0; 3]),
+                touch_metadata: [0; 3],
+            });
+            session
+                .step(FieldInput {
+                    direction: [-1., 0.],
+                    ..Default::default()
+                })
+                .unwrap();
+            if confirmed {
+                assert!(session.events.world.input_enabled);
+                assert_eq!(session.events.world.fade.as_ref().unwrap().alpha(1), 0.);
+                session
+                    .step(FieldInput {
+                        interact: true,
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            let world = &session.events.world;
+            let tick = if confirmed { 2 } else { 1 };
+            assert_eq!(world.tick, tick);
+            assert_eq!(world.actors[&1].position, [-500., -317., 0.]);
+            assert!(!world.input_enabled);
+            let fade = world.fade.as_ref().unwrap();
+            assert_eq!(fade.start_tick, tick);
+            assert!((fade.alpha(tick) - 13.8).abs() < 0.0001, "{fade:?}");
+            session
+                .step(FieldInput {
+                    direction: [-1., 0.],
+                    ..Default::default()
+                })
+                .unwrap();
+            let world = &session.events.world;
+            assert_eq!(world.actors[&1].position, [-500., -317., 0.]);
+            assert!((world.fade.as_ref().unwrap().alpha(tick + 1) - 26.6).abs() < 0.0001);
+        }
+    }
+
+    #[test]
+    fn movement_heading_preserves_the_observed_genis_house_turn_boundary() {
+        // Ten downward steps inside Genis's house finish facing 0 degrees in
+        // the source capture, despite a small positive X displacement.
+        let heading = movement_heading([0.069_809_62, -3.999_390_8]);
+        assert_eq!(heading, 0.999_997_6);
+        assert_eq!(heading.trunc(), 0.);
+        for (delta, expected) in [
+            ([0., -1.], 0.),
+            ([1., 0.], 90.),
+            ([0., 1.], 180.),
+            ([-1., 0.], 270.),
+        ] {
+            assert_eq!(movement_heading(delta).trunc().rem_euclid(360.), expected);
+        }
+    }
+
+    #[test]
+    fn scripted_door_approach_can_leave_the_floor_while_keyboard_movement_stays_bounded() {
+        let start = [-2855.4521, 1513.175, 66.4043];
+        let approach = [-2935.7058, 1510.4801, 192.68102];
+        for scripted in [false, true] {
+            let mut session = choice_session();
+            session.events = EventRuntime::new(
+                Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
+                Arc::new(ResourceLibrary::default()),
+            )
+            .unwrap();
+            session.walkmesh =
+                navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+                    surface: 0,
+                    vertices: vec![
+                        [-2925., 1400., start[2]],
+                        [-2700., 1400., start[2]],
+                        [-2925., 1700., start[2]],
+                    ],
+                    triangles: vec![[0, 1, 2]],
+                }])
+                .unwrap();
+            session.events.world.input_enabled = !scripted;
+            session.events.world.controlled_actor = 1;
+            let mut actor = Actor::new(1, start);
+            actor.motion = scripted.then_some(resonance_events::ActorMotion {
+                target: approach,
+                speed: 6.,
+            });
+            session.events.world.insert_actor(1, actor);
+            for _ in 0..15 {
+                session
+                    .step(FieldInput {
+                        direction: [-1., 0.],
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            let actor = &session.events.world.actors[&1];
+            assert_eq!(actor.position[2], start[2]);
+            if scripted {
+                assert_eq!(actor.position[..2], approach[..2]);
+                assert!(
+                    actor.motion.is_none(),
+                    "approach must finish before the door timeout"
+                );
+            } else {
+                assert!(actor.position[0] < start[0]);
+                assert!(session.walkmesh.surface(actor.position, 0.).is_some());
+            }
         }
     }
 
@@ -1073,6 +1378,14 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
+        assert!(session.dialogue[&1].window_visible());
+        assert!(!session.events.world.input_enabled);
+        for _ in 0..4 {
+            session.step(FieldInput::default()).unwrap();
+            assert!(!session.dialogue[&1].window_visible());
+            assert!(!session.events.world.input_enabled);
+        }
+        session.step(FieldInput::default()).unwrap();
         assert_eq!(session.events.memory().read(0x100, Width::S32).unwrap(), 2);
         assert_eq!(session.events.memory().read(0x24, Width::S32).unwrap(), 0);
         assert!(session.events.world.dialogue.is_empty());

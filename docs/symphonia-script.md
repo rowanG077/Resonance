@@ -35,8 +35,8 @@ ChangeField(5) -> () = field;
 ```
 
 Each row supplies the typed ID, argument count, return type and service handler.
-The table currently registers 76 calls. Service handlers match named variants;
-there is no fallback chain of numeric signature lookups.
+Service handlers match named variants; there is no fallback chain of numeric
+signature lookups.
 
 The declaration builds `Host::NATIVES`, a `NativeBindings<Self>` constant. The
 VM's generic `register` API accepts a bytecode ID, argument count, return flag

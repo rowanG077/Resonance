@@ -194,6 +194,7 @@ pub(super) fn record(mut app: App, output: PathBuf) -> Result<()> {
         output.join("recording.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
             "version":1, "complete":true, "headless":true, "audio_device":false,
+            "output_stage":app.world().resource::<display::OutputStage>(),
             "source":"resonance_offline_mixer", "fixed_update_hz":UPDATE_HZ,
             "update_rate_ratio":[UPDATE_RATE_NUMERATOR,UPDATE_RATE_DENOMINATOR], "sample_rate":RATE,
             "steps":step, "audio_frames":frames, "title_ticks":ticks,
@@ -290,15 +291,7 @@ pub(super) fn capture(
     let failed = record.failed.clone();
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(
         move |event: On<ScreenshotCaptured>| {
-            let result = (|| -> Result<()> {
-                event.image.clone().try_into_dynamic()?.save(&path)?;
-                fs::write(
-                    path.with_extension("json"),
-                    serde_json::to_vec_pretty(&metadata)?,
-                )?;
-                Ok(())
-            })();
-            if let Err(error) = result {
+            if let Err(error) = crate::screenshot::write(&event.image, &path, Some(&metadata)) {
                 error!("playthrough checkpoint failed: {error:#}");
                 failed.store(true, Ordering::Release);
             }

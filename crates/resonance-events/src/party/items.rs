@@ -10,8 +10,8 @@ const PETRIFIED: u32 = 0x100;
 pub(super) const INCAPACITATED: u32 = KNOCKED_OUT | PETRIFIED;
 pub(super) const CURABLE: u32 = 0xfe3;
 pub(super) const REVIVAL_CLEARS: u32 = KNOCKED_OUT | 0x3e0;
-pub(super) const RECOVERY_CUE: i16 = 0x68;
-pub(super) const REMEDY_CUE: i16 = 0x84;
+pub(super) const RECOVERY_CUE: i16 = resonance_content::field_audio::ServiceCue::Recovery as i16;
+pub(super) const REMEDY_CUE: i16 = resonance_content::field_audio::ServiceCue::Remedy as i16;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EncounterModifier {

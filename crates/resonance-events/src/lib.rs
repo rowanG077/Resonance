@@ -14,11 +14,11 @@ pub use animation::Animation;
 pub use resources::{
     AnimationClip, AttachmentTrack, ModelResource, ParticleKind, ResourceKind, ResourceLibrary,
 };
-pub use scheduler::{BackgroundWaitOrigin, EventRuntime};
+pub use scheduler::{BackgroundWaitOrigin, EventRuntime, ResourceWaitObservation};
 pub use world::{
-    Actor, ActorMotion, Appearance, Attachment, AudioCommand, BoneAdjustment, CameraTrack, Emote,
-    EventRecord, Face, Fade, FieldTransition, GameWorld, Overlay, OverlayKind, Particle, SavePoint,
-    Trigger, TriggerShape, VoicePlayback,
+    Actor, ActorCreation, ActorMotion, Appearance, Attachment, AudioCommand, BoneAdjustment,
+    CameraTrack, Emote, EventRecord, Face, Fade, FieldTransition, GameWorld, Overlay, OverlayKind,
+    Particle, SavePoint, Trigger, TriggerShape, VoicePlayback,
 };
 mod operation;
 pub use operation::{Operation, Outcome, Progress};
@@ -29,9 +29,10 @@ mod gameplay_random;
 pub mod party;
 mod persistent;
 pub use gameplay_random::GameplayRandom;
+pub mod menu;
 pub mod skit;
 pub use persistent::{PersistentState, SavedProgress};
 
 /// Script operand meaning “the currently controlled party member”.
-pub(crate) const CONTROLLED_ACTOR: i32 = 999_999;
+pub const CONTROLLED_ACTOR: i32 = 999_999;
 mod field_party;

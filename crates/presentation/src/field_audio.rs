@@ -4,6 +4,8 @@ use crate::audio_output::{PlaybackSettings, Player as AudioPlayer};
 use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
 #[path = "field_audio_record.rs"]
 mod record;
+#[path = "field_audio_validation.rs"]
+pub(super) mod validation;
 #[cfg(test)]
 #[path = "field_voice_tests.rs"]
 mod voice_tests;
@@ -220,8 +222,9 @@ impl Assets {
         let sounds = packages(manifest.sounds)?;
         let reverbs = music
             .values()
+            .chain(sounds.values())
             .next()
-            .context("field music is missing")?
+            .context("field audio packages are missing")?
             .reverbs;
         ensure!(
             music
@@ -664,6 +667,7 @@ impl Frames {
             } else {
                 ensure!(!music.looping, "looping field music ended unexpectedly");
                 self.music = None;
+                self.music_id = None;
             }
         }
         if self.frame.is_multiple_of(160) {
@@ -1068,7 +1072,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires cooked outdoor music 77; no window or audio device"]
-    fn one_shot_music_finishes_and_the_field_mixer_keeps_running() {
+    fn one_shot_music_finishes_and_can_be_requested_again() {
         let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
             || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
             Into::into,
@@ -1094,7 +1098,19 @@ mod tests {
             count += 1;
         }
         assert!(audible);
+        assert_eq!(frames.music_id, None);
         assert!(frames.frame().unwrap().is_some());
+        frames.command(AudioCommand::Music(77)).unwrap();
+        assert!(frames.music.is_some());
+        assert_eq!(frames.music_id, Some(77));
+        assert!((0..RATE * 2).any(|_| {
+            frames
+                .frame()
+                .unwrap()
+                .expect("mixer stopped on replay")
+                .iter()
+                .any(|sample| sample.abs() > 0.001)
+        }));
         eprintln!("Music 77 completed after {count} source frames; field mixer remains live");
     }
 

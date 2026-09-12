@@ -166,7 +166,7 @@ impl SavePoints {
                 world
                     .audio_commands
                     .push(resonance_events::AudioCommand::Sound {
-                        id: 0x68,
+                        id: resonance_content::field_audio::ServiceCue::Recovery as i16,
                         volume: 100,
                         pan: 64,
                         slot: None,

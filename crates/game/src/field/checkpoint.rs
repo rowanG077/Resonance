@@ -22,7 +22,7 @@ impl FieldSession {
             "quicksave unavailable during skit playback"
         );
         ensure!(
-            self.menu.is_none(),
+            self.menu.is_none() && self.shop.is_none() && self.events.world.menu_request.is_none(),
             "quicksave unavailable while a menu is open"
         );
         let world = &self.events.world;
@@ -39,6 +39,10 @@ impl FieldSession {
             "quicksave unavailable during a scripted event"
         );
         ensure!(
+            !self.events.control_handoff_pending(),
+            "quicksave unavailable during a control handoff"
+        );
+        ensure!(
             self.dialogue.values().all(|d| d.closed)
                 && world.dialogue.values().all(|d| !d.operation.is_pending())
                 && world.choices.values().all(|c| !c.operation.is_pending()),
@@ -51,6 +55,13 @@ impl FieldSession {
                 .is_none_or(|fade| world.tick >= fade.start_tick.saturating_add(fade.duration)),
             "quicksave unavailable during a scene fade"
         );
+        self.menu_checkpoint()
+    }
+
+    /// Menus can edit party progress while a script owns the field. Only
+    /// checkpoint() applies the additional restrictions for a restartable save.
+    pub(super) fn menu_checkpoint(&self) -> Result<FieldCheckpoint> {
+        let world = &self.events.world;
         let actor = world
             .actors
             .get(&world.controlled_actor)
@@ -108,6 +119,7 @@ impl FieldCheckpoint {
         );
         let leader = i32::from(self.progress.party.field_leader);
         Ok(FieldEntry {
+            kind: super::EntryKind::Restore,
             play_time: crate::clock::PlayTime::resume(self.played_ticks()),
             persistent: self.progress.into_state(&data)?,
             data: Some(data),

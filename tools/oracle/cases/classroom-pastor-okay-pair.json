@@ -1,0 +1,637 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Walk from the classroom checkpoint, choose Okay, fine, and check prepared-resource fade boundaries plus every frame of the signed 60-tick pastor camera pan.",
+  "registration": "Source VI 0 defines the unchanged source-observed actor, eye, RNG and UI origins and native update 0. One complete source-presentation mapping applies to every input edge, capture, expected state and replay duration: native_update = source_vi minus the number of source VIs with no emitted video presentation at or before it. Actual video packet timestamps verify the complete missing-presentation intervals 193..197, 6006..6011. These are interrupted field callbacks: the last missing VI is followed by the same callback's completed presentation, not an extra actor update. Source UI advances throughout; presentation_advances restores skipped UI ticks at the first retained presentation. Field effects receive no extra ticks. Inputs retain their key sequence/order; all original scored source VIs, regions and strict thresholds are unchanged. The source first visible fade at VI6012 remains represented, where applicable. Eight resource waits preserve the observed request, readiness-clear and continuation boundaries while actor/effect/UI/audio clocks continue. The oracle-only schedule validates the actual resource and post-call script PC; ordinary preloaded gameplay stays immediate. Additional read-only VM observations are bound by resource_wait_source. All 6,269 overlapping decoded frames and all 1,014 common state labels across 6,280 VIs are identical to the unchanged original reference (local/visual-fixes/pastor-source-video-equivalence.json and pastor-old-new-state-audit.json). No delay was selected by image matching. Complete packet/memory proof and previous pins are in timeline-provenance.json. Audio is recorded silently without an audio gate. The saved source VI 0 still defines all actor/eye/RNG/UI origins and native update 0 remains captured, but its initial image is not scored: independent raw-video checks found a one-frame globally softened source presentation with every camera word unchanged across VI 0..5. The first scored sample instead compares source VI 1 with native update 1, allowing both engines their ordinary one animation update; it is never compared with native update 0. The original first gate name is retained for report continuity and its thresholds/regions are unchanged. Evidence: local/iselia-followup/oracle/pastor-first-presents-v1/finding.json, SHA256 6074280842ecef42c58d583835162da5158162a686204ba982655bbea48c109d. No other source registration changes. Source VI 0 also supplies the observed action-prompt origin (id 2, opacity 255, remaining 29), restored through the guarded oracle-only ambient-origin API. This restores existing transient presentation state without changing the runtime default, input edges, source VIs, or gates. Evidence: local/iselia-followup/oracle/pastor-action-origin-implementation.json and local/iselia-followup/oracle/pastor-first-presents-v1/native-provenance-correction.json.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/iselia-followup/oracle/pastor-native-save.json",
+    "sha256": "f387076961e3d8d49188031860a4d781d8cfbd318467bf1872b6a7337f4c3eee"
+  },
+  "native_replay": {
+    "path": "classroom-pastor-okay-keyboard.json",
+    "sha256": "93486013139b4cba0d307a56885ea8765fa8e49bfc6835997b2dd4ef1d26f709"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/oracle/colette-turn-silent/user/StateSaves/GQSEAF.s01",
+      "sha256": "8daf04815edda0ef6f11bffa4acf5df2d51429fc31c2b63430529e90128c841d"
+    },
+    "prefix_sha256": "ffd7b6352d371112cf636f4b64c019ae82726a8dc2cd99642f84d970e4ecd4db",
+    "start_poll": 39255,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 340,
+    "story": 1000,
+    "position": [
+      -88,
+      -229,
+      0
+    ],
+    "heading": 180
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 14000,
+    "rtc": 1700000000,
+    "from_save_state": true,
+    "inputs": [
+      {
+        "poll": 20,
+        "duration": 200,
+        "buttons": [],
+        "stick": [
+          96,
+          128
+        ]
+      },
+      {
+        "poll": 260,
+        "duration": 44,
+        "buttons": [],
+        "stick": [
+          128,
+          96
+        ]
+      },
+      {
+        "poll": 340,
+        "duration": 60,
+        "buttons": [],
+        "stick": [
+          96,
+          128
+        ]
+      },
+      {
+        "poll": 1000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6400,
+        "duration": 4,
+        "buttons": [
+          "down"
+        ]
+      },
+      {
+        "poll": 6000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 10000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 11000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 12000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 13000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "pastor-0000",
+      "native": "pastor-0001",
+      "dolphin_vi": 1
+    },
+    {
+      "name": "pastor-0011",
+      "native": "pastor-0011",
+      "dolphin_vi": 11
+    },
+    {
+      "name": "pastor-0110",
+      "native": "pastor-0110",
+      "dolphin_vi": 110
+    },
+    {
+      "name": "pastor-0132",
+      "native": "pastor-0132",
+      "dolphin_vi": 132
+    },
+    {
+      "name": "pastor-0154",
+      "native": "pastor-0154",
+      "dolphin_vi": 154
+    },
+    {
+      "name": "pastor-0171",
+      "native": "pastor-0171",
+      "dolphin_vi": 171
+    },
+    {
+      "name": "pastor-entry-fade-start",
+      "native": "pastor-entry-fade-start",
+      "dolphin_vi": 201
+    },
+    {
+      "name": "pastor-entry-fade-middle",
+      "native": "pastor-entry-fade-middle",
+      "dolphin_vi": 209
+    },
+    {
+      "name": "pastor-entry-fade-end",
+      "native": "pastor-entry-fade-end",
+      "dolphin_vi": 216
+    },
+    {
+      "name": "pastor-0250",
+      "native": "pastor-0250",
+      "dolphin_vi": 250
+    },
+    {
+      "name": "pastor-0500",
+      "native": "pastor-0500",
+      "dolphin_vi": 500
+    },
+    {
+      "name": "pastor-3006",
+      "native": "pastor-3006",
+      "dolphin_vi": 3006
+    },
+    {
+      "name": "pastor-3201",
+      "native": "pastor-3201",
+      "dolphin_vi": 3201
+    },
+    {
+      "name": "pastor-3501",
+      "native": "pastor-3501",
+      "dolphin_vi": 3501
+    },
+    {
+      "name": "pastor-entrance-fade-start",
+      "native": "pastor-entrance-fade-start",
+      "dolphin_vi": 5046
+    },
+    {
+      "name": "pastor-entrance-fade-middle",
+      "native": "pastor-entrance-fade-middle",
+      "dolphin_vi": 5054
+    },
+    {
+      "name": "pastor-entrance-fade-end",
+      "native": "pastor-entrance-fade-end",
+      "dolphin_vi": 5061
+    },
+    {
+      "name": "pastor-group-fade-start",
+      "native": "pastor-group-fade-start",
+      "dolphin_vi": 5314
+    },
+    {
+      "name": "pastor-group-fade-middle",
+      "native": "pastor-group-fade-middle",
+      "dolphin_vi": 5322
+    },
+    {
+      "name": "pastor-group-fade-end",
+      "native": "pastor-group-fade-end",
+      "dolphin_vi": 5329
+    },
+    {
+      "name": "pastor-5501",
+      "native": "pastor-5501",
+      "dolphin_vi": 5501
+    },
+    {
+      "name": "pastor-5585",
+      "native": "pastor-5585",
+      "dolphin_vi": 5585
+    },
+    {
+      "name": "pastor-5586",
+      "native": "pastor-5586",
+      "dolphin_vi": 5586
+    },
+    {
+      "name": "pastor-5587",
+      "native": "pastor-5587",
+      "dolphin_vi": 5587
+    },
+    {
+      "name": "pastor-5588",
+      "native": "pastor-5588",
+      "dolphin_vi": 5588
+    },
+    {
+      "name": "pastor-5589",
+      "native": "pastor-5589",
+      "dolphin_vi": 5589
+    },
+    {
+      "name": "pastor-5590",
+      "native": "pastor-5590",
+      "dolphin_vi": 5590
+    },
+    {
+      "name": "pastor-5591",
+      "native": "pastor-5591",
+      "dolphin_vi": 5591
+    },
+    {
+      "name": "pastor-5592",
+      "native": "pastor-5592",
+      "dolphin_vi": 5592
+    },
+    {
+      "name": "pastor-5593",
+      "native": "pastor-5593",
+      "dolphin_vi": 5593
+    },
+    {
+      "name": "pastor-5594",
+      "native": "pastor-5594",
+      "dolphin_vi": 5594
+    },
+    {
+      "name": "pastor-5595",
+      "native": "pastor-5595",
+      "dolphin_vi": 5595
+    },
+    {
+      "name": "pastor-5596",
+      "native": "pastor-5596",
+      "dolphin_vi": 5596
+    },
+    {
+      "name": "pastor-5597",
+      "native": "pastor-5597",
+      "dolphin_vi": 5597
+    },
+    {
+      "name": "pastor-5598",
+      "native": "pastor-5598",
+      "dolphin_vi": 5598
+    },
+    {
+      "name": "pastor-5599",
+      "native": "pastor-5599",
+      "dolphin_vi": 5599
+    },
+    {
+      "name": "pastor-5600",
+      "native": "pastor-5600",
+      "dolphin_vi": 5600
+    },
+    {
+      "name": "pastor-5601",
+      "native": "pastor-5601",
+      "dolphin_vi": 5601
+    },
+    {
+      "name": "pastor-5602",
+      "native": "pastor-5602",
+      "dolphin_vi": 5602
+    },
+    {
+      "name": "pastor-5603",
+      "native": "pastor-5603",
+      "dolphin_vi": 5603
+    },
+    {
+      "name": "pastor-5604",
+      "native": "pastor-5604",
+      "dolphin_vi": 5604
+    },
+    {
+      "name": "pastor-5605",
+      "native": "pastor-5605",
+      "dolphin_vi": 5605
+    },
+    {
+      "name": "pastor-5606",
+      "native": "pastor-5606",
+      "dolphin_vi": 5606
+    },
+    {
+      "name": "pastor-5607",
+      "native": "pastor-5607",
+      "dolphin_vi": 5607
+    },
+    {
+      "name": "pastor-5608",
+      "native": "pastor-5608",
+      "dolphin_vi": 5608
+    },
+    {
+      "name": "pastor-5609",
+      "native": "pastor-5609",
+      "dolphin_vi": 5609
+    },
+    {
+      "name": "pastor-5610",
+      "native": "pastor-5610",
+      "dolphin_vi": 5610
+    },
+    {
+      "name": "pastor-5611",
+      "native": "pastor-5611",
+      "dolphin_vi": 5611
+    },
+    {
+      "name": "pastor-5612",
+      "native": "pastor-5612",
+      "dolphin_vi": 5612
+    },
+    {
+      "name": "pastor-5613",
+      "native": "pastor-5613",
+      "dolphin_vi": 5613
+    },
+    {
+      "name": "pastor-5614",
+      "native": "pastor-5614",
+      "dolphin_vi": 5614
+    },
+    {
+      "name": "pastor-5615",
+      "native": "pastor-5615",
+      "dolphin_vi": 5615
+    },
+    {
+      "name": "pastor-5616",
+      "native": "pastor-5616",
+      "dolphin_vi": 5616
+    },
+    {
+      "name": "pastor-5617",
+      "native": "pastor-5617",
+      "dolphin_vi": 5617
+    },
+    {
+      "name": "pastor-5618",
+      "native": "pastor-5618",
+      "dolphin_vi": 5618
+    },
+    {
+      "name": "pastor-5619",
+      "native": "pastor-5619",
+      "dolphin_vi": 5619
+    },
+    {
+      "name": "pastor-5620",
+      "native": "pastor-5620",
+      "dolphin_vi": 5620
+    },
+    {
+      "name": "pastor-5621",
+      "native": "pastor-5621",
+      "dolphin_vi": 5621
+    },
+    {
+      "name": "pastor-5622",
+      "native": "pastor-5622",
+      "dolphin_vi": 5622
+    },
+    {
+      "name": "pastor-5623",
+      "native": "pastor-5623",
+      "dolphin_vi": 5623
+    },
+    {
+      "name": "pastor-5624",
+      "native": "pastor-5624",
+      "dolphin_vi": 5624
+    },
+    {
+      "name": "pastor-5625",
+      "native": "pastor-5625",
+      "dolphin_vi": 5625
+    },
+    {
+      "name": "pastor-5626",
+      "native": "pastor-5626",
+      "dolphin_vi": 5626
+    },
+    {
+      "name": "pastor-5627",
+      "native": "pastor-5627",
+      "dolphin_vi": 5627
+    },
+    {
+      "name": "pastor-5628",
+      "native": "pastor-5628",
+      "dolphin_vi": 5628
+    },
+    {
+      "name": "pastor-5629",
+      "native": "pastor-5629",
+      "dolphin_vi": 5629
+    },
+    {
+      "name": "pastor-5630",
+      "native": "pastor-5630",
+      "dolphin_vi": 5630
+    },
+    {
+      "name": "pastor-5631",
+      "native": "pastor-5631",
+      "dolphin_vi": 5631
+    },
+    {
+      "name": "pastor-5632",
+      "native": "pastor-5632",
+      "dolphin_vi": 5632
+    },
+    {
+      "name": "pastor-5633",
+      "native": "pastor-5633",
+      "dolphin_vi": 5633
+    },
+    {
+      "name": "pastor-5634",
+      "native": "pastor-5634",
+      "dolphin_vi": 5634
+    },
+    {
+      "name": "pastor-5635",
+      "native": "pastor-5635",
+      "dolphin_vi": 5635
+    },
+    {
+      "name": "pastor-5636",
+      "native": "pastor-5636",
+      "dolphin_vi": 5636
+    },
+    {
+      "name": "pastor-5637",
+      "native": "pastor-5637",
+      "dolphin_vi": 5637
+    },
+    {
+      "name": "pastor-5638",
+      "native": "pastor-5638",
+      "dolphin_vi": 5638
+    },
+    {
+      "name": "pastor-5639",
+      "native": "pastor-5639",
+      "dolphin_vi": 5639
+    },
+    {
+      "name": "pastor-5640",
+      "native": "pastor-5640",
+      "dolphin_vi": 5640
+    },
+    {
+      "name": "pastor-5641",
+      "native": "pastor-5641",
+      "dolphin_vi": 5641
+    },
+    {
+      "name": "pastor-5642",
+      "native": "pastor-5642",
+      "dolphin_vi": 5642
+    },
+    {
+      "name": "pastor-5643",
+      "native": "pastor-5643",
+      "dolphin_vi": 5643
+    },
+    {
+      "name": "pastor-5644",
+      "native": "pastor-5644",
+      "dolphin_vi": 5644
+    },
+    {
+      "name": "pastor-5645",
+      "native": "pastor-5645",
+      "dolphin_vi": 5645
+    },
+    {
+      "name": "pastor-5646",
+      "native": "pastor-5646",
+      "dolphin_vi": 5646
+    },
+    {
+      "name": "pastor-5647",
+      "native": "pastor-5647",
+      "dolphin_vi": 5647
+    },
+    {
+      "name": "pastor-5700",
+      "native": "pastor-5700",
+      "dolphin_vi": 5700
+    },
+    {
+      "name": "pastor-6000",
+      "native": "pastor-6000",
+      "dolphin_vi": 6000
+    },
+    {
+      "name": "pastor-exit-fade-start",
+      "native": "pastor-exit-fade-start",
+      "dolphin_vi": 6063
+    },
+    {
+      "name": "pastor-exit-fade-middle",
+      "native": "pastor-exit-fade-middle",
+      "dolphin_vi": 6071
+    },
+    {
+      "name": "pastor-exit-fade-end",
+      "native": "pastor-exit-fade-end",
+      "dolphin_vi": 6078
+    },
+    {
+      "name": "pastor-6200",
+      "native": "pastor-6200",
+      "dolphin_vi": 6200
+    }
+  ],
+  "audio": [],
+  "resource_wait_source": {
+    "capture": {
+      "path": "../../../local/visual-fixes/source-v1/pastor/capture.json",
+      "sha256": "7e9fa69d8197da87b93e8ea7e00f7db226f8e95e4d5b2913c9d1063082c85604"
+    },
+    "slot": 1
+  }
+}

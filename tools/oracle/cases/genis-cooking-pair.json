@@ -1,0 +1,583 @@
+{
+  "version": 1,
+  "revision": 0,
+  "description": "Genis cooking tutorial: choose Yes, read all explanation pages, receive ingredients once, and regain control.",
+  "registration": "A Rust controlled fixture changes only source story2500→202000 before entering338; native initializes the same2500 field and applies the source-observed live change at free-control update64 before door interaction. This preserves outdoor NPC bindings: source map330 initialization branches at112000, so initializing it directly at202000 would not match this controlled fixture. The naturally completed exterior reminder flag374 is retained and cooking flag275 starts clear in both. Player/camera/party values remain source-observed. The tutorial is started by ordinary door interaction, followed by A presses through its original dialogue and default Yes choice. Source grants Bread/Lettuce/Beef3 each atVI4386 and restores control4467. Native update64 registers sourceVI0, including the source-verified settled live camera with fractional angles[330.875,0,38.875] and distance1669.00048828125; desired saved camera settings remain unchanged. Input edges use poll/2+1 plus64. Strict pose/images are checked throughout; cooking inventory/vital state is checked when control returns because event snapshots intentionally lack a restartable checkpoint. Event275 has not been added to the source watcher, so this pair does not claim a numeric event-flag gate. No per-frame correction or simulated disc wait is used. Complete timeline normalization now uses native_update = 64 + source_vi - collapsed loading VIs. Inclusive source loading intervals: 113..128, 152..156. This same mapping applies to all input edges, captures, expected states and replay duration; source target VIs, key order and all strict gates are unchanged. The source UI advances through loading, so presentation_advances restores those skipped UI ticks once at each first retained update; field effects receive no extra ticks. Original video confirms black presentation or absent output during these blocking loads. Actor clearing, field initialization, placement and RNG draws at completion are preserved as semantic setup work, not falsely described as immutable memory. No idle, dialogue or visible animation ticks are removed. Full source interval evidence and old/new pins are in timeline-provenance.json.",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "native_save": {
+    "path": "../../../local/iselia-expansion/genis-native-source-party-v2.json",
+    "sha256": "b705b251756eb5ef7ae8d68823612ff8cd7e4957c569a3ef40aed69c813c59ea"
+  },
+  "native_replay": {
+    "path": "genis-cooking-keyboard.json",
+    "sha256": "457d75cd2ea07a60ce8c86f146552c9567a270a5f8d990fc8a0c10ef44408825"
+  },
+  "dolphin": {
+    "state": {
+      "path": "../../../local/iselia-expansion/genis-cooking-fixture-v1/GQSEAF.s01",
+      "sha256": "e30b337bc05e6bb89f284a7f2a509d0763d5e77b8467e711adace224c6f61ba9"
+    },
+    "prefix_sha256": "c26ccebcabf57c5f1285b95bb59dc01d2f39042b30eb82d51e44b7fb62eb56e9",
+    "start_poll": 78397,
+    "version": "Dolphin [master] 2606",
+    "binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "video_first_vi": 0
+  },
+  "start": {
+    "map_id": 330,
+    "story": 202000,
+    "position": [
+      -2855.4521484375,
+      1513.175048828125,
+      66.404296875
+    ],
+    "heading": 218
+  },
+  "replay": {
+    "game_id": "GQSEAF",
+    "polls": 12000,
+    "rtc": 1700000000,
+    "inputs": [
+      {
+        "poll": 40,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 480,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 840,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1200,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1380,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1560,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 1920,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2280,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2460,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2640,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 2820,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3000,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3180,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3360,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3540,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3720,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 3900,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4080,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4260,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4440,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4620,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4800,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 4980,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5160,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5340,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5520,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5700,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 5880,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6060,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6240,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6420,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6600,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6780,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 6960,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7140,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7320,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7500,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7680,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 7860,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8040,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8220,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8400,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8580,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8760,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 8940,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9120,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9300,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9480,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9660,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 9840,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 10020,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 10200,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 10380,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 10560,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 10740,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 10920,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 11100,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      },
+      {
+        "poll": 11280,
+        "duration": 4,
+        "buttons": [
+          "a"
+        ]
+      }
+    ]
+  },
+  "frames": [
+    {
+      "name": "genis-cooking-0",
+      "native": "vi-0",
+      "dolphin_vi": 0,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-cooking-300",
+      "native": "vi-300",
+      "dolphin_vi": 300
+    },
+    {
+      "name": "genis-cooking-600",
+      "native": "vi-600",
+      "dolphin_vi": 600
+    },
+    {
+      "name": "genis-cooking-900",
+      "native": "vi-900",
+      "dolphin_vi": 900
+    },
+    {
+      "name": "genis-cooking-1200",
+      "native": "vi-1200",
+      "dolphin_vi": 1200
+    },
+    {
+      "name": "genis-cooking-1500",
+      "native": "vi-1500",
+      "dolphin_vi": 1500
+    },
+    {
+      "name": "genis-cooking-1800",
+      "native": "vi-1800",
+      "dolphin_vi": 1800
+    },
+    {
+      "name": "genis-cooking-2101",
+      "native": "vi-2101",
+      "dolphin_vi": 2101
+    },
+    {
+      "name": "genis-cooking-2501",
+      "native": "vi-2501",
+      "dolphin_vi": 2501
+    },
+    {
+      "name": "genis-cooking-3001",
+      "native": "vi-3001",
+      "dolphin_vi": 3001
+    },
+    {
+      "name": "genis-cooking-3402",
+      "native": "vi-3402",
+      "dolphin_vi": 3402
+    },
+    {
+      "name": "genis-cooking-3802",
+      "native": "vi-3802",
+      "dolphin_vi": 3802
+    },
+    {
+      "name": "genis-cooking-4201",
+      "native": "vi-4201",
+      "dolphin_vi": 4201
+    },
+    {
+      "name": "genis-cooking-4386",
+      "native": "vi-4386",
+      "dolphin_vi": 4386
+    },
+    {
+      "name": "genis-cooking-4467",
+      "native": "vi-4467",
+      "dolphin_vi": 4467,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-cooking-4601",
+      "native": "vi-4601",
+      "dolphin_vi": 4601,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-cooking-5001",
+      "native": "vi-5001",
+      "dolphin_vi": 5001,
+      "cooking_state": true
+    },
+    {
+      "name": "genis-cooking-5801",
+      "native": "vi-5801",
+      "dolphin_vi": 5801,
+      "cooking_state": true
+    }
+  ],
+  "audio": []
+}

@@ -1,7 +1,7 @@
 //! Prepared bitmap menu layers. Coordinates use the authored 640×448 canvas.
 use super::*;
 use GaugeLayout::{Compact, Full, Stacked, Unlabelled};
-use resonance_content::menu::MenuArt;
+use resonance_content::{HEIGHT, SCENE_HEIGHT, menu::MenuArt};
 use resonance_game::menu::{
     ConfirmationKind, MAIN_COLUMNS, MAIN_ENTRIES, Menu, Mode, Page, PopupContent, SLOTS_PER_BANK,
     Slot, SlotFocus, VISIBLE_SLOTS, cooking::Focus as CookingFocus,
@@ -30,6 +30,8 @@ mod manual;
 mod monsters;
 #[path = "field_ui_menu/rename.rs"]
 mod rename;
+#[path = "field_ui_menu/shop.rs"]
+mod shop;
 #[path = "field_ui_menu/status.rs"]
 mod status;
 #[path = "field_ui_menu/strategy.rs"]
@@ -59,6 +61,11 @@ const GOLD: usize = 8;
 const DISABLED: usize = 7;
 const LINE_SPACING: f32 = 2.;
 const TICKS_PER_MINUTE: u64 = 60 * 60;
+
+pub(super) enum Source<'a> {
+    Title(Option<&'a Menu>),
+    Field(&'a FieldSession),
+}
 
 /// Lists scroll over five updates, including the extra row entering from above.
 fn scroll_offset(phase: i8, row_height: i32) -> i32 {
@@ -127,6 +134,9 @@ impl MenuArtwork {
         use resonance_game::field::FieldAction;
         &self.spec.labels[match action {
             FieldAction::Enter => "go_in",
+            FieldAction::Talk => "talk",
+            FieldAction::Shop => "shop",
+            FieldAction::Examine => "examine",
             FieldAction::Leave => "go_out",
             FieldAction::Save => "save",
         }]
@@ -248,34 +258,54 @@ impl MenuArtwork {
             });
         }
     }
+    #[allow(clippy::too_many_arguments)] // Compose shared artwork with the live viewport and clock.
     pub fn render(
         &mut self,
-        menu: Option<&Menu>,
+        source: Source<'_>,
         font: &BitmapFont,
         dialogue: &DialogueArt,
         presentation_tick: u32,
+        resolution: super::super::Resolution,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
+        let (menu, shop) = match source {
+            Source::Title(menu) => (menu, None),
+            Source::Field(session) => (
+                session.menu.as_ref(),
+                session
+                    .shop
+                    .as_ref()
+                    .zip(session.events.world.party.as_ref()),
+            ),
+        };
         let cursor = &dialogue.cursor;
+        let [left, top, right, bottom] = resolution.ui_rect();
+        let y_scale = SCENE_HEIGHT as f32 / HEIGHT as f32;
         let mut draw = Drawing {
+            screen: [left, top * y_scale, right, bottom * y_scale],
             spec: &self.spec,
             font,
             selection: &dialogue.selection,
-            preferences: menu.and_then(Menu::preferences),
+            preferences: menu
+                .and_then(Menu::preferences)
+                .or_else(|| shop.map(|(_, party)| &party.settings.preferences)),
             experience: &self.experience,
             tick: presentation_tick,
             plane: 0,
-            opacity: menu.map_or(255, |m| 255 - m.background_fade()),
+            opacity: menu.map_or_else(
+                || shop.map_or(255, |(s, _)| 255 - s.fade),
+                |m| 255 - m.background_fade(),
+            ),
             offset: [0.; 2],
             layers_per_plane: self.materials.len(),
             batches: vec![Batch::default(); self.materials.len() * PLANES],
         };
         if let Some(menu) = menu {
             if menu.checkpoint.is_none() {
-                draw.quad(FONT, [0., 0., 640., 448.], [0.5; 4], [0., 0., 0., 1.]);
+                draw.quad(FONT, draw.screen, [0.5; 4], [0., 0., 0., 1.]);
             }
-            draw.shade([0., 0., 640., 448.]);
+            draw.shade(draw.screen);
             draw.opacity = 255 - menu.foreground_fade();
             draw.plane = 1;
             let anchor = match menu.page {
@@ -490,6 +520,18 @@ impl MenuArtwork {
                     &mut self.trail,
                 );
             }
+        } else if let Some((shop, party)) = shop {
+            draw.shade(draw.screen);
+            draw.plane = 1;
+            let anchor = draw.shop(shop, party, cursor)?;
+            draw.plane = 4;
+            draw.cursor_trail(
+                anchor,
+                cursor,
+                255 - shop.fade,
+                presentation_tick,
+                &mut self.trail,
+            );
         } else {
             self.trail = Default::default();
         }
@@ -514,6 +556,7 @@ impl MenuArtwork {
 }
 
 struct Drawing<'a> {
+    screen: [f32; 4],
     spec: &'a MenuArt,
     font: &'a BitmapFont,
     selection: &'a resonance_content::font::SelectionArt,
@@ -707,7 +750,7 @@ impl Drawing<'_> {
         self.plane = 2;
         self.quad(
             FONT,
-            [0., 0., 640., 448.],
+            self.screen,
             [0.5; 4],
             [0., 0., 0., f32::from(opacity >> 1) / 255.],
         );

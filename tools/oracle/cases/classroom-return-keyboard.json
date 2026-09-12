@@ -5,8 +5,13 @@
   "presentation_pauses": [
     {"start": 2378, "end": 2393}
   ],
+  "effect_pauses": [
+    {"start": 2412, "end": 2427},
+    {"start": 3092, "end": 3121}
+  ],
   "ambient_origin": {
     "update": 2237,
+    "effect_tick": 34012,
     "samples": {
       "999980": 52,
       "999996": 52,

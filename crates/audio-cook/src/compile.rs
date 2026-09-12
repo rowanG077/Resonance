@@ -149,14 +149,17 @@ fn command(bank: &Bank<'_>, a: u32, b: u32) -> Result<Command> {
                 }
             }
         }
-        0x4c => {
+        0x4b | 0x4c => {
             ensure!(
                 (b >> 8) as u8 == 1 && b & 255 == 0 && a >> 16 == 0 && b >> 16 == 0,
                 "only the zero-scale auxiliary variable selector is implemented"
             );
             // A zero-scale signed selector yields the 14-bit midpoint 0x2000.
             // Cook it as 64: playback expands seven-bit controls by shifting left seven.
-            Command::Auxiliary { bus: 1, value: 64 }
+            Command::Auxiliary {
+                bus: a as u8 - 0x4b,
+                value: 64,
+            }
         }
         0x30 => Command::AddAge {
             value: (a >> 16) as i16,

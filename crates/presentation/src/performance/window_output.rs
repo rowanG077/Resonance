@@ -116,13 +116,7 @@ fn capture(
         let completed = check.completed.clone();
         commands.spawn(screenshot).observe(
             move |event: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                let result = event
-                    .image
-                    .clone()
-                    .try_into_dynamic()
-                    .map_err(anyhow::Error::from)
-                    .and_then(|image| image.save(&path).map_err(anyhow::Error::from));
-                if let Err(error) = result {
+                if let Err(error) = crate::screenshot::write(&event.image, &path, None) {
                     error!("Window output comparison capture failed: {error:#}");
                     exit.write(AppExit::error());
                 } else if captured.fetch_add(1, Ordering::AcqRel) == 1 {
