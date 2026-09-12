@@ -60,27 +60,6 @@ pub struct ActionDefinition {
     pub tp_cost: u16,
 }
 
-impl ActionDefinition {
-    /// Melee definitions used by this action.
-    pub fn contacts(&self) -> impl Iterator<Item = &Arc<crate::MeleeDefinition>> {
-        let native = match &self.execution {
-            ActionExecution::Attack(attack) => Some(attack),
-            _ => None,
-        };
-        native.into_iter().flat_map(|attack| attack.contacts())
-    }
-
-    pub fn weapon_flights(&self) -> impl Iterator<Item = &Arc<crate::WeaponFlightDefinition>> {
-        let native = match &self.execution {
-            ActionExecution::Attack(attack) => Some(attack),
-            _ => None,
-        };
-        native
-            .into_iter()
-            .flat_map(|attack| attack.weapon_flights())
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct ActorSetup {
     pub techniques: Vec<crate::PreparedTechnique>,
@@ -175,12 +154,6 @@ impl PreparedBattle {
             match &action.execution {
                 ActionExecution::Attack(attack) => attack.validate()?,
                 ActionExecution::Casting(cast) => cast.release.validate()?,
-            }
-            for contact in action.contacts() {
-                contact.validate()?;
-            }
-            for definition in action.weapon_flights() {
-                definition.validate()?;
             }
         }
         Ok(())
