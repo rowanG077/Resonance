@@ -4990,6 +4990,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "symphonia-script-compiler"
+version = "0.1.0"
+dependencies = [
+ "symphonia-script",
+ "symphonia-script-vm",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "symphonia-script-tools"
+version = "0.1.0"
+dependencies = [
+ "symphonia-script",
+ "symphonia-script-compiler",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "symphonia-script-vm"
 version = "0.1.0"
 dependencies = [
