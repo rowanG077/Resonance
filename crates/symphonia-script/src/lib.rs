@@ -1,5 +1,6 @@
 //! SymphoniaScript: recovered scenario bytecode, inspection, and native-call metadata.
 //! No game engine, filesystem, or emulator dependency.
+pub mod authored;
 pub mod message;
 mod native;
 pub use native::NativeCall;
