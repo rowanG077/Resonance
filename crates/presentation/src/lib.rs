@@ -29,9 +29,13 @@ pub use audio::{CueEvent, record_title_music};
 mod camera;
 mod display;
 mod field_warm;
+mod hd_textures;
 mod loading;
+#[cfg(feature = "solari")]
+mod ray_tracing;
 mod renderer;
 pub use display::Resolution;
+pub use renderer::prepare_ray_tracing_process;
 mod choice_cursor;
 mod draw_order;
 mod field_animation;
@@ -58,6 +62,8 @@ pub use saves::{
     record_checkpoint_with_display, run_menu_probe, run_quicksave_probe, run_title_load_probe,
 };
 mod new_game_capture;
+#[cfg(feature = "solari")]
+pub use new_game_capture::record_modern_new_game;
 mod secondary_motion;
 pub use new_game_capture::{
     record_new_game, record_new_game_display, record_new_game_exploration, record_new_game_until,
@@ -69,9 +75,12 @@ mod playthrough;
 mod scene;
 mod screenshot;
 pub use field_probe::{ClassroomProbe, ParticleProbe};
+#[cfg(feature = "solari")]
+pub use field_view::{ClassroomShowcase, capture_classroom_showcase};
 pub use field_view::{
     FieldMovement, FieldSequence, capture_classroom, capture_classroom_particles,
-    capture_classroom_probe, capture_dialogue, capture_field_sequence, capture_setup,
+    capture_classroom_probe, capture_dialogue, capture_field_sequence, capture_modern_classroom,
+    capture_setup,
 };
 mod timing;
 use audio::{GameAudio, PlaybackAssets};
@@ -84,6 +93,8 @@ use materials::{TitleOutput, TitleText};
 
 #[derive(Resource)]
 pub struct RunOptions {
+    /// Use Bevy Solari for the Iselia classroom when supported by the GPU.
+    pub ray_tracing: bool,
     pub saves: SaveOptions,
     pub assets: PathBuf,
     pub tick: Option<u32>,
@@ -136,6 +147,8 @@ struct CaptureStart(Instant);
 struct Framebuffer(RenderTarget);
 #[derive(Component)]
 struct FieldCamera;
+#[derive(Component)]
+struct FieldOverlayCamera;
 #[derive(Resource, Default)]
 struct PendingInput {
     held: MenuInput,
@@ -205,6 +218,7 @@ fn build_app_with_display(
     mut options: RunOptions,
     resolution: Resolution,
 ) -> Result<(App, Option<PathBuf>)> {
+    let ray_tracing = options.ray_tracing;
     options.skip_intro |= options.saves.load.is_some();
     anyhow::ensure!(
         options.presentation_start.is_none()
@@ -286,6 +300,11 @@ fn build_app_with_display(
     let movie = movie::Playback::load(&assets, &options)?;
     let boot = boot::Playback::load(&assets, &options)?;
     let mut app = App::new();
+    app.insert_resource(if !options.headless() || ray_tracing {
+        hd_textures::Overrides::load(&assets)?
+    } else {
+        hd_textures::Overrides::default()
+    });
     saves::install(&mut app, &options.saves)?;
     loading::install(&mut app, &assets);
     let recording = options.record_playthrough.clone();
@@ -295,6 +314,7 @@ fn build_app_with_display(
         app.init_resource::<playthrough::Recording>();
     }
     let mut plugins = DefaultPlugins
+        .set(renderer::plugin())
         .set(AssetPlugin {
             file_path: assets.to_string_lossy().into_owned(),
             ..default()
@@ -430,6 +450,16 @@ fn build_app_with_display(
         );
     field_warm::install(&mut app);
     renderer::configure(&mut app);
+    #[cfg(feature = "solari")]
+    if ray_tracing {
+        ray_tracing::install(&mut app);
+    }
+    #[cfg(not(feature = "solari"))]
+    if ray_tracing {
+        warn!(
+            "Classroom ray tracing requires a build with the solari feature; using the original renderer"
+        );
+    }
     Ok((app, recording))
 }
 
@@ -542,6 +572,7 @@ fn setup(
             clear_color: ClearColorConfig::None,
             ..default()
         },
+        FieldOverlayCamera,
         camera::overlay_alignment(),
         RenderTarget::Image(source.clone().into()),
         Projection::Orthographic(OrthographicProjection {

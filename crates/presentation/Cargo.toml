@@ -3,6 +3,17 @@ name = "resonance-presentation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+[features]
+solari = ["bevy/bevy_solari", "bevy/bluenoise_texture", "bevy/bevy_anti_alias", "bevy/smaa_luts"]
+
+[[example]]
+name = "solari_probe"
+required-features = ["solari"]
+
+[[example]]
+name = "classroom_showcase"
+required-features = ["solari"]
+
 [dependencies]
 resonance-playback.workspace = true
 resonance-audio-device.workspace = true

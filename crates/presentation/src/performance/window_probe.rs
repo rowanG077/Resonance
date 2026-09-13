@@ -69,6 +69,7 @@ fn run(
     )?;
     let (mut app, _) = crate::build_app_with_display(
         crate::RunOptions {
+            ray_tracing: false,
             saves: Default::default(),
             assets: root.into(),
             tick: compare_output.then_some(920),

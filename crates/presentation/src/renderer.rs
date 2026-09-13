@@ -1,10 +1,27 @@
 //! Scheduling and lighting configuration for Resonance's authored shaders.
+mod process;
 use bevy::{
     ecs::schedule::SingleThreadedExecutor,
     light::cluster::{ClusterConfig, GlobalClusterSettings},
     prelude::*,
     render::{Render, RenderApp, renderer::RenderGraph},
 };
+pub use process::prepare_ray_tracing_process;
+
+pub(super) fn plugin() -> bevy::render::RenderPlugin {
+    use bevy::render::settings::{WgpuFeatures, WgpuSettings};
+    bevy::render::RenderPlugin {
+        render_creation: WgpuSettings {
+            // wgpu 29 detects cooperative matrices from advertised properties,
+            // but Lavapipe/Mesa 26.2 rejects enabling that device feature. It is
+            // unused by our shaders and Solari; ray queries remain enabled.
+            disabled_features: Some(WgpuFeatures::EXPERIMENTAL_COOPERATIVE_MATRIX),
+            ..default()
+        }
+        .into(),
+        ..default()
+    }
+}
 
 pub(super) fn configure(app: &mut App) {
     // These small render schedules spend more time handing work between

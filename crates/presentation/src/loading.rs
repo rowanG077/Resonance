@@ -54,6 +54,7 @@ pub(super) struct Cache {
 }
 struct ReaderAdapter {
     resident: Resident,
+    overrides: Arc<std::collections::BTreeMap<String, Arc<[u8]>>>,
     fallback: Box<dyn ErasedAssetReader>,
 }
 impl AssetReader for ReaderAdapter {
@@ -64,7 +65,8 @@ impl AssetReader for ReaderAdapter {
             .read()
             .unwrap()
             .as_ref()
-            .and_then(|f| f.bytes.get(&path.to_string_lossy().to_string()).cloned());
+            .and_then(|f| f.bytes.get(&path.to_string_lossy().to_string()).cloned())
+            .or_else(|| self.overrides.get(path.to_string_lossy().as_ref()).cloned());
         if let Some(bytes) = bytes {
             self.resident.memory_reads.fetch_add(1, Ordering::Relaxed);
             if self.resident.active.load(Ordering::Acquire) {
@@ -108,12 +110,18 @@ pub(super) fn install(app: &mut App, root: &Path) {
     super::model_preview::register(app, root);
     let resident = Resident::default();
     app.insert_resource(resident.clone());
+    let overrides = app
+        .world()
+        .resource::<super::hd_textures::Overrides>()
+        .bytes
+        .clone();
     let root = root.to_string_lossy().to_string();
     app.register_asset_source(
         AssetSourceId::Default,
         AssetSourceBuilder::new(move || {
             Box::new(ReaderAdapter {
                 resident: resident.clone(),
+                overrides: overrides.clone(),
                 fallback: AssetSource::get_default_reader(root.clone())(),
             })
         }),

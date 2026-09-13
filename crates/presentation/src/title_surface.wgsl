@@ -2,6 +2,17 @@
 #import bevy_pbr::mesh_bindings::mesh
 #import resonance::surface_bindings::{surface_data, sample_primary, sample_secondary, sample_toon}
 
+fn output_color(color: vec4<f32>) -> vec4<f32> {
+#ifdef LINEAR_OUTPUT
+    // Solari composites the retained toon actors/effects into a linear HDR view.
+    let linear = select(color.rgb / 12.92,
+        pow(max((color.rgb + 0.055) / 1.055, vec3(0.0)), vec3(2.4)), color.rgb > vec3(0.04045));
+    return vec4(linear, color.a);
+#else
+    return color;
+#endif
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef BINDLESS
@@ -14,7 +25,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv_offsets = material.uv_offsets;
     let shades = material.shade_colors;
 #ifdef CONSTANT_COLOR
-    return tint;
+    return output_color(tint);
 #else
     var color = vec4<f32>(1.0);
 #ifdef VERTEX_COLORS
@@ -52,6 +63,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     color = vec4<f32>(lit / 255.0, color.a);
 #endif
 #endif
-    return color * tint;
+    return output_color(color * tint);
 #endif
 }

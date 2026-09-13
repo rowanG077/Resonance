@@ -35,6 +35,7 @@ fn fixture() -> App {
             images: Vec::new(),
         })
         .insert_resource(RunOptions {
+            ray_tracing: false,
             saves: Default::default(),
             assets: PathBuf::new(),
             tick: None,

@@ -207,6 +207,18 @@ impl From<&TitleSurface> for SurfaceKey {
 }
 
 impl Material for TitleSurface {
+    // These authored shaders use their own skinning, alpha and projected
+    // shadows. Bevy's stock depth/shadow shaders cannot interpret them. In
+    // particular, the prototype sun must only shadow its StandardMaterials,
+    // not create new stock shadow variants as scripted actors appear.
+    fn enable_shadows() -> bool {
+        false
+    }
+
+    fn enable_prepass() -> bool {
+        false
+    }
+
     fn vertex_shader() -> ShaderRef {
         "embedded://resonance_presentation/title_surface_vertex.wgsl".into()
     }
@@ -227,6 +239,11 @@ impl Material for TitleSurface {
         key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/surface".into());
+        if key.mesh_key.target_format() == bevy::render::render_resource::TextureFormat::Rgba16Float
+            && let Some(fragment) = &mut descriptor.fragment
+        {
+            fragment.shader_defs.push("LINEAR_OUTPUT".into());
+        }
         // Imported triangles have counter-clockwise winding.
         descriptor.primitive.cull_mode = match key.bind_group_data.cull {
             resonance_content::CullFace::Back => Some(Face::Back),

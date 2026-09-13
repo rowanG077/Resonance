@@ -240,8 +240,9 @@ impl Artwork {
         field: &resonance_content::field::FieldAssets,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
+        overrides: &super::hd_textures::Overrides,
     ) -> Result<Self> {
-        Self::load_with(root, field, server, materials, None)
+        Self::load_with(root, field, server, materials, None, overrides)
     }
     pub fn load_with(
         root: &Path,
@@ -249,6 +250,7 @@ impl Artwork {
         server: &AssetServer,
         materials: &mut Assets<Surface>,
         files: Option<&resonance_content::prepared::Files>,
+        overrides: &super::hd_textures::Overrides,
     ) -> Result<Self> {
         let read = |path: &str| -> Result<Vec<u8>> {
             files.map_or_else(
@@ -275,6 +277,10 @@ impl Artwork {
             .chain([font.texture.clone(), spec.cursor.path.clone()])
             .enumerate()
             .map(|(index, path)| {
+                // Atlas coordinates and glyph advances remain in authored
+                // units; normalized UVs address the larger replacement image.
+                let replacement = overrides.path(field.map_id, &path).to_owned();
+                let hd = replacement != path;
                 server
                     .load_builder()
                     .with_settings(move |s: &mut ImageLoaderSettings| {
@@ -282,7 +288,7 @@ impl Artwork {
                         s.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
                             address_mode_u: ImageAddressMode::Repeat,
                             address_mode_v: ImageAddressMode::Repeat,
-                            ..if index < 9 {
+                            ..if index < 9 && !hd {
                                 // Keep frame slices and patterned backgrounds pixel-sharp.
                                 ImageSamplerDescriptor::nearest()
                             } else {
@@ -290,7 +296,7 @@ impl Artwork {
                             }
                         });
                     })
-                    .load(path)
+                    .load(replacement)
             })
             .collect();
         let surfaces: Vec<_> = images

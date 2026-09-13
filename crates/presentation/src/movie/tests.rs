@@ -42,6 +42,7 @@ fn fixture() -> App {
         PathBuf::from,
     );
     let options = RunOptions {
+        ray_tracing: false,
         saves: Default::default(),
         assets: root.clone(),
         tick: None,

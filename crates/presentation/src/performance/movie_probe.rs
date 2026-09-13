@@ -11,6 +11,7 @@ pub fn run_movie_probe(root: &Path, output: &Path, stalls: bool) -> Result<()> {
     std::fs::create_dir_all(output)?;
     let (mut app, _) = crate::build_app_with_display(
         crate::RunOptions {
+            ray_tracing: false,
             saves: Default::default(),
             assets: root.into(),
             tick: None,

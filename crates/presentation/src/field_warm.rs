@@ -26,10 +26,23 @@ const LAYER: usize = 30;
 
 #[derive(Resource, Clone, Default)]
 pub(super) struct Shared(Arc<Mutex<Report>>);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct Draw {
+    entity: MainEntity,
+    /// Scene materials must finish in every supported camera format. UI and
+    /// the live menu backdrop only need their ordinary view.
+    view: Option<MainEntity>,
+}
+impl From<MainEntity> for Draw {
+    fn from(entity: MainEntity) -> Self {
+        Self { entity, view: None }
+    }
+}
 #[derive(Default)]
 struct Report {
     map: Option<u32>,
-    expected: HashSet<MainEntity>,
+    expected: HashSet<Draw>,
+    scene_views: Vec<MainEntity>,
     pipelines: HashSet<CachedRenderPipelineId>,
     armed: bool,
     submitted: bool,
@@ -37,7 +50,28 @@ struct Report {
     failure: Option<String>,
     prepared_pipeline_count: usize,
     seen: usize,
-    missing: Vec<MainEntity>,
+    missing: Vec<Draw>,
+}
+impl Report {
+    fn expect_scene_draw(&mut self, entity: MainEntity) {
+        self.expected
+            .extend(self.scene_views.iter().map(|&view| Draw {
+                entity,
+                view: Some(view),
+            }));
+    }
+
+    fn expected_draw(&self, entity: MainEntity, view: MainEntity) -> Option<Draw> {
+        [
+            Draw {
+                entity,
+                view: Some(view),
+            },
+            entity.into(),
+        ]
+        .into_iter()
+        .find(|draw| self.expected.contains(draw))
+    }
 }
 #[derive(Resource)]
 struct Preparation {
@@ -123,6 +157,7 @@ fn begin(
     ui: Option<Res<super::field_ui::Artwork>>,
     session: Option<Res<super::new_game::Session>>,
     backdrop: Query<Entity, With<super::menu_backdrop::Quad>>,
+    #[cfg(feature = "solari")] modern: Option<Res<super::ray_tracing::State>>,
 ) {
     let Some(art) = art.filter(|a| a.ready) else {
         return;
@@ -148,32 +183,59 @@ fn begin(
         map: Some(art.map),
         ..Default::default()
     };
-    report.expected.insert(backdrop.into());
+    report.expected.insert(MainEntity::from(backdrop).into());
     let target = images.add(Image::new_target_texture(
         64,
         64,
         TextureFormat::Bgra8Unorm,
         None,
     ));
-    entities.push(
-        commands
-            .spawn((
-                Camera3d::default(),
-                Camera {
-                    order: -20,
-                    ..default()
-                },
-                RenderTarget::Image(target.clone().into()),
-                RenderLayers::layer(LAYER),
-                Msaa::Off,
-                Tonemapping::None,
-                Projection::custom(super::camera::TitleProjection(
-                    PerspectiveProjection::default(),
-                )),
-                Transform::from_xyz(0., -1000., 500.).looking_at(Vec3::ZERO, Vec3::Z),
-            ))
-            .id(),
-    );
+    let scene_camera = commands
+        .spawn((
+            Camera3d::default(),
+            Camera {
+                order: -20,
+                ..default()
+            },
+            RenderTarget::Image(target.clone().into()),
+            RenderLayers::layer(LAYER),
+            Msaa::Off,
+            Tonemapping::None,
+            Projection::custom(super::camera::TitleProjection(
+                PerspectiveProjection::default(),
+            )),
+            Transform::from_xyz(0., -1000., 500.).looking_at(Vec3::ZERO, Vec3::Z),
+        ))
+        .id();
+    entities.push(scene_camera);
+    report.scene_views.push(scene_camera.into());
+    // Exercise hidden actor poses, effects and scenery in HDR as well as the
+    // original format before gameplay can reveal them or F6 switches views.
+    #[cfg(feature = "solari")]
+    if let Some(modern) = modern.filter(|_| art.map == 340) {
+        let target = images.add(Image::new_target_texture(
+            64,
+            64,
+            TextureFormat::Bgra8Unorm,
+            None,
+        ));
+        let mut camera = commands.spawn((
+            Camera3d::default(),
+            Camera {
+                order: -21,
+                ..default()
+            },
+            RenderTarget::Image(target.into()),
+            RenderLayers::layer(LAYER),
+            Projection::custom(super::camera::TitleProjection(
+                PerspectiveProjection::default(),
+            )),
+            Transform::from_xyz(0., -1000., 500.).looking_at(Vec3::ZERO, Vec3::Z),
+        ));
+        modern.prepare_view(&mut camera);
+        report.scene_views.push(camera.id().into());
+        entities.push(camera.id());
+    }
     entities.push(
         commands
             .spawn((
@@ -200,7 +262,7 @@ fn begin(
                 NoFrustumCulling,
             ))
             .id();
-        report.expected.insert(entity.into());
+        report.expected.insert(MainEntity::from(entity).into());
         entities.push(entity);
     }
     let mut roots = Vec::new();
@@ -243,7 +305,7 @@ fn begin(
                                     preparation.converted -= 1;
                                     let mut report = shared.0.lock().unwrap();
                                     for entity in scene.draws.drain(..) {
-                                        report.expected.remove(&entity);
+                                        report.expected.retain(|draw| draw.entity != entity);
                                     }
                                     report.armed = false;
                                     report.submitted = false;
@@ -264,7 +326,7 @@ fn begin(
     info!(
         "Field {} warming {scene_count} scene variants and {} UI layers",
         art.map,
-        entities.len() - 2
+        ui.prepared_layers().count()
     );
     commands.insert_resource(Preparation {
         map: art.map,
@@ -313,7 +375,7 @@ fn convert(
                     .entity(child)
                     .remove::<MeshMaterial3d<StandardMaterial>>()
                     .insert(MeshMaterial3d(prepared.clone()));
-                report.expected.insert(child.into());
+                report.expect_scene_draw(child.into());
                 scene.draws.push(child.into());
             }
         }
@@ -356,7 +418,7 @@ fn effects(
             ))
             .id();
         preparation.entities.push(entity);
-        report.expected.insert(entity.into());
+        report.expect_scene_draw(entity.into());
     }
     preparation.effects_copied = true;
 }
@@ -398,7 +460,7 @@ fn complete(
             report.submitted
         );
         for id in report.missing.iter().take(3) {
-            info!("Missing warm draw {id:?}: {:?}", names.get(id.id()));
+            info!("Missing warm draw {id:?}: {:?}", names.get(id.entity.id()));
         }
     }
     if let Some(error) = &report.failure {
@@ -507,14 +569,26 @@ fn rendered(
         return;
     }
     let mut seen = HashSet::new();
-    for (entity, pipeline) in draws(&phases3, &phases2) {
-        if report.expected.contains(&entity) {
+    let models = phases3.0.iter().flat_map(|(view, phase)| {
+        phase
+            .items
+            .values()
+            .map(move |p| (view.main_entity, p.entity.1, p.pipeline))
+    });
+    let ui = phases2.0.iter().flat_map(|(view, phase)| {
+        phase
+            .items
+            .values()
+            .map(move |p| (view.main_entity, p.entity.1, p.pipeline))
+    });
+    for (view, entity, pipeline) in models.chain(ui) {
+        if let Some(draw) = report.expected_draw(entity, view) {
             report.pipelines.insert(pipeline);
             if matches!(
                 cache.get_render_pipeline_state(pipeline),
                 CachedPipelineState::Ok(_)
             ) {
-                seen.insert(entity);
+                seen.insert(draw);
             }
         }
     }
@@ -527,7 +601,10 @@ fn rendered(
         report.failure = Some(format!("render pipeline failed: {:?}", pipeline.state));
         return;
     }
-    if !report.expected.is_empty() && seen == report.expected {
+    if !report.expected.is_empty()
+        && seen == report.expected
+        && relevant().all(|p| matches!(p.state, CachedPipelineState::Ok(_)))
+    {
         report.prepared_pipeline_count = count;
         report.submitted = true;
         let done = report.completed.clone();
@@ -550,4 +627,37 @@ pub(super) fn draws<'a>(
             .flat_map(|p| p.items.values())
             .map(|p| (p.entity.1, p.pipeline));
     models.chain(ui)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_scene_draw_must_finish_in_both_original_and_hdr_views() {
+        let mut world = World::new();
+        let original = MainEntity::from(world.spawn_empty().id());
+        let hdr = MainEntity::from(world.spawn_empty().id());
+        let live = MainEntity::from(world.spawn_empty().id());
+        let mesh = MainEntity::from(world.spawn_empty().id());
+        let ui = MainEntity::from(world.spawn_empty().id());
+        let mut report = Report {
+            scene_views: vec![original, hdr],
+            ..Default::default()
+        };
+        report.expect_scene_draw(mesh);
+        report.expected.insert(ui.into());
+        let mut seen: HashSet<_> = [
+            report.expected_draw(mesh, original).unwrap(),
+            report.expected_draw(ui, live).unwrap(),
+        ]
+        .into();
+        // Rendering the same mesh in the original view again cannot satisfy
+        // its missing HDR specialization, nor can an unrelated live view.
+        seen.insert(report.expected_draw(mesh, original).unwrap());
+        assert!(report.expected_draw(mesh, live).is_none());
+        assert_ne!(seen, report.expected);
+        seen.insert(report.expected_draw(mesh, hdr).unwrap());
+        assert_eq!(seen, report.expected);
+    }
 }

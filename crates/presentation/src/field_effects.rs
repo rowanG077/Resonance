@@ -42,14 +42,20 @@ impl Artwork {
     pub fn mouth_frame(&self, age: u32) -> u8 {
         self.spec.mouth_cycle[age as usize % self.spec.mouth_cycle.len()]
     }
-    pub fn load(root: &Path, field: &FieldAssets, server: &AssetServer) -> Result<Self> {
-        Self::load_with(root, field, server, None)
+    pub fn load(
+        root: &Path,
+        field: &FieldAssets,
+        server: &AssetServer,
+        overrides: &super::hd_textures::Overrides,
+    ) -> Result<Self> {
+        Self::load_with(root, field, server, None, overrides)
     }
     pub fn load_with(
         root: &Path,
         field: &FieldAssets,
         server: &AssetServer,
         files: Option<&resonance_content::prepared::Files>,
+        overrides: &super::hd_textures::Overrides,
     ) -> Result<Self> {
         let spec: FieldEffects = if let Some(files) = files {
             files.json(&field.effects)?
@@ -89,6 +95,8 @@ impl Artwork {
             .iter()
             .enumerate()
             .map(|(index, path)| {
+                let replacement = overrides.path(field.map_id, path).to_owned();
+                let hd = replacement != *path;
                 server
                     .load_builder()
                     .with_settings(move |s: &mut ImageLoaderSettings| {
@@ -99,13 +107,17 @@ impl Artwork {
                             ImageSampler::Descriptor(ImageSamplerDescriptor {
                                 address_mode_u: ImageAddressMode::Repeat,
                                 address_mode_v: ImageAddressMode::Repeat,
-                                ..ImageSamplerDescriptor::nearest()
+                                ..if hd {
+                                    ImageSamplerDescriptor::linear()
+                                } else {
+                                    ImageSamplerDescriptor::nearest()
+                                }
                             })
                         } else {
                             ImageSampler::linear()
                         };
                     })
-                    .load(path.clone())
+                    .load(replacement)
             })
             .collect();
         let layers = vec![None; textures.len()];
@@ -152,8 +164,8 @@ impl Artwork {
             let mesh = meshes.add(batch.mesh());
             let surface = surfaces.add(TitleSurface {
                 color: Some(self.textures[index].clone()),
-                // The UI shares the status atlas with nearest filtering. Reuse
-                // the prepared emote sampler for smooth world-space symbols.
+                // The UI shares the status atlas. Reuse the prepared emote
+                // sampler for smooth world-space symbols in either art set.
                 sampling: Some(self.textures[if index == STATUS { EMOTES } else { index }].clone()),
                 blend: true,
                 additive: self.additive[index],

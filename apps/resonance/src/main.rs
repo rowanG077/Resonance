@@ -7,6 +7,9 @@ use std::path::PathBuf;
 struct Args {
     #[arg(long, default_value = "local/cooked")]
     assets: PathBuf,
+    /// Use the original classroom renderer instead of Bevy Solari (F6 toggles in game).
+    #[arg(long)]
+    no_ray_tracing: bool,
     /// Directory for normal saves and development quicksave slots.
     #[arg(long)]
     save_directory: Option<PathBuf>,
@@ -71,6 +74,9 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    if !args.no_ray_tracing && args.record_music.is_none() {
+        resonance_presentation::prepare_ray_tracing_process()?;
+    }
     if let Some(output) = &args.record_music {
         return resonance_presentation::record_title_music(
             &args.assets,
@@ -82,6 +88,7 @@ fn main() -> anyhow::Result<()> {
     }
     resonance_presentation::run_with_display(
         resonance_presentation::RunOptions {
+            ray_tracing: !args.no_ray_tracing,
             saves: resonance_presentation::SaveOptions {
                 directory: args.save_directory,
                 quick_slot: args.quick_slot,

@@ -3,6 +3,9 @@
 mod sequence;
 #[path = "field_shadow.rs"]
 mod shadows;
+#[cfg(feature = "solari")]
+#[path = "field_showcase.rs"]
+mod showcase;
 use super::{
     camera::TitleProjection,
     draw_order::{DrawOrder, DrawOrderPlugin},
@@ -25,12 +28,14 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 use resonance_content::{
-    ANIMATION_HZ, HEIGHT, SCENE_HEIGHT, ScenePart, TextureBinding, WIDTH,
+    ANIMATION_HZ, ScenePart, TextureBinding,
     field::{FieldAssets, SCENERY_RESOURCE_BASE},
 };
 use resonance_events::{Face, effect::LightPosition};
 use resonance_game::field::{FieldInput, FieldSession};
 pub use sequence::{FieldMovement, FieldSequence};
+#[cfg(feature = "solari")]
+pub use showcase::ClassroomShowcase;
 use std::{
     collections::BTreeMap,
     fs,
@@ -99,6 +104,7 @@ impl Plugin for FieldRendering {
         super::menu_backdrop::install(app);
         super::model_preview::install(app);
         app.init_resource::<super::display::Display>()
+            .init_resource::<super::hd_textures::Overrides>()
             .add_plugins(Material2dPlugin::<super::field_ui::Surface>::default())
             .init_resource::<Applied>()
             .init_resource::<super::field_pose::Authored>()
@@ -402,6 +408,7 @@ fn load_live(
     resident: Res<super::loading::Resident>,
     mut controls: ResMut<Controls>,
     mut retained: ResMut<RetainedFields>,
+    overrides: Res<super::hd_textures::Overrides>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Some(session) = session else {
@@ -426,6 +433,7 @@ fn load_live(
         &server,
         &mut materials,
         files.as_deref(),
+        &overrides,
     ) {
         Ok(ui) => ui,
         Err(error) => {
@@ -440,6 +448,7 @@ fn load_live(
         &session.assets,
         &server,
         files.as_deref(),
+        &overrides,
     ) {
         Ok(effects) => effects,
         Err(error) => {
@@ -451,7 +460,7 @@ fn load_live(
     effects.prepare(&mut commands, &mut meshes, &mut surfaces);
     commands.insert_resource(effects);
     commands.insert_resource(ui);
-    commands.insert_resource(load_art(&session.assets, &server));
+    commands.insert_resource(load_art(&session.assets, &server, &overrides));
     controls.input.interact = false;
     controls.input.cancel = false;
 }
@@ -763,6 +772,21 @@ fn ui(
 pub fn capture_classroom(root: &Path, output: &Path, tick: Option<u32>) -> Result<()> {
     capture_field(root, output, CaptureTarget::Tick(tick))
 }
+/// Preview the classroom prototype with local HD overrides and optional Solari.
+/// Unsupported GPUs use Bevy PBR lighting, as in the interactive player.
+pub fn capture_modern_classroom(root: &Path, output: &Path, ray_tracing: bool) -> Result<()> {
+    capture_field(root, output, CaptureTarget::Modern(ray_tracing))
+}
+/// Accumulate frozen script states with actual ray tracing, then save each frame.
+#[cfg(feature = "solari")]
+pub fn capture_classroom_showcase(
+    root: &Path,
+    output: &Path,
+    spec: &ClassroomShowcase,
+) -> Result<()> {
+    spec.validate()?;
+    capture_field(root, output, CaptureTarget::Showcase(spec))
+}
 /// Isolate registered observer positions and authored clip phases for diagnosis.
 pub fn capture_classroom_probe(
     root: &Path,
@@ -818,6 +842,9 @@ pub fn capture_dialogue(
 }
 #[derive(Clone, Copy)]
 enum CaptureTarget<'a> {
+    Modern(bool),
+    #[cfg(feature = "solari")]
+    Showcase(&'a ClassroomShowcase),
     Tick(Option<u32>),
     Probe(&'a super::ClassroomProbe),
     Particles(&'a super::ParticleProbe),
@@ -831,6 +858,16 @@ enum CaptureTarget<'a> {
         u32,
         Option<&'a resonance_content::menu_data::CustomizeSettings>,
     ),
+}
+impl CaptureTarget<'_> {
+    fn modern(self) -> Option<bool> {
+        match self {
+            Self::Modern(ray_tracing) => Some(ray_tracing),
+            #[cfg(feature = "solari")]
+            Self::Showcase(_) => Some(true),
+            _ => None,
+        }
+    }
 }
 fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Result<()> {
     let setup_prompt = matches!(target, CaptureTarget::Setup(..));
@@ -897,10 +934,13 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
                 .any(|p| target_dialogue(p) && p.fully_revealed() && p.accepts_input())
         } else {
             match target {
+                #[cfg(feature = "solari")]
+                CaptureTarget::Showcase(spec) => spec.reached_start(session),
                 CaptureTarget::Tick(Some(tick)) | CaptureTarget::Setup(tick, _) => {
                     session.events.tick() >= tick
                 }
                 CaptureTarget::Tick(None)
+                | CaptureTarget::Modern(_)
                 | CaptureTarget::Probe(_)
                 | CaptureTarget::Dialogue(..) => session.events.world.input_enabled,
                 CaptureTarget::Particles(probe) => particle_probe_start.is_some_and(|start| {
@@ -983,10 +1023,37 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
             )?);
         party.settings.preferences = preferences.clone();
     }
+    #[cfg(feature = "solari")]
+    let showcase_director = if let CaptureTarget::Showcase(spec) = target {
+        Some(showcase::seek(&mut session, spec)?)
+    } else {
+        None
+    };
+    #[cfg(feature = "solari")]
+    if let CaptureTarget::Showcase(spec) = target
+        && spec.plan_only
+    {
+        return showcase::plan(session, output, spec, showcase_director.unwrap());
+    }
     let mut app = App::new();
+    if target.modern().is_some() {
+        app.insert_resource(super::hd_textures::Overrides::load(&root)?);
+        app.insert_resource(super::display::Display(super::Resolution {
+            width: 1280,
+            height: 960,
+        }));
+    }
+    #[cfg(feature = "solari")]
+    if let CaptureTarget::Showcase(spec) = target {
+        app.insert_resource(super::display::Display(super::Resolution {
+            width: spec.resolution[0],
+            height: spec.resolution[1],
+        }));
+    }
     super::model_preview::register(&mut app, &root);
     app.add_plugins(
         DefaultPlugins
+            .set(super::renderer::plugin())
             .set(AssetPlugin {
                 file_path: root.to_string_lossy().into_owned(),
                 ..default()
@@ -1040,6 +1107,15 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
     bevy::shader::load_shader_library!(&mut app, "surface_bindings.wgsl");
     super::renderer::configure(&mut app);
+    #[cfg(feature = "solari")]
+    if target.modern() == Some(true) {
+        super::ray_tracing::install(&mut app);
+    }
+    #[cfg(not(feature = "solari"))]
+    ensure!(
+        target.modern() != Some(true),
+        "build with --features solari for ray tracing"
+    );
     bevy::asset::embedded_asset!(app, "title_output.wgsl");
     let ready = super::RenderReady::default();
     app.insert_resource(ready.clone());
@@ -1053,6 +1129,12 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     if let CaptureTarget::Sequence(sequence) = target {
         sequence::install(&mut app, output, sequence)?;
     }
+    #[cfg(feature = "solari")]
+    if let CaptureTarget::Showcase(spec) = target {
+        // The showcase owns screenshot timing and its longer sample budget.
+        app.world_mut().resource_mut::<Checkpoint>().requested = true;
+        showcase::install(&mut app, output, spec, showcase_director.unwrap())?;
+    }
     ensure!(app.run() == AppExit::Success, "classroom capture failed");
     Ok(())
 }
@@ -1062,7 +1144,9 @@ fn setup(
     mut commands: Commands,
     server: Res<AssetServer>,
     manifest: Res<Manifest>,
+    overrides: Res<super::hd_textures::Overrides>,
     session: Res<Session>,
+    display: Res<super::display::Display>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
@@ -1070,23 +1154,39 @@ fn setup(
     mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
 ) {
-    let mut effects = super::field_effects::Artwork::load(&root.0, &manifest.0, &server)
-        .expect("validated cooked field effects");
+    let mut effects =
+        super::field_effects::Artwork::load(&root.0, &manifest.0, &server, &overrides)
+            .expect("validated cooked field effects");
     effects.prepare(&mut commands, &mut meshes, &mut surfaces);
     commands.insert_resource(effects);
-    let mut ui = super::field_ui::Artwork::load(&root.0, &manifest.0, &server, &mut ui_materials)
-        .expect("validated cooked dialogue artwork");
+    let mut ui = super::field_ui::Artwork::load(
+        &root.0,
+        &manifest.0,
+        &server,
+        &mut ui_materials,
+        &overrides,
+    )
+    .expect("validated cooked dialogue artwork");
     ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
     commands.insert_resource(ui);
-    let mut final_image =
-        Image::new_target_texture(WIDTH, HEIGHT, TextureFormat::Bgra8UnormSrgb, None);
+    let canvas = display.0.ui_size();
+    let mut final_image = Image::new_target_texture(
+        display.0.width,
+        display.0.height,
+        TextureFormat::Bgra8UnormSrgb,
+        None,
+    );
     final_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let final_image = images.add(final_image);
     commands.insert_resource(super::Framebuffer(RenderTarget::Image(
         final_image.clone().into(),
     )));
-    let mut source =
-        Image::new_target_texture(WIDTH, SCENE_HEIGHT, TextureFormat::Bgra8Unorm, None);
+    let mut source = Image::new_target_texture(
+        display.0.width,
+        display.0.scene_height(),
+        TextureFormat::Bgra8Unorm,
+        None,
+    );
     source.sampler = ImageSampler::linear();
     source.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let source = images.add(source);
@@ -1099,18 +1199,19 @@ fn setup(
             clear_color: ClearColorConfig::None,
             ..default()
         },
+        super::FieldOverlayCamera,
         RenderTarget::Image(source.clone().into()),
         super::camera::overlay_alignment(),
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::Fixed {
-                width: WIDTH as f32,
-                height: HEIGHT as f32,
+                width: canvas.x,
+                height: canvas.y,
             },
             ..OrthographicProjection::default_2d()
         }),
     ));
     commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(WIDTH as f32, HEIGHT as f32))),
+        Mesh2d(meshes.add(Rectangle::new(canvas.x, canvas.y))),
         MeshMaterial2d(outputs.add(TitleOutput {
             source: source.clone(),
             brightness: Vec4::new(1., 0., 0., 0.),
@@ -1130,8 +1231,8 @@ fn setup(
         RenderTarget::Image(final_image.into()),
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::Fixed {
-                width: WIDTH as f32,
-                height: HEIGHT as f32,
+                width: canvas.x,
+                height: canvas.y,
             },
             ..OrthographicProjection::default_2d()
         }),
@@ -1162,10 +1263,14 @@ fn setup(
             ..default()
         })),
     ));
-    commands.insert_resource(load_art(&manifest.0, &server));
+    commands.insert_resource(load_art(&manifest.0, &server, &overrides));
 }
 
-fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
+fn load_art(
+    manifest: &FieldAssets,
+    server: &AssetServer,
+    overrides: &super::hd_textures::Overrides,
+) -> Art {
     let loads = super::loading::LoadTasks::default();
     let mut models = BTreeMap::new();
     for (resource, parts) in manifest
@@ -1192,7 +1297,11 @@ fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
                             .load_builder()
                             .with_guard(loads.ticket())
                             .with_settings(|s: &mut ImageLoaderSettings| s.is_srgb = false)
-                            .load(spec.textures[b.texture].clone()),
+                            .load(
+                                overrides
+                                    .path(manifest.map_id, &spec.textures[b.texture])
+                                    .to_owned(),
+                            ),
                         b.clone(),
                     )
                 };

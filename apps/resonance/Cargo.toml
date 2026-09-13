@@ -3,6 +3,10 @@ name = "resonance"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+[features]
+default = ["solari"]
+solari = ["resonance-presentation/solari"]
+
 [dependencies]
 resonance-presentation.workspace = true
 clap.workspace = true

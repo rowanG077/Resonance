@@ -35,7 +35,7 @@ pub fn record_new_game_until(
         gamepad,
         stop_at,
         input_replay,
-        Resolution::default(),
+        Visuals::default(),
         None,
     )
 }
@@ -52,7 +52,7 @@ pub fn record_new_game_exploration(
         false,
         None,
         None,
-        Resolution::default(),
+        Visuals::default(),
         Some(replay),
     )
 }
@@ -64,7 +64,49 @@ pub fn record_new_game_display(
     resolution: Resolution,
     stop_at: &str,
 ) -> Result<()> {
-    record(root, output, false, Some(stop_at), None, resolution, None)
+    record(
+        root,
+        output,
+        false,
+        Some(stop_at),
+        None,
+        Visuals {
+            resolution,
+            modern: false,
+            skip_movie: false,
+        },
+        None,
+    )
+}
+
+/// Exercise the prototype through the real story movie and classroom opening.
+#[cfg(feature = "solari")]
+pub fn record_modern_new_game(
+    root: &Path,
+    output: &Path,
+    stop_at: Option<&str>,
+    skip_movie: bool,
+) -> Result<()> {
+    record(
+        root,
+        output,
+        false,
+        stop_at,
+        None,
+        Visuals {
+            modern: true,
+            skip_movie,
+            ..Default::default()
+        },
+        None,
+    )
+}
+
+#[derive(Default)]
+struct Visuals {
+    resolution: Resolution,
+    modern: bool,
+    skip_movie: bool,
 }
 
 fn record(
@@ -73,9 +115,14 @@ fn record(
     gamepad: bool,
     stop_at: Option<&str>,
     input_replay: Option<&resonance_game::field::replay::InputReplay>,
-    resolution: Resolution,
+    visuals: Visuals,
     exploration: Option<&crate::CheckpointReplay>,
 ) -> Result<()> {
+    let Visuals {
+        resolution,
+        modern,
+        skip_movie,
+    } = visuals;
     if let Some(replay) = input_replay {
         replay.validate()?;
     }
@@ -116,6 +163,7 @@ fn record(
     fs::create_dir_all(output)?;
     let (mut app, _) = build_app_with_display(
         RunOptions {
+            ray_tracing: modern,
             saves: crate::SaveOptions {
                 directory: Some(output.join("slots")),
                 ..Default::default()
@@ -211,7 +259,13 @@ fn record(
         );
         let title_tick = app.world().resource::<Menu>().0.tick;
         let mut keys = Vec::new();
-        if !app.world().contains_resource::<new_game::Session>() {
+        if skip_movie && app.world().resource::<movie::Playback>().active {
+            // Exercise the player's existing movie-skip input and handoff.
+            // Releasing between presses also covers its initial-input latch.
+            if step.is_multiple_of(4) {
+                keys.push(KeyCode::Enter);
+            }
+        } else if !app.world().contains_resource::<new_game::Session>() {
             if matches!(title_tick, 1 | 80) {
                 keys.push(KeyCode::Enter);
             }
@@ -382,6 +436,33 @@ fn record(
                     f32::from(keys.contains(&key)),
                 )));
             }
+        } else if modern {
+            // Raw events preserve just_pressed through Bevy's InputSystems,
+            // which the real movie-skip handler needs (held keys do not).
+            use bevy::input::{
+                ButtonState,
+                keyboard::{Key, KeyboardInput, NativeKey},
+            };
+            let input = app.world().resource::<ButtonInput<KeyCode>>();
+            let events: Vec<_> = BUTTONS
+                .iter()
+                .filter_map(|&(key, _)| {
+                    let pressed = keys.contains(&key);
+                    (input.pressed(key) != pressed).then_some(KeyboardInput {
+                        key_code: key,
+                        logical_key: Key::Unidentified(NativeKey::Unidentified),
+                        state: if pressed {
+                            ButtonState::Pressed
+                        } else {
+                            ButtonState::Released
+                        },
+                        text: None,
+                        repeat: false,
+                        window: Entity::PLACEHOLDER,
+                    })
+                })
+                .collect();
+            app.world_mut().write_message_batch(events);
         } else {
             let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
             for (key, _) in BUTTONS {
@@ -670,6 +751,12 @@ fn record(
             .world()
             .resource::<movie::Playback>()
             .completed_naturally
+            && !(skip_movie
+                && app
+                    .world()
+                    .get_resource::<new_game::Session>()
+                    .is_some_and(|s| s.assets.map_id == 340 && s.ready_for_field)
+                && !app.world().resource::<movie::Playback>().active)
         {
             thread::sleep(
                 Duration::from_secs_f64((step + 1) as f64 / resonance_game::clock::UPDATE_HZ)
@@ -732,7 +819,9 @@ fn record(
         "classroom-exit-complete",
     ] {
         anyhow::ensure!(
-            stop_at.is_some() || shots.contains(required),
+            stop_at.is_some()
+                || (skip_movie && matches!(required, "story-movie" | "story-subtitles"))
+                || shots.contains(required),
             "New Game missed checkpoint {required}"
         );
     }
@@ -769,6 +858,8 @@ fn record(
         "output_stage":app.world().resource::<display::OutputStage>(),
         "diagnostic_stop_at":stop_at,
         "resolution":resolution,
+        "modern_classroom":modern,
+        "skip_movie":skip_movie,
         "native_oracle_size":resolution == Resolution::default(),
         "input_replay":input_replay,
         "input_replay_anchor_tick":input_replay_start,

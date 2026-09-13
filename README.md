@@ -76,6 +76,15 @@ Omit it to hear the game. Use `--assets PATH` for another cooked directory and
 `--skip-intro` to enter the title directly. The classroom's opening speech is
 intentionally shown over black; advance it to reveal the room.
 
+The classroom currently defaults to a [modern lighting prototype](docs/classroom-prototype.md)
+using Bevy Solari where supported, with PBR lighting and shadow maps as a fallback.
+F6 toggles the original lighting; `--no-ray-tracing` disables the prototype.
+`tools/ray-tracing/lavapipe.sh` captures the actual ray-traced classroom on the CPU,
+skipping the movie and title menu; the image is `local/raytraced-classroom.png`.
+The player and Solari examples apply the aarch64 Linux driver workarounds on
+startup, including bypassing Mesa's disk shader cache to avoid its JIT crash.
+Prepared HD classroom/NPC overrides load automatically when present.
+
 Resolution defaults to 640×480 and stays fixed until restart. Resizing and
 maximizing are disabled; compositor-imposed sizes letterbox the retained image.
 Wide resolutions expand the camera horizontally and keep UI in a centered 4:3

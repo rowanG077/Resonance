@@ -55,6 +55,9 @@ struct Settings {
 #[derive(Component, Clone, ExtractComponent)]
 struct Atlas(Handle<Image>);
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct RefractionPass;
+
 pub(super) fn install(app: &mut App) {
     let ready = Ready::default();
     bevy::asset::embedded_asset!(app, "field_refraction.wgsl");
@@ -72,7 +75,12 @@ pub(super) fn install(app: &mut App) {
     app.sub_app_mut(RenderApp)
         .insert_resource(ready)
         .add_systems(RenderStartup, prepare)
-        .add_systems(Core3d, render.in_set(Core3dSystems::PostProcess));
+        .add_systems(
+            Core3d,
+            render
+                .in_set(Core3dSystems::PostProcess)
+                .in_set(RefractionPass),
+        );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -142,6 +150,7 @@ struct Pipeline {
     layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     id: CachedRenderPipelineId,
+    hdr_id: CachedRenderPipelineId,
 }
 fn prepare(
     mut commands: Commands,
@@ -163,21 +172,25 @@ fn prepare(
             ),
         ),
     );
-    let id = cache.queue_render_pipeline(RenderPipelineDescriptor {
-        label: Some("resonance/refraction".into()),
-        layout: vec![layout.clone()],
-        vertex: fullscreen.to_vertex_state(),
-        fragment: Some(FragmentState {
-            shader: server.load("embedded://resonance_presentation/field_refraction.wgsl"),
-            targets: vec![Some(ColorTargetState {
-                format: TextureFormat::Bgra8Unorm,
-                blend: None,
-                write_mask: ColorWrites::ALL,
-            })],
+    let pipeline = |format| {
+        cache.queue_render_pipeline(RenderPipelineDescriptor {
+            label: Some("resonance/refraction".into()),
+            layout: vec![layout.clone()],
+            vertex: fullscreen.to_vertex_state(),
+            fragment: Some(FragmentState {
+                shader: server.load("embedded://resonance_presentation/field_refraction.wgsl"),
+                targets: vec![Some(ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })],
+                ..default()
+            }),
             ..default()
-        }),
-        ..default()
-    });
+        })
+    };
+    let id = pipeline(TextureFormat::Bgra8Unorm);
+    let hdr_id = pipeline(TextureFormat::Rgba16Float);
     commands.insert_resource(Pipeline {
         layout,
         sampler: device.create_sampler(&SamplerDescriptor {
@@ -186,6 +199,7 @@ fn prepare(
             ..default()
         }),
         id,
+        hdr_id,
     });
 }
 
@@ -212,7 +226,12 @@ fn render(
     mut context: RenderContext,
 ) {
     let (target, depth, settings, atlas, index) = view.into_inner();
-    let Some(gpu_pipeline) = cache.get_render_pipeline(pipeline.id) else {
+    let id = if target.main_texture_format() == TextureFormat::Rgba16Float {
+        pipeline.hdr_id
+    } else {
+        pipeline.id
+    };
+    let Some(gpu_pipeline) = cache.get_render_pipeline(id) else {
         return;
     };
     let Some(atlas) = images.get(&atlas.0) else {
