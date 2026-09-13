@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/resonance", "apps/resonance-import", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence"]
+members = ["apps/resonance", "apps/resonance-import", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,6 +19,8 @@ resonance-audio = { path = "crates/audio" }
 thiserror = "2"
 symphonia-script = { path = "crates/symphonia-script" }
 symphonia-script-vm = { path = "crates/symphonia-script-vm" }
+symphonia-script-compiler = { path = "crates/symphonia-script-compiler" }
+symphonia-script-tools = { path = "crates/symphonia-script-tools" }
 resonance-events = { path = "crates/resonance-events" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
