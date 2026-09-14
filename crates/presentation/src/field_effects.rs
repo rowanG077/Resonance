@@ -25,6 +25,12 @@ const STATUS: usize = 1;
 #[derive(Component)]
 pub(super) struct EffectDraw;
 
+/// Head symbols already ignore scene depth and belong above scene lighting.
+#[derive(Component)]
+pub(super) struct HeadSymbol {
+    pub material: Handle<TitleSurface>,
+}
+
 #[derive(Resource)]
 pub(super) struct Artwork {
     spec: FieldEffects,
@@ -178,7 +184,7 @@ impl Artwork {
             let entity = commands
                 .spawn((
                     Mesh3d(mesh.clone()),
-                    MeshMaterial3d(surface),
+                    MeshMaterial3d(surface.clone()),
                     Transform::default(),
                     Visibility::Hidden,
                     NoFrustumCulling,
@@ -194,6 +200,11 @@ impl Artwork {
                     ),
                 ))
                 .id();
+            if index <= STATUS {
+                commands
+                    .entity(entity)
+                    .insert(HeadSymbol { material: surface });
+            }
             self.layers[index] = Some((entity, mesh));
         }
     }

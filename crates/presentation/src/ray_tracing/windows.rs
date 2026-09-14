@@ -39,7 +39,9 @@ pub(super) fn sync(
             .material
             .get_or_insert_with(|| {
                 materials.add(StandardMaterial {
-                    emissive: LinearRgba::rgb(22000., 24000., 28000.),
+                    // Cooler skylight separates sheltered surfaces from the
+                    // golden sun while keeping the classroom inviting.
+                    emissive: LinearRgba::rgb(26000., 30000., 38000.),
                     ..default()
                 })
             })

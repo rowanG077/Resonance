@@ -5,6 +5,7 @@ pub(super) mod denoise;
 mod matte;
 mod mesh;
 mod output;
+mod symbols;
 mod windows;
 
 use super::{
@@ -33,6 +34,7 @@ use bevy::{
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         render_resource::{BlendState, TextureUsages},
         renderer::{RenderAdapterInfo, RenderDevice},
+        view::{ColorGrading, ColorGradingGlobal},
     },
     solari::prelude::{RaytracingMesh3d, SolariLighting, SolariPlugins},
 };
@@ -62,6 +64,16 @@ impl State {
                 preset: SmaaPreset::Ultra,
             },
             Tonemapping::ReinhardLuminance,
+            // A bright, painted daylight palette. Grade only this 3D camera;
+            // the separate dialogue compositor retains its authored colors.
+            ColorGrading {
+                global: ColorGradingGlobal {
+                    exposure: 0.6,
+                    post_saturation: 1.15,
+                    ..default()
+                },
+                ..default()
+            },
         ));
         if self.supported {
             camera.insert((
@@ -116,7 +128,7 @@ pub(super) fn install(app: &mut App) {
     );
     app.add_systems(
         PostUpdate,
-        (actors::sync, windows::sync)
+        (actors::sync, windows::sync, symbols::sync)
             .after(sync)
             .after(bevy::transform::TransformSystems::Propagate)
             .before(bevy::asset::AssetEventSystems),
@@ -212,15 +224,19 @@ fn activate(
                     TemporalJitter,
                     MipBias,
                 )>()
-                .insert((CameraMainTextureUsages::default(), Tonemapping::None));
+                .insert((
+                    CameraMainTextureUsages::default(),
+                    Tonemapping::None,
+                    ColorGrading::default(),
+                ));
         }
     }
     if active && !state.active {
         commands.spawn((
             Lighting,
             DirectionalLight {
-                color: Color::srgb(1., 0.93, 0.82),
-                illuminance: 16000.,
+                color: Color::srgb(1., 0.93, 0.78),
+                illuminance: 19000.,
                 shadow_maps_enabled: !state.supported,
                 ..default()
             },
@@ -245,7 +261,7 @@ fn activate(
                 Lighting,
                 RaytracingMesh3d(meshes.add(panel)),
                 MeshMaterial3d(materials.add(StandardMaterial {
-                    emissive: LinearRgba::rgb(450., 495., 570.),
+                    emissive: LinearRgba::rgb(650., 715., 845.),
                     ..default()
                 })),
                 Transform::from_xyz(-290., -25., 380.).looking_to(Vec3::Z, Vec3::Y),
@@ -536,6 +552,14 @@ mod tests {
                     preset: SmaaPreset::Ultra,
                 },
                 Tonemapping::ReinhardLuminance,
+                ColorGrading {
+                    global: ColorGradingGlobal {
+                        exposure: 0.6,
+                        post_saturation: 1.15,
+                        ..default()
+                    },
+                    ..default()
+                },
                 CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING),
             ))
             .id();
@@ -565,6 +589,9 @@ mod tests {
             *app.world().get::<Tonemapping>(camera).unwrap(),
             Tonemapping::None
         );
+        let grading = app.world().get::<ColorGrading>(camera).unwrap();
+        assert_eq!(grading.global.exposure, 0.);
+        assert_eq!(grading.global.post_saturation, 1.);
         assert!(app.world().get_entity(light).is_err());
         assert!(!app.world().resource::<State>().active);
         let camera = app.world().get::<Camera>(overlay).unwrap();

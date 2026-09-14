@@ -13,6 +13,18 @@ between modern lighting and the authored renderer. Other maps retain their
 original rendering. `--no-ray-tracing` starts with the authored renderer and does
 not install the prototype.
 
+The modern view favors a bright, painted daylight palette: golden direct sun,
+cooler skylight from the windows and a modest ceiling bounce to keep faces
+readable in shade. A 0.6-stop exposure lift and 15% saturation boost apply to the
+3D camera before the separate dialogue compositor. Window and contact shadows
+remain visible, and the matte character materials retain their diffuse shading.
+F6 and leaving the classroom reset the color grade with the modern lighting.
+Head emotes and status symbols are projected into the ungraded dialogue overlay,
+preserving their world-space anchors, HD artwork and opacity. Their colors bypass
+scene tone mapping and grading, including the HD pack's intended RGB 231/232/231
+bubble fill. No white-point correction or texture edits are applied. The original 3D
+bindings remain available and warmed for F6 and other maps.
+
 ```sh
 cargo run -p resonance -- --silent --skip-intro --resolution 1600x1200
 ```

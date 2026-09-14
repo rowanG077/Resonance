@@ -387,12 +387,20 @@ fn convert(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn effects(
     mut commands: Commands,
     preparation: Option<ResMut<Preparation>>,
     shared: Res<Shared>,
     art: Option<Res<Art>>,
-    meshes: Query<(&Mesh3d, &MeshMaterial3d<TitleSurface>), With<super::field_effects::EffectDraw>>,
+    meshes: Query<
+        (
+            &Mesh3d,
+            Option<&MeshMaterial3d<TitleSurface>>,
+            Option<&super::field_effects::HeadSymbol>,
+        ),
+        With<super::field_effects::EffectDraw>,
+    >,
 ) {
     let Some(mut preparation) = preparation else {
         return;
@@ -405,7 +413,13 @@ fn effects(
     // pass. Copy their bindings into the offscreen view, not their state.
     let bindings = meshes
         .iter()
-        .map(|(m, s)| (m.0.clone(), s.0.clone()))
+        // Modern head symbols use the UI compositor. Still prepare their
+        // authored 3D material so F6 never requests an unwarmed pipeline.
+        .filter_map(|(m, s, symbol)| {
+            s.map(|s| &s.0)
+                .or_else(|| symbol.map(|symbol| &symbol.material))
+                .map(|material| (m.0.clone(), material.clone()))
+        })
         .chain(art.as_ref().and_then(|a| a.shadow_binding()));
     for (mesh, material) in bindings {
         let entity = commands
