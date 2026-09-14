@@ -98,14 +98,24 @@ Interactive rendering uses spatial filtering without accumulating stale poses.
 CPU rendering remains slow and can retain noise. For a quality showcase, the
 offline capture tool freezes each game tick and averages 256 Solari lighting
 evaluations in linear HDR before applying the filter and drawing the overlays/UI.
-History resets for every saved tick; invalid radiance samples are rejected before
-they can contaminate the average or neighboring pixels. This accumulation is
-separate from Solari's driver-sensitive temporal reservoirs. It trades render
+The HDR average and Solari's temporal reservoirs reset for every saved tick;
+reservoir reuse remains enabled between the lighting evaluations of that frozen
+tick. This prevents a previous pose/camera's samples from contaminating the next
+captured frame. Invalid radiance samples are rejected before they can contaminate
+the average or neighboring pixels. This accumulation is separate from Solari's
+driver-sensitive temporal reservoirs. It trades render
 time for cleaner images without advancing the dialogue or animation during sampling.
 The offline sampling loop runs without a frame-rate cap; 60 fps describes the
 encoded video and simulation cadence, not the rate of lighting evaluations.
 At the high preset, each saved frame requires 256 rendering evaluations, so
 capture speed is not an interactive frame-rate benchmark.
+
+The prototype also guards Bevy 0.19.1's temporal direct-light ID translation.
+Rejected or missing history contains `NULL_LIGHT_ID`; it must remain empty rather
+than indexing the previous frame's light translation table. Otherwise an empty
+sample can become a real light with an invalid triangle index when a camera cut
+reveals new surfaces. The guard runs before light-ID translation and preserves
+ordinary temporal and spatial reuse for valid samples.
 
 ```sh
 # First second, high quality: 1920×1080, 60 frames, 256 lighting samples/frame.

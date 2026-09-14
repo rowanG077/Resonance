@@ -6,6 +6,7 @@ mod matte;
 mod mesh;
 mod output;
 pub(super) mod pathtracer;
+mod reservoirs;
 mod smaa;
 mod symbols;
 mod windows;
@@ -142,6 +143,7 @@ pub(super) fn install(app: &mut App) {
     output::install(app);
     denoise::install(app);
     matte::install(app);
+    reservoirs::install(app);
 }
 fn check_support(
     device: Res<RenderDevice>,

@@ -335,7 +335,10 @@ fn capture(
     refraction: Res<crate::field_refraction::Ready>,
     target: Res<crate::Framebuffer>,
     roots: Query<&ActorPart>,
-    cameras: Query<Entity, With<crate::FieldCamera>>,
+    mut cameras: Query<
+        (Entity, Option<&mut bevy::solari::prelude::SolariLighting>),
+        With<crate::FieldCamera>,
+    >,
     traced: Query<
         (),
         (
@@ -373,7 +376,12 @@ fn capture(
             return;
         }
         let accumulation = Accumulation::new(recording.frame, recording.spec.samples);
-        for entity in &cameras {
+        for (entity, lighting) in &mut cameras {
+            if let Some(mut lighting) = lighting {
+                // A video frame freezes a new pose/camera. Its lighting samples
+                // must not reuse reservoirs from the previous game tick.
+                lighting.reset = true;
+            }
             commands.entity(entity).insert(accumulation.clone());
         }
         recording.start_tick.get_or_insert(session.0.events.tick());
