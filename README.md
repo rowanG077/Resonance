@@ -84,6 +84,8 @@ skipping the movie and title menu; the image is `local/raytraced-classroom.png`.
 The player and Solari examples apply the aarch64 Linux driver workarounds on
 startup, including bypassing Mesa's disk shader cache to avoid its JIT crash.
 Prepared HD classroom/NPC overrides load automatically when present.
+See the [ray-traced classroom quick start](tools/ray-tracing/README.md) for local
+setup, HD textures and short GPU captures with audio.
 
 Resolution defaults to 640×480 and stays fixed until restart. Resizing and
 maximizing are disabled; compositor-imposed sizes letterbox the retained image.
