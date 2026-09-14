@@ -4382,6 +4382,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "resonance-asset-writer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hound",
+ "ktx2",
+ "serde_json",
+ "structured-zstd",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "resonance-audio"
 version = "0.1.0"
 dependencies = [
