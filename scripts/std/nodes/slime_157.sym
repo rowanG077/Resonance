@@ -1,0 +1,26 @@
+script library;
+// Skeleton: eda1adb28f2550c6494d46eb7786baaddbbd2e2b48095c986ba5872abc9d2e76
+pub const Foot01: string = "Bone_ashi01";
+pub const Foot05: string = "Bone_ashi05";
+pub const Foot06: string = "Bone_ashi06";
+pub const Foot07: string = "Bone_ashi07";
+pub const LeftFoot02: string = "Bone_ashi02_L";
+pub const LeftFoot03: string = "Bone_ashi03_L";
+pub const LeftFoot04: string = "Bone_ashi04_L";
+pub const Node000_Abone: string = "Abone";
+pub const Node001_Mo6_Bone_Sebone01: string = "mo6_Bone_sebone01";
+pub const Node002_Bone_Sebone02: string = "Bone_sebone02";
+pub const Node003_Bone_Sebone03: string = "Bone_sebone03";
+pub const Node004_Bone_Sebone04: string = "Bone_sebone04";
+pub const Node005_Mo5e_Sebone05: string = "mo5e_sebone05";
+pub const Node006_Bone_Sebone06: string = "Bone_sebone06";
+pub const Node007_Bone_Sebone07: string = "Bone_sebone07";
+pub const Node008_Bone_Sebone08: string = "Bone_sebone08";
+pub const Node009_Bone_Sebone09: string = "Bone_sebone09";
+pub const Node010_BoneBone_Sebone10: string = "boneBone_sebone10";
+pub const Node011_At01_Bone_Sebone10: string = "at01_Bone_sebone10";
+pub const Node022_Bone_Ball: string = "Bone_ball";
+pub const Node023_Kk00_Jel00ball: string = "kk00_jel00ball";
+pub const RightFoot02: string = "Bone_ashi02_R";
+pub const RightFoot03: string = "Bone_ashi03_R";
+pub const RightFoot04: string = "Bone_ashi04_R";

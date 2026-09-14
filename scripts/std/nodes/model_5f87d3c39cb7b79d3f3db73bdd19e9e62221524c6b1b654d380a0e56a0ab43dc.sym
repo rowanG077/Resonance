@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 5f87d3c39cb7b79d3f3db73bdd19e9e62221524c6b1b654d380a0e56a0ab43dc
+pub const Node000_Chu_I07_001a: string = "chu_i07_001a";
+pub const Node001_Chu_I07_001b: string = "chu_i07_001b";
+pub const Node002_Chu_I07_002a: string = "chu_i07_002a";
+pub const Node003_Chu_I07_002b: string = "chu_i07_002b";
+pub const Node004_Chu_I07_002kabe2: string = "chu_i07_002kabe2";
+pub const Node005_Chu_I07_003a: string = "chu_i07_003a";
+pub const Node006_Chu_I07_003b: string = "chu_i07_003b";
+pub const Node007_Chu_I07_003c: string = "chu_i07_003c";
+pub const Node008_Chu_I07_X11: string = "chu_i07_x11";
+pub const Node009_Chu_I07_X12: string = "chu_i07_x12";
+pub const Node010_Chu_I07_X13: string = "chu_i07_x13";
+pub const Node011_Chu_I07_002d: string = "chu_i07_002d";
+pub const Node012_Chu_I07_001kabe: string = "chu_i07_001kabe";
+pub const Node013_DOORclosebone: string = "DOORclosebone";
+pub const Node014_DOORclose: string = "DOORclose";
+pub const Node015_DOORopenbone: string = "DOORopenbone";
+pub const Node016_DOORopen: string = "DOORopen";

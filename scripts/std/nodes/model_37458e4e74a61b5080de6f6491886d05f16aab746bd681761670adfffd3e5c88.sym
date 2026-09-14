@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 37458e4e74a61b5080de6f6491886d05f16aab746bd681761670adfffd3e5c88
+pub const Node000_White10: string = "white10";
+pub const Node001_Dummy_Coupsel_L: string = "Dummy_coupsel_l";
+pub const Node002_Sphere02: string = "Sphere02";
+pub const Node003_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node004_Yuka: string = "yuka";

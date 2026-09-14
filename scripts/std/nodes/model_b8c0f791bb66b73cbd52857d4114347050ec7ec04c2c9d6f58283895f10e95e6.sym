@@ -1,0 +1,3 @@
+script library;
+// Skeleton: b8c0f791bb66b73cbd52857d4114347050ec7ec04c2c9d6f58283895f10e95e6
+pub const Node000_Tabasa: string = "tabasa";

@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 8de098d58efdf32f3a1f32926b63b57a699ba257175f3c73f1b727442be9a7e8
+pub const Node000_Kk00_Be13_00: string = "kk00_be13_00";
+pub const Node001_At00_Bone01: string = "at00_Bone01";
+pub const Node002_At00_Bone02: string = "at00_Bone02";
+pub const Node003_Ki00_Bone01: string = "ki00_Bone01";
+pub const Node004_Ki01_Bone02: string = "ki01_Bone02";
+pub const Node005_Ef00_Bone01: string = "ef00_Bone01";
+pub const Node006_Kk00_Be13_00c: string = "kk00_be13_00c";
+pub const Node007_Kk00_Be13_00_Out: string = "kk00_be13_00_out";

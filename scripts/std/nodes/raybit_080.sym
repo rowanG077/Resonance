@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 74d7aaff83232f35a133392538fe7ce54d62a5f00beaba301fde1df939206414
+pub const Node000_ABone: string = "ABone";
+pub const Node001_Mech05_00Body: string = "mech05_00Body";
+pub const Node002_Mech05_0BYYoku: string = "mech05_0BYYoku";
+pub const Node003_Mech05_08Antena: string = "mech05_08Antena";
+pub const Node004_Mech05_07Eye: string = "mech05_07Eye";
+pub const Node005_Mech05_09CameraOya: string = "mech05_09CameraOya";
+pub const Node006_Mech05_0ACamera: string = "mech05_0ACamera";
+pub const Node007_Mo4_Mech05_01GunZa: string = "mo4_mech05_01GunZa";
+pub const Node008_Mech05_02GunMain: string = "mech05_02GunMain";
+pub const Node009_Mech05_03Gun: string = "mech05_03Gun";
+pub const Node010_EF00_Bone: string = "EF00_Bone";
+pub const Node011_Mo2Bone: string = "mo2Bone";
+pub const Node012_Mech05_04RaderOya: string = "mech05_04RaderOya";
+pub const Node013_Mech05_06RaderSub: string = "mech05_06RaderSub";
+pub const Node014_Mech05_05RaderMain: string = "mech05_05RaderMain";
+pub const Node015_Mech05_10XYokuOya_L: string = "mech05_10XYokuOya_L";
+pub const Node016_Mech05_11XYokuMain_L: string = "mech05_11XYokuMain_L";
+pub const Node017_Mech05_12XYokuSub_L: string = "mech05_12XYokuSub_L";
+pub const Node018_Mech05_10XYokuOya_R: string = "mech05_10XYokuOya_R";
+pub const Node019_Mech05_11XYokuMain_R: string = "mech05_11XYokuMain_R";
+pub const Node020_Mech05_12XYokuSub_R: string = "mech05_12XYokuSub_R";

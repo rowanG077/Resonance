@@ -1,0 +1,4 @@
+script library;
+// Skeleton: f5765172827e8cf377e21a7bf047b40040b8c40ce4b9f6a6506d5248e9b628ab
+pub const Node000_Case: string = "case";
+pub const Node001_Case0: string = "case0";

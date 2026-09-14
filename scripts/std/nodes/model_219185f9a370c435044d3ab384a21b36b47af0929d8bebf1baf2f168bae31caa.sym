@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 219185f9a370c435044d3ab384a21b36b47af0929d8bebf1baf2f168bae31caa
+pub const Node000_Dummy01: string = "Dummy01";
+pub const Node001_Gomi_Koware01a: string = "Gomi_Koware01a";
+pub const Node002_Gomi_Koware02a: string = "Gomi_Koware02a";
+pub const Node003_Gomi_Koware03a: string = "Gomi_Koware03a";
+pub const Node004_Gomi_Koware04a: string = "Gomi_Koware04a";
+pub const Node005_Gomi_Koware05a: string = "Gomi_Koware05a";
+pub const Node006_Gomi_Koware06a: string = "Gomi_Koware06a";
+pub const Node007_Gomi_Koware07a: string = "Gomi_Koware07a";

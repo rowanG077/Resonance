@@ -1,0 +1,12 @@
+script library;
+// Skeleton: d7efb8953bd51a560b69bc93baf0bcfd32db6a251e1d43724f9ba475b4d704ee
+pub const Node000_Yuka_Side: string = "yuka_side";
+pub const Node001_Fade: string = "fade";
+pub const Node002_Rasen: string = "rasen";
+pub const Node003_Tuta_A: string = "tuta_A";
+pub const Node004_Normal: string = "normal";
+pub const Node005_Break01: string = "break01";
+pub const Node006_Break00: string = "break00";
+pub const Node007_Pole: string = "pole";
+pub const Node008_Tare_Tuta: string = "tare_tuta";
+pub const Node009_Kabe_Yuka: string = "kabe_yuka";

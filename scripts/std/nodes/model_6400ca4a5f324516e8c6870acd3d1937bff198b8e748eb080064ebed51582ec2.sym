@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 6400ca4a5f324516e8c6870acd3d1937bff198b8e748eb080064ebed51582ec2
+pub const Node000_MDummy_M: string = "mDummy_M";
+pub const Node001_M_Cen: string = "M_cen";
+pub const Node002_Mc_Futa: string = "Mc_Futa";
+pub const Node003_M_Bot: string = "M_Bot";
+pub const Node004_Mt_Bot_S245: string = "Mt_Bot_S245";
+pub const Node005_Tt_Sp240c03: string = "tt_sp240c03";
+pub const Node006_Tt_Sp240d03: string = "tt_sp240d03";
+pub const Node007_M_Top: string = "M_Top";
+pub const Node008_Mt_Top_S245: string = "Mt_Top_S245";
+pub const Node009_Tt_Sp240c02: string = "tt_sp240c02";
+pub const Node010_Tt_Sp240d02: string = "tt_sp240d02";
+pub const Node011_Mt_Cen_S80: string = "Mt_Cen_S80";
+pub const Node012_Tt_Sp240c01: string = "tt_sp240c01";
+pub const Node013_Tt_Sp240d01: string = "tt_sp240d01";
+pub const Node014_M_Anm_Dummy: string = "M_anm_Dummy";

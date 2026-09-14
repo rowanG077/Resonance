@@ -1,0 +1,7 @@
+script library;
+// Skeleton: b3627027e0672242928c50310d18338d764b1ac939c197a42abf74b381af252f
+pub const Node000_Mer_I05b: string = "mer_i05b";
+pub const Node001_Mer_I05a: string = "mer_i05a";
+pub const Node002_BiKa: string = "bi-ka";
+pub const Node003_Cylinder01: string = "Cylinder01";
+pub const Node004_Iwa: string = "iwa";

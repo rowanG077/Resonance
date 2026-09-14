@@ -1,0 +1,11 @@
+script library;
+// Skeleton: f1e6f4e60c676d5c40ccb07775d2c6ca192210abaf77e0b12329087253397796
+pub const Node000_Panel: string = "panel";
+pub const Node001_Belt: string = "belt";
+pub const Node002_Wil_D03_Glas_On: string = "wil_d03_glas_on";
+pub const Node003_Gjb: string = "gjb";
+pub const Node004_Wil_D03_Glas: string = "wil_d03_glas";
+pub const Node005_Doom: string = "doom";
+pub const Node006_Doom01: string = "doom01";
+pub const Node007_Plane07: string = "Plane07";
+pub const Node008_Wil_D03_Glas_Off: string = "wil_d03_glas_off";

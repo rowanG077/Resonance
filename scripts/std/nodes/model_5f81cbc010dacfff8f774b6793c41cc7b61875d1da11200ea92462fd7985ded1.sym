@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 5f81cbc010dacfff8f774b6793c41cc7b61875d1da11200ea92462fd7985ded1
+pub const Node000_Close_Mbook: string = "close_mbook";

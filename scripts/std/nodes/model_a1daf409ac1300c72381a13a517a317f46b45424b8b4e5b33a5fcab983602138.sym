@@ -1,0 +1,6 @@
+script library;
+// Skeleton: a1daf409ac1300c72381a13a517a317f46b45424b8b4e5b33a5fcab983602138
+pub const Node000_Warp_Up: string = "warp_up";
+pub const Node001_Warp2_Up: string = "warp2_up";
+pub const Node002_Warp: string = "warp";
+pub const Node003_Warp2: string = "warp2";

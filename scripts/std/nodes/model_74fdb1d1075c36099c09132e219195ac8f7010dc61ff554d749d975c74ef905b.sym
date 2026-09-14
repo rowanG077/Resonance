@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 74fdb1d1075c36099c09132e219195ac8f7010dc61ff554d749d975c74ef905b
+pub const Node000_Chu_I07_014l2: string = "_chu_i07_014l2";
+pub const Node001_Chu_I07_024sky: string = "_chu_i07_024sky";
+pub const Node002_Chu_I10_14l: string = "_chu_i10_14l";

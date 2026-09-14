@@ -1,0 +1,5 @@
+script library;
+// Skeleton: f8649367d8edbe7d6b1a5319648ea1895e59f679e5dda5e8b3ec8a9702035eaf
+pub const Node000_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node001_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node002_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";

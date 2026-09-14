@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 25d376af1e7305e14fd8511b092717ca76421577ab4112798bcfc88fc3fd77f9
+pub const Node000_Anim_Tarai_00: string = "anim_tarai_00";
+pub const Node001_Dummy01: string = "Dummy01";
+pub const Node002_Anim_Flag00: string = "anim_flag00";
+pub const Node003_Dummy02: string = "Dummy02";
+pub const Node004_Anim_Kai00: string = "anim_kai00";
+pub const Node005_A_Anim_Ripple00: string = "a_anim_ripple00";

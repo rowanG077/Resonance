@@ -1,0 +1,27 @@
+script library;
+// Skeleton: dc2ef57d293ce169719b60b4a561f3313ffa958f838c7fbe314d7b44795caa29
+pub const Node000_OP_Tuta: string = "OP_tuta";
+pub const Node001_Point07: string = "Point07";
+pub const Node002_OP_Tuta18: string = "OP_tuta18";
+pub const Node003_OP_Tuta19: string = "OP_tuta19";
+pub const Node004_OP_Tuta20: string = "OP_tuta20";
+pub const Node005_Point08: string = "Point08";
+pub const Node006_OP_Tuta21: string = "OP_tuta21";
+pub const Node007_OP_Tuta22: string = "OP_tuta22";
+pub const Node008_OP_Tuta23: string = "OP_tuta23";
+pub const Node009_Point09: string = "Point09";
+pub const Node010_OP_Tuta24: string = "OP_tuta24";
+pub const Node011_OP_Tuta25: string = "OP_tuta25";
+pub const Node012_OP_Tuta26: string = "OP_tuta26";
+pub const Node013_Point10: string = "Point10";
+pub const Node014_OP_Tuta27: string = "OP_tuta27";
+pub const Node015_OP_Tuta28: string = "OP_tuta28";
+pub const Node016_OP_Tuta29: string = "OP_tuta29";
+pub const Node017_Point11: string = "Point11";
+pub const Node018_OP_Tuta30: string = "OP_tuta30";
+pub const Node019_OP_Tuta31: string = "OP_tuta31";
+pub const Node020_OP_Tuta32: string = "OP_tuta32";
+pub const Node021_Point12: string = "Point12";
+pub const Node022_OP_Tuta33: string = "OP_tuta33";
+pub const Node023_OP_Tuta34: string = "OP_tuta34";
+pub const Node024_OP_Tuta35: string = "OP_tuta35";

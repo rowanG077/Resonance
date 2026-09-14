@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 3208126dd32c47a79ad6ae0f2cb310ded7c1c79b118239adcbe15b3169e06b65
+pub const Node000_Fog_1: string = "fog_1";
+pub const Node001_Glass_Fog: string = "glass_fog";
+pub const Node002_Flower3: string = "flower3";
+pub const Node003_Flower1: string = "flower1";
+pub const Node004_Window_Grass_03: string = "window_grass_03";
+pub const Node005_Window_Curtain_01: string = "window_curtain_01";
+pub const Node006_Window_Grass_01: string = "window_grass_01";
+pub const Node007_Pole_Curtain: string = "pole_curtain";
+pub const Node008_Window_Grass_02: string = "window_grass_02";
+pub const Node009_Window_Curtain_02: string = "window_curtain_02";
+pub const Node010_Flower2: string = "flower2";
+pub const Node011_Light2: string = "light2";
+pub const Node012_Light1: string = "light1";

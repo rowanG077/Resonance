@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 47559923abe0ec9ff91f8629b28ff20561e734f11023053f9527f358510fc7aa
+pub const Node000_Flower_01: string = "flower_01";

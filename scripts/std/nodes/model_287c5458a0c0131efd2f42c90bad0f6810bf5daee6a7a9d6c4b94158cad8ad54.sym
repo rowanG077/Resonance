@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 287c5458a0c0131efd2f42c90bad0f6810bf5daee6a7a9d6c4b94158cad8ad54
+pub const Node000_Kumo01: string = "kumo01";
+pub const Node001_Kumo02: string = "kumo02";
+pub const Node002_Kumo03: string = "kumo03";
+pub const Node003_Kumo04: string = "kumo04";
+pub const Node004_Kumo05: string = "kumo05";
+pub const Node005_Kumo06: string = "kumo06";
+pub const Node006_Kumo07: string = "kumo07";
+pub const Node007_Kumo08: string = "kumo08";

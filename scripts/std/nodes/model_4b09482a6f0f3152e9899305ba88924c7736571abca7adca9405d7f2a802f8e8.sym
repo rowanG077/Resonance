@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 4b09482a6f0f3152e9899305ba88924c7736571abca7adca9405d7f2a802f8e8
+pub const Node000_I04_Ka01: string = "i04_ka01";
+pub const Node001_I04_Dr01: string = "i04_dr01";
+pub const Node002_I04_Ob01: string = "i04_ob01";
+pub const Node003_I04_Sp01: string = "i04_sp01";
+pub const Node004_I04_Sp02: string = "i04_sp02";
+pub const Node005_Box01: string = "Box01";

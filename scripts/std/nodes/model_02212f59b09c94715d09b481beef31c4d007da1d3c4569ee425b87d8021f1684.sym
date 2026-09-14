@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 02212f59b09c94715d09b481beef31c4d007da1d3c4569ee425b87d8021f1684
+pub const Node000_Vertex_Light: string = "vertex_light";
+pub const Node001_Vertex_Light2: string = "vertex_light2";
+pub const Node002_Vertex_Window: string = "vertex_window";

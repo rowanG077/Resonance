@@ -1,0 +1,11 @@
+script library;
+// Skeleton: fc01f1a63482a089d24da5747c2a9d67da96e7a297cc8efaaff4b2d666935fd6
+pub const Node000_Wall: string = "wall";
+pub const Node001_Container_Slot: string = "container_slot";
+pub const Node002_Wall01: string = "wall01";
+pub const Node003_Floor01: string = "floor01";
+pub const Node004_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node005_Cylinder01: string = "Cylinder01";
+pub const Node006_Cylinder03: string = "Cylinder03";
+pub const Node007_Blue_Wave: string = "blue_wave";
+pub const Node008_Sphere01: string = "Sphere01";

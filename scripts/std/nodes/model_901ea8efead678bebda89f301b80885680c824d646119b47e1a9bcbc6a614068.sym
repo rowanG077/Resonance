@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 901ea8efead678bebda89f301b80885680c824d646119b47e1a9bcbc6a614068
+pub const Node000_Mag18: string = "mag18";
+pub const Node001_Mag19: string = "mag19";
+pub const Node002_Mag_Anm: string = "mag_anm";
+pub const Node003_Mag_Anm_02: string = "mag_anm_02";
+pub const Node004_Mag_Anm_03: string = "mag_anm_03";
+pub const Node005_Magma_Side: string = "magma_side";

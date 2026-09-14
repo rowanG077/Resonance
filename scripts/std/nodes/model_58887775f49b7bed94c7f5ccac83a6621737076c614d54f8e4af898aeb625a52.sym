@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 58887775f49b7bed94c7f5ccac83a6621737076c614d54f8e4af898aeb625a52
+pub const Node000_Refill: string = "refill";

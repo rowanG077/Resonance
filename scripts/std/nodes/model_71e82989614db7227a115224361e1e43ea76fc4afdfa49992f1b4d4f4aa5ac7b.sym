@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 71e82989614db7227a115224361e1e43ea76fc4afdfa49992f1b4d4f4aa5ac7b
+pub const Node000_Gaban: string = "gaban";

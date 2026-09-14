@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 18ddc88165db00b78e3bdfc7238127e16be530d72cce079522c239edc89067d2
+pub const Node000_Cardkey: string = "cardkey";
+pub const Node001_Kabe: string = "kabe";
+pub const Node002_Yuka_Obj: string = "yuka_obj";
+pub const Node003_Key_Tray: string = "key_tray";
+pub const Node004_Key_Tray_Parts: string = "key_tray_parts";

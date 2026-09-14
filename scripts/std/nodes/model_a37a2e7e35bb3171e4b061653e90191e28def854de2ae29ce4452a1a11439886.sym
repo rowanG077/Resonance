@@ -1,0 +1,27 @@
+script library;
+// Skeleton: a37a2e7e35bb3171e4b061653e90191e28def854de2ae29ce4452a1a11439886
+pub const Node000_T01map01: string = "t01map01";
+pub const Node001_T01ground: string = "t01ground";
+pub const Node002_Canyon03: string = "canyon03";
+pub const Node003_Ani_Nuno02: string = "ani_nuno02";
+pub const Node004_Ani_Flower_B: string = "ani_flower_b";
+pub const Node005_Ani_Nuno20: string = "ani_nuno20";
+pub const Node006_Ani_Nuno19: string = "ani_nuno19";
+pub const Node007_Ani_Nuno18: string = "ani_nuno18";
+pub const Node008_Ani_Nuno17: string = "ani_nuno17";
+pub const Node009_Ani_Nuno16: string = "ani_nuno16";
+pub const Node010_Ani_Nuno15: string = "ani_nuno15";
+pub const Node011_Ani_Nuno14: string = "ani_nuno14";
+pub const Node012_Ani_Nuno13: string = "ani_nuno13";
+pub const Node013_Ani_Nuno12: string = "ani_nuno12";
+pub const Node014_Ani_Nuno11: string = "ani_nuno11";
+pub const Node015_Ani_Nuno10: string = "ani_nuno10";
+pub const Node016_Ani_Nuno09: string = "ani_nuno09";
+pub const Node017_Ani_Nuno07: string = "ani_nuno07";
+pub const Node018_Ani_Nuno06: string = "ani_nuno06";
+pub const Node019_Ani_Nuno05: string = "ani_nuno05";
+pub const Node020_Ani_Nuno04: string = "ani_nuno04";
+pub const Node021_Ani_Nuno03: string = "ani_nuno03";
+pub const Node022_Ani_Nuno01: string = "ani_nuno01";
+pub const Node023_T01map02: string = "t01map02";
+pub const Node024_Plane01: string = "Plane01";

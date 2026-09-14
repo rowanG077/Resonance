@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 32e54cd52a9631e159c56107653cb89ff50f93659b707b727c3296c9383e70eb
+pub const Node000_Rf_Dummy_Mirrer: string = "Rf_Dummy_mirrer";
+pub const Node001_Rf_Fez_Ref_120: string = "Rf_Fez_Ref_120";

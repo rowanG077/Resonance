@@ -1,0 +1,3 @@
+script library;
+// Skeleton: a87528a59d094ee4896935712755c4cc6609df14006e48ccfd209ccf818b9910
+pub const Node000_Be11_00: string = "be11_00";

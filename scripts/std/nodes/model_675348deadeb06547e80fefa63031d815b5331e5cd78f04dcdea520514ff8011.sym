@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 675348deadeb06547e80fefa63031d815b5331e5cd78f04dcdea520514ff8011
+pub const Node000_Bridge01: string = "bridge01";

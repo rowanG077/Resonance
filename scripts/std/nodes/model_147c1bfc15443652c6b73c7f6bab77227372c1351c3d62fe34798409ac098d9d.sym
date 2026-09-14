@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 147c1bfc15443652c6b73c7f6bab77227372c1351c3d62fe34798409ac098d9d
+pub const Node000_Fsea_01: string = "fsea_01";
+pub const Node001_Wave_01_Tairiku: string = "wave_01_tairiku";
+pub const Node002_Wave_02_Nekonin: string = "wave_02_nekonin";

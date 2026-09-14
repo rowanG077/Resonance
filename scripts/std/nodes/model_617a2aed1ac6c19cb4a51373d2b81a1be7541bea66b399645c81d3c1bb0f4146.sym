@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 617a2aed1ac6c19cb4a51373d2b81a1be7541bea66b399645c81d3c1bb0f4146
+pub const Node000_Tube25: string = "Tube25";
+pub const Node001_Cylinder02: string = "Cylinder02";
+pub const Node002_Cylinder04: string = "Cylinder04";
+pub const Node003_Effect_Part04: string = "effect_part04";
+pub const Node004_Effect_Part: string = "effect_part";
+pub const Node005_Effect_Part03: string = "effect_part03";
+pub const Node006_Effect_Part06: string = "effect_part06";
+pub const Node007_Effect_Part07: string = "effect_part07";
+pub const Node008_Effect_Part08: string = "effect_part08";

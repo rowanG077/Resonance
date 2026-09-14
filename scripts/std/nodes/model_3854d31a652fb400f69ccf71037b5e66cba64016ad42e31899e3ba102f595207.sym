@@ -1,0 +1,27 @@
+script library;
+// Skeleton: 3854d31a652fb400f69ccf71037b5e66cba64016ad42e31899e3ba102f595207
+pub const Node000_G01: string = "G01";
+pub const Node001_MA_P3_Tor03: string = "mA_P3_Tor03";
+pub const Node002_Fg01: string = "Fg01";
+pub const Node003_Fg02: string = "Fg02";
+pub const Node004_Fg03: string = "Fg03";
+pub const Node005_Fg04: string = "Fg04";
+pub const Node006_Fg05: string = "Fg05";
+pub const Node007_P1: string = "P1";
+pub const Node008_P2: string = "P2";
+pub const Node009_MA_P2_INF: string = "mA_P2_INF";
+pub const Node010_P3: string = "P3";
+pub const Node011_WM_Tip07: string = "WM_tip07";
+pub const Node012_WM_Tip01: string = "WM_tip01";
+pub const Node013_WM_Tip02: string = "WM_tip02";
+pub const Node014_WM_Tip03: string = "WM_tip03";
+pub const Node015_WM_Tip04: string = "WM_tip04";
+pub const Node016_WM_Tip05: string = "WM_tip05";
+pub const Node017_WM_Tip06: string = "WM_tip06";
+pub const Node018_WM_Tip08: string = "WM_tip08";
+pub const Node019_WM_Tip09: string = "WM_tip09";
+pub const Node020_WM_Tip10: string = "WM_tip10";
+pub const Node021_Number1Can_Body: string = "1Can_Body";
+pub const Node022_Number1Can_Lh01: string = "1Can_lh01";
+pub const Node023_Number2Can_Body: string = "2Can_Body";
+pub const Node024_Number2Can_Lh02: string = "2Can_lh02";

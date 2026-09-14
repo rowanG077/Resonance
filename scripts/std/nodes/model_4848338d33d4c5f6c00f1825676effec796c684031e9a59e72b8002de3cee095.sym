@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 4848338d33d4c5f6c00f1825676effec796c684031e9a59e72b8002de3cee095
+pub const Node000_Sky: string = "sky";
+pub const Node001_Daichi01: string = "daichi01";
+pub const Node002_Cylinder01: string = "Cylinder01";
+pub const Node003_Cylinder02: string = "Cylinder02";
+pub const Node004_Cylinder03: string = "Cylinder03";
+pub const Node005_Dou: string = "dou";
+pub const Node006_F_Round: string = "F_round";
+pub const Node007_TUTU02: string = "TUTU02";
+pub const Node008_TUTU03: string = "TUTU03";
+pub const Node009_TUTU01: string = "TUTU01";
+pub const Node010_F_Round01: string = "F_round01";

@@ -1,0 +1,11 @@
+script library;
+// Skeleton: fc60a8ca62237dcc996cc291c974125cf6a9131cdebfc578607e4713b0865dda
+pub const Node000_Number0100: string = "0100";
+pub const Node001_Number0100_Window_R04: string = "0100_window_R04";
+pub const Node002_Number0100_Window_R05: string = "0100_window_R05";
+pub const Node003_Number0101: string = "0101";
+pub const Node004_Number0102_1: string = "0102_1";
+pub const Node005_Number0100_2: string = "0100_2";
+pub const Node006_Number0102_2: string = "0102_2";
+pub const Node007_Number0103: string = "0103";
+pub const Node008_Number0102_X: string = "0102_x";

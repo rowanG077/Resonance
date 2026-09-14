@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 5453e19e5d6ce73557701a3c3e1f3c847b62718ce6f14f40d55b6d6a413dd42a
+pub const Node000_Umi: string = "umi";

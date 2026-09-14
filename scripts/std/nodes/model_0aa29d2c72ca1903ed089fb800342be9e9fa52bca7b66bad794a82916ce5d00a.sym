@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 0aa29d2c72ca1903ed089fb800342be9e9fa52bca7b66bad794a82916ce5d00a
+pub const Node000_Water_Side: string = "water_side";
+pub const Node001_Plane01: string = "Plane01";

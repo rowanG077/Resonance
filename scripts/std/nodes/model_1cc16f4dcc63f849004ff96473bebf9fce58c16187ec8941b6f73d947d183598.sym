@@ -1,0 +1,27 @@
+script library;
+// Skeleton: 1cc16f4dcc63f849004ff96473bebf9fce58c16187ec8941b6f73d947d183598
+pub const Node000_A_Grass00: string = "a_grass00";
+pub const Node001_A_Front: string = "a_front";
+pub const Node002_A_Shadow00: string = "a_shadow00";
+pub const Node003_A_Shadow02: string = "a_shadow02";
+pub const Node004_A_Shadow03: string = "a_shadow03";
+pub const Node005_A_Shadow04: string = "a_shadow04";
+pub const Node006_A_Shadow05: string = "a_shadow05";
+pub const Node007_A_Shadow06: string = "a_shadow06";
+pub const Node008_A_Shadow07: string = "a_shadow07";
+pub const Node009_A_Shadow08: string = "a_shadow08";
+pub const Node010_A_Shadow09: string = "a_shadow09";
+pub const Node011_A_Shadow10: string = "a_shadow10";
+pub const Node012_A_Shadow11: string = "a_shadow11";
+pub const Node013_A_Shadow12: string = "a_shadow12";
+pub const Node014_A_Shadow13: string = "a_shadow13";
+pub const Node015_A_Shadow07_2: string = "a_shadow07_2";
+pub const Node016_A_Shadow06_2: string = "a_shadow06_2";
+pub const Node017_A_Shadow08_2: string = "a_shadow08_2";
+pub const Node018_A_Shadow09_2: string = "a_shadow09_2";
+pub const Node019_A_Shadow10_2: string = "a_shadow10_2";
+pub const Node020_A_Shadow11_2: string = "a_shadow11_2";
+pub const Node021_A_Shadow12_2: string = "a_shadow12_2";
+pub const Node022_A_Shadow13_2: string = "a_shadow13_2";
+pub const Node023_A_Shadow14: string = "a_shadow14";
+pub const Node024_A_Shadow15: string = "a_shadow15";

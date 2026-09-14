@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 5cab61004b248d20551997a918d6212fa08459a4ea729055b6c3ce9c1e1f9d67
+pub const Node000_To_Mei: string = "to_mei";
+pub const Node001_To_Mei_Soto: string = "to_mei_soto";
+pub const Node002_To_Mei_In: string = "to_mei_in";
+pub const Node003_Hi00: string = "hi00";
+pub const Node004_In00: string = "in00";
+pub const Node005_Out00: string = "out00";
+pub const Node006_Hi01: string = "hi01";
+pub const Node007_In01: string = "in01";
+pub const Node008_Out01: string = "out01";
+pub const Node009_Hi02: string = "hi02";
+pub const Node010_In02: string = "in02";
+pub const Node011_Out02: string = "out02";
+pub const Node012_Hi03: string = "hi03";
+pub const Node013_In03: string = "in03";
+pub const Node014_Out03: string = "out03";
+pub const Node015_Hi04: string = "hi04";
+pub const Node016_In04: string = "in04";
+pub const Node017_Out04: string = "out04";

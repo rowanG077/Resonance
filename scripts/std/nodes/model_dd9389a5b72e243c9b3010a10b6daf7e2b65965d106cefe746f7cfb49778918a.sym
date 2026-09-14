@@ -1,0 +1,7 @@
+script library;
+// Skeleton: dd9389a5b72e243c9b3010a10b6daf7e2b65965d106cefe746f7cfb49778918a
+pub const Node000_Cylinder62: string = "Cylinder62";
+pub const Node001_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node002_Gjb: string = "gjb";
+pub const Node003_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node004_Cone08: string = "Cone08";

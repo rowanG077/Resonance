@@ -1,0 +1,3 @@
+script library;
+// Skeleton: c61babc369ec56dbe2e0a4d8d076a4ec8f460e12bac27a4704459fc382cc85be
+pub const Node000_Door_Hei: string = "door_hei";

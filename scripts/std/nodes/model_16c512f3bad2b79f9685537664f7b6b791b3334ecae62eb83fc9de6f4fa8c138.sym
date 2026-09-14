@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 16c512f3bad2b79f9685537664f7b6b791b3334ecae62eb83fc9de6f4fa8c138
+pub const Node000_I00_Mosquitonet: string = "i00_mosquitonet";
+pub const Node001_Sphere04: string = "Sphere04";
+pub const Node002_Sphere05: string = "Sphere05";
+pub const Node003_Sphere06: string = "Sphere06";
+pub const Node004_Sphere07: string = "Sphere07";
+pub const Node005_Sphere08: string = "Sphere08";
+pub const Node006_Sphere09: string = "Sphere09";

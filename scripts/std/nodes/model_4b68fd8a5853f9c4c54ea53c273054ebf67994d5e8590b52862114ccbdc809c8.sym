@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 4b68fd8a5853f9c4c54ea53c273054ebf67994d5e8590b52862114ccbdc809c8
+pub const Node000_Nabe: string = "Nabe";

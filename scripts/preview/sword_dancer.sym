@@ -1,0 +1,15 @@
+script model;
+use model;
+use game::story;
+use std::story::SwordDancerTailVisible;
+use std::story::SwordDancerWingsVisible;
+use std::nodes::sword_dancer_191;
+pub fn apply() {
+    if !story::flag(SwordDancerTailVisible) {
+        model::set_scale(model::node(sword_dancer_191::Tail), 0.0, 0.0, 0.0);
+    }
+    if !story::flag(SwordDancerWingsVisible) {
+        model::set_scale(model::node(sword_dancer_191::LeftWing), 0.0, 0.0, 0.0);
+        model::set_scale(model::node(sword_dancer_191::RightWing), 0.0, 0.0, 0.0);
+    }
+}

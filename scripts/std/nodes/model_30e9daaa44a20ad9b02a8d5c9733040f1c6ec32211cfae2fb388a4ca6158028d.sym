@@ -1,0 +1,24 @@
+script library;
+// Skeleton: 30e9daaa44a20ad9b02a8d5c9733040f1c6ec32211cfae2fb388a4ca6158028d
+pub const Node000_Number1_Base: string = "1_Base";
+pub const Node001_Number2_Bell: string = "2_Bell";
+pub const Node002_Number2_Frame: string = "2_Frame";
+pub const Node003_Number3_Obj: string = "3_Obj";
+pub const Node004_Number4_Poal: string = "4_Poal";
+pub const Node005_Number5_Cov: string = "5_Cov";
+pub const Node006_Number5_Shaft: string = "5_Shaft";
+pub const Node007_P1_B1: string = "P1_B1";
+pub const Node008_P3_B1_Ol: string = "p3_B1_ol";
+pub const Node009_P1_B1_R1: string = "P1_B1_R1";
+pub const Node010_P1_B1_R2: string = "P1_B1_R2";
+pub const Node011_P1_B1_R3: string = "P1_B1_R3";
+pub const Node012_P1_B2_R1: string = "P1_B2_R1";
+pub const Node013_P1_B2_R2: string = "P1_B2_R2";
+pub const Node014_P1_B2_R3: string = "P1_B2_R3";
+pub const Node015_P1_Ground: string = "p1_Ground";
+pub const Node016_P3_B2: string = "p3_B2";
+pub const Node017_P3_B2_Ol: string = "p3_B2_ol";
+pub const Node018_P3_Boat03: string = "p3_Boat03";
+pub const Node019_Number2__Rope_Ver: string = "2__Rope_ver";
+pub const Node020_Sky: string = "Sky";
+pub const Node021_Soko: string = "Soko";

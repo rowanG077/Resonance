@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 6230f487abb76989ab4af60b515b581d3957687373959b4254039f5cf55979f5
+pub const Node000_Torus01: string = "Torus01";
+pub const Node001_Torus02: string = "Torus02";

@@ -1,0 +1,18 @@
+script library;
+// Skeleton: 79bf4bc076e4f2da86a8403ec8ae0cc3a96076ed8e95ab66944325ecd5429e31
+pub const Node000_Chu_I07_024l1: string = "_chu_i07_024l1";
+pub const Node001_Chu_I07_024l2: string = "_chu_i07_024l2";
+pub const Node002_Chu_I07_024l3: string = "_chu_i07_024l3";
+pub const Node003_Chu_I07_024l4: string = "_chu_i07_024l4";
+pub const Node004_Chu_I07_024l5: string = "_chu_i07_024l5";
+pub const Node005_Chu_I07_024l6: string = "_chu_i07_024l6";
+pub const Node006_Chu_I07_024la: string = "_chu_i07_024la";
+pub const Node007_Lamp_Fire01: string = "_lamp_fire01";
+pub const Node008_Lamp_Fire02: string = "_lamp_fire02";
+pub const Node009_Lamp_Fire03: string = "_lamp_fire03";
+pub const Node010_Lamp_Fire04: string = "_lamp_fire04";
+pub const Node011_Lamp_Fire05: string = "_lamp_fire05";
+pub const Node012_Lamp_Fire06: string = "_lamp_fire06";
+pub const Node013_Lamp_Fire07: string = "_lamp_fire07";
+pub const Node014_Lamp_Fire08: string = "_lamp_fire08";
+pub const Node015_Chu_I07_024l7: string = "_chu_i07_024l7";

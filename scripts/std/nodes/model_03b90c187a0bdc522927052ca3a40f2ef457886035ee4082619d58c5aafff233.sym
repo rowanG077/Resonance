@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 03b90c187a0bdc522927052ca3a40f2ef457886035ee4082619d58c5aafff233
+pub const Node000_Eff2: string = "eff2";

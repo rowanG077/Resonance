@@ -1,0 +1,14 @@
+script library;
+// Skeleton: 031a3aef44d0b1c473ab1dd216352fa79e7e4ac1b2fa1aac53c81f556d4c9ce3
+pub const Node000_Sanbashi: string = "sanbashi";
+pub const Node001_Tesebri2: string = "tesebri2";
+pub const Node002_Ground: string = "ground";
+pub const Node003_Mount_Base: string = "mount_base";
+pub const Node004_Fore_Miki: string = "fore_miki";
+pub const Node005_Fore_Miki01: string = "fore_miki01";
+pub const Node006_Fore_Top: string = "fore_top";
+pub const Node007_Object13: string = "ｵﾌﾞｼﾞｪｸﾄ13";
+pub const Node008_Object14: string = "ｵﾌﾞｼﾞｪｸﾄ14";
+pub const Node009_Sea_Bottom: string = "sea_bottom";
+pub const Node010_Moa2: string = "moa2";
+pub const Node011_Moa: string = "moa";

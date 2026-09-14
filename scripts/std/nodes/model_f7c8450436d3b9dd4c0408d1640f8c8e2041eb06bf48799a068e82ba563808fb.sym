@@ -1,0 +1,13 @@
+script library;
+// Skeleton: f7c8450436d3b9dd4c0408d1640f8c8e2041eb06bf48799a068e82ba563808fb
+pub const Node000_DOOR02_AUTO_PUSH_W140: string = "DOOR02_AUTO_PUSH_W140";
+pub const Node001_DOOR03_AUTO_PUSH_W140: string = "DOOR03_AUTO_PUSH_W140";
+pub const Node002_DOOR04_AUTO_PUSH_W140: string = "DOOR04_AUTO_PUSH_W140";
+pub const Node003_DOOR05_AUTO_PUSH_W140: string = "DOOR05_AUTO_PUSH_W140";
+pub const Node004_Number0001: string = "0001";
+pub const Node005_Number0002_1: string = "0002_1";
+pub const Node006_Number0002_2: string = "0002_2";
+pub const Node007_Number0003: string = "0003";
+pub const Node008_Number0002x: string = "0002x";
+pub const Node009_Number0002_3: string = "0002_3";
+pub const Node010_Number0000_1: string = "0000_1";

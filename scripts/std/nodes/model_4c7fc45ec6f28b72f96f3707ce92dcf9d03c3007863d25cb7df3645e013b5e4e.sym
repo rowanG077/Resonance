@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 4c7fc45ec6f28b72f96f3707ce92dcf9d03c3007863d25cb7df3645e013b5e4e
+pub const Node000_Buta: string = "buta";

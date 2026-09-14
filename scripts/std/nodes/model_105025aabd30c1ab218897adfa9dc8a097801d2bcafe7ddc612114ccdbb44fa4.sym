@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 105025aabd30c1ab218897adfa9dc8a097801d2bcafe7ddc612114ccdbb44fa4
+pub const Node000_Ground: string = "ground";
+pub const Node001_Mount_Base: string = "mount_base";
+pub const Node002_Sea_Bottom: string = "sea_bottom";
+pub const Node003_Ikainomon_Rock: string = "ikainomon_rock";
+pub const Node004_Kaimon_Ground: string = "kaimon_ground";
+pub const Node005_Moa2: string = "moa2";
+pub const Node006_Moa: string = "moa";

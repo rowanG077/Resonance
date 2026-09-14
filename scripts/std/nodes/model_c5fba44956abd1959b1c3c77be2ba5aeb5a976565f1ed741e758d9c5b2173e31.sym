@@ -1,0 +1,9 @@
+script library;
+// Skeleton: c5fba44956abd1959b1c3c77be2ba5aeb5a976565f1ed741e758d9c5b2173e31
+pub const Node000_A: string = "a";
+pub const Node001_R: string = "r";
+pub const Node002_B: string = "b";
+pub const Node003_L: string = "l";
+pub const Node004_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node005_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node006_Awa: string = "awa";

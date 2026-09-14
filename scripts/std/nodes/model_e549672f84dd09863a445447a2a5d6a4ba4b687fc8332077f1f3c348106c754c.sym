@@ -1,0 +1,7 @@
+script library;
+// Skeleton: e549672f84dd09863a445447a2a5d6a4ba4b687fc8332077f1f3c348106c754c
+pub const Node000_Sky: string = "sky";
+pub const Node001_Bg: string = "bg";
+pub const Node002_Tree_Old: string = "tree_old";
+pub const Node003_Kabu_Old: string = "kabu_old";
+pub const Node004_Jimen_Old: string = "jimen_old";

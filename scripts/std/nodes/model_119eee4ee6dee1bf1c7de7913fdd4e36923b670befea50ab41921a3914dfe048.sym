@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 119eee4ee6dee1bf1c7de7913fdd4e36923b670befea50ab41921a3914dfe048
+pub const Node000_Ground01: string = "ground01";
+pub const Node001_DOOR01_AUTO_S_PUSH_W175e246: string = "DOOR01_AUTO_S_PUSH_W175e246";
+pub const Node002_Cyourou: string = "cyourou";
+pub const Node003_School: string = "school";
+pub const Node004_DOOR02_AUTO_S_PUSH_W175e247: string = "DOOR02_AUTO_S_PUSH_W175e247";
+pub const Node005_Scool_Ita: string = "scool_ita";
+pub const Node006_Kanban01: string = "kanban01";
+pub const Node007_Komono: string = "komono";
+pub const Node008_Dummy01: string = "Dummy01";
+pub const Node009_R_Flag: string = "R_flag";
+pub const Node010_R_Flag02: string = "R_flag02";
+pub const Node011_R_Flag03: string = "R_flag03";
+pub const Node012_Dummy02: string = "Dummy02";
+pub const Node013_L_Flag01: string = "L_flag01";
+pub const Node014_L_Flag02: string = "L_flag02";
+pub const Node015_L_Flag03: string = "L_flag03";
+pub const Node016_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node017_Cyou_In: string = "Cyou_in";

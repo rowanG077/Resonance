@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 55d7fb9b6612c5b4543c55baefd4cdd9624e7ad6e415a813ad33696b0ad54a82
+pub const Node000_Glass_ALPHA_3: string = "glass_ALPHA_3";
+pub const Node001_Glass_ALPHA_1: string = "glass_ALPHA_1";
+pub const Node002_Glass_ALPHA_2: string = "glass_ALPHA_2";
+pub const Node003_Glass_ALPHA_4: string = "glass_ALPHA_4";
+pub const Node004_Flat_Light: string = "flat_light";
+pub const Node005_Light1: string = "light1";
+pub const Node006_Light02: string = "light02";
+pub const Node007_Light03: string = "light03";
+pub const Node008_Light04: string = "light04";
+pub const Node009_Cylinder01: string = "Cylinder01";

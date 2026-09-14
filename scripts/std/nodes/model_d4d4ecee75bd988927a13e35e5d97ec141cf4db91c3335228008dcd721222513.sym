@@ -1,0 +1,7 @@
+script library;
+// Skeleton: d4d4ecee75bd988927a13e35e5d97ec141cf4db91c3335228008dcd721222513
+pub const Node000_Ask_I01_021: string = "ask_i01_02-1";
+pub const Node001_Ask_I01_02O1: string = "ask_i01_02-o1";
+pub const Node002_Ask_I01_02O2: string = "ask_i01_02-o2";
+pub const Node003_DOOR_AUTO_PUSH_W150e000: string = "DOOR_AUTO_PUSH_W150e000";
+pub const Node004_Ask_I01_020: string = "ask_i01_02-0";

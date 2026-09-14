@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 2fd35b6a926c5424d67c077bd643ad9e9a01f7a75a890244b5e70909989a3fc4
+pub const Node000_Bridge_Eff01: string = "bridge_eff01";
+pub const Node001_Bridge_Eff02: string = "bridge_eff02";
+pub const Node002_Bridge_Eff00: string = "bridge_eff00";

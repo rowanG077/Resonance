@@ -1,0 +1,18 @@
+script library;
+// Skeleton: 9a5539b6d0280387f41b9aa882cd8f1eaf79d9c69ef927120c315d45c0ecb15a
+pub const Node000_Pre000_Axe_A01: string = "pre000_axe_a01";
+pub const Node001_Pre000_Axe_B01: string = "pre000_axe_b01";
+pub const Node002_Pre000_Axe_Base01: string = "pre000_axe_base01";
+pub const Node003_Pre000_Axe_C01: string = "pre000_axe_c01";
+pub const Node004_Pre000_Axe_D01: string = "pre000_axe_d01";
+pub const Node005_Pre000_Axe_E01: string = "pre000_axe_e01";
+pub const Node006_Pre000_Axe_F01: string = "pre000_axe_f01";
+pub const Node007_Pre000_Axe_G01: string = "pre000_axe_g01";
+pub const Node008_Pre000_Axe_Outline_A01: string = "pre000_axe_outline_a01";
+pub const Node009_Pre000_Axe_Outline_B01: string = "pre000_axe_outline_b01";
+pub const Node010_Pre000_Axe_Outline_Base01: string = "pre000_axe_outline_base01";
+pub const Node011_Pre000_Axe_Outline_C01: string = "pre000_axe_outline_c01";
+pub const Node012_Pre000_Axe_Outline_D01: string = "pre000_axe_outline_d01";
+pub const Node013_Pre000_Axe_Outline_E01: string = "pre000_axe_outline_e01";
+pub const Node014_Pre000_Axe_Outline_F01: string = "pre000_axe_outline_f01";
+pub const Node015_Pre000_Axe_Outline_G01: string = "pre000_axe_outline_g01";

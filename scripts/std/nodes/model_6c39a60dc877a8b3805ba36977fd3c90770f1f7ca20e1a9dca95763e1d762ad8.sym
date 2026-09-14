@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 6c39a60dc877a8b3805ba36977fd3c90770f1f7ca20e1a9dca95763e1d762ad8
+pub const Node000_Sphere01: string = "Sphere01";
+pub const Node001_Iriguti_Chikei: string = "iriguti_chikei";
+pub const Node002_G4: string = "g4";
+pub const Node003_G5: string = "g5";
+pub const Node004_G3: string = "g3";
+pub const Node005_G1: string = "g1";
+pub const Node006_G2: string = "g2";
+pub const Node007_G7: string = "g7";
+pub const Node008_G6: string = "g6";
+pub const Node009_Cylinder01: string = "Cylinder01";
+pub const Node010_Kieru_Kabe: string = "kieru_kabe";

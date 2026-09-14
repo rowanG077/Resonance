@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 01269d07529dbb7aa36050f01b2d686c6ebb20be91cdb7fa42bfd70b9c68f2b8
+pub const Arm04: string = "arm04";
+pub const Node000_Wall: string = "wall";
+pub const Node001_Monitor: string = "monitor";
+pub const Node002_Switch: string = "switch";
+pub const Node003_Switchlight_Before: string = "switchlight_before";
+pub const Node004_Switchlight_After: string = "switchlight_after";
+pub const Node005_Monitor_Before: string = "monitor_before";
+pub const Node006_Monitor_After: string = "monitor_after";
+pub const Node007_Container_Slot: string = "container_slot";
+pub const Node009_AZZEM03: string = "AZZEM03";
+pub const Node010_Plane04: string = "Plane04";

@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 7634ad1163a07d69d001228e4b5e8e0ef7a03c7d519bda3c1c544cc1ee7efc15
+pub const Node000_Rin_Tree: string = "rin_tree";
+pub const Node001_Rin_Mi: string = "rin_mi";
+pub const Node002_Moku_On: string = "moku_on";
+pub const Node003_Rin_Jimen: string = "rin_jimen";
+pub const Node004_Rin_Iwa: string = "rin_iwa";
+pub const Node005_Rin_Eda: string = "rin_eda";
+pub const Node006_Rin_Ne: string = "rin_ne";

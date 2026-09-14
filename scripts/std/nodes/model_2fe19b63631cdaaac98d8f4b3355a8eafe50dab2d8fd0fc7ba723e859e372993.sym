@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 2fe19b63631cdaaac98d8f4b3355a8eafe50dab2d8fd0fc7ba723e859e372993
+pub const Node000_Wall: string = "wall";
+pub const Node001_Left_Door: string = "left_door";
+pub const Node002_Lattice02: string = "lattice02";
+pub const Node003_Lattice03: string = "lattice03";
+pub const Node004_Lattice04: string = "lattice04";
+pub const Node005_Lattice07: string = "lattice07";
+pub const Node006_Lattice06: string = "lattice06";
+pub const Node007_Lattice05: string = "lattice05";
+pub const Node008_Right_Door: string = "right_door";
+pub const Node009_Anm_Lattice_Up: string = "anm_lattice_up";
+pub const Node010_Anm_Lattice_Down: string = "anm_lattice_down";

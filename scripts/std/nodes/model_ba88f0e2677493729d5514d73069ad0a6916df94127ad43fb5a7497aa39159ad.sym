@@ -1,0 +1,3 @@
+script library;
+// Skeleton: ba88f0e2677493729d5514d73069ad0a6916df94127ad43fb5a7497aa39159ad
+pub const Node000_Hasu_Dai01: string = "hasu_dai01";

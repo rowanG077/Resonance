@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 3758d86302b7d54910315f89e880238e069462ce488b270b9e7b440c9e6c795e
+pub const Node000_Sct_Atari01: string = "sct_Atari01";

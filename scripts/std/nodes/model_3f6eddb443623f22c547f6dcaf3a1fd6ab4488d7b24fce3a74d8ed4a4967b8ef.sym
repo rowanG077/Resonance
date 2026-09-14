@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 3f6eddb443623f22c547f6dcaf3a1fd6ab4488d7b24fce3a74d8ed4a4967b8ef
+pub const Node000_Zeros: string = "Zeros";

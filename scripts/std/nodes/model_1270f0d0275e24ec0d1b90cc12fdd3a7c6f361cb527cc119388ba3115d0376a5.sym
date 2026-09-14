@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 1270f0d0275e24ec0d1b90cc12fdd3a7c6f361cb527cc119388ba3115d0376a5
+pub const Node000_D03_Right: string = "D03_Right";
+pub const Node001_D03_Apple: string = "D03_Apple";
+pub const Node002_D03_Left: string = "D03_Left";
+pub const Node003_D03_Center: string = "D03_Center";
+pub const Node004_D03_Apple01: string = "D03_Apple01";
+pub const Node005_D03_Apple02: string = "D03_Apple02";

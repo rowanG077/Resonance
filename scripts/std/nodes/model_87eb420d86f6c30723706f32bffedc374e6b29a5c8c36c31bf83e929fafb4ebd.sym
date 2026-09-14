@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 87eb420d86f6c30723706f32bffedc374e6b29a5c8c36c31bf83e929fafb4ebd
+pub const Node000_Corp10_00Shield: string = "Corp10_00Shield";
+pub const Node001_EF_Bone: string = "EF_Bone";
+pub const Node002_Corp10_00ShieldOut: string = "Corp10_00ShieldOut";

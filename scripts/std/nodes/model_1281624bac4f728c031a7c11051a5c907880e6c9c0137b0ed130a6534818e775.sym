@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 1281624bac4f728c031a7c11051a5c907880e6c9c0137b0ed130a6534818e775
+pub const Node000_Minispider: string = "minispider";

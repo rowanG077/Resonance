@@ -1,0 +1,14 @@
+script library;
+// Skeleton: e556e1d189a4217d09438fc96b466a4a505ad12b5fa9b816d28350e7b49461da
+pub const Node000_Al_Fence_Share: string = "al_fence_share";
+pub const Node001_Al_Shadow_Nomal: string = "al_shadow_nomal";
+pub const Node002_Al_Buble_Share: string = "al_buble_share";
+pub const Node003_Al_Shadow_Event: string = "al_shadow_event";
+pub const Node004_Al_Shadow_Ani_Event: string = "al_shadow_ani_event";
+pub const Node005_Al_Onoff_Antex: string = "al_onoff_antex";
+pub const Node006_Al_Onoff2_Antex: string = "al_onoff2_antex";
+pub const Node007_Al_Spark_Antex: string = "al_spark_antex";
+pub const Node008_Tr_Glass00: string = "tr_glass00";
+pub const Node009_Tr_Sinkan00: string = "tr_sinkan00";
+pub const Node010_Dummy01: string = "Dummy01";
+pub const Node011_Al_Shadow_Ani_Event01: string = "al_shadow_ani_event01";

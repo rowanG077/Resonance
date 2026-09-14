@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 59508cf446abbec7381c97fac593776dbe61ccd39bca7cb5114ebac9a7e4396e
+pub const Node000_Ask_Obj1: string = "ask_obj1";
+pub const Node001_Ask_Wall1: string = "ask_wall1";
+pub const Node002_Ask_Obj2: string = "ask_obj2";
+pub const Node003_Ask_Wall2: string = "ask_wall2";
+pub const Node004_DOOR01_AUTO_PULL_W175: string = "DOOR01_AUTO_PULL_W-175";
+pub const Node005_Ask_Msuk: string = "ask_msuk";
+pub const Node006_Box01: string = "Box01";

@@ -1,0 +1,16 @@
+script library;
+// Skeleton: c18db71645922a4b2c29ef77f2a991dcf09965a933d4d4765128d7c73d2b24ba
+pub const Node000_Ice_D01: string = "ice_d01";
+pub const Node001_Hinto_01: string = "hinto_01";
+pub const Node002_Door_01: string = "door_01";
+pub const Node003_Turara_01: string = "turara_01";
+pub const Node004_Suiteki: string = "suiteki";
+pub const Node005_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node006_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node007_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node008_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node009_Kao: string = "kao";
+pub const Node010_Kao_01: string = "kao_01";
+pub const Node011_Kao_02: string = "kao_02";
+pub const Node012_Kao_04: string = "kao_04";
+pub const Node013_Kao_03: string = "kao_03";

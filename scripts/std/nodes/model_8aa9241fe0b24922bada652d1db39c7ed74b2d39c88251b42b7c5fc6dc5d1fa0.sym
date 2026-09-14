@@ -1,0 +1,14 @@
+script library;
+// Skeleton: 8aa9241fe0b24922bada652d1db39c7ed74b2d39c88251b42b7c5fc6dc5d1fa0
+pub const Node000_Moku: string = "moku";
+pub const Node001_Glass01: string = "glass01";
+pub const Node002_Room01: string = "room01";
+pub const Node003_Room02: string = "room02";
+pub const Node004_Hide02: string = "hide02";
+pub const Node005_Hide03: string = "hide03";
+pub const Node006_Hide04_A: string = "hide04_a";
+pub const Node007_Hide01: string = "hide01";
+pub const Node008_Room3: string = "room3";
+pub const Node009_World: string = "world";
+pub const Node010_World2: string = "world2";
+pub const Node011_Koret: string = "koret";

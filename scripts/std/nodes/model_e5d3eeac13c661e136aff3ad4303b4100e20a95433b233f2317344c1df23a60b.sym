@@ -1,0 +1,3 @@
+script library;
+// Skeleton: e5d3eeac13c661e136aff3ad4303b4100e20a95433b233f2317344c1df23a60b
+pub const Node000_M_DoorLocked: string = "m_doorLocked";

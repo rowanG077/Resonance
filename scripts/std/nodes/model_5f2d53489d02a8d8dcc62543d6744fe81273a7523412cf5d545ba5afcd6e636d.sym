@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 5f2d53489d02a8d8dcc62543d6744fe81273a7523412cf5d545ba5afcd6e636d
+pub const Node000_Y1000: string = "y1000";
+pub const Node001_Y1001: string = "y1001";
+pub const Node002_Y1002: string = "y1002";
+pub const Node003_Y1000_Hasira: string = "y1000_hasira";
+pub const Node004_Y1000_Window_F: string = "y1000_window_f";
+pub const Node005_Y1000_Kabe: string = "y1000_kabe";
+pub const Node006_Y1000_Window_Close: string = "y1000_window_close";
+pub const Node007_DOOR_AUTO_PUSH_W171e801: string = "DOOR_AUTO_PUSH_W171e801";
+pub const Node008_Y1000_Window_Out: string = "y1000_window_out";
+pub const Node009_Y1001_Anm1: string = "y1001_anm1";
+pub const Node010_Y1001_Anm2: string = "y1001_anm2";
+pub const Node011_Y1001_2: string = "y1001_2";
+pub const Node012_Y1000_Hasira2: string = "y1000_hasira2";
+pub const Node013_Y1001_3: string = "y1001_3";
+pub const Node014_Y1000_Window_Open: string = "y1000_window_open";

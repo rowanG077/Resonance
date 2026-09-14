@@ -1,0 +1,18 @@
+script library;
+// Skeleton: 0c6c02b2c4c54a3cd5c55430af087d1cdddeaeefc7a510eedcf9c22fa2826516
+pub const Node000_Kumo_02: string = "kumo_02";
+pub const Node001_Kumo_03: string = "kumo_03";
+pub const Node002_Kumo_04: string = "kumo_04";
+pub const Node003_Kumo_05: string = "kumo_05";
+pub const Node004_Kumo_06: string = "kumo_06";
+pub const Node005_Kumo_07: string = "kumo_07";
+pub const Node006_Dummy01: string = "Dummy01";
+pub const Node007_Ryuunosu: string = "ryuunosu";
+pub const Node008_Ryu_Piece_01: string = "ryu_piece_01";
+pub const Node009_Object12: string = "ｵﾌﾞｼﾞｪｸﾄ12";
+pub const Node010_Ryu_Piece_05: string = "ryu_piece_05";
+pub const Node011_Ryu_Piece_03: string = "ryu_piece_03";
+pub const Node012_Ryu_Peace_01: string = "ryu_peace_01";
+pub const Node013_Ryu_Piece_02: string = "ryu_piece_02";
+pub const Node014_Kumo_08: string = "kumo_08";
+pub const Node015_Kumo_09: string = "kumo_09";

@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 8680ad4d388dbb6a286971c7bf4db8d3ed9a1d087778bbf85d6e05ee93cec45d
+pub const Node000_Default01: string = "default01";
+pub const Node001_Default02: string = "default02";
+pub const Node002_Default03: string = "default03";
+pub const Node003_Mdl_Vmh_D06_Iwa: string = "mdl_vmh_d06_iwa";

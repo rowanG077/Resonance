@@ -1,0 +1,26 @@
+script library;
+// Skeleton: 3ffd1f44ea3fc1da5457a60286db4fe9ae47ebd12353f2f22ea323664568a753
+pub const Node000_Br_03: string = "Br_03";
+pub const Node001_Br_02: string = "Br_02";
+pub const Node002_B_05: string = "B_05";
+pub const Node003_Bri_01: string = "Bri_01";
+pub const Node004_Bri_04: string = "Bri_04";
+pub const Node005_B_03: string = "B_03";
+pub const Node006_Br_01: string = "Br_01";
+pub const Node007_B_01: string = "B_01";
+pub const Node008_B_02: string = "B_02";
+pub const Node009_B_04: string = "B_04";
+pub const Node010_Bri_12: string = "Bri_12";
+pub const Node011_Bri_07: string = "Bri_07";
+pub const Node012_Bri_06: string = "Bri_06";
+pub const Node013_Bri_02: string = "Bri_02";
+pub const Node014_Bri_11: string = "Bri_11";
+pub const Node015_Bri_03: string = "Bri_03";
+pub const Node016_Bri_05: string = "Bri_05";
+pub const Node017_Bri_10: string = "Bri_10";
+pub const Node018_Bri_09: string = "Bri_09";
+pub const Node019_Bri_08: string = "Bri_08";
+pub const Node020_Bri_15: string = "Bri_15";
+pub const Node021_Bri_14: string = "Bri_14";
+pub const Node022_Bri_13: string = "Bri_13";
+pub const Node023_B_06: string = "B_06";

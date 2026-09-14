@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 2acb78b233d76d5ea18db87bde2bdaed78342e2901fd50358e1028fb2a8bf6aa
+pub const Node000_Dummy_JC: string = "Dummy_JC";
+pub const Node001_New_Cage01: string = "New_Cage01";
+pub const Node002_New_Cage02: string = "New_Cage02";
+pub const Node003_Jt_Man001: string = "Jt_Man001";
+pub const Node004_New_Cage03: string = "New_Cage03";
+pub const Node005_New_Cage04: string = "New_Cage04";
+pub const Node006_Jf_Man004: string = "Jf_Man004";
+pub const Node007_Jf_Man003B: string = "Jf_Man003B";
+pub const Node008_Jf_Man003A: string = "Jf_Man003A";
+pub const Node009_JC_Anm_Dummy: string = "JC_anm_Dummy";

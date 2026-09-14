@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 61aaddac5ff79aaac3afbb250ed06e9f1f19b08d3aee4df9b5816b33f3f5c220
+pub const Node000_Col_Box: string = "col_Box";

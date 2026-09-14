@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 421d2527b23f15ae0abb8fe9b253d685d79298aaa4965b3981956bd136bcd1ee
+pub const Node000_Mini_9_Ag03: string = "mini_9_ag03";

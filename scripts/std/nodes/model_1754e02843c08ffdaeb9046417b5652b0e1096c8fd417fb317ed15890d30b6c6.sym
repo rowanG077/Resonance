@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 1754e02843c08ffdaeb9046417b5652b0e1096c8fd417fb317ed15890d30b6c6
+pub const Node000_TT_Chear150: string = "TT_Chear150";
+pub const Node001_TT_Reaf170: string = "TT_Reaf170";
+pub const Node002_TT_Reaf175: string = "TT_Reaf175";
+pub const Node003_TT_Reaf180: string = "TT_Reaf180";
+pub const Node004_TT_Reaf185: string = "TT_Reaf185";
+pub const Node005_TT_Reaf190: string = "TT_Reaf190";
+pub const Node006_TT_Reaf195: string = "TT_Reaf195";
+pub const Node007_TT_Reaf200: string = "TT_Reaf200";
+pub const Node008_TT_SH_Tp200: string = "TT_SH_Tp200";

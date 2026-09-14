@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 834b81fa120e0a2d4bf59d6d8364fb10e3c2f044786f778bde8dec52d4ea96b5
+pub const Node000_Kk10_Corp22_01Shield: string = "kk10_Corp22_01Shield";

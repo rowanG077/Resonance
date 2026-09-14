@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 5e3230c4204e95d379b51dd7e3823d04841afb812f1465d060f8ab8285b3065a
+pub const Node000_Helix03: string = "Helix03";

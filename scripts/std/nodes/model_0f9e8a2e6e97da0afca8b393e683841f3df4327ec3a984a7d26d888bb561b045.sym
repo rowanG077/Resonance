@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 0f9e8a2e6e97da0afca8b393e683841f3df4327ec3a984a7d26d888bb561b045
+pub const Node000_Open_Mbook: string = "open_mbook";

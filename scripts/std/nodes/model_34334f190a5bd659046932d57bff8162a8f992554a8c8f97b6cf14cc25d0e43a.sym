@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 34334f190a5bd659046932d57bff8162a8f992554a8c8f97b6cf14cc25d0e43a
+pub const Node000_Dummy01: string = "Dummy01";
+pub const Node001_Bard: string = "bard";

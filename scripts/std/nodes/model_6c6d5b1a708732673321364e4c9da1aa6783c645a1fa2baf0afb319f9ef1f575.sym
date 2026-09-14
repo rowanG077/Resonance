@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 6c6d5b1a708732673321364e4c9da1aa6783c645a1fa2baf0afb319f9ef1f575
+pub const Node000_Osora: string = "osora";
+pub const Node001_Wall: string = "wall";
+pub const Node002_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node004_Temae_Kabe: string = "temae_kabe";

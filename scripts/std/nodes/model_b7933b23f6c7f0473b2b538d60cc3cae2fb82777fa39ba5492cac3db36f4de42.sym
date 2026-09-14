@@ -1,0 +1,7 @@
+script library;
+// Skeleton: b7933b23f6c7f0473b2b538d60cc3cae2fb82777fa39ba5492cac3db36f4de42
+pub const Node000_Tutu00: string = "tutu00";
+pub const Node001_Tutu02: string = "tutu02";
+pub const Node002_Tutu01: string = "tutu01";
+pub const Node003_Beam: string = "beam";
+pub const Node004_Blue_Wave: string = "blue_wave";

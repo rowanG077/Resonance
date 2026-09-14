@@ -1,0 +1,28 @@
+script library;
+// Skeleton: e5131b368db4973eebdc2e7e7164218e1266889bd21d46be2179792d85757687
+pub const Node000_Group12: string = "Group12";
+pub const Node001_All_Eda: string = "all_eda";
+pub const Node002_E02_Top01: string = "e02_top01";
+pub const Node003_E02_Sec01: string = "e02_sec01";
+pub const Node004_E02_Sec02: string = "e02_sec02";
+pub const Node005_E02_Sec03: string = "e02_sec03";
+pub const Node006_E02_D01: string = "e02_d01";
+pub const Node007_E02_D02: string = "e02_d02";
+pub const Node008_E04_Top01: string = "e04_top01";
+pub const Node009_E04_Sec01: string = "e04_sec01";
+pub const Node010_E04_Sec02: string = "e04_sec02";
+pub const Node011_E04_Sec03: string = "e04_sec03";
+pub const Node012_E04_Sec04: string = "e04_sec04";
+pub const Node013_E03_Top: string = "e03_top";
+pub const Node014_E03_Sec02: string = "e03_sec02";
+pub const Node015_E03_Sec01: string = "e03_sec01";
+pub const Node016_E03_D03: string = "e03_d03";
+pub const Node017_E03_D02: string = "e03_d02";
+pub const Node018_E03_D01: string = "e03_d01";
+pub const Node019_E01_Top01: string = "e01_top01";
+pub const Node020_E01_Sec01: string = "e01_sec01";
+pub const Node021_E01_Sec02: string = "e01_sec02";
+pub const Node022_E01_Sec03: string = "e01_sec03";
+pub const Node023_E01_D01: string = "e01_d01";
+pub const Node024_E01_D02: string = "e01_d02";
+pub const Node025_Fleaf: string = "Fleaf";

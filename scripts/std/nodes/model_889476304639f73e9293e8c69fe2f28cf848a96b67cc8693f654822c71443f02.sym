@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 889476304639f73e9293e8c69fe2f28cf848a96b67cc8693f654822c71443f02
+pub const Node000_Light1_01: string = "light1_01";
+pub const Node001_Light1_02: string = "light1_02";
+pub const Node002_Obj8: string = "obj8";
+pub const Node003_Plant02: string = "plant02";
+pub const Node004_Light3_01: string = "light3_01";
+pub const Node005_Light2_01: string = "light2_01";
+pub const Node006_Light2_02: string = "light2_02";
+pub const Node007_Light3_02: string = "light3_02";
+pub const Node008_Light2_03: string = "light2_03";
+pub const Node009_Light2_04: string = "light2_04";
+pub const Node010_Plant0221: string = "plant0221";

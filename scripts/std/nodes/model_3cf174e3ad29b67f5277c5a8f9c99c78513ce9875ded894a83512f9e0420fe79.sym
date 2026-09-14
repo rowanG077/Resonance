@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 3cf174e3ad29b67f5277c5a8f9c99c78513ce9875ded894a83512f9e0420fe79
+pub const Node000_MiddleStump01: string = "真中切り株01";

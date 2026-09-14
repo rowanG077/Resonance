@@ -1,0 +1,22 @@
+script library;
+// Skeleton: 7b0591b8f1456dd7ff4d6ad76bc1b1fdb0c86fefa4b997ca8a9155234d477bba
+pub const Node000_Group01: string = "Group01";
+pub const Node001_Bumi02_P165: string = "Bumi02_p165";
+pub const Node002_Bumi03_P170: string = "Bumi03_p170";
+pub const Node003_Mado_P60: string = "mado_p60";
+pub const Node004_Uno_P50: string = "uno_p50";
+pub const Node005_Dos_P40: string = "dos_p40";
+pub const Node006_Tres_P30: string = "tres_p30";
+pub const Node007_Quatro_P20: string = "quatro_p20";
+pub const Node008_Sinco_P10: string = "sinco_p10";
+pub const Node009_Bumi01_P160: string = "Bumi01_p160";
+pub const Node010_Winmado: string = "winmado";
+pub const Node011_Kusaall_P80: string = "kusaall_p80";
+pub const Node012_Bumi04_P175: string = "Bumi04_p175";
+pub const Node013_Budo03_P190: string = "Budo03_p190";
+pub const Node014_Budo02_P185: string = "Budo02_p185";
+pub const Node015_Budo01_P180: string = "Budo01_p180";
+pub const Node016_Bumi01s_P160: string = "Bumi01s_p160";
+pub const Node017_Bumi02s_P165: string = "Bumi02s_p165";
+pub const Node018_En: string = "en";
+pub const Node019_Mid: string = "mid";

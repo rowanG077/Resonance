@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 22ec34fec4d3a5a2ab251e21f602a0a9064d02fcb4080e158799095d91c10e8c
+pub const Node000_D01_S: string = "D01_s";
+pub const Node001_Saku1: string = "Saku1";
+pub const Node002_Saku1_A: string = "Saku1_a";
+pub const Node003_Saku2: string = "Saku2";

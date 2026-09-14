@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 9036928971434f493812fba180cba75720f77021dbba0009e0c83e362405bfd1
+pub const Node000_Wall: string = "wall";
+pub const Node001_Item: string = "item";
+pub const Node002_Frontwall: string = "frontwall";
+pub const Node003_Hiding_Box: string = "hiding_box";
+pub const Node004_Lamp: string = "lamp";
+pub const Node005_Lightwall: string = "lightwall";
+pub const Node006_Curtain: string = "curtain";
+pub const Node007_Tobira01: string = "tobira01";
+pub const Node008_DOOR01_AUTO_L_PULL_W100: string = "DOOR01_AUTO_L_PULL_W100";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: e5f1c0c279e4908a324d395c6730bf0c67612a08e77f6deca494968c15d9fd5d
+pub const Node000_Wall: string = "wall";
+pub const Node001_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";

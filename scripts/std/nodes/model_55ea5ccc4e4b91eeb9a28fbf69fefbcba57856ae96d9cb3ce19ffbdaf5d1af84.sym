@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 55ea5ccc4e4b91eeb9a28fbf69fefbcba57856ae96d9cb3ce19ffbdaf5d1af84
+pub const Node000_Path_Anm: string = "path_anm";

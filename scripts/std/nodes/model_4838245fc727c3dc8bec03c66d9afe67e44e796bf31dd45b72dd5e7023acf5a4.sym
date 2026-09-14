@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 4838245fc727c3dc8bec03c66d9afe67e44e796bf31dd45b72dd5e7023acf5a4
+pub const Node000_I03_Ka_01: string = "i03_ka_01";
+pub const Node001_AR_002: string = "AR_002";
+pub const Node002_Box01: string = "Box01";

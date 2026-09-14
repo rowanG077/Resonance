@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 23f90e75f68373c470408fb58309e486e3b47d6e3cc885b9a5643048917706f6
+pub const Node000_DOOR01_AUTO_PUSH_W175e161: string = "DOOR01_AUTO_PUSH_W175e161";
+pub const Node001_Hasira: string = "Hasira";
+pub const Node002_Cyourou: string = "cyourou";
+pub const Node003_Jimen: string = "jimen";
+pub const Node004_Haikyo01: string = "haikyo01";
+pub const Node005_DOOR02_AUTO_PUSH_W175e481: string = "DOOR02_AUTO_PUSH_W175e481";
+pub const Node006_DOOR02_AUTO_PUSH_W175e482: string = "DOOR02_AUTO_PUSH_W175e482";
+pub const Node007_Sky: string = "sky";
+pub const Node008_Daichi00: string = "daichi00";
+pub const Node009_Riff: string = "Riff";
+pub const Node010_Fupu01: string = "fupu01";
+pub const Node011_Tututu: string = "tututu";
+pub const Node012_Fupu02: string = "fupu02";
+pub const Node013_Fupu04: string = "fupu04";
+pub const Node014_Fupu03: string = "fupu03";
+pub const Node015_Fupu05: string = "fupu05";
+pub const Node016_Mado02: string = "mado02";
+pub const Node017_Mado01: string = "mado01";

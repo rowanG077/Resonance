@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 881d69af53ba3ace4a64c5e6d44921eaeafc4df38317ce2ae254a39634d7f5bc
+pub const Node000_Kibako_Path: string = "Kibako_Path";

@@ -1,0 +1,5 @@
+script library;
+// Skeleton: f438f2a4ad84490bad78dc43051632ae963f507d19d1550374c616ff2d635369
+pub const Node000_Mdl_Isa_I0: string = "mdl_isa_i0";
+pub const Node001_ROOM01: string = "ROOM01";
+pub const Node002_Flower00: string = "Flower00";

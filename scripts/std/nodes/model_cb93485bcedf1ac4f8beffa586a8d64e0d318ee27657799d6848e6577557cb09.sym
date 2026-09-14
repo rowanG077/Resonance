@@ -1,0 +1,22 @@
+script library;
+// Skeleton: cb93485bcedf1ac4f8beffa586a8d64e0d318ee27657799d6848e6577557cb09
+pub const Node000_Obj00: string = "obj00";
+pub const Node001_Obj14: string = "obj14";
+pub const Node002_Obj03: string = "obj03";
+pub const Node003_Obj01: string = "obj01";
+pub const Node004_Obj08: string = "obj08";
+pub const Node005_Obj12: string = "obj12";
+pub const Node006_Obj18: string = "obj18";
+pub const Node007_Obj06: string = "obj06";
+pub const Node008_Obj04: string = "obj04";
+pub const Node009_Obj16: string = "obj16";
+pub const Node010_Obj10: string = "obj10";
+pub const Node011_Obj09: string = "obj09";
+pub const Node012_Obj07: string = "obj07";
+pub const Node013_Obj19: string = "obj19";
+pub const Node014_Obj17: string = "obj17";
+pub const Node015_Obj15: string = "obj15";
+pub const Node016_Obj02: string = "obj02";
+pub const Node017_Obj13: string = "obj13";
+pub const Node018_Obj05: string = "obj05";
+pub const Node019_Obj11: string = "obj11";

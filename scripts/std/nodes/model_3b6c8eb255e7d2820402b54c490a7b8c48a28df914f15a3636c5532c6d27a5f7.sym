@@ -1,0 +1,14 @@
+script library;
+// Skeleton: 3b6c8eb255e7d2820402b54c490a7b8c48a28df914f15a3636c5532c6d27a5f7
+pub const Node000_OuterCircle01_: string = "外円01_";
+pub const Node001_Circle02_: string = "円02_";
+pub const Node002_Circle01_: string = "円01_";
+pub const Node003_Circle03_: string = "円03_";
+pub const Node004_InnerTriangle_: string = "三角内_";
+pub const Node005_Triangle01_: string = "三角01_";
+pub const Node006_InnerCircle01_: string = "内円01_";
+pub const Node007_Circle05_: string = "円05_";
+pub const Node008_Circle04_: string = "円04_";
+pub const Node009_Circle06_: string = "円06_";
+pub const Node010_Cylinder01: string = "Cylinder01";
+pub const Node011_Triangle_: string = "三角_";

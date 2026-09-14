@@ -1,0 +1,13 @@
+script library;
+// Skeleton: f9d6b99f018f6260b6053e02ce659c4062009306d4625f55acb1fb23c1246981
+pub const Node000_Ground: string = "ground";
+pub const Node001_Toumei: string = "toumei";
+pub const Node002_DOOR02_AUTO_S_PUSH_W175e611: string = "DOOR02_AUTO_S_PUSH_W175e611";
+pub const Node003_Douguya: string = "douguya";
+pub const Node004_Wall_All: string = "wall_all";
+pub const Node005_DOOR01_AUTO_S_PUSH_W175e278: string = "DOOR01_AUTO_S_PUSH_W175e278";
+pub const Node006_Bukiya: string = "bukiya";
+pub const Node007_Taru04: string = "taru04";
+pub const Node008_Banban01: string = "banban01";
+pub const Node009_Plane05: string = "Plane05";
+pub const Node010_Runpp: string = "runpp";

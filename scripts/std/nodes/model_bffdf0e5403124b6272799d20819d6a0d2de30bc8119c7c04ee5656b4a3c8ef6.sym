@@ -1,0 +1,3 @@
+script library;
+// Skeleton: bffdf0e5403124b6272799d20819d6a0d2de30bc8119c7c04ee5656b4a3c8ef6
+pub const Node000_Brokenedge: string = "brokenedge";

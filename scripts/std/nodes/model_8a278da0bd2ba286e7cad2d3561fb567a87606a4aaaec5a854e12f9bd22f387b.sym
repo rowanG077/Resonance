@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 8a278da0bd2ba286e7cad2d3561fb567a87606a4aaaec5a854e12f9bd22f387b
+pub const Node000_Taore_Miki: string = "taore_miki";
+pub const Node001_Kusa: string = "kusa";
+pub const Node002_Sugi_Ha: string = "sugi_ha";
+pub const Node003_Sugi_Miki: string = "sugi_miki";
+pub const Node004_Box01: string = "Box01";
+pub const Node005_Plane01: string = "Plane01";
+pub const Node006_Plane02: string = "Plane02";
+pub const Node007_Plane03: string = "Plane03";
+pub const Node008_Plane04: string = "Plane04";
+pub const Node009_Object11: string = "ｵﾌﾞｼﾞｪｸﾄ11";
+pub const Node010_Object12: string = "ｵﾌﾞｼﾞｪｸﾄ12";
+pub const Node011_Object13: string = "ｵﾌﾞｼﾞｪｸﾄ13";
+pub const Node012_Ki: string = "ki";
+pub const Node013_Kiri: string = "kiri";
+pub const Node014_Happa_Big: string = "happa_big";

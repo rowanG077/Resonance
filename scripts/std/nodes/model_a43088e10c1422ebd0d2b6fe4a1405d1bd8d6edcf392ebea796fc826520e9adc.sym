@@ -1,0 +1,7 @@
+script library;
+// Skeleton: a43088e10c1422ebd0d2b6fe4a1405d1bd8d6edcf392ebea796fc826520e9adc
+pub const Node000_Shikake_02d: string = "Shikake_02d";
+pub const Node001_Box: string = "box";
+pub const Node002_Shikake_02c: string = "Shikake_02c";
+pub const Node003_Shikake_02a: string = "Shikake_02a";
+pub const Node004_Shikake_02b: string = "Shikake_02b";

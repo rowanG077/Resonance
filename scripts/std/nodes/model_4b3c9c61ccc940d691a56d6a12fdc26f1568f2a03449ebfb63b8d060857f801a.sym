@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 4b3c9c61ccc940d691a56d6a12fdc26f1568f2a03449ebfb63b8d060857f801a
+pub const Node000_Llo000_Skin: string = "llo000_skin";
+pub const Node001_Obj_Kosi_Saya_R: string = "obj_kosi_saya_R";
+pub const Node002_Obj_Kosi_Ken_R: string = "obj_kosi_ken_R";
+pub const Node003_Obj_Kosi_Saya_L: string = "obj_kosi_saya_L";
+pub const Node004_Obj_Kosi_Ken_L: string = "obj_kosi_ken_L";

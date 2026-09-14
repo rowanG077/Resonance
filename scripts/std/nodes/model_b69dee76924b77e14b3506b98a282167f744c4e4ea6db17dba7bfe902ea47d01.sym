@@ -1,0 +1,3 @@
+script library;
+// Skeleton: b69dee76924b77e14b3506b98a282167f744c4e4ea6db17dba7bfe902ea47d01
+pub const Node000_Yuka: string = "yuka";

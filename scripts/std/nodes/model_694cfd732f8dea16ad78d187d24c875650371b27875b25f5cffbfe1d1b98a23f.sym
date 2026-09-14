@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 694cfd732f8dea16ad78d187d24c875650371b27875b25f5cffbfe1d1b98a23f
+pub const Node000_Tt_Anm_Dummy: string = "tt_anm_Dummy";
+pub const Node001_Tt_Mesh_A180: string = "tt_Mesh_A180";
+pub const Node002_Tt_Mesh_A190: string = "tt_Mesh_A190";
+pub const Node003_Tt_Mesh_A200: string = "tt_Mesh_A200";
+pub const Node004_Tt_Mesh_V200: string = "tt_mesh_v200";
+pub const Node005_Tt_Mount_A10: string = "tt_Mount_A10";
+pub const Node006_Tt_Plant100: string = "tt_Plant100";
+pub const Node007_Tt_Tw_Trans190: string = "tt_Tw_Trans190";
+pub const Node008_Tt_Twd01_200: string = "tt_Twd01_200";
+pub const Node009_Tt_Twd02_200: string = "tt_Twd02_200";
+pub const Node010_Tt_Sea_V20: string = "tt_Sea_v20";

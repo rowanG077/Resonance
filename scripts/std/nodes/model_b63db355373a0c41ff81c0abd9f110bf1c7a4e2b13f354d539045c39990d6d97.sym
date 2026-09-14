@@ -1,0 +1,6 @@
+script library;
+// Skeleton: b63db355373a0c41ff81c0abd9f110bf1c7a4e2b13f354d539045c39990d6d97
+pub const Node000_Se: string = "se";
+pub const Node001_Sea00: string = "sea00";
+pub const Node002_Kira: string = "kira";
+pub const Node003_Sea01: string = "sea01";

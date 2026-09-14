@@ -1,0 +1,4 @@
+script library;
+// Skeleton: a28e7c650cd43006782bdf651ba815eca16e2941b051e3cd0425c8e017c99262
+pub const Node000_Kibako: string = "Kibako";
+pub const Node001_Zaseki: string = "Zaseki";

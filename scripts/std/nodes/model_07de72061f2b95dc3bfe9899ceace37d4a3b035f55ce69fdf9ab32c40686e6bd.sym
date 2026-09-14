@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 07de72061f2b95dc3bfe9899ceace37d4a3b035f55ce69fdf9ab32c40686e6bd
+pub const Node000_Obj_Shi000_Fuda01_L_Outline: string = "obj_shi000_fuda01_L_outline";
+pub const Node001_Obj_Shi000_Fuda01_L: string = "obj_shi000_fuda01_L";

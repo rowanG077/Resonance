@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 67b4ebab89d98a65e0e461b8e4014ad96a500f466c259d6182de52adde224768
+pub const Node000_LightR: string = "light-r";
+pub const Node001_LightL: string = "light-l";
+pub const Node002_Light_Mado: string = "light_mado";

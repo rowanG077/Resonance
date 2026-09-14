@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 0de1e76b5c0d7e9882d8832198cf41a9e0692b6e82f3ed1a2ed0fdc61e9ab603
+pub const Node000_Tenso: string = "tenso";

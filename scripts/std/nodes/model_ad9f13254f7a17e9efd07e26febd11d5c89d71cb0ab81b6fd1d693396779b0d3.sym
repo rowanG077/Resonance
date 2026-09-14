@@ -1,0 +1,3 @@
+script library;
+// Skeleton: ad9f13254f7a17e9efd07e26febd11d5c89d71cb0ab81b6fd1d693396779b0d3
+pub const Node000_Glow: string = "glow";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: bf3cf14135d308b834ce448b6891e552f1f5a5edcf7b54d2a506223f68c74c59
+pub const Node000_Spindle01: string = "Spindle01";

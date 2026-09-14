@@ -1,0 +1,3 @@
+script library;
+// Skeleton: f240c6c0f12c1b082999322215b3bd91afb785d5d54ca9b047a177683004ca0d
+pub const Node000_Three: string = "three";

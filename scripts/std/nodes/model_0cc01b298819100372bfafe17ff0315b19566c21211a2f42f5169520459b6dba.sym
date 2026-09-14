@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 0cc01b298819100372bfafe17ff0315b19566c21211a2f42f5169520459b6dba
+pub const Node000_Madouhou_Tou01: string = "madouhou_Tou01";
+pub const Node001_Madouhou_Dai: string = "madouhou_Dai";
+pub const Node002_Madouhou_Yane: string = "madouhou_Yane";
+pub const Node003_Madouhou_Megami01: string = "madouhou_megami01";

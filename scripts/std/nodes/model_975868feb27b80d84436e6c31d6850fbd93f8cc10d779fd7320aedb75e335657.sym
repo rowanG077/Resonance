@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 975868feb27b80d84436e6c31d6850fbd93f8cc10d779fd7320aedb75e335657
+pub const Node000_EV_Glass: string = "EV_glass";
+pub const Node001_Clowd1: string = "clowd1";
+pub const Node002_Enter_Glass07: string = "enter_glass07";
+pub const Node003_Plant_Reaf01: string = "plant_reaf01";
+pub const Node004_Ring_L: string = "ring_l";
+pub const Node005_Ring_R: string = "ring_r";
+pub const Node006_Tama02: string = "tama02";
+pub const Node007_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node008_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node009_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node010_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node011_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node012_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";

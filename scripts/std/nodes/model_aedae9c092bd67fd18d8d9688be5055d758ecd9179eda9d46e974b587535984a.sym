@@ -1,0 +1,16 @@
+script library;
+// Skeleton: aedae9c092bd67fd18d8d9688be5055d758ecd9179eda9d46e974b587535984a
+pub const Node000_Box01: string = "Box01";
+pub const Node001_Box02: string = "Box02";
+pub const Node002_Box03: string = "Box03";
+pub const Node003_Box04: string = "Box04";
+pub const Node004_Box05: string = "Box05";
+pub const Node005_Box06: string = "Box06";
+pub const Node006_Box07: string = "Box07";
+pub const Node007_Box08: string = "Box08";
+pub const Node008_Box09: string = "Box09";
+pub const Node009_Box10: string = "Box10";
+pub const Node010_Box11: string = "Box11";
+pub const Node011_Box12: string = "Box12";
+pub const Node012_Box13: string = "Box13";
+pub const Node013_Box14: string = "Box14";

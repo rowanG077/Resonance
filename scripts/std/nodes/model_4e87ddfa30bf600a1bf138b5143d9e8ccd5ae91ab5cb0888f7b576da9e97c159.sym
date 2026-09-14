@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 4e87ddfa30bf600a1bf138b5143d9e8ccd5ae91ab5cb0888f7b576da9e97c159
+pub const Node000_Tube01: string = "Tube01";
+pub const Node001_Art_Ruret04: string = "art_ruret04";
+pub const Node002_Art_Ruret03: string = "art_ruret03";
+pub const Node003_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

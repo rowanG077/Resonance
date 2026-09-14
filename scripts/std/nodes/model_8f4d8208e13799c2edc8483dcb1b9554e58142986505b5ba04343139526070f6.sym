@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 8f4d8208e13799c2edc8483dcb1b9554e58142986505b5ba04343139526070f6
+pub const Node000_Mount_Base: string = "mount_base";
+pub const Node001_Object16: string = "ｵﾌﾞｼﾞｪｸﾄ16";
+pub const Node002_Object27: string = "ｵﾌﾞｼﾞｪｸﾄ27";
+pub const Node003_Moa2: string = "moa2";
+pub const Node004_Moa: string = "moa";

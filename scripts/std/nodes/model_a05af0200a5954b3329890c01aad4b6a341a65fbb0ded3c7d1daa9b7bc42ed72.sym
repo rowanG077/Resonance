@@ -1,0 +1,13 @@
+script library;
+// Skeleton: a05af0200a5954b3329890c01aad4b6a341a65fbb0ded3c7d1daa9b7bc42ed72
+pub const Node000_Center: string = "center";
+pub const Node001_Dummy01: string = "Dummy01";
+pub const Node002_Center01: string = "center01";
+pub const Node003_Center02: string = "center02";
+pub const Node004_Center03: string = "center03";
+pub const Node005_Center04: string = "center04";
+pub const Node006_Dummy02: string = "Dummy02";
+pub const Node007_Center05: string = "center05";
+pub const Node008_Center06: string = "center06";
+pub const Node009_Center07: string = "center07";
+pub const Node010_Center08: string = "center08";

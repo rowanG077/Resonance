@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 77688b50a0fc90b85c13322012eeacd51441445305b6ae7d931ef8c6640e5b19
+pub const Node000_GeoSphere02: string = "GeoSphere02";
+pub const Node001_Sphere01: string = "Sphere01";
+pub const Node002_GeoSphere01: string = "GeoSphere01";
+pub const Node003_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node004_Sphere02: string = "Sphere02";
+pub const Node005_Plane01: string = "Plane01";

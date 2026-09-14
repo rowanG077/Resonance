@@ -1,0 +1,20 @@
+script library;
+// Skeleton: d2db6e5610dd342e2843b12264270caae5dd7a8c05776a6c1c024a8005ba0488
+pub const Node000_Light05_Off: string = "light05_off";
+pub const Node001_Light01_Off: string = "light01_off";
+pub const Node002_Light02_Off: string = "light02_off";
+pub const Node003_Light03_Off: string = "light03_off";
+pub const Node004_Light00_Off: string = "light00_off";
+pub const Node005_Light07_Off: string = "light07_off";
+pub const Node006_Light04_Off: string = "light04_off";
+pub const Node007_Light05_On: string = "light05_on";
+pub const Node008_Light01_On: string = "light01_on";
+pub const Node009_Light02_On: string = "light02_on";
+pub const Node010_Light03_On: string = "light03_on";
+pub const Node011_Light00_On: string = "light00_on";
+pub const Node012_Light06_On_A: string = "light06_on_a";
+pub const Node013_Light07_On: string = "light07_on";
+pub const Node014_Light04_On: string = "light04_on";
+pub const Node015_Light06_On_B: string = "light06_on_b";
+pub const Node016_Light06_Off_B: string = "light06_off_b";
+pub const Node017_Light06_Off_A: string = "light06_off_a";

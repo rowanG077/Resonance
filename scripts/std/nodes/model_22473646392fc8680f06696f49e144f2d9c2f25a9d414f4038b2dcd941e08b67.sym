@@ -1,0 +1,24 @@
+script library;
+// Skeleton: 22473646392fc8680f06696f49e144f2d9c2f25a9d414f4038b2dcd941e08b67
+pub const Node000_Dummy01: string = "Dummy01";
+pub const Node001_Number00_Main: string = "00_Main";
+pub const Node002_Number01_HandlTukene: string = "01_HandlTukene";
+pub const Node003_Number02_Handl: string = "02_Handl";
+pub const Node004_Number03_WingTukene_L: string = "03_WingTukene_L";
+pub const Node005_Number04_Wing_L: string = "04_Wing_L";
+pub const Node006_Number05_WingSuityok_L: string = "05_WingSuityok_L";
+pub const Node007_Number03_WingTukene_R: string = "03_WingTukene_R";
+pub const Node008_Number04_Wing_R: string = "04_Wing_R";
+pub const Node009_Number05_WingSuityok_R: string = "05_WingSuityok_R";
+pub const Node010_Number06_WingSuihei_R: string = "06_WingSuihei_R";
+pub const Node011_Number06_WingSuihei_L: string = "06_WingSuihei_L";
+pub const Node012_Number07_Engin: string = "07_Engin";
+pub const Node013_Number09_Stabiraiza: string = "09_Stabiraiza";
+pub const Node014_Number10_Tyakurikukyaku: string = "10_Tyakurikukyaku";
+pub const Node015_Number08_StabiraizaYobi_L: string = "08_StabiraizaYobi_L";
+pub const Node016_Number08_StabiraizaYobi_R: string = "08_StabiraizaYobi_R";
+pub const Node017_Number09_Stabiraiza_L: string = "09_Stabiraiza_L";
+pub const Node018_Number10_Tyakurikukyaku_L: string = "10_Tyakurikukyaku_L";
+pub const Node019_Number09_Stabiraiza_R: string = "09_Stabiraiza_R";
+pub const Node020_Number10_Tyakurikukyaku_R: string = "10_Tyakurikukyaku_R";
+pub const Node021_Number08_StabiraizaYobi: string = "08_StabiraizaYobi";

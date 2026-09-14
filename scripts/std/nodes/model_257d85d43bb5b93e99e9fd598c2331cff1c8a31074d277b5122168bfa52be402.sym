@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 257d85d43bb5b93e99e9fd598c2331cff1c8a31074d277b5122168bfa52be402
+pub const Node000_Art_00_1_Light05: string = "_art_00_1_light05";
+pub const Node001_Art_00_1_Light06: string = "_art_00_1_light06";
+pub const Node002_Art_00_1_Light07: string = "_art_00_1_light07";
+pub const Node003_Art_00_1_Light08: string = "_art_00_1_light08";
+pub const Node004_Art_00_1_Light09: string = "_art_00_1_light09";
+pub const Node005_Art_00_1_Light10: string = "_art_00_1_light10";
+pub const Node006_Art_00_1_Light11: string = "_art_00_1_light11";
+pub const Node007_Art_00_1_Light12: string = "_art_00_1_light12";
+pub const Node008_Art_00_1_Light13: string = "_art_00_1_light13";
+pub const Node009_Art_00_1_Light14: string = "_art_00_1_light14";
+pub const Node010_Art_00_1_Light15: string = "_art_00_1_light15";
+pub const Node011_Art_00_1_Light16: string = "_art_00_1_light16";
+pub const Node012_Art_00_1_Light01: string = "_art_00_1_light01";
+pub const Node013_Art_00_1_Light02: string = "_art_00_1_light02";
+pub const Node014_Art_00_1_Light00: string = "_art_00_1_light00";
+pub const Node015_Art_00_1_Water2: string = "_art_00_1_water2";
+pub const Node016_Art_00_1_Water1: string = "_art_00_1_water1";
+pub const Node017_Art_00_1_Light03: string = "_art_00_1_light03";

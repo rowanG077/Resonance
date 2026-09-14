@@ -1,0 +1,6 @@
+script model;
+use model;
+use std::nodes::the_fugitive_208;
+pub fn apply() {
+    model::set_scale(model::node(the_fugitive_208::Wings), 0.5, 0.5, 0.5);
+}

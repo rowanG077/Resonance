@@ -1,0 +1,5 @@
+script library;
+// Skeleton: a6f3bb295f4a161f250719067169dd6b1c2d6c9f6dccda4b946200cd4b38e709
+pub const Node000_S02_T07net: string = "S02_T07net";
+pub const Node001_S02_T_200: string = "S02_T_200";
+pub const Node002_Shadow: string = "Shadow";

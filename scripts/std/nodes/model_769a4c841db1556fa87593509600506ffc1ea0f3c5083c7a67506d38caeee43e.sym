@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 769a4c841db1556fa87593509600506ffc1ea0f3c5083c7a67506d38caeee43e
+pub const Node000_Elb_D00: string = "elb_d00";
+pub const Node001_Tenso: string = "tenso";
+pub const Node002_Anim_Tenso: string = "anim_tenso";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";

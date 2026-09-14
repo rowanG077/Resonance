@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 40dac6d54aaa820705ab37c9d05c980a8c1d3719da6d671b88ac2e0c834c04b6
+pub const Node000_Flower04: string = "flower04";
+pub const Node001_Flower01: string = "flower01";
+pub const Node002_Flower02: string = "flower02";
+pub const Node003_Flower03: string = "flower03";
+pub const Node004_Flower05: string = "flower05";
+pub const Node005_Flower06: string = "flower06";
+pub const Node006_Flower07: string = "flower07";
+pub const Node007_Flower08: string = "flower08";
+pub const Node008_Flower09: string = "flower09";
+pub const Node009_Flower10: string = "flower10";
+pub const Node010_Door_Kage: string = "door_kage";

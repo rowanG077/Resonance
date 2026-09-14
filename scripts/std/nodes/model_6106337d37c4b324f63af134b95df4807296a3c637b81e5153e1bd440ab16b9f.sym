@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 6106337d37c4b324f63af134b95df4807296a3c637b81e5153e1bd440ab16b9f
+pub const Node000_Dummy01: string = "Dummy01";
+pub const Node001_Dummy02: string = "Dummy02";
+pub const Node002_Dummy03: string = "Dummy03";
+pub const Node003_Dummy04: string = "Dummy04";
+pub const Node004_Dummy05: string = "Dummy05";
+pub const Node005_Dummy06: string = "Dummy06";
+pub const Node006_Dummy07: string = "Dummy07";
+pub const Node007_Dummy08: string = "Dummy08";
+pub const Node008_Dummy09: string = "Dummy09";
+pub const Node009_Dummy10: string = "Dummy10";
+pub const Node010_Dummy11: string = "Dummy11";
+pub const Node011_Dummy12: string = "Dummy12";
+pub const Node012_Dummy13: string = "Dummy13";
+pub const Node013_Dummy14: string = "Dummy14";
+pub const Node014_Plane01: string = "Plane01";

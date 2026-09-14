@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 13d2dcce6b9d05fa181b81a759046b81f3f2719249a391cd8ca7ace64e1ff2ec
+pub const Node000_Ita_E: string = "ita_e";

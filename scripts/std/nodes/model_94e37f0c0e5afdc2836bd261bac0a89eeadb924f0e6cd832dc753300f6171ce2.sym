@@ -1,0 +1,22 @@
+script library;
+// Skeleton: 94e37f0c0e5afdc2836bd261bac0a89eeadb924f0e6cd832dc753300f6171ce2
+pub const Node000_Koware01: string = "koware01";
+pub const Node001_Koware02: string = "koware02";
+pub const Node002_Koware06: string = "koware06";
+pub const Node003_Koware07: string = "koware07";
+pub const Node004_Koware08: string = "koware08";
+pub const Node005_Koware09: string = "koware09";
+pub const Node006_Koware10: string = "koware10";
+pub const Node007_Koware11: string = "koware11";
+pub const Node008_Koware12: string = "koware12";
+pub const Node009_Koware13: string = "koware13";
+pub const Node010_Koware14: string = "koware14";
+pub const Node011_Koware16: string = "koware16";
+pub const Node012_Koware17: string = "koware17";
+pub const Node013_Koware18: string = "koware18";
+pub const Node014_Koware19: string = "koware19";
+pub const Node015_Koware20: string = "koware20";
+pub const Node016_Koware21: string = "koware21";
+pub const Node017_Koware23: string = "koware23";
+pub const Node018_Koware25: string = "koware25";
+pub const Node019_Koware26: string = "koware26";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 52208fbe8d8c932b61eef1690554690f98bc51e64a58943ea19007fe86d5b549
+pub const Node000_Taki: string = "taki";

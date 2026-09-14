@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 0078aa67f261e4f838d6cccccf9ec3be414d9232c4fd4e48687c9c6e19b32aa0
+pub const Node000_Smoke: string = "smoke";
+pub const Node001_Box10: string = "Box10";

@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 9db8988e8709354820edcf162b4d586609b94fa9d848b99112708772d82a4f05
+pub const Node000_Ken: string = "ken";
+pub const Node001_Ken01: string = "ken01";
+pub const Node002_Worp: string = "worp";
+pub const Node003_Houjin: string = "houjin";
+pub const Node004_Sphere01: string = "Sphere01";
+pub const Node005_Sphere02: string = "Sphere02";
+pub const Node006_Plane01: string = "Plane01";
+pub const Node007_Plane02: string = "Plane02";
+pub const Node008_Plane03: string = "Plane03";
+pub const Node009_Plane04: string = "Plane04";

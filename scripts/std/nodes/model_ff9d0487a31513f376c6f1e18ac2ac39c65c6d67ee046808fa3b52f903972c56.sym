@@ -1,0 +1,6 @@
+script library;
+// Skeleton: ff9d0487a31513f376c6f1e18ac2ac39c65c6d67ee046808fa3b52f903972c56
+pub const Node000_Suzu: string = "Suzu";
+pub const Node002_WingRR: string = "WingRR";
+pub const Node003_WingLL: string = "WingLL";
+pub const Tail: string = "Tail";

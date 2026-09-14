@@ -1,0 +1,10 @@
+script library;
+// Skeleton: e77cbc8818de4aa431ad55d0e0e1a31fe808e65d3321e0796f7ab429b603f284
+pub const Node000_Hahen02: string = "hahen02";
+pub const Node001_Hy: string = "hy";
+pub const Node002_Hj: string = "hj";
+pub const Node003_Hk: string = "hk";
+pub const Node004_Hk: string = "hk]";
+pub const Node005_Hahen01: string = "hahen01";
+pub const Node006_Hahen03: string = "hahen03";
+pub const Node007_Hahen04: string = "hahen04";

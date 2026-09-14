@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 5478d4807b39c23dae3610b8debdd8a5e36fc7008a23d79e91db005689f7f806
+pub const Node000_Box164: string = "Box164";
+pub const Node001_Box163: string = "Box163";
+pub const Node002_Box159: string = "Box159";
+pub const Node003_Box161: string = "Box161";
+pub const Node004_Box157: string = "Box157";
+pub const Node005_Box158: string = "Box158";
+pub const Node006_Box160: string = "Box160";
+pub const Node007_Box162: string = "Box162";

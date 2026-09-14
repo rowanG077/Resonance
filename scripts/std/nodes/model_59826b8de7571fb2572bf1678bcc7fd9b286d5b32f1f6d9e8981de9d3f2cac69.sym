@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 59826b8de7571fb2572bf1678bcc7fd9b286d5b32f1f6d9e8981de9d3f2cac69
+pub const Node000_Beam: string = "beam";
+pub const Node001_Window_Grass: string = "window_grass";
+pub const Node002_Model_Center_Null: string = "model_center_null";
+pub const Node003_D02: string = "D02";
+pub const Node004_D03: string = "D03";
+pub const Node005_D04: string = "D04";
+pub const Node006_D05: string = "D05";
+pub const Node007_D06: string = "D06";
+pub const Node008_D07: string = "D07";
+pub const Node009_D08: string = "D08";
+pub const Node010_D09: string = "D09";
+pub const Node011_Dammy_01: string = "dammy_01";
+pub const Node012_Dammy_02: string = "dammy_02";
+pub const Node013_Dammy_03: string = "dammy_03";
+pub const Node014_Dammy_04: string = "dammy_04";
+pub const Node015_Dammy_05: string = "dammy_05";
+pub const Node016_Dammy_06: string = "dammy_06";
+pub const Node017_Dammy_07: string = "dammy_07";

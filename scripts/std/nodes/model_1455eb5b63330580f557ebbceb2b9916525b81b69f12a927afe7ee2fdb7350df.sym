@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 1455eb5b63330580f557ebbceb2b9916525b81b69f12a927afe7ee2fdb7350df
+pub const Node000_Model001: string = "model001";
+pub const Node001_Model002: string = "model002";

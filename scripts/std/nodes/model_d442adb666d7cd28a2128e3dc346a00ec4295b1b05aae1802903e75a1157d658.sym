@@ -1,0 +1,4 @@
+script library;
+// Skeleton: d442adb666d7cd28a2128e3dc346a00ec4295b1b05aae1802903e75a1157d658
+pub const Node000_Kage: string = "kage";
+pub const Node001_Object70: string = "ｵﾌﾞｼﾞｪｸﾄ70";

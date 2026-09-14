@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 0335844086033882fb63e270d7bd19c797b58b8b157e4b83677b62a01f1d0996
+pub const Node000_Warp2: string = "warp2";

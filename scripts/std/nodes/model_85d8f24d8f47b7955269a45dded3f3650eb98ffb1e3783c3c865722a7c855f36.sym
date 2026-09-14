@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 85d8f24d8f47b7955269a45dded3f3650eb98ffb1e3783c3c865722a7c855f36
+pub const Node000_Door_Waku: string = "door_waku";
+pub const Node001_All: string = "all";
+pub const Node002_Hashiyg: string = "hashiyg";
+pub const Node003_Hasi01: string = "hasi01";
+pub const Node004_Hasi02: string = "hasi02";
+pub const Node005_Hasi03: string = "hasi03";
+pub const Node006_Hasi04: string = "hasi04";
+pub const Node007_Hasi05: string = "hasi05";
+pub const Node008_Hasi06: string = "hasi06";
+pub const Node009_Hasi07: string = "hasi07";
+pub const Node010_Hasi08: string = "hasi08";
+pub const Node011_Dhb01: string = "dhb01";
+pub const Node012_Door_R: string = "door_R";
+pub const Node013_Door_L: string = "door_L";
+pub const Node014_Bow_Wall: string = "bow_wall";
+pub const Node015_Bow: string = "bow";
+pub const Node016_Huta: string = "huta";
+pub const Node017_Hiki: string = "hiki";

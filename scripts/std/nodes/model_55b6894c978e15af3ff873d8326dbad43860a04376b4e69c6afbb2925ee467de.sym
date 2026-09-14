@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 55b6894c978e15af3ff873d8326dbad43860a04376b4e69c6afbb2925ee467de
+pub const Node000_D02_Sea: string = "d02_sea";

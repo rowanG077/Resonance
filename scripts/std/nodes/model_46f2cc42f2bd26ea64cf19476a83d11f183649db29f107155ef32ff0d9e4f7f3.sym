@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 46f2cc42f2bd26ea64cf19476a83d11f183649db29f107155ef32ff0d9e4f7f3
+pub const Node000_A: string = "A";
+pub const Node001_B: string = "B";
+pub const Node002_Lift1: string = "lift1";
+pub const Node003_Lift2: string = "lift2";
+pub const Node004_Lift3: string = "lift3";
+pub const Node005_Lift0: string = "lift0";
+pub const Node006_Door_0_L04: string = "door_0_l04";
+pub const Node007_Door_0_R04: string = "door_0_r04";
+pub const Node008_Conpane: string = "conpane";
+pub const Node009_Conpane01_On: string = "conpane01_on";
+pub const Node010_Conpane02_On: string = "conpane02_on";
+pub const Node011_Conpane03_On: string = "conpane03_on";
+pub const Node012_Conpane04_On: string = "conpane04_on";
+pub const Node013_Conpane06_On: string = "conpane06_on";
+pub const Node014_Conpane07_On: string = "conpane07_on";
+pub const Node015_Conpane08_On: string = "conpane08_on";
+pub const Node016_Conpane00_On: string = "conpane00_on";
+pub const Node017_Conpane05_On: string = "conpane05_on";

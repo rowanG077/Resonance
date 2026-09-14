@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 6cd0428536d3b9e59035820a3f571b94623500fd1102a7d655fafb5b52b307d6
+pub const Node000_UpperRightStump: string = "右上切り株";

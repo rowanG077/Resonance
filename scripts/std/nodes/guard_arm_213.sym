@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 66b4ba3284ac4a970c5308d7e6496861d855f23f2f3ba7bf48bea5dcad132492
+pub const Node000_Mo01_0_Arm: string = "mo01_0_Arm";
+pub const Node001_Bone01_Arm: string = "Bone01_Arm";
+pub const Node002_Bone10_Wepon: string = "Bone10_Wepon";
+pub const Node003_AT00: string = "AT00";
+pub const Node004_Bone23_Wing: string = "Bone23_Wing";
+pub const Node005_Bone22_Wing: string = "Bone22_Wing";
+pub const Node006_AT01_01: string = "AT01_01";
+pub const Node007_Bone24_Wing: string = "Bone24_Wing";
+pub const Node008_AT01_02: string = "AT01_02";
+pub const Node009_Bone21_Wing: string = "Bone21_Wing";
+pub const Node010_Bone25_Wing: string = "Bone25_Wing";
+pub const Node011_Bone20_Wing: string = "Bone20_Wing";
+pub const Node012_AT01_00: string = "AT01_00";

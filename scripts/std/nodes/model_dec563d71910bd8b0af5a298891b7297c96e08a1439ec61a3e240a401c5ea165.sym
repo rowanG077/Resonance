@@ -1,0 +1,5 @@
+script library;
+// Skeleton: dec563d71910bd8b0af5a298891b7297c96e08a1439ec61a3e240a401c5ea165
+pub const Node000_Yu_Fukidasi_03: string = "yu_fukidasi_03";
+pub const Node001_Yu_Fukidasi_03_B: string = "yu_fukidasi_03_b";
+pub const Node002_Yu_Fukidasi_03_A: string = "yu_fukidasi_03_a";

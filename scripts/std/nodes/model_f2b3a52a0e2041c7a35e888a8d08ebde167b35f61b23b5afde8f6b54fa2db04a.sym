@@ -1,0 +1,3 @@
+script library;
+// Skeleton: f2b3a52a0e2041c7a35e888a8d08ebde167b35f61b23b5afde8f6b54fa2db04a
+pub const Node000_A_River: string = "a_River";

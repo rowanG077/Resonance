@@ -1,0 +1,12 @@
+script library;
+// Skeleton: b0ad87fb894ba45cb4ca8ae1a3eeb5cefc60e6ae0b52d3d8b77dc23c1a23f09d
+pub const Node000_Tt_Door_Tans: string = "tt_door_tans";
+pub const Node001_Tt_FS1_2: string = "tt_FS1_2";
+pub const Node002_Tt_FS2_2: string = "tt_FS2_2";
+pub const Node003_Tt_Plant_01_100: string = "tt_Plant_01_100";
+pub const Node004_Tt_Plant_02_105: string = "tt_Plant_02_105";
+pub const Node005_Tt_Plant_03_110: string = "tt_Plant_03_110";
+pub const Node006_Tt_Plant_04_115: string = "tt_Plant_04_115";
+pub const Node007_Tt_Plant_05_120: string = "tt_Plant_05_120";
+pub const Node008_Tt_Plant_30_125: string = "tt_Plant_30_125";
+pub const Node009_Tt_Sd: string = "tt_Sd";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: cf66423fdf0c4f4d5a258ed3ba506aa9cda819f4c0e6aedda81f7caaa609ad0b
+pub const Node000_Mizukiwa: string = "mizukiwa";

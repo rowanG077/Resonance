@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 2991e5792984947ad75ddf113f08502fb8384c5ebf57f29636a280897e275370
+pub const Head: string = "Bone_head";
+pub const LeftHand1: string = "Bone_hand1_L";
+pub const LeftHand2: string = "Bone_hand2_L";
+pub const LeftHand3: string = "Bone_hand3_L";
+pub const LeftHand4: string = "Bone_hand4_L";
+pub const Node000_A_Bone: string = "A_Bone";
+pub const Node001_Bone_Body1: string = "Bone_body1";
+pub const Node002_Bone_Body2: string = "Bone_body2";
+pub const Node003_Bone_Body3: string = "Bone_body3";
+pub const Node013_Bone_Ashi1A_L: string = "Bone_ashi1A_L";
+pub const Node014_Bone_Ashi2A_L: string = "Bone_ashi2A_L";
+pub const Node015_Bone_Ashi1B_L: string = "Bone_ashi1B_L";
+pub const Node016_Bone_Ashi2B_L: string = "Bone_ashi2B_L";
+pub const Node017_Bone_Ashi1B_R: string = "Bone_ashi1B_R";
+pub const Node018_Bone_Ashi2B_R: string = "Bone_ashi2B_R";
+pub const Node019_Bone_Ashi1A_R: string = "Bone_ashi1A_R";
+pub const Node020_Bone_Ashi2A_R: string = "Bone_ashi2A_R";
+pub const RightHand1: string = "Bone_hand1_R";
+pub const RightHand2: string = "Bone_hand2_R";
+pub const RightHand3: string = "Bone_hand3_R";
+pub const RightHand4: string = "Bone_hand4_R";

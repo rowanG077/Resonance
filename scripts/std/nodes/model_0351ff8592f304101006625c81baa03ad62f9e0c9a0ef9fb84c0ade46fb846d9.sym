@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 0351ff8592f304101006625c81baa03ad62f9e0c9a0ef9fb84c0ade46fb846d9
+pub const Node000_H06: string = "h06";
+pub const Node001_H04: string = "h04";
+pub const Node002_H05: string = "h05";
+pub const Node003_H01: string = "h01";
+pub const Node004_H00: string = "h00";
+pub const Node005_H03: string = "h03";
+pub const Node006_H02: string = "h02";
+pub const Node007_H07: string = "h07";

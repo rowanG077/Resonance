@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 36bfb88a86448635a0f4c64bd154e248bec4545f5041d607c1cf0ff262a6e913
+pub const Node000_Spring01: string = "Spring01";

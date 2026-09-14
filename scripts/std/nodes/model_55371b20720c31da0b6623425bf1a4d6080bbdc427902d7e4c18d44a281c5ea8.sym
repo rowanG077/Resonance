@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 55371b20720c31da0b6623425bf1a4d6080bbdc427902d7e4c18d44a281c5ea8
+pub const Node000_Obj1: string = "obj1";
+pub const Node001_Mesh01: string = "ﾒｯｼｭ01";
+pub const Node002_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node003_Base: string = "base";
+pub const Node004_Neko_Hata: string = "neko_hata";

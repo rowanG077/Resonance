@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 6d9e958eb212a9cde6f28634908ea9d74e4e3becf498689e0b27ca5d8c1f139b
+pub const Node000_Ts_Water: string = "ts_Water";

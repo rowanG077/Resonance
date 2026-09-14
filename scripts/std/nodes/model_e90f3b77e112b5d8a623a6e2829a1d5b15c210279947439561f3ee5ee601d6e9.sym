@@ -1,0 +1,3 @@
+script library;
+// Skeleton: e90f3b77e112b5d8a623a6e2829a1d5b15c210279947439561f3ee5ee601d6e9
+pub const Node000_Shining: string = "shining";

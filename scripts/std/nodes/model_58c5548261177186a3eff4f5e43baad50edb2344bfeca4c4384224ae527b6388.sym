@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 58c5548261177186a3eff4f5e43baad50edb2344bfeca4c4384224ae527b6388
+pub const Node000_Dar_01: string = "dar_01";
+pub const Node001_Off_2: string = "off_2";
+pub const Node002_Off_5: string = "off_5";
+pub const Node003_Off_1: string = "off_1";
+pub const Node004_Off_3: string = "off_3";
+pub const Node005_On_2: string = "on_2";
+pub const Node006_On_1: string = "on_1";
+pub const Node007_On_3: string = "on_3";
+pub const Node008_On_4: string = "on_4";
+pub const Node009_On_5: string = "on_5";
+pub const Node010_Off_4: string = "off_4";

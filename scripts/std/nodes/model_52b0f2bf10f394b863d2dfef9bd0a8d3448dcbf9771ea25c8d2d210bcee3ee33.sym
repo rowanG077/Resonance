@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 52b0f2bf10f394b863d2dfef9bd0a8d3448dcbf9771ea25c8d2d210bcee3ee33
+pub const Node000_Kuro_Kage01: string = "kuro_kage01";
+pub const Node001_Kuro_Kage03: string = "kuro_kage03";
+pub const Node002_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";

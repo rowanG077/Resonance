@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 882a688d071e4a30e6503e2f345da0a317641d9503733d793ede9ca7b61daab8
+pub const Node000_Grass: string = "grass";
+pub const Node001_Ground: string = "ground";
+pub const Node002_Enkei: string = "enkei";
+pub const Node003_Wood: string = "wood";
+pub const Node004_Leaf: string = "leaf";
+pub const Node005_Sky_Obj: string = "sky_obj";
+pub const Node006_Takibi: string = "takibi";
+pub const Node007_Moon: string = "moon";
+pub const Node008_Leaf_Re: string = "leaf_re";

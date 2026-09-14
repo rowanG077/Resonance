@@ -1,0 +1,3 @@
+script library;
+// Skeleton: a452a6b303724459dace57bf58e6c7ac457baefb60ed7ec1d17513ad93061c55
+pub const Node000_Tori_Hana01: string = "tori_hana01";
