@@ -1,0 +1,12 @@
+script library;
+// Skeleton: dc086769865d8f4fab359f428ca9718d7a540cb6def14354f1b391601a6bf638
+pub const Node000_Ne_Alpha: string = "ne_alpha";
+pub const Node001_Kusarui: string = "kusarui";
+pub const Node002_Zimen: string = "zimen";
+pub const Node003_Kiiii: string = "kiiii";
+pub const Node004_Ki: string = "ki";
+pub const Node005_Hasu01: string = "hasu01";
+pub const Node006_Hasu02: string = "hasu02";
+pub const Node007_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node008_Ring_01: string = "ring_01";
+pub const Node009_Iwa_Bone: string = "iwa_Bone";

@@ -1,0 +1,6 @@
+script library;
+// Skeleton: a66816580211211e67661cfced0869466b38315861f621c76619646e3b7ec45a
+pub const Node000_Ray: string = "ray";
+pub const Node001_Big_Glow: string = "Big_Glow";
+pub const Node002_Small_Glow: string = "Small_Glow";
+pub const Node003_Fire: string = "Fire";

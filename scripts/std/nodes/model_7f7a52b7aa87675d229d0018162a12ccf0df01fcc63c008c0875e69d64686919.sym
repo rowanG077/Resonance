@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 7f7a52b7aa87675d229d0018162a12ccf0df01fcc63c008c0875e69d64686919
+pub const Node000_Closed: string = "閉じにけり";
+pub const Node001_BeachedJellyfish: string = "打ち上げられたクラゲ";

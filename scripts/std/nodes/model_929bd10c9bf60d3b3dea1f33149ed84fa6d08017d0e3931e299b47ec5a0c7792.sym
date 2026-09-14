@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 929bd10c9bf60d3b3dea1f33149ed84fa6d08017d0e3931e299b47ec5a0c7792
+pub const Node000_Hue: string = "hue";

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 7ebdbc3355a57961aae0fee693c711c309237f126d8a805fd60c96a306dde9a1
+pub const Node000_Base: string = "base";
+pub const Node001_Door: string = "door";
+pub const Node002_Tetsu_Koushi01: string = "tetsu_koushi01";
+pub const Node003_Tetsu_Koushi00: string = "tetsu_koushi00";
+pub const Node004_Shutter: string = "shutter.";
+pub const Node005_Plane01: string = "Plane01";

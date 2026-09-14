@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 4a7b3fb05518261cb1d5c39ee196e4ab6d6870657d536e5286f235d560d152bf
+pub const Node000_Minori: string = "minori";

@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 66776bc9bca4389f59ae7acbfd299864d0205a5d8948ecafb1337c992bcb01de
+pub const Node000_Art_00_5d_Water1: string = "_art_00_5d_water1";
+pub const Node001_Art_00_5d_Water2: string = "_art_00_5d_water2";
+pub const Node002_Art_00_5d_Water3: string = "_art_00_5d_water3";
+pub const Node003_Art_00_5d_Water4: string = "_art_00_5d_water4";
+pub const Node004_Art_00_5d_Wl1: string = "_art_00_5d_wl1";
+pub const Node005_Art_00_5d_Wl4: string = "_art_00_5d_wl4";
+pub const Node006_Art_00_5d_Wl3: string = "_art_00_5d_wl3";
+pub const Node007_Art_00_5d_Wl2: string = "_art_00_5d_wl2";
+pub const Node008_Art_00_5d_Wr1: string = "_art_00_5d_wr1";
+pub const Node009_Art_00_5d_Wr2: string = "_art_00_5d_wr2";
+pub const Node010_Art_00_5d_Wr3: string = "_art_00_5d_wr3";
+pub const Node011_Art_00_5d_Wr4: string = "_art_00_5d_wr4";
+pub const Node012_Art_00_5d_Water5: string = "_art_00_5d_water5";

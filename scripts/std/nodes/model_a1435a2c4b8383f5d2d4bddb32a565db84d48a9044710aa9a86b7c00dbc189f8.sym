@@ -1,0 +1,15 @@
+script library;
+// Skeleton: a1435a2c4b8383f5d2d4bddb32a565db84d48a9044710aa9a86b7c00dbc189f8
+pub const Node000_Bone00_Asikiten: string = "bone00_asikiten";
+pub const Node001_Bone08_Asi: string = "bone08_asi";
+pub const Node002_Bone01_Nemoto: string = "bone01_nemoto";
+pub const Node003_Bone02_Hara: string = "bone02_hara";
+pub const Node004_Bone03_Atama: string = "bone03_atama";
+pub const Node005_Bone04_Kami00: string = "bone04_kami00";
+pub const Node006_Bone07_Kami03: string = "bone07_kami03";
+pub const Node007_Bone05_Kami01: string = "bone05_kami01";
+pub const Node008_Bone06_Kami02: string = "bone06_kami02";
+pub const Node009_Gobou: string = "gobou";
+pub const Node010_Gobou_Parts00: string = "gobou_parts00";
+pub const Node011_Gobou_Parts01: string = "gobou_parts01";
+pub const Node012_Gobou_Parts02: string = "gobou_parts02";

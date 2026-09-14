@@ -1,0 +1,9 @@
+script library;
+// Skeleton: d1f943b1524a1656f497f21f6469b2f125fbe511575a89dd6423790ae81a11ae
+pub const Node000_Ma_Eff: string = "ma_eff";
+pub const Node001_Ma_Eff05: string = "ma_eff05";
+pub const Node002_Ma_Eff06: string = "ma_eff06";
+pub const Node003_Ma_Eff01: string = "ma_eff01";
+pub const Node004_Ma_Eff03: string = "ma_eff03";
+pub const Node005_Ma_Eff04: string = "ma_eff04";
+pub const Node006_Ma_Eff02: string = "ma_eff02";

@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 4e75668c19213f428ac0381cb279b26c5c1bfc6ca77ac38ccea1efae89cbce2a
+pub const Node000_Kk_Obj000_01: string = "kk_obj000_01";
+pub const Node001_Kk_Obj000_02: string = "kk_obj000_02";
+pub const Node002_Kk_Obj000_03: string = "kk_obj000_03";
+pub const Node003_Kk_Obj000_04: string = "kk_obj000_04";

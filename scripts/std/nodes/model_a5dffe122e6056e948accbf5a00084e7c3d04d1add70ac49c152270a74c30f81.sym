@@ -1,0 +1,4 @@
+script library;
+// Skeleton: a5dffe122e6056e948accbf5a00084e7c3d04d1add70ac49c152270a74c30f81
+pub const Node000_KK00_H_E007_Outline: string = "KK00_h_e007_outline";
+pub const Node001_KK00_H_E007: string = "KK00_h_e007";

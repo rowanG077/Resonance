@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 20818fa215db426df9b4eb8b304436c83e0ece369c7c2453980cb1f3e22ae8b6
+pub const Node000_Mdl_Izr_I01_02: string = "mdl_izr_I01_02";
+pub const Node001_Mdl_Izr_I01_01: string = "mdl_izr_I01_01";
+pub const Node002_Mdl_Izr_I01_00: string = "mdl_izr_I01_00";
+pub const Node003_DOOR01_AUTO_PULL_W170: string = "DOOR01_AUTO_PULL_W-170";
+pub const Node004_Window01: string = "window01";
+pub const Node005_Window02: string = "window02";
+pub const Node006_Sky01: string = "sky01";
+pub const Node007_Bed_R: string = "bed_r";
+pub const Node008_Bed_C: string = "bed_c";
+pub const Node009_Bed_L: string = "bed_l";

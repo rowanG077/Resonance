@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 77918da809e74837b92f9a2eac60129aceb17bcb96ea9f66569a08e4a6267896
+pub const Node000_Jin01: string = "jin01";
+pub const Node001_Kaze_In: string = "kaze_in";
+pub const Node002_Kaze_Out02: string = "kaze_out02";
+pub const Node003_Kaze_Out01: string = "kaze_out01";

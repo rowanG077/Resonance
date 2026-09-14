@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 7c3b416ac99035e5f6649c9476ad495b1b32685575e678e06e2282a181136338
+pub const Node000_Anm02: string = "anm02";

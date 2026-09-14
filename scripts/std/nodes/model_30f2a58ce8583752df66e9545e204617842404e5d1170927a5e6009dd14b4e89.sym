@@ -1,0 +1,14 @@
+script library;
+// Skeleton: 30f2a58ce8583752df66e9545e204617842404e5d1170927a5e6009dd14b4e89
+pub const Node000_I00_Obj: string = "i00_obj";
+pub const Node001_I00_Bedding2: string = "i00_bedding2";
+pub const Node002_I00_Bedding1: string = "i00_bedding1";
+pub const Node003_I00_Dharma1: string = "i00_Dharma1";
+pub const Node004_I00_Dharma2: string = "i00_Dharma2";
+pub const Node005_I00_Dharma3: string = "i00_Dharma3";
+pub const Node006_I00_Room: string = "i00_room";
+pub const Node007_I00_Hed: string = "i00_hed";
+pub const Node008_I00_Wall: string = "i00_wall";
+pub const Node009_I00_Event: string = "i00_Event";
+pub const Node010_I00_No_Event: string = "i00_No_event";
+pub const Node011_Kag000_Skin: string = "kag000_skin";

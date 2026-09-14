@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 5a0c2401ef06a68e2282576b50d23bf53aba7a9736202e7c9348c9ca6a7879e2
+pub const Node000_Enter_Left_Light: string = "enter_left_light";
+pub const Node001_Enter_Right_Light: string = "enter_right_light";
+pub const Node002_Sidelight01: string = "sidelight01";
+pub const Node003_Sidelight02: string = "sidelight02";
+pub const Node004_Sidelight03: string = "sidelight03";
+pub const Node005_Sidelight04: string = "sidelight04";
+pub const Node006_Sidelight05: string = "sidelight05";
+pub const Node007_Sidelight06: string = "sidelight06";

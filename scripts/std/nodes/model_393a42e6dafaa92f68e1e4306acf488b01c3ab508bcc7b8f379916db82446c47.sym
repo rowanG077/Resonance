@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 393a42e6dafaa92f68e1e4306acf488b01c3ab508bcc7b8f379916db82446c47
+pub const Node000_Ring_00: string = "ring_00";
+pub const Node001_Ring_01: string = "ring_01";

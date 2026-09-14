@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 8c7ff4eb0fbc105d84a70ca6e2362a8604bc7d8af2ab88a117c4ac862518b559
+pub const Node000_Isa: string = "isa";

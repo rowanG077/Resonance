@@ -1,0 +1,3 @@
+script library;
+// Skeleton: cff20139bf38068240413298c8f65c31adabdddba6e4090c9da3276c64057244
+pub const Node000_Sea: string = "Sea";

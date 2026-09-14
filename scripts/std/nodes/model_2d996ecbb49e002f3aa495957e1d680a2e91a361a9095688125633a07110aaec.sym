@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 2d996ecbb49e002f3aa495957e1d680a2e91a361a9095688125633a07110aaec
+pub const Node000_Gate: string = "gate";
+pub const Node001_Ground_B: string = "ground_b";
+pub const Node002_House01: string = "house01";
+pub const Node003_DOOR01_AUTO_S_PUSH_W175: string = "DOOR01_AUTO_S_PUSH_W175";
+pub const Node004_Anim_4: string = "anim_4";
+pub const Node005_Map03: string = "map03";
+pub const Node006_Anim_1: string = "anim_1";
+pub const Node007_Anim_2: string = "anim_2";
+pub const Node008_Anim_5: string = "anim_5";
+pub const Node009_Anim_6: string = "anim_6";
+pub const Node010_Anim_8: string = "anim_8";
+pub const Node011_Anim_10: string = "anim_10";
+pub const Node012_Anim_12: string = "anim_12";
+pub const Node013_Anim_7: string = "anim_7";
+pub const Node014_Anim_9: string = "anim_9";
+pub const Node015_Anim_11: string = "anim_11";
+pub const Node016_Anim_3: string = "anim_3";
+pub const Node017_Ground_A: string = "ground_a";
+pub const Node018_GeoSphere00: string = "GeoSphere00";
+pub const Node019_GeoSphere01: string = "GeoSphere01";
+pub const Node020_GeoSphere02: string = "GeoSphere02";

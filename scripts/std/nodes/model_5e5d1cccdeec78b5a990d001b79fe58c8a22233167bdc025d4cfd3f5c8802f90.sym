@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 5e5d1cccdeec78b5a990d001b79fe58c8a22233167bdc025d4cfd3f5c8802f90
+pub const Node000_Chu_I07_011kabe: string = "chu_i07_011kabe";
+pub const Node001_Chu_I07_011a: string = "chu_i07_011a";
+pub const Node002_Chu_I07_X11: string = "chu_i07_x11";
+pub const Node003_Chu_I07_X12: string = "chu_i07_x12";
+pub const Node004_Chu_I07_011b: string = "chu_i07_011b";
+pub const Node005_Bk: string = "bk";
+pub const Node006_Chu_I07_X13: string = "chu_i07_x13";
+pub const Node007_Chu_I08_12: string = "chu_i08_12";
+pub const Node008_Chu_I08_13: string = "chu_i08_13";

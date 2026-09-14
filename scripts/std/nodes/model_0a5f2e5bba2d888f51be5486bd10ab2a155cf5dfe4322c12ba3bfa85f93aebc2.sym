@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 0a5f2e5bba2d888f51be5486bd10ab2a155cf5dfe4322c12ba3bfa85f93aebc2
+pub const Node000_HID_Seel: string = "HID_Seel";
+pub const Node001_LIVE_MCir01: string = "LIVE_MCir01";
+pub const Node002_LIVE_Cir05: string = "LIVE_Cir05";
+pub const Node003_LIVE_Cir04: string = "LIVE_Cir04";
+pub const Node004_LIVE_Cir06: string = "LIVE_Cir06";
+pub const Node005_LIVE_Cylinder01: string = "LIVE_Cylinder01";
+pub const Node006_LIVE_BCir01: string = "LIVE_BCir01";
+pub const Node007_LIVE_Cir02: string = "LIVE_Cir02";
+pub const Node008_LIVE_Cir01: string = "LIVE_Cir01";
+pub const Node009_LIVE_Cir03: string = "LIVE_Cir03";
+pub const Node010_LIVE_Del01: string = "LIVE_Del01";
+pub const Node011_LIVE_Del02: string = "LIVE_Del02";
+pub const Node012_LIVE_Del03: string = "LIVE_Del03";

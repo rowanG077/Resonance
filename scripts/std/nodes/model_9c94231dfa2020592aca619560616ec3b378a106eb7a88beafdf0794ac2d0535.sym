@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 9c94231dfa2020592aca619560616ec3b378a106eb7a88beafdf0794ac2d0535
+pub const Node000_Door_B_Right: string = "door_B_right";
+pub const Node001_Door_B_Left: string = "door_B_left";
+pub const Node002_Gate_B: string = "gate_B";
+pub const Node003_Gate_A: string = "gate_A";
+pub const Node004_Iriguti: string = "iriguti";
+pub const Node005_Door_A_Left: string = "door_A_left";
+pub const Node006_Door_A_Right: string = "door_A_right";
+pub const Node007_Base: string = "base";
+pub const Node008_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

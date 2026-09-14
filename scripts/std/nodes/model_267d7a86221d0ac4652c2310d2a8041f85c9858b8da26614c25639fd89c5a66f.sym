@@ -1,0 +1,26 @@
+script library;
+// Skeleton: 267d7a86221d0ac4652c2310d2a8041f85c9858b8da26614c25639fd89c5a66f
+pub const Node000_Light00: string = "light00";
+pub const Node001_Light01: string = "light01";
+pub const Node002_Light02: string = "light02";
+pub const Node003_Light03: string = "light03";
+pub const Node004_Light04: string = "light04";
+pub const Node005_Light05: string = "light05";
+pub const Node006_Light06: string = "light06";
+pub const Node007_Light07: string = "light07";
+pub const Node008_Light08: string = "light08";
+pub const Node009_Light09: string = "light09";
+pub const Node010_Light10: string = "light10";
+pub const Node011_Light11: string = "light11";
+pub const Node012_Light13: string = "light13";
+pub const Node013_Light14: string = "light14";
+pub const Node014_Yuka: string = "yuka";
+pub const Node015_Yuka_Br: string = "yuka_br";
+pub const Node016_Light_Cls: string = "light_cls";
+pub const Node017_Light15: string = "light15";
+pub const Node018_Light16: string = "light16";
+pub const Node019_Light17: string = "light17";
+pub const Node020_Glass00: string = "glass00";
+pub const Node021_Glass01: string = "glass01";
+pub const Node022_Glass02: string = "glass02";
+pub const Node023_Glass03: string = "glass03";

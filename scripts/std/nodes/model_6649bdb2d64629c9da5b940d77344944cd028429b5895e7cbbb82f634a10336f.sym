@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 6649bdb2d64629c9da5b940d77344944cd028429b5895e7cbbb82f634a10336f
+pub const Node000_Sw_Out: string = "sw_out";

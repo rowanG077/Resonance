@@ -1,0 +1,12 @@
+script library;
+// Skeleton: f17f595ac7d554c15d266f21eda39824264854993c7c5c9fe4ee0b7cde1fac19
+pub const Node000_Dummy_Thunder02b: string = "Dummy_Thunder02b";
+pub const Node001_Thunder02i: string = "Thunder02i";
+pub const Node002_Thunder02h: string = "Thunder02h";
+pub const Node003_Thunder02g: string = "Thunder02g";
+pub const Node004_Thunder02f: string = "Thunder02f";
+pub const Node005_Thunder02e: string = "Thunder02e";
+pub const Node006_Thunder02d: string = "Thunder02d";
+pub const Node007_Thunder02c: string = "Thunder02c";
+pub const Node008_Thunder02b: string = "Thunder02b";
+pub const Node009_Thunder02a: string = "Thunder02a";

@@ -1,0 +1,5 @@
+script library;
+// Skeleton: fefa5d3524b21c5ef48b9ebaa9c9c658dfe46b037e498f5dcdf0480dedc13d16
+pub const Node000_Cloud: string = "Cloud";
+pub const Node001_Cumo: string = "cumo";
+pub const Node002_Cumo01: string = "cumo01";

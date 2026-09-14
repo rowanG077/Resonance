@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 7b6a5b656f5b527b2c42fc9c5967de52e8cc20bff5707220746787382294e93b
+pub const Node000_River: string = "river";
+pub const Node001_See: string = "see";

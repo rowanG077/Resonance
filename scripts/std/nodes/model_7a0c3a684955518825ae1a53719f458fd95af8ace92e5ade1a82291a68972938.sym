@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 7a0c3a684955518825ae1a53719f458fd95af8ace92e5ade1a82291a68972938
+pub const Node000_Bukiya_926conObj736: string = "bukiya_926con.obj736";
+pub const Node001_Bukiya_926conObj740: string = "bukiya_926con.obj740";
+pub const Node002_DOOR_AUTO_PULL_W175e000: string = "DOOR_AUTO_PULL_W-175e000";
+pub const Node003_Plane01: string = "Plane01";

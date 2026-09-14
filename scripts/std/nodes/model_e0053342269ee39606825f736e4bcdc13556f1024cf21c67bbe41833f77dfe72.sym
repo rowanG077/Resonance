@@ -1,0 +1,23 @@
+script library;
+// Skeleton: e0053342269ee39606825f736e4bcdc13556f1024cf21c67bbe41833f77dfe72
+pub const Node000_Group02: string = "Group02";
+pub const Node001_Budou04_P175: string = "budou04_p175";
+pub const Node002_Window: string = "window";
+pub const Node003_Budou02_P165: string = "budou02_p165";
+pub const Node004_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node005_Aaafffff: string = "aaafffff";
+pub const Node006_Hana02_P90: string = "hana02_p90";
+pub const Node007_Budou03_P190: string = "budou03_p190";
+pub const Node008_Budou01_P180: string = "budou01_p180";
+pub const Node009_Dummy03: string = "Dummy03";
+pub const Node010_Kan_Sya: string = "kan_sya";
+pub const Node011_Budou02_P185: string = "budou02_p185";
+pub const Node012_Budou03_P170: string = "budou03_p170";
+pub const Node013_Budou01_P160: string = "budou01_p160";
+pub const Node014_Hana01_P80: string = "hana01_p80";
+pub const Node015_Trees: string = "trees";
+pub const Node016_Uno_P50: string = "uno_p50";
+pub const Node017_Dos_P40: string = "dos_p40";
+pub const Node018_Tres_P30: string = "tres_p30";
+pub const Node019_Quatro_P20: string = "quatro_p20";
+pub const Node020_Sinco_P10: string = "sinco_p10";

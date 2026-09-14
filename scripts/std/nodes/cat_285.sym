@@ -1,0 +1,27 @@
+script library;
+// Skeleton: dd7516f9ebdeb679e7f129e64c8882d764655ac5ef82cbaf725a31529d3da401
+pub const Head: string = "Bone_atama";
+pub const Neck: string = "Bone_kubi";
+pub const Node000_A_Bone: string = "a_Bone";
+pub const Node002_Bone_Sebone01: string = "Bone_sebone01";
+pub const Node003_Bone_Sebone02: string = "Bone_sebone02";
+pub const Node006_Bone_Ago: string = "Bone_ago";
+pub const Node007_Bone_Maeashi01_L: string = "Bone_maeashi01_L";
+pub const Node008_Bone_Maeashi02_L: string = "Bone_maeashi02_L";
+pub const Node009_Bone_Maeashi03_L: string = "Bone_maeashi03_L";
+pub const Node010_Bone_Maeashi04_L: string = "Bone_maeashi04_L";
+pub const Node011_Bone_Maeashi01_R: string = "Bone_maeashi01_R";
+pub const Node012_Bone_Maeashi02_R: string = "Bone_maeashi02_R";
+pub const Node013_Bone_Maeashi03_R: string = "Bone_maeashi03_R";
+pub const Node014_Bone_Maeashi04_R: string = "Bone_maeashi04_R";
+pub const Node015_Bone_Ushiroashi01_L: string = "Bone_ushiroashi01_L";
+pub const Node016_Bone_Ushiroashi02_L: string = "Bone_ushiroashi02_L";
+pub const Node017_Bone_Ushiroashi03_L: string = "Bone_ushiroashi03_L";
+pub const Node018_Bone_Ushiroashi04_L: string = "Bone_ushiroashi04_L";
+pub const Node019_Bone_Ushiroashi01_R: string = "Bone_ushiroashi01_R";
+pub const Node020_Bone_Ushiroashi02_R: string = "Bone_ushiroashi02_R";
+pub const Node021_Bone_Ushiroashi03_R: string = "Bone_ushiroashi03_R";
+pub const Node022_Bone_Ushiroashi04_R: string = "Bone_ushiroashi04_R";
+pub const Tail01: string = "Bone_sippo01";
+pub const Tail02: string = "Bone_sippo02";
+pub const Waist: string = "Bone_koshi";

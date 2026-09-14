@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 0982d481a38e22fa31f0162f4f3ed7a958cac453ac127e6ab39f26516c798572
+pub const Node000_Jimen_On: string = "jimen_on";
+pub const Node001_Ki_On: string = "ki_on";

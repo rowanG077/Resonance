@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 8c32ecc1bd8264793e8a95b57d5aefa9493c7558c992f5113fc117d74f89fa26
+pub const Node000_Shihna: string = "shihna";

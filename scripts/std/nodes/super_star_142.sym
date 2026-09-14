@@ -1,0 +1,28 @@
+script library;
+// Skeleton: 5540124de9647264abf9b9fcf7cf3e553461b8edbd0471ca2ba772e7d0185c56
+pub const LeftArm01: string = "Bone_ude01_L";
+pub const LeftArm02: string = "Bone_ude02_L";
+pub const LeftArm03: string = "Bone_ude03_L";
+pub const LeftFoot01: string = "Bone_ashi01_L";
+pub const LeftFoot02: string = "Bone_ashi02_L";
+pub const LeftFoot03: string = "Bone_ashi03_L";
+pub const Node000_Mo3_Bone_Koshi: string = "mo3_Bone_koshi";
+pub const Node001_Bone_Sebone01: string = "Bone_sebone01";
+pub const Node002_Bone_Sebone02: string = "Bone_sebone02";
+pub const Node003_Bone_Sebone03: string = "Bone_sebone03";
+pub const Node004_Bone_Sebone04: string = "Bone_sebone04";
+pub const Node005_Bone_Sebone05: string = "Bone_sebone05";
+pub const Node009_BoneBone_Ude04_L: string = "boneBone_ude04_L";
+pub const Node010_At00_Bone_Ude05_L: string = "at00_Bone_ude05_L";
+pub const Node014_BoneBone_Ashi04_L: string = "boneBone_ashi04_L";
+pub const Node015_At02_Bone_Ashi05_L: string = "at02_Bone_ashi05_L";
+pub const Node019_BoneBone_Ude04_R: string = "boneBone_ude04_R";
+pub const Node020_At01_Bone_Ude05_R: string = "at01_Bone_ude05_R";
+pub const Node024_BoneBone_Ashi04_R: string = "boneBone_ashi04_R";
+pub const Node025_At02_Bone_Ashi05_R: string = "at02_Bone_ashi05_R";
+pub const RightArm01: string = "Bone_ude01_R";
+pub const RightArm02: string = "Bone_ude02_R";
+pub const RightArm03: string = "Bone_ude03_R";
+pub const RightFoot01: string = "Bone_ashi01_R";
+pub const RightFoot02: string = "Bone_ashi02_R";
+pub const RightFoot03: string = "Bone_ashi03_R";

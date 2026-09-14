@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 4f76c3d5071f17edeaea93a1a373e14485e92023fa0c0593e13a2b9797a877b3
+pub const Node000_Croth_04: string = "croth_04";
+pub const Node001_Plant_Reaf02: string = "plant_reaf02";
+pub const Node002_Plant_Reaf01: string = "plant_reaf01";
+pub const Node003_Croth_01: string = "croth_01";
+pub const Node004_Croth_02: string = "croth_02";
+pub const Node005_Croth_03: string = "croth_03";
+pub const Node006_Light1: string = "light1";
+pub const Node007_Light04: string = "light04";
+pub const Node008_Light05: string = "light05";

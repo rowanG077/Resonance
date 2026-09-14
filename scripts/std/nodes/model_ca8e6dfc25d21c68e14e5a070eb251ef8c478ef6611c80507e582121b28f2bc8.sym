@@ -1,0 +1,6 @@
+script library;
+// Skeleton: ca8e6dfc25d21c68e14e5a070eb251ef8c478ef6611c80507e582121b28f2bc8
+pub const Node000_Bone01: string = "Bone01";
+pub const Node001_Bone02: string = "Bone02";
+pub const Node002_Bone03: string = "Bone03";
+pub const Node003_Bone04: string = "Bone04";

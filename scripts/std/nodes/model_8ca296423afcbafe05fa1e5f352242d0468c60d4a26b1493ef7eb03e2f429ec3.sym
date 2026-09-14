@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 8ca296423afcbafe05fa1e5f352242d0468c60d4a26b1493ef7eb03e2f429ec3
+pub const Node000_Fsea_01: string = "fsea_01";
+pub const Node001_Wave_02_Isa: string = "wave_02_isa";

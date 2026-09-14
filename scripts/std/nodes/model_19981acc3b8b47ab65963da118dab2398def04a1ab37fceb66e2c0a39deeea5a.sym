@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 19981acc3b8b47ab65963da118dab2398def04a1ab37fceb66e2c0a39deeea5a
+pub const Node000_Al_Shadow: string = "al_shadow";
+pub const Node001_Al_Awa: string = "al_awa";
+pub const Node002_Al_Onoff: string = "al_onoff";
+pub const Node003_Al_Onoff2: string = "al_onoff2";
+pub const Node004_Al_Biri: string = "al_biri";

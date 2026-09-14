@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 685d5fd2dd4b1541e9788fc231faf23db4438d8472ac74eddbbfb67218356f6d
+pub const Node000_I04_Ka01: string = "i04_ka01";
+pub const Node001_DOOR01_AUTO_S_PULL_W175e174: string = "DOOR01_AUTO_S_PULL_W-175e174";
+pub const Node002_I04_Ob01: string = "i04_ob01";
+pub const Node003_Bin1: string = "bin1";
+pub const Node004_Bin2: string = "bin2";
+pub const Node005_Bin3: string = "bin3";
+pub const Node006_Bin4: string = "bin4";
+pub const Node007_Bin5: string = "bin5";

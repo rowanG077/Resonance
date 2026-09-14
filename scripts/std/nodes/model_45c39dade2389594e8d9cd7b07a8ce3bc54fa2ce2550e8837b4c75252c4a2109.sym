@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 45c39dade2389594e8d9cd7b07a8ce3bc54fa2ce2550e8837b4c75252c4a2109
+pub const Node000_Baketu: string = "baketu";

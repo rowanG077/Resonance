@@ -1,0 +1,18 @@
+script library;
+// Skeleton: f0cba35ed71a04e7bce5c47230ee0ccab6cbbc17f42de885a514e1baa83b22cb
+pub const Node000_Glass: string = "glass";
+pub const Node001_Black: string = "black";
+pub const Node002_Black01: string = "black01";
+pub const Node003_Black02: string = "black02";
+pub const Node004_Black03: string = "black03";
+pub const Node005_Black04: string = "black04";
+pub const Node006_Black05: string = "black05";
+pub const Node007_Black06: string = "black06";
+pub const Node008_Black07: string = "black07";
+pub const Node009_Black08: string = "black08";
+pub const Node010_Black09: string = "black09";
+pub const Node011_Black10: string = "black10";
+pub const Node012_Black11: string = "black11";
+pub const Node013_Black12: string = "black12";
+pub const Node014_Black13: string = "black13";
+pub const Node015_Black14: string = "black14";

@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 3b46b9bc365d5822d3a47ac2732f697a65c856d54764f1733a431a73203c7c68
+pub const Node000_FDummy_Fez01: string = "FDummy_Fez01";
+pub const Node001_Fz_Bone01: string = "Fz_Bone01";
+pub const Node002_Fz_Bone02: string = "Fz_Bone02";
+pub const Node003_Fz_Bone03: string = "Fz_Bone03";
+pub const Node004_Fz_Bone05: string = "Fz_Bone05";
+pub const Node005_Fz_Bone06: string = "Fz_Bone06";
+pub const Node006_Dummy: string = "Dummy";

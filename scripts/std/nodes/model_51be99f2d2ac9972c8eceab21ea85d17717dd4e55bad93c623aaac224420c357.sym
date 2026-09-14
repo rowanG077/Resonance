@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 51be99f2d2ac9972c8eceab21ea85d17717dd4e55bad93c623aaac224420c357
+pub const Node000_Model002: string = "model002";
+pub const Node001_Model001: string = "model001";
+pub const Node002_DOOR01_AUTO_PULL_W149e875: string = "DOOR01_AUTO_PULL_W-149e875";
+pub const Node003_Sky: string = "sky";
+pub const Node004_DOOR02_AUTO_PULL_W149e875: string = "DOOR02_AUTO_PULL_W-149e875";

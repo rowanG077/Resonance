@@ -1,0 +1,6 @@
+script library;
+// Skeleton: e57d3f1c05bc10c213bc19013f28f44ce3c710c553d373ea9e1299697ed5d636
+pub const Node000_TutaA00: string = "tutaA00";
+pub const Node001_Object01: string = "Object01";
+pub const Node002_Object02: string = "Object02";
+pub const Node003_Default: string = "default";

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: c20306b942ac6b2a339db75d952b92e8d4b7e62de3dcace3d4801106bd75caf4
+pub const Node000_Windowglass_N_L: string = "windowglass_n_l";
+pub const Node001_Lamp_Gl01: string = "lamp_gl01";
+pub const Node002_Lamp_Gl00: string = "lamp_gl00";
+pub const Node003_Lamp_Glow: string = "lamp_glow";
+pub const Node004_As: string = "as";
+pub const Node005_Magic_Color: string = "magic_color";

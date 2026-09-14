@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 716a7a200af089fe3f74cb812df1421d8ec5e9b193994d8815e7d83a607b8ecc
+pub const Node000_Kumo: string = "kumo";

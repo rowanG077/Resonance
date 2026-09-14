@@ -1,0 +1,3 @@
+script library;
+// Skeleton: ec4f7e148ee66a1a3faf6b67de58b622cba25f2b46cde0ced07c28ca1eaaf4c6
+pub const Node000_Tube01: string = "Tube01";

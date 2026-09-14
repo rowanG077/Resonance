@@ -1,0 +1,5 @@
+script library;
+// Skeleton: fdf3dacf8091054df4d216fd3a9fc2a099ba97a118af26144c2f31ea23646101
+pub const Node000_Number04: string = "_04";
+pub const Node001_Net: string = "_net";
+pub const Node002_Window_Light: string = "_window_light";

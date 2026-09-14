@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 381c2d99d0f227be73d5723984b15b1569ab553f55ca8b79e8c2486d6ac0767d
+pub const Node000_MadouHou: string = "MadouHou";
+pub const Node001_Kabe: string = "Kabe";
+pub const Node002_Yuka: string = "Yuka";
+pub const Node003_Kabe_Hashira: string = "Kabe_Hashira";
+pub const Node004_RasenKaidan: string = "RasenKaidan";
+pub const Node005_Dai: string = "Dai";

@@ -1,0 +1,26 @@
+script library;
+// Skeleton: 30bb2647efd0c4e753d3aa44bf6aef2ce531e442cd8a4d4d057b68932e525efd
+pub const Node000_Mountain_01: string = "mountain_01";
+pub const Node001_Mountain_02: string = "mountain_02";
+pub const Node002_Mountain_South03: string = "mountain_south03";
+pub const Node003_Mountain_South04: string = "mountain_south04";
+pub const Node004_Mountain_Kotou: string = "mountain_kotou";
+pub const Node005_Mountain_Kotou01: string = "mountain_kotou01";
+pub const Node006_Mountain_Tairiku_Top: string = "mountain_tairiku_top";
+pub const Node007_Mountain63: string = "mountain63";
+pub const Node008_Mountain_Top63: string = "mountain_top63";
+pub const Node009_Mountain_80: string = "mountain_80";
+pub const Node010_Mountain_Bal: string = "mountain_bal";
+pub const Node011_Mountain_Bal_Top01: string = "mountain_bal_top01";
+pub const Node012_Under_Sea_Bal: string = "under_sea_bal";
+pub const Node013_Tairiku_Isa_Undersea: string = "tairiku_isa_undersea";
+pub const Node014_Mountain_Nekonin02: string = "mountain_nekonin02";
+pub const Node015_Mountain_Snow: string = "mountain_snow";
+pub const Node016_Mountain_Isa_Top01: string = "mountain_isa_top01";
+pub const Node017_Mountain_Isa: string = "mountain_isa";
+pub const Node018_Mountain_Tri_Top01: string = "mountain_tri_top01";
+pub const Node019_Mountain_Tri: string = "mountain_tri";
+pub const Node020_Mountain_South01: string = "mountain_south01";
+pub const Node021_Mountain_Snow_Top: string = "mountain_snow_top";
+pub const Node022_Mountain_Lig: string = "mountain_lig";
+pub const Node023_Mountain_Lig_Top: string = "mountain_lig_top";

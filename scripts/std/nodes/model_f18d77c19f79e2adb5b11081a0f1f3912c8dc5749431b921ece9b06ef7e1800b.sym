@@ -1,0 +1,9 @@
+script library;
+// Skeleton: f18d77c19f79e2adb5b11081a0f1f3912c8dc5749431b921ece9b06ef7e1800b
+pub const Node000_Group02: string = "Group02";
+pub const Node001_Group01: string = "Group01";
+pub const Node002_Quatro: string = "Quatro";
+pub const Node003_Tres: string = "Tres";
+pub const Node004_Dos: string = "Dos";
+pub const Node005_Uno: string = "Uno";
+pub const Node006_Kusasa: string = "kusasa";

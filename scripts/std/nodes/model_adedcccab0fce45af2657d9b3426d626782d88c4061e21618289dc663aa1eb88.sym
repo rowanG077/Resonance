@@ -1,0 +1,11 @@
+script library;
+// Skeleton: adedcccab0fce45af2657d9b3426d626782d88c4061e21618289dc663aa1eb88
+pub const Node000_Number0300_Fire_R: string = "0300_fire_r";
+pub const Node001_Number0300_Fire_R2: string = "0300_fire_r2";
+pub const Node002_Number0301_Fire_R: string = "0301_fire_r";
+pub const Node003_Number0301_Fire_R2: string = "0301_fire_r2";
+pub const Node004_Number0302: string = "0302";
+pub const Node005_Number0303_Ball: string = "0303_ball";
+pub const Node006_Number0303_Ball_C: string = "0303_ball_c";
+pub const Node007_Number0303_Ball_L: string = "0303_ball_l";
+pub const Node008_Number0303_Ball_R: string = "0303_ball_r";

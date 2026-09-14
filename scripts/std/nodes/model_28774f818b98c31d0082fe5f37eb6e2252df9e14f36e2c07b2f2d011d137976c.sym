@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 28774f818b98c31d0082fe5f37eb6e2252df9e14f36e2c07b2f2d011d137976c
+pub const Node000_Box01: string = "Box01";
+pub const Node001_Ro01: string = "ro01";
+pub const Node002_DOOR_AUTO_PUSH_W175e000: string = "DOOR_AUTO_PUSH_W175e000";
+pub const Node003_Plane01: string = "Plane01";
+pub const Node004_DOOR_AUTO_PUSH_W175e001: string = "DOOR_AUTO_PUSH_W175e001";
+pub const Node005_Plane02: string = "Plane02";
+pub const Node006_Obj02: string = "obj02";
+pub const Node007_Obj01: string = "obj01";
+pub const Node008_Obj03: string = "obj03";
+pub const Node009_Plane03: string = "Plane03";
+pub const Node010_Plane04: string = "Plane04";
+pub const Node011_Plane05: string = "Plane05";
+pub const Node012_DOOR_AUTO_PUSH_W175e002: string = "DOOR_AUTO_PUSH_W175e002";

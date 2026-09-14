@@ -1,0 +1,16 @@
+script library;
+// Skeleton: 739d210ba297f712ba830f7239a62be840b7cc710416bb58a5b45985e5b0f72c
+pub const Node000_Y0000_Light: string = "_y0000_light";
+pub const Node001_Y0000_Light2: string = "_y0000_light2";
+pub const Node002_Y_Lamp_Fire01: string = "_y_lamp_fire01";
+pub const Node003_Y_Lamp_Fire02: string = "_y_lamp_fire02";
+pub const Node004_Y_Lamp_Fire03: string = "_y_lamp_fire03";
+pub const Node005_Y_Lamp_Fire04: string = "_y_lamp_fire04";
+pub const Node006_Y_Lamp_Fire05: string = "_y_lamp_fire05";
+pub const Node007_Y_Lamp_Fire06: string = "_y_lamp_fire06";
+pub const Node008_Y_Lamp_Light01: string = "_y_lamp_light01";
+pub const Node009_Y_Lamp_Light02: string = "_y_lamp_light02";
+pub const Node010_Y_Lamp_Light03: string = "_y_lamp_light03";
+pub const Node011_Y_Lamp_Light04: string = "_y_lamp_light04";
+pub const Node012_Y_Lamp_Light05: string = "_y_lamp_light05";
+pub const Node013_Y_Lamp_Light06: string = "_y_lamp_light06";

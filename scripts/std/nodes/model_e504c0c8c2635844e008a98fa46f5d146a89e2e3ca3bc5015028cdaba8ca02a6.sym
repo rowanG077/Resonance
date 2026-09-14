@@ -1,0 +1,9 @@
+script library;
+// Skeleton: e504c0c8c2635844e008a98fa46f5d146a89e2e3ca3bc5015028cdaba8ca02a6
+pub const Node000_Boat: string = "boat";
+pub const Node001_Box01: string = "Box01";
+pub const Node002_Ki: string = "ki";
+pub const Node003_Map01: string = "map01";
+pub const Node004_Map02: string = "map02";
+pub const Node005_Sky: string = "sky";
+pub const Node006_Ground: string = "ground";

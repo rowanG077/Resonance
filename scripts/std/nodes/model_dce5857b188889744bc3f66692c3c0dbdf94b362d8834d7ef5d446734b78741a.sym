@@ -1,0 +1,3 @@
+script library;
+// Skeleton: dce5857b188889744bc3f66692c3c0dbdf94b362d8834d7ef5d446734b78741a
+pub const Node000_Oza_Ground_02: string = "oza_ground_02";

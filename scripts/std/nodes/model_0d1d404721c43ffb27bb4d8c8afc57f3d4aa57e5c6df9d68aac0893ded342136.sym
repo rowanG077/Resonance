@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 0d1d404721c43ffb27bb4d8c8afc57f3d4aa57e5c6df9d68aac0893ded342136
+pub const Node000_Slanting_WallA_02: string = "Slanting_wallA_02";
+pub const Node001_Slanting_WallA_04: string = "Slanting_wallA_04";
+pub const Node002_Number2d01_Right: string = "2d01_right";
+pub const Node003_Number2d01_Left: string = "2d01_left";
+pub const Node004_Number2d07_Left: string = "2d07_left";
+pub const Node005_Number2d07_Right: string = "2d07_right";
+pub const Node006_Number2d03_Left: string = "2d03_left";
+pub const Node007_Number2d03_Right: string = "2d03_right";
+pub const Node008_Mdl_Fac_D02: string = "mdl_fac_d02";

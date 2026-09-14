@@ -1,0 +1,21 @@
+script library;
+// Skeleton: 1d40318ca359bdaab151c0bac8a6375813501ee75b681c0e64c79255d5becc2f
+pub const Node000_T04_G02: string = "T04_G02";
+pub const Node001_DOOR01_AUTO_PUSH_W175: string = "DOOR01_AUTO_PUSH_W175";
+pub const Node002_T04_E03: string = "T04_E03";
+pub const Node003_T04_0_1: string = "T04_0_1";
+pub const Node004_T04_0_5: string = "T04_0_5";
+pub const Node005_T04_0_2: string = "T04_0_2";
+pub const Node006_T04_0_3: string = "T04_0_3";
+pub const Node007_T04_1_1: string = "T04_1_1";
+pub const Node008_T04_1_2: string = "T04_1_2";
+pub const Node009_T04_1_3: string = "T04_1_3";
+pub const Node010_T04_1_5: string = "T04_1_5";
+pub const Node011_T04_2_1: string = "T04_2_1";
+pub const Node012_T04_2_2: string = "T04_2_2";
+pub const Node013_T04_2_3: string = "T04_2_3";
+pub const Node014_T04_2_5: string = "T04_2_5";
+pub const Node015_T04_2_5a: string = "T04_2_5a";
+pub const Node016_T04_2_GA: string = "T04_2_GA";
+pub const Node017_T04_2_GB: string = "T04_2_GB";
+pub const Node018_T04_G01: string = "T04_G01";

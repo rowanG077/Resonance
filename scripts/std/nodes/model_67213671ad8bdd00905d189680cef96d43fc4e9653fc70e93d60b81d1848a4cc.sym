@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 67213671ad8bdd00905d189680cef96d43fc4e9653fc70e93d60b81d1848a4cc
+pub const Node000_Plane29: string = "Plane29";
+pub const Node001_Box03: string = "Box03";
+pub const Node002_Box12: string = "Box12";
+pub const Node003_Box04: string = "Box04";
+pub const Node004_Box14: string = "Box14";
+pub const Node005_Cylinder17: string = "Cylinder17";
+pub const Node006_Tube01: string = "Tube01";
+pub const Node007_Cylinder01: string = "Cylinder01";
+pub const Node008_Sphere04: string = "Sphere04";

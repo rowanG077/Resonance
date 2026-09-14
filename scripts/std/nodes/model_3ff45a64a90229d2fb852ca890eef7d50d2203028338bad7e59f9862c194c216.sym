@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 3ff45a64a90229d2fb852ca890eef7d50d2203028338bad7e59f9862c194c216
+pub const Node000_Enelgy: string = "enelgy";
+pub const Node001_Cone01: string = "Cone01";
+pub const Node002_Cone02: string = "Cone02";

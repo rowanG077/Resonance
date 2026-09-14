@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 6d6ef31ba76009707f4744d21391c22c787862ebde1046e01fbfc2fc1649f3cd
+pub const Node000_Rotate_Null: string = "rotate_null";
+pub const Node001_Dummy01: string = "Dummy01";
+pub const Node002_Ef_Ondiene_00: string = "ef_ondiene_00";
+pub const Node003_Ef_Ondiene_01: string = "ef_ondiene_01";
+pub const Node004_Dummy02: string = "Dummy02";
+pub const Node005_Ef_Ondiene_02: string = "ef_ondiene_02";
+pub const Node006_Ef_Ondiene_03: string = "ef_ondiene_03";
+pub const Node007_Dummy03: string = "Dummy03";
+pub const Node008_Ef_Ondiene_08: string = "ef_ondiene_08";
+pub const Node009_Ef_Ondiene_09: string = "ef_ondiene_09";
+pub const Node010_Dummy04: string = "Dummy04";
+pub const Node011_Ef_Ondiene_10: string = "ef_ondiene_10";
+pub const Node012_Ef_Ondiene_11: string = "ef_ondiene_11";
+pub const Node013_Dummy05: string = "Dummy05";
+pub const Node014_Ef_Ondiene_Glow00: string = "ef_ondiene_glow00";
+pub const Node015_Ef_Ondiene_Glow01: string = "ef_ondiene_glow01";
+pub const Node016_Spl00: string = "spl00";
+pub const Node017_Spl01: string = "spl01";
+pub const Node018_Spl02: string = "spl02";
+pub const Node019_Spl03: string = "spl03";
+pub const Node020_Ef_Ondiene_Main: string = "ef_ondiene_main";

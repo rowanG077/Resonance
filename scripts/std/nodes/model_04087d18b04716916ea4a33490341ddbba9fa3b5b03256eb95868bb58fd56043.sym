@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 04087d18b04716916ea4a33490341ddbba9fa3b5b03256eb95868bb58fd56043
+pub const Node000_T03_0_1: string = "T03_0_1";
+pub const Node001_T03_0_2: string = "T03_0_2";
+pub const Node002_T03_0_3: string = "T03_0_3";
+pub const Node003_T03_0_G2: string = "T03_0_G2";
+pub const Node004_T03_E03: string = "T03_E03";
+pub const Node005_T03_1_2: string = "T03_1_2";
+pub const Node006_T03_1_1: string = "T03_1_1";
+pub const Node007_T03_1_3: string = "T03_1_3";
+pub const Node008_T03_2_1: string = "T03_2_1";
+pub const Node009_T03_2_2: string = "T03_2_2";
+pub const Node010_T03_2_3: string = "T03_2_3";
+pub const Node011_T03_2_4: string = "T03_2_4";
+pub const Node012_T03_2_4a1: string = "T03_2_4a1";
+pub const Node013_T03_2_4a2: string = "T03_2_4a2";
+pub const Node014_T03_2_4a3: string = "T03_2_4a3";
+pub const Node015_T03_2_G1: string = "T03_2_G1";
+pub const Node016_T03_0_G: string = "T03_0_G";

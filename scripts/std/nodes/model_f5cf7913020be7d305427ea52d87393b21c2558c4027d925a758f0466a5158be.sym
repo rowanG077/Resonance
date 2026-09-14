@@ -1,0 +1,6 @@
+script library;
+// Skeleton: f5cf7913020be7d305427ea52d87393b21c2558c4027d925a758f0466a5158be
+pub const Node000_Coil_B0: string = "coil_b0";
+pub const Node001_Coil_B01: string = "coil_b01";
+pub const Node002_Coil_B02: string = "coil_b02";
+pub const Node003_Coil_B03: string = "coil_b03";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: fe000bde03ac98a9069e86327764a9f1f59339f49ada4e6039c8578957be011b
+pub const Node000_Default01: string = "default01";
+pub const Node001_Col000_Skin: string = "col000_skin";

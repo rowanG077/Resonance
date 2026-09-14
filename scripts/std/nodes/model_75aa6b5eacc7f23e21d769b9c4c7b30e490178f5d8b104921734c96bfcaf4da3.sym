@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 75aa6b5eacc7f23e21d769b9c4c7b30e490178f5d8b104921734c96bfcaf4da3
+pub const Node000_Sw0: string = "sw0";

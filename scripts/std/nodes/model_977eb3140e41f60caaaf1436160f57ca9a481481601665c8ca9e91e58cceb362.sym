@@ -1,0 +1,27 @@
+script library;
+// Skeleton: 977eb3140e41f60caaaf1436160f57ca9a481481601665c8ca9e91e58cceb362
+pub const Node000_Tt2_Wm_Sp_20: string = "tt2_Wm_sp_20";
+pub const Node001_Tt2_Flag_Sd: string = "tt2_Flag_Sd";
+pub const Node002_Tt_Door_Sd: string = "tt_Door_sd";
+pub const Node003_Tt_Sd_20: string = "tt_Sd_20";
+pub const Node004_Tt_Sp_10: string = "tt_sp_10";
+pub const Node005_T07_E01: string = "T07_E01";
+pub const Node006_T_Ap02_195: string = "T_Ap02_195";
+pub const Node007_T_Ap01_200: string = "T_Ap01_200";
+pub const Node008_T_Ap03_190: string = "T_Ap03_190";
+pub const Node009_T_Ap04_185: string = "T_Ap04_185";
+pub const Node010_T_Ap05_180: string = "T_Ap05_180";
+pub const Node011_T_Ap06_175: string = "T_Ap06_175";
+pub const Node012_T_Ap07_170: string = "T_Ap07_170";
+pub const Node013_T_Ap08_165: string = "T_Ap08_165";
+pub const Node014_Plant_180_2: string = "Plant_180_2";
+pub const Node015_Plant_185_2: string = "Plant_185_2";
+pub const Node016_Plant_190_2: string = "Plant_190_2";
+pub const Node017_Plant_195_2: string = "Plant_195_2";
+pub const Node018_Plant_200_2: string = "Plant_200_2";
+pub const Node019_Plant_175: string = "Plant_175";
+pub const Node020_Plant_180: string = "Plant_180";
+pub const Node021_Plant_185: string = "Plant_185";
+pub const Node022_Plant_190: string = "Plant_190";
+pub const Node023_Plant_195: string = "Plant_195";
+pub const Node024_Plant_200: string = "Plant_200";

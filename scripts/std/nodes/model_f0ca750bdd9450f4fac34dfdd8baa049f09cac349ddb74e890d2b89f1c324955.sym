@@ -1,0 +1,6 @@
+script library;
+// Skeleton: f0ca750bdd9450f4fac34dfdd8baa049f09cac349ddb74e890d2b89f1c324955
+pub const Node000_Plane01: string = "Plane01";
+pub const Node001_Kumo_3: string = "kumo_3";
+pub const Node002_Kumo_2: string = "kumo_2";
+pub const Node003_Kumo_04: string = "kumo_04";

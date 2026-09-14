@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 9d22e6ddfca3d526d755f788b0f15ff155ebfab34f8945d2f3ca44e03bacaa67
+pub const Node000_A_Bone: string = "a_Bone";
+pub const Node001_Mo7_Bone_Core: string = "mo7_Bone_core";
+pub const Node002_Bone_CoverA: string = "Bone_coverA";
+pub const Node003_Bone_CoverB: string = "Bone_coverB";
+pub const Node004_Ef00_Bone_Core01: string = "ef00_Bone_core01";
+pub const Node005_Bone_Outerpart07: string = "Bone_outerpart07";
+pub const Node006_At00_Outerpart06: string = "at00_outerpart06";
+pub const Node007_Bone_Outerpart05: string = "Bone_outerpart05";
+pub const Node008_At00_Outerpart04: string = "at00_outerpart04";
+pub const Node009_Bone_Outerpart03: string = "Bone_outerpart03";
+pub const Node010_Bone_Outerpart01: string = "Bone_outerpart01";
+pub const Node011_At00_Outerpart00: string = "at00_outerpart00";
+pub const Node012_Ef01_Bone_Fire04: string = "ef01_Bone_fire04";
+pub const Node013_Ef01_Bone_Fire03: string = "ef01_Bone_fire03";
+pub const Node014_Ef01_Bone_Fire05: string = "ef01_Bone_fire05";
+pub const Node015_Ef01_Bone_Fire02: string = "ef01_Bone_fire02";
+pub const Node016_Ef01_Bone_Fire01: string = "ef01_Bone_fire01";
+pub const Node017_Ef01_Bone_Fire00: string = "ef01_Bone_fire00";
+pub const Node018_Ef01_Bone_Fire07: string = "ef01_Bone_fire07";
+pub const Node019_Ef01_Bone_Fire06: string = "ef01_Bone_fire06";
+pub const Node020_At00_Outerpart02: string = "at00_outerpart02";

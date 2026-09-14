@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 26b2cc03a0d87f23a1e8b85ee9c6c85d09844d0b310801737c911d445f4fd153
+pub const Node000_SKY: string = "SKY";
+pub const Node001_BASE: string = "BASE";
+pub const Node002_BODY: string = "BODY";
+pub const Node003_Roof: string = "roof";
+pub const Node004_Ev_L: string = "ev_l";
+pub const Node005_Ev_R: string = "ev_r";
+pub const Node006_EV: string = "EV";

@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 10923a7efaa437c0fb7ac94ef1e6b9ffbcf796acb061bb8662e8f652278133bf
+pub const Node000_Normal_Block: string = "normal_block";
+pub const Node001_Fg: string = "fg";
+pub const Node002_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node004_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node005_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node006_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node007_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";

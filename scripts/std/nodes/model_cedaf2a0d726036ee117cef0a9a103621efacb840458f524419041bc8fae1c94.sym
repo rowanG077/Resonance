@@ -1,0 +1,7 @@
+script library;
+// Skeleton: cedaf2a0d726036ee117cef0a9a103621efacb840458f524419041bc8fae1c94
+pub const Node000_DOOR01_AUTO_PUSH_W175: string = "DOOR01_AUTO_PUSH_W175";
+pub const Node001_T01_G01: string = "T01_G01";
+pub const Node002_Futa: string = "futa";
+pub const Node003_T01_P01: string = "T01_P01";
+pub const Node004_T01_P02: string = "T01_P02";

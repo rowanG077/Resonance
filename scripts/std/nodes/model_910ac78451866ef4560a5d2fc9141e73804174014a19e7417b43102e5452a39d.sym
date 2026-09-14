@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 910ac78451866ef4560a5d2fc9141e73804174014a19e7417b43102e5452a39d
+pub const Node000_River01_Waki: string = "river01_waki";
+pub const Node001_River01: string = "river01";

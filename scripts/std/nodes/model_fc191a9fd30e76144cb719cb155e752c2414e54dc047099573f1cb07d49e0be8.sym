@@ -1,0 +1,3 @@
+script library;
+// Skeleton: fc191a9fd30e76144cb719cb155e752c2414e54dc047099573f1cb07d49e0be8
+pub const Node000_Tama: string = "tama";

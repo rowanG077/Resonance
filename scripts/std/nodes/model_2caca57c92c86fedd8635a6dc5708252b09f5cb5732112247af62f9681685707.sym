@@ -1,0 +1,21 @@
+script library;
+// Skeleton: 2caca57c92c86fedd8635a6dc5708252b09f5cb5732112247af62f9681685707
+pub const Node000_Art_I02_Obj2: string = "art_i02_obj2";
+pub const Node001_Art_I02_Obj1: string = "art_i02_obj1";
+pub const Node002_Art_Srot1: string = "art_srot1";
+pub const Node003_Art_Srot2: string = "art_srot2";
+pub const Node004_Art_Srot3: string = "art_srot3";
+pub const Node005_Art_Srot4: string = "art_srot4";
+pub const Node006_Art_Srot5: string = "art_srot5";
+pub const Node007_Art_Kanban1: string = "art_kanban1";
+pub const Node008_Art_Ruret1: string = "art_ruret1";
+pub const Node009_Art_Ruret2: string = "art_ruret2";
+pub const Node010_Huta1: string = "huta1";
+pub const Node011_Kanban01: string = "kanban01";
+pub const Node012_Kanban02: string = "kanban02";
+pub const Node013_Art_Kanban01: string = "art_kanban01";
+pub const Node014_Cylinder01: string = "Cylinder01";
+pub const Node015_Cylinder02: string = "Cylinder02";
+pub const Node016_Cylinder03: string = "Cylinder03";
+pub const Node017_Box01: string = "Box01";
+pub const Node018_Box02: string = "Box02";

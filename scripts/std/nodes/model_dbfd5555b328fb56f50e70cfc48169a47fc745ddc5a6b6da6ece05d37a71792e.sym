@@ -1,0 +1,24 @@
+script library;
+// Skeleton: dbfd5555b328fb56f50e70cfc48169a47fc745ddc5a6b6da6ece05d37a71792e
+pub const Head: string = "Bone_head";
+pub const LeftArm01: string = "Bone_ude01_L";
+pub const LeftArm02: string = "Bone_ude02_L";
+pub const LeftArm03: string = "Bone_ude03_L";
+pub const LeftArm04: string = "Bone_ude04_L";
+pub const LeftFoot01: string = "Bone_asi01_L";
+pub const LeftFoot02: string = "Bone_asi02_L";
+pub const LeftFoot03: string = "Bone_asi03_L";
+pub const LeftFoot04: string = "Bone_asi04_L";
+pub const Node002_Bone_Siri: string = "Bone_siri";
+pub const RightArm01: string = "Bone_ude01_R";
+pub const RightArm02: string = "Bone_ude02_R";
+pub const RightArm03: string = "Bone_ude03_R";
+pub const RightArm04: string = "Bone_ude04_R";
+pub const RightFoot01: string = "Bone_asi01_R";
+pub const RightFoot02: string = "Bone_asi02_R";
+pub const RightFoot03: string = "Bone_asi03_R";
+pub const RightFoot04: string = "Bone_asi04_R";
+pub const Tail01: string = "Bone_tail01";
+pub const Tail02: string = "Bone_tail02";
+pub const Tail03: string = "Bone_tail03";
+pub const Waist: string = "Bone_kosi";

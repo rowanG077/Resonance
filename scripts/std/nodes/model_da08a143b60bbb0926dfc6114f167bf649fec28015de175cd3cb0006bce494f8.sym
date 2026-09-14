@@ -1,0 +1,14 @@
+script library;
+// Skeleton: da08a143b60bbb0926dfc6114f167bf649fec28015de175cd3cb0006bce494f8
+pub const Node000_R_Fire_1b_Left: string = "R_Fire_1b_Left";
+pub const Node001_R_Fire_1b_Right: string = "R_Fire_1b_Right";
+pub const Node002_R_Fire_1a_Right: string = "R_Fire_1a_Right";
+pub const Node003_R_Fire_1a_Left: string = "R_Fire_1a_Left";
+pub const Node004_A_Fire_1a_Center: string = "A_Fire_1a_Center";
+pub const Node005_A_Fire_1b_Center: string = "A_Fire_1b_Center";
+pub const Node006_R_Light_1a_Left: string = "R_Light_1a_Left";
+pub const Node007_R_Light_1b_Left: string = "R_Light_1b_Left";
+pub const Node008_R_Light_1b_Right: string = "R_Light_1b_Right";
+pub const Node009_R_Light_1a_Right: string = "R_Light_1a_Right";
+pub const Node010_A_Light_1a_Center: string = "A_Light_1a_Center";
+pub const Node011_A_Light_1b_Center: string = "A_Light_1b_Center";

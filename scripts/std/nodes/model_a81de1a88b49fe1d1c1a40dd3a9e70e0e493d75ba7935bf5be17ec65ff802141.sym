@@ -1,0 +1,4 @@
+script library;
+// Skeleton: a81de1a88b49fe1d1c1a40dd3a9e70e0e493d75ba7935bf5be17ec65ff802141
+pub const Node000_Cloud00: string = "cloud00";
+pub const Node001_Cloud01: string = "cloud01";

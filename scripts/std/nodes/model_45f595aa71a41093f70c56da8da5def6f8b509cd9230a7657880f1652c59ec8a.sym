@@ -1,0 +1,27 @@
+script library;
+// Skeleton: 45f595aa71a41093f70c56da8da5def6f8b509cd9230a7657880f1652c59ec8a
+pub const Node000_Ki_Ne02: string = "ki_ne02";
+pub const Node001_Taiboku: string = "taiboku";
+pub const Node002_Taiboku01: string = "taiboku01";
+pub const Node003_Ki_Sml: string = "ki_sml";
+pub const Node004_Ki_Sml01: string = "ki_sml01";
+pub const Node005_Ki_Sml02: string = "ki_sml02";
+pub const Node006_Ki_Sml03: string = "ki_sml03";
+pub const Node007_Migi_Zimen: string = "migi_zimen";
+pub const Node008_Sugi_Miki: string = "sugi_miki";
+pub const Node009_Zimen_Migi: string = "zimen_migi";
+pub const Node010_Sugi_Ha: string = "sugi_ha";
+pub const Node011_Bussyu_Kirikabu: string = "bussyu_kirikabu";
+pub const Node012_Bussyu_Kirikabu2: string = "bussyu_kirikabu2";
+pub const Node013_Hsns_Dyou: string = "hsns_dyou";
+pub const Node014_Kusa214: string = "kusa214";
+pub const Node015_Taiboku02: string = "taiboku02";
+pub const Node016_Group01: string = "Group01";
+pub const Node017_Ha: string = "ha";
+pub const Node018_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node019_Haa: string = "haa";
+pub const Node020_Eda: string = "eda";
+pub const Node021_Edaaa: string = "edaaa";
+pub const Node022_Group02: string = "Group02";
+pub const Node023_Ha01: string = "ha01";
+pub const Node024_Edaaaa: string = "edaaaa";

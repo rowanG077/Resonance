@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 7cdab42ea7cf47cca6ff372b0b5d36c8e78f2b8b0606d93144217507a1fc1db2
+pub const Node000_Tuusinnki_Body1: string = "tuusinnki_body1";
+pub const Node001_Tuusinnki_Body2: string = "tuusinnki_body2";
+pub const Node002_Tuusinnki_Grid: string = "tuusinnki_grid";
+pub const Node003_Tuusinnki_Grid02: string = "tuusinnki_grid02";
+pub const Node004_Tuusinnki_Grid03: string = "tuusinnki_grid03";
+pub const Node005_Tuusinnki_Grid04: string = "tuusinnki_grid04";
+pub const Node006_Tuusinnki_Grid05: string = "tuusinnki_grid05";
+pub const Node007_Tuusinnki_GridR00: string = "tuusinnki_gridR00";
+pub const Node008_Tuusinnki_GridR01: string = "tuusinnki_gridR01";
+pub const Node009_Tuusinnki_GridR02: string = "tuusinnki_gridR02";
+pub const Node010_Tuusinnki_GridR03: string = "tuusinnki_gridR03";
+pub const Node011_Tuusinnki_GridR04: string = "tuusinnki_gridR04";
+pub const Node012_Tuusinnki_GridR05: string = "tuusinnki_gridR05";
+pub const Node013_Tuusinnki_Lever: string = "tuusinnki_lever";
+pub const Node014_Tuusinnki_Light: string = "tuusinnki_light";
+pub const Node015_Tuusinnki_Monitor2: string = "tuusinnki_monitor2";
+pub const Node016_Tuusinnki_Noiz00: string = "tuusinnki_noiz00";
+pub const Node017_Tuusinnki_Noiz01: string = "tuusinnki_noiz01";
+pub const Node018_Tuusinnki_Noiz02: string = "tuusinnki_noiz02";
+pub const Node019_Tuusinnki_Noiz03: string = "tuusinnki_noiz03";
+pub const Node020_Tuusinnki_Noiz04: string = "tuusinnki_noiz04";

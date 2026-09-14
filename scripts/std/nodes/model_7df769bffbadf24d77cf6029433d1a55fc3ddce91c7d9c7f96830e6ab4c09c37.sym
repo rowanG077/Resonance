@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 7df769bffbadf24d77cf6029433d1a55fc3ddce91c7d9c7f96830e6ab4c09c37
+pub const Node000_Al_Alpha: string = "al_alpha";
+pub const Node001_Al_Tree_Funf: string = "al_tree_funf";
+pub const Node002_Al_Tree_Ein: string = "al_tree_ein";
+pub const Node003_Al_Tree_Twei: string = "al_tree_twei";
+pub const Node004_Al_Tree_Vier: string = "al_tree_vier";
+pub const Node005_Al_Tree_Drei: string = "al_tree_drei";
+pub const Node006_Al_Tree_Sechs: string = "al_tree_sechs";
+pub const Node007_Tr_Shadow_L: string = "tr_shadow_l";
+pub const Node008_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

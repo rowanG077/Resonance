@@ -1,0 +1,7 @@
+script library;
+// Skeleton: e0aa6ce336db4e1a47f3df1d00625b45e4e62baa49388b563081f781218d9739
+pub const Node000_Dodaoi: string = "dodaoi";
+pub const Node001_Hiraishin_On: string = "hiraishin_on";
+pub const Node002_Hiraishin_Off: string = "hiraishin_off";
+pub const Node003_Switch_Off: string = "switch_off";
+pub const Node004_Switch_On: string = "switch_on";

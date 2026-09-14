@@ -1,0 +1,10 @@
+script library;
+// Skeleton: df5990c430419e36586c840c97be1323b0e92fbae436bd703d500a0248c56f68
+pub const Node000_Umi: string = "umi";
+pub const Node001_Jimen: string = "jimen";
+pub const Node002_Gake00: string = "gake00";
+pub const Node003_Obj: string = "obj";
+pub const Node004_Aqu_D00_Blz: string = "aqu_d00_blz";
+pub const Node005_Hata01: string = "hata01";
+pub const Node006_Hata00: string = "hata00";
+pub const Node007_Spri_Zou: string = "spri_zou";

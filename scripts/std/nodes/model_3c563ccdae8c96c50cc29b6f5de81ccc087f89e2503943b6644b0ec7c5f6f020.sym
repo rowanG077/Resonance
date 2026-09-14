@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 3c563ccdae8c96c50cc29b6f5de81ccc087f89e2503943b6644b0ec7c5f6f020
+pub const Node000_Nazo: string = "nazo";
+pub const Node001_Kan_OK: string = "kan_OK";
+pub const Node002_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: bbbf52a7d99f5fd3fce3315b128b2e7fb9a041cac791f32268531a17a84de176
+pub const Node000_Y1000_Window_Light1: string = "_y1000_window_light1";
+pub const Node001_Y1000_Window_Light2: string = "_y1000_window_light2";
+pub const Node002_Y1000_Window_Light3: string = "_y1000_window_light3";
+pub const Node003_Y1000_Window_Light4: string = "_y1000_window_light4";
+pub const Node004_Y_Lamp_Light01: string = "_y_lamp_light01";
+pub const Node005_Y_Lamp_Fire01: string = "_y_lamp_fire01";

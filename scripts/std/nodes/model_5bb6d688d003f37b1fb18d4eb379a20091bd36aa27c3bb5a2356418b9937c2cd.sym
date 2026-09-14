@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 5bb6d688d003f37b1fb18d4eb379a20091bd36aa27c3bb5a2356418b9937c2cd
+pub const Node000_Zelos: string = "zelos";

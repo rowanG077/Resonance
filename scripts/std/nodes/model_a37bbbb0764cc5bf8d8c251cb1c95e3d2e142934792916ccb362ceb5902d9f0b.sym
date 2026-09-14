@@ -1,0 +1,3 @@
+script library;
+// Skeleton: a37bbbb0764cc5bf8d8c251cb1c95e3d2e142934792916ccb362ceb5902d9f0b
+pub const Node000_Number0: string = "0";

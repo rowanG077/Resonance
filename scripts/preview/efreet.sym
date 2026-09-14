@@ -1,0 +1,5 @@
+script model;
+use model;
+pub fn apply() {
+    model::set_translation(0.0, 0.0, - 80.0);
+}

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: bc4f43e751cf1ef24b6c132fc92916a098e79fe9e81c961e6f4e0efb6e178403
+pub const Node000_Room_3: string = "room_3";
+pub const Node001_Room_2: string = "room_2";
+pub const Node002_DOOR01_AUTO_PULL_W175: string = "DOOR01_AUTO_PULL_W-175";
+pub const Node003_Room: string = "room";
+pub const Node004_Sky: string = "sky";
+pub const Node005_Room_Top: string = "room_top";

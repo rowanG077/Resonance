@@ -1,0 +1,24 @@
+script library;
+// Skeleton: 76975fe33e63bf5bfcfa68fda8b3b35a2c3187398b6c156a53d4101d9fc621ce
+pub const Node000_Dummy01: string = "Dummy01";
+pub const Node001_Hikari: string = "hikari";
+pub const Node002_Dummy02: string = "Dummy02";
+pub const Node003_Hikari01: string = "hikari01";
+pub const Node004_Dummy03: string = "Dummy03";
+pub const Node005_Hikari02: string = "hikari02";
+pub const Node006_Dummy04: string = "Dummy04";
+pub const Node007_Hikari03: string = "hikari03";
+pub const Node008_Dummy05: string = "Dummy05";
+pub const Node009_Hikari04: string = "hikari04";
+pub const Node010_Dummy06: string = "Dummy06";
+pub const Node011_Hikari05: string = "hikari05";
+pub const Node012_Dummy07: string = "Dummy07";
+pub const Node013_Hikari06: string = "hikari06";
+pub const Node014_Dummy08: string = "Dummy08";
+pub const Node015_Hikari07: string = "hikari07";
+pub const Node016_Dummy09: string = "Dummy09";
+pub const Node017_Hikari08: string = "hikari08";
+pub const Node018_Dummy10: string = "Dummy10";
+pub const Node019_Hikari09: string = "hikari09";
+pub const Node020_Dummy11: string = "Dummy11";
+pub const Node021_Hikari10: string = "hikari10";

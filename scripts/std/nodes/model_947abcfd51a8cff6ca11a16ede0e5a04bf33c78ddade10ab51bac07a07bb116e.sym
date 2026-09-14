@@ -1,0 +1,16 @@
+script library;
+// Skeleton: 947abcfd51a8cff6ca11a16ede0e5a04bf33c78ddade10ab51bac07a07bb116e
+pub const Node000_Vertex_Fire00: string = "_vertex_fire00";
+pub const Node001_Vertex_Fire01: string = "_vertex_fire01";
+pub const Node002_Vertex_Fire02: string = "_vertex_fire02";
+pub const Node003_Vertex_Fire03: string = "_vertex_fire03";
+pub const Node004_Vertex_Leaf10: string = "_vertex_leaf10";
+pub const Node005_Vertex_Leaf20: string = "_vertex_leaf20";
+pub const Node006_Vertex_Leaf30: string = "_vertex_leaf30";
+pub const Node007_Vertex_Leaf40: string = "_vertex_leaf40";
+pub const Node008_Vertex_Leaf50: string = "_vertex_leaf50";
+pub const Node009_Vertex_Leaf60: string = "_vertex_leaf60";
+pub const Node010_Vertex_Leaf70: string = "_vertex_leaf70";
+pub const Node011_Vertex_Leaf80: string = "_vertex_leaf80";
+pub const Node012_Vertex_Light: string = "_vertex_light";
+pub const Node013_Vertex_Window: string = "_vertex_window";

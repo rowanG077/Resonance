@@ -1,0 +1,16 @@
+script library;
+// Skeleton: da280787c6d19cd97dddc3b9e66fd628bce157245993985a9666265f5f30f92d
+pub const LeftFoot: string = "Bone_ashi_L";
+pub const LeftHand: string = "Bone_hand_L";
+pub const Node000_Bone_Body: string = "Bone_body";
+pub const Node003_Bone_HappaA1: string = "Bone_happaA1";
+pub const Node004_Bone_HappaA2: string = "Bone_happaA2";
+pub const Node008_Bone_HappaD1: string = "Bone_happaD1";
+pub const Node009_Bone_HappaD2: string = "Bone_happaD2";
+pub const Node010_Mo10_Bone_HappaB1: string = "mo10_Bone_happaB1";
+pub const Node011_Bone_HappaB2: string = "Bone_happaB2";
+pub const Node012_Bone_HappaC1: string = "Bone_happaC1";
+pub const Node013_Bone_HappaC2: string = "Bone_happaC2";
+pub const RightFoot: string = "Bone_ashi_R";
+pub const RightHand: string = "Bone_hand_R";
+pub const Tail: string = "Bone_tail";

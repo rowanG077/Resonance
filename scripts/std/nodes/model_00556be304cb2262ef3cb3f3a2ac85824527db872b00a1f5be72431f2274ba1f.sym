@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 00556be304cb2262ef3cb3f3a2ac85824527db872b00a1f5be72431f2274ba1f
+pub const Node000_Tt_20Water: string = "tt_20Water";
+pub const Node001_Tt_30Water_Side: string = "tt_30Water_Side";
+pub const Node002_Tt_10Munt: string = "tt_10Munt";
+pub const Node003_Tt_170Reaf: string = "tt_170Reaf";
+pub const Node004_Tt_175Reaf: string = "tt_175Reaf";
+pub const Node005_Tt_180Reaf: string = "tt_180Reaf";
+pub const Node006_Tt_185Reaf: string = "tt_185Reaf";
+pub const Node007_Tt_190Reaf: string = "tt_190Reaf";
+pub const Node008_Tt_195Reaf: string = "tt_195Reaf";
+pub const Node009_Tt_200Reaf: string = "tt_200Reaf";
+pub const Node010_Tt_40Blige_SD: string = "tt_40Blige_SD";

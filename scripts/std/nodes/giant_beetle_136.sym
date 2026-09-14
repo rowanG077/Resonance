@@ -1,0 +1,24 @@
+script library;
+// Skeleton: 48f581e1cec6e51a45b81553ebbb1516dfc97e032a692f540b6588021497cdc9
+pub const Node000_ABone_Oya: string = "ABone_Oya";
+pub const Node001_Mo5_Bone00_Kosi: string = "mo5_Bone00_Kosi";
+pub const Node002_Bone01_Head: string = "Bone01_Head";
+pub const Node003_At00_Bone: string = "at00_Bone";
+pub const Node004_Bone20_NakaAsi_L: string = "Bone20_NakaAsi_L";
+pub const Node005_Bone21_NakaAsi_L: string = "Bone21_NakaAsi_L";
+pub const Node006_Bone30_UsiroAsi_L: string = "Bone30_UsiroAsi_L";
+pub const Node007_Bone31_UsiroAsi_L: string = "Bone31_UsiroAsi_L";
+pub const Node008_Bone10_MaeAsi_L: string = "Bone10_MaeAsi_L";
+pub const Node009_Bone11_MaeAsi_L: string = "Bone11_MaeAsi_L";
+pub const Node010_Bone50_Hane_L: string = "Bone50_Hane_L";
+pub const Node011_Bone51_Hane_L: string = "Bone51_Hane_L";
+pub const Node012_Bone40_Koura_L: string = "Bone40_Koura_L";
+pub const Node013_Bone10_MaeAsi_R: string = "Bone10_MaeAsi_R";
+pub const Node014_Bone11_MaeAsi_R: string = "Bone11_MaeAsi_R";
+pub const Node015_Bone30_UsiroAsi_R: string = "Bone30_UsiroAsi_R";
+pub const Node016_Bone31_UsiroAsi_R: string = "Bone31_UsiroAsi_R";
+pub const Node017_Bone20_NakaAsi_R: string = "Bone20_NakaAsi_R";
+pub const Node018_Bone21_NakaAsi_R: string = "Bone21_NakaAsi_R";
+pub const Node019_Bone50_Hane_R: string = "Bone50_Hane_R";
+pub const Node020_Bone51_Hane_R: string = "Bone51_Hane_R";
+pub const Node021_Bone40_Koura_R: string = "Bone40_Koura_R";

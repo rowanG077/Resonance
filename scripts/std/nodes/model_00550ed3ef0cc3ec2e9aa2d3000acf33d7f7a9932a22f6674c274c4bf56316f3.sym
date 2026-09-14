@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 00550ed3ef0cc3ec2e9aa2d3000acf33d7f7a9932a22f6674c274c4bf56316f3
+pub const Node000_Switch_Eff: string = "switch_eff";
+pub const Node001_Dgsv: string = "dgsv";
+pub const Node002_Jm: string = "jm";
+pub const Node003_Dvvhh: string = "dvvhh";
+pub const Node004_Switch_Eff01: string = "switch_eff01";
+pub const Node005_Switch_Eff02: string = "switch_eff02";
+pub const Node006_Iul: string = "iul";
+pub const Node007_Dgsv01: string = "dgsv01";
+pub const Node008_Dgsv02: string = "dgsv02";
+pub const Node009_Dgsv06: string = "dgsv06";
+pub const Node010_Dgsv07: string = "dgsv07";
+pub const Node011_Dgsv08: string = "dgsv08";
+pub const Node012_Dgsv09: string = "dgsv09";
+pub const Node013_Dgsv10: string = "dgsv10";
+pub const Node014_Dgsv11: string = "dgsv11";
+pub const Node015_Jm01: string = "jm01";
+pub const Node016_Jm02: string = "jm02";
+pub const Node017_Jm03: string = "jm03";
+pub const Node018_Dgsv12: string = "dgsv12";
+pub const Node019_Dgsv13: string = "dgsv13";
+pub const Node020_Dgsv14: string = "dgsv14";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 39d4c55075ade4ba81a7dcc14eb444c3cf32cb26cb127334384d4b1fb2d5a72f
+pub const Node000_Ice_D02_Koori: string = "ice_d02_koori";

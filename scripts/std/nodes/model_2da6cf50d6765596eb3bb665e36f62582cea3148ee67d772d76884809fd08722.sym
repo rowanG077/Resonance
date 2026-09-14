@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 2da6cf50d6765596eb3bb665e36f62582cea3148ee67d772d76884809fd08722
+pub const Node000_Right_Door01: string = "Right_door01";
+pub const Node001_Left_Door01: string = "left_door01";
+pub const Node002_Floor: string = "floor";
+pub const Node003_Tutu_Ring: string = "tutu_ring";
+pub const Node004_Elv: string = "elv";
+pub const Node005_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node006_Tp_Ball_B: string = "tp_ball_b";
+pub const Node007_Tp_Ball_A: string = "tp_ball_a";

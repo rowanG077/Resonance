@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 24adccf08e72923fa1c5c7789fbf6e238fd37b5a2334d9c80a93b676c650f0d0
+pub const Node000_Default01: string = "default01";
+pub const Node001_Default: string = "default";
+pub const Node002_Default02: string = "default02";
+pub const Node003_Object04: string = "Object04";
+pub const Node004_Object01: string = "Object01";
+pub const Node005_Dosya: string = "dosya";
+pub const Node006_Object02: string = "Object02";
+pub const Node007_Object05: string = "Object05";
+pub const Node008_Object06: string = "Object06";
+pub const Node009_Object07: string = "Object07";

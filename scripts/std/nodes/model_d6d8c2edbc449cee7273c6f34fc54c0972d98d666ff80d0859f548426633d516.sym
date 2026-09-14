@@ -1,0 +1,8 @@
+script library;
+// Skeleton: d6d8c2edbc449cee7273c6f34fc54c0972d98d666ff80d0859f548426633d516
+pub const Node000_Door02_Pne: string = "door02_pne";
+pub const Node001_Bltconv: string = "bltconv";
+pub const Node002_Door01_Pne: string = "door01_pne";
+pub const Node003_Doom: string = "doom";
+pub const Node004_Doom01: string = "doom01";
+pub const Node005_Number2F_Off: string = "2F_off";

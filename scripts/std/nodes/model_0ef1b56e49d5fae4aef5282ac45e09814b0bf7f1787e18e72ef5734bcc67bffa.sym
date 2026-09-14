@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 0ef1b56e49d5fae4aef5282ac45e09814b0bf7f1787e18e72ef5734bcc67bffa
+pub const Node000_Cylinder01: string = "Cylinder01";
+pub const Node001_Cylinder02: string = "Cylinder02";
+pub const Node002_Cylinder03: string = "Cylinder03";
+pub const Node003_Cylinder04: string = "Cylinder04";
+pub const Node004_Cylinder05: string = "Cylinder05";
+pub const Node005_Cylinder06: string = "Cylinder06";
+pub const Node006_Cylinder07: string = "Cylinder07";
+pub const Node007_Cylinder08: string = "Cylinder08";
+pub const Node008_Cylinder09: string = "Cylinder09";
+pub const Node009_Cylinder10: string = "Cylinder10";
+pub const Node010_Cylinder11: string = "Cylinder11";
+pub const Node011_Cylinder12: string = "Cylinder12";
+pub const Node012_Plane01: string = "Plane01";
+pub const Node013_Plane02: string = "Plane02";
+pub const Node014_Plane03: string = "Plane03";
+pub const Node015_Plane04: string = "Plane04";
+pub const Node016_Plane05: string = "Plane05";
+pub const Node017_Plane06: string = "Plane06";

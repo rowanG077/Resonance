@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 5dc18fd744017beb846e38816a76a3c9bdfca2cd1aef96c9e0508cef690e0d11
+pub const Node000_Container: string = "container";

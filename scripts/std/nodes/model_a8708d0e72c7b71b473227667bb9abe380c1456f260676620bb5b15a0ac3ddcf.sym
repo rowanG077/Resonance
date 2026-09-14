@@ -1,0 +1,8 @@
+script library;
+// Skeleton: a8708d0e72c7b71b473227667bb9abe380c1456f260676620bb5b15a0ac3ddcf
+pub const Node000_Tai04: string = "tai04";
+pub const Node001_Tai01: string = "tai01";
+pub const Node002_Tai05: string = "tai05";
+pub const Node003_Tai02: string = "tai02";
+pub const Node004_Tai03: string = "tai03";
+pub const Node005_DM_Awa_Up: string = "DM_awa_up";

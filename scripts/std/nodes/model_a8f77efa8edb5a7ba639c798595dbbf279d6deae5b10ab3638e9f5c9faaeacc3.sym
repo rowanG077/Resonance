@@ -1,0 +1,3 @@
+script library;
+// Skeleton: a8f77efa8edb5a7ba639c798595dbbf279d6deae5b10ab3638e9f5c9faaeacc3
+pub const Node000_Barrier: string = "barrier";

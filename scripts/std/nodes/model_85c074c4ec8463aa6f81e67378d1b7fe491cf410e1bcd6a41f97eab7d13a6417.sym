@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 85c074c4ec8463aa6f81e67378d1b7fe491cf410e1bcd6a41f97eab7d13a6417
+pub const Node000_Kiseki_Pas: string = "kiseki_pas";

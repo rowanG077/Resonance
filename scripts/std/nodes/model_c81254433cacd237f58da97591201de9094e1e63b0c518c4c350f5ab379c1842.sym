@@ -1,0 +1,3 @@
+script library;
+// Skeleton: c81254433cacd237f58da97591201de9094e1e63b0c518c4c350f5ab379c1842
+pub const Node000_Ocean_03: string = "!!ocean_03";

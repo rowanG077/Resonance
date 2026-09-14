@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 75954ca89f69fd755e2bc1a113a60d3448d1e8262d060514b4b8dbf89da95ea9
+pub const Node000_Mdl_Izr_I02_01: string = "mdl_izr_I02_01";
+pub const Node001_Mdl_Izr_I02_00: string = "mdl_izr_I02_00";
+pub const Node002_Mdl_Izr_I02_02: string = "mdl_izr_I02_02";
+pub const Node003_Sky: string = "sky";
+pub const Node004_Chain: string = "chain";

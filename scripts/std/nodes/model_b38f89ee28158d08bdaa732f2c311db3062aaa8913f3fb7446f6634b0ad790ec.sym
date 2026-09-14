@@ -1,0 +1,3 @@
+script library;
+// Skeleton: b38f89ee28158d08bdaa732f2c311db3062aaa8913f3fb7446f6634b0ad790ec
+pub const Node000_Usa: string = "usa";

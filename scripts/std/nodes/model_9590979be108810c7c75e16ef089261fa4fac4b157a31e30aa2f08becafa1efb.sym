@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 9590979be108810c7c75e16ef089261fa4fac4b157a31e30aa2f08becafa1efb
+pub const Node000_System_On: string = "system_on";
+pub const Node001_Lit: string = "lit";
+pub const Node002_B: string = "B";
+pub const Node003_System_Off: string = "system_off";
+pub const Node004_D03: string = "d03";
+pub const Node005_Senro: string = "senro";
+pub const Node006_Troc: string = "troc";

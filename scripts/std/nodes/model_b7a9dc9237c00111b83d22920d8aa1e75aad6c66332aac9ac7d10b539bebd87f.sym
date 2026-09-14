@@ -1,0 +1,16 @@
+script library;
+// Skeleton: b7a9dc9237c00111b83d22920d8aa1e75aad6c66332aac9ac7d10b539bebd87f
+pub const Node000_Default: string = "default";
+pub const Node001_BG: string = "BG";
+pub const Node002_Moyou02: string = "moyou02";
+pub const Node003_Default01: string = "default01";
+pub const Node004_Lanp: string = "lanp";
+pub const Node005_Konbea: string = "konbea";
+pub const Node006_Gomi: string = "gomi";
+pub const Node007_Gomi02: string = "gomi02";
+pub const Node008_Gomi03: string = "gomi03";
+pub const Node009_Gomi04: string = "gomi04";
+pub const Node010_Gomi05: string = "gomi05";
+pub const Node011_Gomi07: string = "gomi07";
+pub const Node012_Gomi09: string = "gomi09";
+pub const Node013_Gomi10: string = "gomi10";

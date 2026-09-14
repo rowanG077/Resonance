@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 4e0d4777a59b87ffe1fd24b04105c690568a7fc50f508cbe31c3b229100dc64c
+pub const Node000_Mi: string = "mi";
+pub const Node001_Switch_R0: string = "switch_r0";
+pub const Node002_Switch_R1: string = "switch_r1";
+pub const Node003_Switch_L1: string = "switch_l1";
+pub const Node004_Switch_L0: string = "switch_l0";

@@ -1,0 +1,22 @@
+script library;
+// Skeleton: 6399119aca48dc9fb28bed88f77300ad3afd7bd4bf81766f8d6efddf0cc47218
+pub const Node000_T01_0_1: string = "T01_0_1";
+pub const Node001_T01_0_2: string = "T01_0_2";
+pub const Node002_T01_0_3: string = "T01_0_3";
+pub const Node003_T01_0_E: string = "T01_0_E";
+pub const Node004_T01_0_G: string = "T01_0_G";
+pub const Node005_T01_0_G2: string = "T01_0_G2";
+pub const Node006_T01_1_1: string = "T01_1_1";
+pub const Node007_T01_1_2: string = "T01_1_2";
+pub const Node008_T01_1_3: string = "T01_1_3";
+pub const Node009_T01_2_4: string = "T01_2_4";
+pub const Node010_T01_2_4a1: string = "T01_2_4a1";
+pub const Node011_T01_2_4a2: string = "T01_2_4a2";
+pub const Node012_T01_2_4a3: string = "T01_2_4a3";
+pub const Node013_T01_2_G1b: string = "T01_2_G1b";
+pub const Node014_T01_2_1: string = "T01_2_1";
+pub const Node015_T01_Tip01: string = "T01_Tip01";
+pub const Node016_T01_Tip02: string = "T01_Tip02";
+pub const Node017_T01_Tip03: string = "T01_Tip03";
+pub const Node018_T01_Tip04: string = "T01_Tip04";
+pub const Node019_T01_Tip05: string = "T01_Tip05";

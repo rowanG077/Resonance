@@ -1,0 +1,26 @@
+script library;
+// Skeleton: 52ed751c02485899bac70dcb996a9e34026a22839a2dae39ac3f24bbf72d1e6f
+pub const Node000_Efe: string = "efe";
+pub const Node001_Kiseki01: string = "kiseki01";
+pub const Node002_Kiseki03: string = "kiseki03";
+pub const Node003_Kiseki04: string = "kiseki04";
+pub const Node004_Kiseki05: string = "kiseki05";
+pub const Node005_Kiseki07: string = "kiseki07";
+pub const Node006_Kiseki08: string = "kiseki08";
+pub const Node007_Kiseki10: string = "kiseki10";
+pub const Node008_Kiseki11: string = "kiseki11";
+pub const Node009_Kiseki12: string = "kiseki12";
+pub const Node010_Kiseki13: string = "kiseki13";
+pub const Node011_Kiseki14: string = "kiseki14";
+pub const Node012_Kiseki02: string = "kiseki02";
+pub const Node013_Kiseki16: string = "kiseki16";
+pub const Node014_Kiseki17: string = "kiseki17";
+pub const Node015_Kiseki18: string = "kiseki18";
+pub const Node016_Kiseki19: string = "kiseki19";
+pub const Node017_Kiseki20: string = "kiseki20";
+pub const Node018_Kiseki21: string = "kiseki21";
+pub const Node019_Kiseki22: string = "kiseki22";
+pub const Node020_Kiseki23: string = "kiseki23";
+pub const Node021_Kiseki24: string = "kiseki24";
+pub const Node022_Kiseki25: string = "kiseki25";
+pub const Node023_Kiseki26: string = "kiseki26";

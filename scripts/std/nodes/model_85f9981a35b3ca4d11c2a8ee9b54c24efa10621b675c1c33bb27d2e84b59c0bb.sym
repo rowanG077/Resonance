@@ -1,0 +1,27 @@
+script library;
+// Skeleton: 85f9981a35b3ca4d11c2a8ee9b54c24efa10621b675c1c33bb27d2e84b59c0bb
+pub const Node000_Right_Door03: string = "Right_door03";
+pub const Node001_Left_Door03: string = "left_door03";
+pub const Node002_Floor: string = "floor";
+pub const Node003_Right_Door04: string = "Right_door04";
+pub const Node004_Left_Door04: string = "left_door04";
+pub const Node005_Right_Door01: string = "Right_door01";
+pub const Node006_Left_Door01: string = "left_door01";
+pub const Node007_Tp_Ball_A: string = "tp_ball_a";
+pub const Node008_Tp_Ball_A01: string = "tp_ball_a01";
+pub const Node009_Tp_Ball_A02: string = "tp_ball_a02";
+pub const Node010_Tp_Ball_A03: string = "tp_ball_a03";
+pub const Node011_Tp_Ball_A04: string = "tp_ball_a04";
+pub const Node012_Tp_Ball_A05: string = "tp_ball_a05";
+pub const Node013_Tp_Ball_A06: string = "tp_ball_a06";
+pub const Node014_Tp_Ball_A07: string = "tp_ball_a07";
+pub const Node015_Tp_Ball_A08: string = "tp_ball_a08";
+pub const Node016_Tp_Ball_B: string = "tp_ball_b";
+pub const Node017_Tp_Ball_B02: string = "tp_ball_b02";
+pub const Node018_Tp_Ball_B03: string = "tp_ball_b03";
+pub const Node019_Tp_Ball_B04: string = "tp_ball_b04";
+pub const Node020_Tp_Ball_B05: string = "tp_ball_b05";
+pub const Node021_Tp_Ball_B06: string = "tp_ball_b06";
+pub const Node022_Tp_Ball_B07: string = "tp_ball_b07";
+pub const Node023_Tp_Ball_B08: string = "tp_ball_b08";
+pub const Node024_Tp_Ball_B01: string = "tp_ball_b01";

@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 711280a681ba9c166f80e83d20a1a6702a26467370a59377324d541959a06047
+pub const Node000_Wood: string = "wood";
+pub const Node001_Ki_Cr_M12: string = "ki_cr_m12";
+pub const Node002_Rankan: string = "rankan";
+pub const Node003_Fade: string = "fade";
+pub const Node004_D03_B: string = "d03_B";
+pub const Node005_Pole_Big: string = "pole_big";
+pub const Node006_Tenjyo: string = "tenjyo";
+pub const Node007_D03_A: string = "d03_A";
+pub const Node008_Bridge00: string = "bridge00";
+pub const Node009_Turo: string = "turo";
+pub const Node010_Turo01: string = "turo01";
+pub const Node011_Turo02: string = "turo02";
+pub const Node012_Tuta_Kiwa: string = "tuta_kiwa";
+pub const Node013_Object30: string = "Object30";
+pub const Node014_Tenso01: string = "tenso01";
+pub const Node015_Anim_Tenso: string = "anim_tenso";
+pub const Node016_Rock00: string = "rock00";
+pub const Node017_Rock01: string = "rock01";

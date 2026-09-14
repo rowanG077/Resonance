@@ -1,0 +1,28 @@
+script library;
+// Skeleton: b1c212947b9bfbeac0d3b9c4589627574ace3728607d8be063ee76624bd4b47f
+pub const Node000_Ghngn02: string = "ghngn02";
+pub const Node001_Plane05: string = "Plane05";
+pub const Node002_Sibe: string = "sibe";
+pub const Node003_Vgfnbg01: string = "vgfnbg01";
+pub const Node004_Cylinder25: string = "Cylinder25";
+pub const Node005_Cylinder37: string = "Cylinder37";
+pub const Node006_Tube02: string = "Tube02";
+pub const Node007_Fbsdf: string = "fbsdf";
+pub const Node008_Fghdrd: string = "fghdrd";
+pub const Node009_Plane20: string = "Plane20";
+pub const Node010_Sefg: string = "sefg";
+pub const Node011_Ghjkg: string = "ghjkg";
+pub const Node012_Dfhbd: string = "dfhbd";
+pub const Node013_Ghjghj: string = "ghjghj";
+pub const Node014_Svfs01: string = "svfs01";
+pub const Node015_Asdsfc: string = "asdsfc";
+pub const Node016_Asdsfc01: string = "asdsfc01";
+pub const Node017_Asdsfc02: string = "asdsfc02";
+pub const Node018_Asdsfc03: string = "asdsfc03";
+pub const Node019_Asdsfc04: string = "asdsfc04";
+pub const Node020_Asdsfc05: string = "asdsfc05";
+pub const Node021_Asdsfc06: string = "asdsfc06";
+pub const Node022_Szc: string = "szc";
+pub const Node023_Ghjghj14: string = "ghjghj14";
+pub const Node024_Door_Ground: string = "door_ground";
+pub const Node025_Doorports: string = "doorports";

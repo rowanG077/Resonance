@@ -1,0 +1,3 @@
+script library;
+// Skeleton: c52ee0c8f92ca868bc83e29bfdccb8513a62d2db2a6d839039775f76ebe4e317
+pub const Node000_Inosisi_Hana: string = "inosisi_hana";

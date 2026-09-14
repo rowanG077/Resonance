@@ -1,0 +1,3 @@
+script library;
+// Skeleton: bd563c5a75abbcff61709e651f93d9e5b73f17e6e9678197b5168511353177ee
+pub const Node000_Sea_Top: string = "sea_top";

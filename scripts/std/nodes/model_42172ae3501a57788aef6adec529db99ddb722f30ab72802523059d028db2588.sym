@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 42172ae3501a57788aef6adec529db99ddb722f30ab72802523059d028db2588
+pub const Node000_Zel000_Skin: string = "zel000_skin";
+pub const Node001_Obj_Zel000_Saya: string = "obj_zel000_saya";
+pub const Node002_Obj_Zel000_Ken: string = "obj_zel000_ken";

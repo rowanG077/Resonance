@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 99fc8577f4302f5af2a38189f730fc231970f94b01a8b100a0c28532972631f4
+pub const Node000_Presea02: string = "Presea02";
+pub const Node001_Traslate_Null03: string = "traslate_null03";
+pub const Node002_Rotate_Null02: string = "rotate_null02";
+pub const Node003_Bone_Ondiene_00: string = "bone_ondiene_00";
+pub const Node004_Bone_Ondiene_01: string = "bone_ondiene_01";

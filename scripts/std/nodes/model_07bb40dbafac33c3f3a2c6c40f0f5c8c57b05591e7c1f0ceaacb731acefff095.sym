@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 07bb40dbafac33c3f3a2c6c40f0f5c8c57b05591e7c1f0ceaacb731acefff095
+pub const Node000_Mount_Out_Line04: string = "!!!mount_out_line04";
+pub const Node001_Mount_Cap_006: string = "!!!@mount_cap_006";
+pub const Node002_Fore_Top_001: string = "!!!@fore_top_001";

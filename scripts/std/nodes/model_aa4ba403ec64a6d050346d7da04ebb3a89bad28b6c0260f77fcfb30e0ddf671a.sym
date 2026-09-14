@@ -1,0 +1,3 @@
+script library;
+// Skeleton: aa4ba403ec64a6d050346d7da04ebb3a89bad28b6c0260f77fcfb30e0ddf671a
+pub const Node000_Glass: string = "glass";

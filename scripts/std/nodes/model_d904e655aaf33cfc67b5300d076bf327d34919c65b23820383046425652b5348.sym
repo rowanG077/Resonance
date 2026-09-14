@@ -1,0 +1,8 @@
+script library;
+// Skeleton: d904e655aaf33cfc67b5300d076bf327d34919c65b23820383046425652b5348
+pub const Node000_Maho01: string = "maho01";
+pub const Node001_Maho02: string = "maho02";
+pub const Node002_Maho03: string = "maho03";
+pub const Node003_Maho04: string = "maho04";
+pub const Node004_Maho05: string = "maho05";
+pub const Node005_Maho06: string = "maho06";

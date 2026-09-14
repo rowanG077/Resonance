@@ -1,0 +1,5 @@
+script library;
+// Skeleton: dd3f980f330dc87f8f8b299783bdaff596b6e8e8fd4c1c323cd5a89bccff1019
+pub const Node000_T2_Glass: string = "t2_Glass";
+pub const Node001_T2_Net: string = "t2_Net";
+pub const Node002_T_Shadow: string = "T_Shadow";

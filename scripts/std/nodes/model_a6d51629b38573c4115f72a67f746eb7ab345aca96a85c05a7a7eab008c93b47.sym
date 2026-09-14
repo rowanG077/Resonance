@@ -1,0 +1,3 @@
+script library;
+// Skeleton: a6d51629b38573c4115f72a67f746eb7ab345aca96a85c05a7a7eab008c93b47
+pub const Node000_L_A0: string = "l_a0";

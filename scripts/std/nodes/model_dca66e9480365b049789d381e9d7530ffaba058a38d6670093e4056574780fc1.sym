@@ -1,0 +1,19 @@
+script library;
+// Skeleton: dca66e9480365b049789d381e9d7530ffaba058a38d6670093e4056574780fc1
+pub const Node000_Rui_Jimen01: string = "rui_jimen01";
+pub const Node001_Rui_A_House01: string = "rui_a_house01";
+pub const Node002_Rui_A_House02: string = "rui_a_house02";
+pub const Node003_Rui_A_House03: string = "rui_a_house03";
+pub const Node004_Rui_A_House03b: string = "rui_a_house03b";
+pub const Node005_Rui_A_Bridge01: string = "rui_a_bridge01";
+pub const Node006_Rui_A_Bridge02: string = "rui_a_bridge02";
+pub const Node007_Rui_A_Saku: string = "rui_a_saku";
+pub const Node008_Rui_A_Bridge03: string = "rui_a_bridge03";
+pub const Node009_Rui_A_House05: string = "rui_a_house05";
+pub const Node010_Rui_A_House06: string = "rui_a_house06";
+pub const Node011_Rui_A_House08: string = "rui_a_house08";
+pub const Node012_Rui_A_Hunsui: string = "rui_a_hunsui";
+pub const Node013_Water_Ana: string = "water_ana";
+pub const Node014_Rui_A_Bridge04: string = "rui_a_bridge04";
+pub const Node015_Rui_A_Water: string = "rui_a_water";
+pub const Node016_Object02: string = "Object02";

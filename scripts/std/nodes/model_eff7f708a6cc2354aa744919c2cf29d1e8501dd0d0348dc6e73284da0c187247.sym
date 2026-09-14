@@ -1,0 +1,28 @@
+script library;
+// Skeleton: eff7f708a6cc2354aa744919c2cf29d1e8501dd0d0348dc6e73284da0c187247
+pub const Node000_Plane01: string = "Plane01";
+pub const Node001_Box02: string = "Box02";
+pub const Node002_Box190: string = "Box190";
+pub const Node003_Kaidan: string = "kaidan";
+pub const Node004_Plane28: string = "Plane28";
+pub const Node005_Box256: string = "Box256";
+pub const Node006_Box191: string = "Box191";
+pub const Node007_Nameplate: string = "nameplate";
+pub const Node008_Cylinder03: string = "Cylinder03";
+pub const Node009_Bnm: string = "bnm";
+pub const Node010_Box286: string = "Box286";
+pub const Node011_Huta: string = "huta";
+pub const Node012_Jkl01: string = "jkl01";
+pub const Node013_Bfg: string = "bfg";
+pub const Node014_Tesuriwaku: string = "tesuriwaku";
+pub const Node015_Door_Side: string = "door_side";
+pub const Node016_Box290: string = "Box290";
+pub const Node017_Cylinder08: string = "Cylinder08";
+pub const Node018_Tome01: string = "tome01";
+pub const Node019_Blind: string = "blind";
+pub const Node020_Window: string = "window";
+pub const Node021_Rotationer_01: string = "rotationer_01";
+pub const Node022_An: string = "an";
+pub const Node023_Rotationer_02: string = "rotationer_02";
+pub const Node024_Rotationer_03: string = "rotationer_03";
+pub const Node025_Rotationer_04: string = "rotationer_04";

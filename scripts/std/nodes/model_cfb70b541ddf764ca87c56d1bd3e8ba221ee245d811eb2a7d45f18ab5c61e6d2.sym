@@ -1,0 +1,4 @@
+script library;
+// Skeleton: cfb70b541ddf764ca87c56d1bd3e8ba221ee245d811eb2a7d45f18ab5c61e6d2
+pub const Node000_Gate: string = "gate";
+pub const Node001_Other: string = "other";

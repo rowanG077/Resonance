@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 61ddb4f3229b1c061553472dd8b6ea5d6afdc914403d16ee31427f8379d38e97
+pub const Node000_Switch: string = "switch";
+pub const Node001_Light_ON: string = "light_ON";
+pub const Node002_Light_OFF: string = "light_OFF";

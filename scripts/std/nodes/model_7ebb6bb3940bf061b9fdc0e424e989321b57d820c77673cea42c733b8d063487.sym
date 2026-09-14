@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 7ebb6bb3940bf061b9fdc0e424e989321b57d820c77673cea42c733b8d063487
+pub const Node000_Box12: string = "Box12";
+pub const Node001_Cylinder46: string = "Cylinder46";
+pub const Node002_Object37: string = "ｵﾌﾞｼﾞｪｸﾄ37";
+pub const Node003_Rouya01_Off: string = "rouya01_off";
+pub const Node004_Cylinder70: string = "Cylinder70";
+pub const Node005_Wil_D00_Rift01: string = "wil_d00_rift01";
+pub const Node006_Rouya01_Door: string = "rouya01_door";
+pub const Node007_Rouya02_On: string = "rouya02_on";
+pub const Node008_Rouya02_Off: string = "rouya02_off";
+pub const Node009_Rouya02_Door: string = "rouya02_door";
+pub const Node010_Cylinder82: string = "Cylinder82";
+pub const Node011_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node012_Object67: string = "ｵﾌﾞｼﾞｪｸﾄ67";
+pub const Node013_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node014_Object69: string = "ｵﾌﾞｼﾞｪｸﾄ69";
+pub const Node015_Rouya01_On: string = "rouya01_on";
+pub const Node016_Wil_D00_Rift02: string = "wil_d00_rift02";

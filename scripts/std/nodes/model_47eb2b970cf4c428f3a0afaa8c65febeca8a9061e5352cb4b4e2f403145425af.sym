@@ -1,0 +1,28 @@
+script library;
+// Skeleton: 47eb2b970cf4c428f3a0afaa8c65febeca8a9061e5352cb4b4e2f403145425af
+pub const Node000_Flower01: string = "flower01";
+pub const Node001_Mount: string = "mount";
+pub const Node002_Iwa02: string = "iwa02";
+pub const Node003_Iwa01: string = "iwa01";
+pub const Node004_Mori02: string = "mori02";
+pub const Node005_Mori01: string = "mori01";
+pub const Node006_Flower11: string = "flower11";
+pub const Node007_Flower02: string = "flower02";
+pub const Node008_Flower03: string = "flower03";
+pub const Node009_Flower04: string = "flower04";
+pub const Node010_Flower05: string = "flower05";
+pub const Node011_Flower06: string = "flower06";
+pub const Node012_Flower07: string = "flower07";
+pub const Node013_Flower08: string = "flower08";
+pub const Node014_Flower09: string = "flower09";
+pub const Node015_Flower10: string = "flower10";
+pub const Node016_Flower19: string = "flower19";
+pub const Node017_Flower12: string = "flower12";
+pub const Node018_Flower13: string = "flower13";
+pub const Node019_Flower14: string = "flower14";
+pub const Node020_Flower15: string = "flower15";
+pub const Node021_Flower16: string = "flower16";
+pub const Node022_Flower17: string = "flower17";
+pub const Node023_Flower18: string = "flower18";
+pub const Node024_Flower20: string = "flower20";
+pub const Node025_Door_Kage: string = "door_kage";

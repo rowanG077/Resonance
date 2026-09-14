@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 5ca7dddab773a86d6823a498faa9cb2fa3f28a700d2589cf0080abb801835cc0
+pub const Node000_Mdl_Vmh_D04_Iwa: string = "mdl_vmh_d04_iwa";
+pub const Node001_Taresagari1: string = "taresagari1";
+pub const Node002_Yunkeru_Ki: string = "yunkeru_ki";
+pub const Node003_Mi: string = "mi";
+pub const Node004_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node005_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";

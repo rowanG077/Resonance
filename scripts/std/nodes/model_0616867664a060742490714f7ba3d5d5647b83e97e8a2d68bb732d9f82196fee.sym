@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 0616867664a060742490714f7ba3d5d5647b83e97e8a2d68bb732d9f82196fee
+pub const Node000_Ryu: string = "ryu";
+pub const Node001_Ryuunosu: string = "ryuunosu";
+pub const Node002_Kumo_02: string = "kumo_02";
+pub const Node003_Kumo_01: string = "kumo_01";
+pub const Node004_Kumo_03: string = "kumo_03";

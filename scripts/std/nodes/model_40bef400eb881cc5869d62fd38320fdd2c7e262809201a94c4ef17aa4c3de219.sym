@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 40bef400eb881cc5869d62fd38320fdd2c7e262809201a94c4ef17aa4c3de219
+pub const Node000_Material36: string = "Material36";
+pub const Node001_Number1_Default: string = "1_Default";
+pub const Node002_Number3_Default: string = "3_Default";
+pub const Node003_Lift: string = "Lift";
+pub const Node004_Material157: string = "Material157";

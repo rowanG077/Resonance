@@ -1,0 +1,8 @@
+script library;
+// Skeleton: dd1a2337fa69b4e09f7f54d4417607fbea2a2f2fa06e29fb4d7025be1961294e
+pub const Node000_Tuta00: string = "tuta00";
+pub const Node001_Tuta01: string = "tuta01";
+pub const Node002_Tuta02: string = "tuta02";
+pub const Node003_Tuta03: string = "tuta03";
+pub const Node004_Tuta03_Parts00: string = "tuta03_parts00";
+pub const Node005_Tuta03_Parts01: string = "tuta03_parts01";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: bdcb66a50ea5fd7d41a8076f3ab199da1678180f9a69e0d22dbd421adbcc7203
+pub const Node000_Rui_Jimen01: string = "rui_jimen01";
+pub const Node001_Object01: string = "Object01";

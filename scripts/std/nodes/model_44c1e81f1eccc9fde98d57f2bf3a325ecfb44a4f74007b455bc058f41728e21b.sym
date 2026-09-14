@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 44c1e81f1eccc9fde98d57f2bf3a325ecfb44a4f74007b455bc058f41728e21b
+pub const Node000_Xx_Lit01: string = "xx_lit01";
+pub const Node001_Xx_Lit02: string = "xx_lit02";
+pub const Node002_Xx_Lit03: string = "xx_lit03";
+pub const Node003_Xx_Lit04: string = "xx_lit04";
+pub const Node004_Xx_Lit05: string = "xx_lit05";
+pub const Node005_Xx_Lit06: string = "xx_lit06";
+pub const Node006_Xx_Lit07: string = "xx_lit07";
+pub const Node007_Xx_Lit08: string = "xx_lit08";

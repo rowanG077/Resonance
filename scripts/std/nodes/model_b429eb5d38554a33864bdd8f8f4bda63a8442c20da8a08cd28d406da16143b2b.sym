@@ -1,0 +1,18 @@
+script library;
+// Skeleton: b429eb5d38554a33864bdd8f8f4bda63a8442c20da8a08cd28d406da16143b2b
+pub const Node000_D02_Obj_On: string = "d02_obj_on";
+pub const Node001_Nabi_01_On: string = "nabi_01_on";
+pub const Node002_Nabi_02_On: string = "nabi_02_on";
+pub const Node003_Nabi_00_On: string = "nabi_00_on";
+pub const Node004_D02_11_On: string = "d02_11_on";
+pub const Node005_D02_00_On: string = "d02_00_on";
+pub const Node006_D02_01_On: string = "d02_01_on";
+pub const Node007_D02_02_On: string = "d02_02_on";
+pub const Node008_D02_03_On: string = "d02_03_on";
+pub const Node009_D02_04_On: string = "d02_04_on";
+pub const Node010_D02_05_On: string = "d02_05_on";
+pub const Node011_D02_06_On: string = "d02_06_on";
+pub const Node012_D02_07_On: string = "d02_07_on";
+pub const Node013_D02_08_On: string = "d02_08_on";
+pub const Node014_D02_09_On: string = "d02_09_on";
+pub const Node015_D02_10_On: string = "d02_10_on";

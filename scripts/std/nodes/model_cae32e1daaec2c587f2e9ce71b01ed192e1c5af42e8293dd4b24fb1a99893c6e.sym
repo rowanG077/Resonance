@@ -1,0 +1,5 @@
+script library;
+// Skeleton: cae32e1daaec2c587f2e9ce71b01ed192e1c5af42e8293dd4b24fb1a99893c6e
+pub const Node000_A01: string = "A01";
+pub const Node001_A02: string = "A02";
+pub const Node002_A03: string = "A03";

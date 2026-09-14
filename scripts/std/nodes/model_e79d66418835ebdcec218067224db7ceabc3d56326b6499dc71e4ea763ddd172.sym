@@ -1,0 +1,4 @@
+script library;
+// Skeleton: e79d66418835ebdcec218067224db7ceabc3d56326b6499dc71e4ea763ddd172
+pub const Node000_Takara: string = "takara";
+pub const Node001_Futa: string = "futa";

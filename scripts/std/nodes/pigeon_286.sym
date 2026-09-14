@@ -1,0 +1,28 @@
+script library;
+// Skeleton: e87440815a49e85edc14690c8eaf6f1c67fe595d6ac207aa5686b2b35e2705fa
+pub const Head: string = "Bone_atama";
+pub const LeftFoot01: string = "Bone_ashi01_L";
+pub const LeftFoot02: string = "Bone_ashi02_L";
+pub const LeftFoot03: string = "Bone_ashi03_L";
+pub const LeftWing01: string = "Bone_wing01_L";
+pub const LeftWing02: string = "Bone_wing02_L";
+pub const LeftWing03: string = "Bone_wing03_L";
+pub const LeftWing04: string = "Bone_wing04_L";
+pub const LeftWing05: string = "Bone_wing05_L";
+pub const LeftWing06: string = "Bone_wing06_L";
+pub const Neck: string = "Bone_kubi";
+pub const Node000_A_Bone: string = "a_Bone";
+pub const Node001_Bone_Sebone01: string = "Bone_sebone01";
+pub const Node002_Bone_Sebone02: string = "Bone_sebone02";
+pub const Node003_Bone_Sebone03: string = "Bone_sebone03";
+pub const RightFoot01: string = "Bone_ashi01_R";
+pub const RightFoot02: string = "Bone_ashi02_R";
+pub const RightFoot03: string = "Bone_ashi03_R";
+pub const RightWing01: string = "Bone_wing01_R";
+pub const RightWing02: string = "Bone_wing02_R";
+pub const RightWing03: string = "Bone_wing03_R";
+pub const RightWing04: string = "Bone_wing04_R";
+pub const RightWing05: string = "Bone_wing05_R";
+pub const RightWing06: string = "Bone_wing06_R";
+pub const Tail01: string = "Bone_sippo01";
+pub const Tail02: string = "Bone_sippo02";

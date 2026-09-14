@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 89b974657d4e5b2250629ed1e3b2cc70b1fc6617e9dec0cc420fc74436e20552
+pub const Node000_Glass_Normal: string = "glass_normal";
+pub const Node001_Glass_08: string = "glass_08";
+pub const Node002_Glass_Break: string = "glass_break";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: f1af9428addb8ad5ee5e59c5f89ff7efdf9b16633cb49cf6a5a12c95502bbcc5
+pub const Node000_Gen000_Skin: string = "gen000_skin";

@@ -1,0 +1,13 @@
+script library;
+// Skeleton: eda40668f37f74f9221836ef2f79337331ae45cd6a160e284e01f0ff5c1434a6
+pub const Node000_Ground: string = "ground";
+pub const Node001_Box95: string = "Box95";
+pub const Node002_Box242: string = "Box242";
+pub const Node003_Box243: string = "Box243";
+pub const Node004_Dnhbd08: string = "dnhbd08";
+pub const Node005_Gjb: string = "gjb";
+pub const Node006_Cylinder01: string = "Cylinder01";
+pub const Node007_Teleport: string = "teleport";
+pub const Node008_Seals: string = "seals";
+pub const Node009_Fgnfgn01: string = "fgnfgn01";
+pub const Node010_Tube21: string = "Tube21";

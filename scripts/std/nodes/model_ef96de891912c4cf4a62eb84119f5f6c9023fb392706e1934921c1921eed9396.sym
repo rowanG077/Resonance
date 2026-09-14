@@ -1,0 +1,19 @@
+script library;
+// Skeleton: ef96de891912c4cf4a62eb84119f5f6c9023fb392706e1934921c1921eed9396
+pub const Node000_M_T01presea_H: string = "m_t01presea_h";
+pub const Node001_DOOR01_AUTO_PUSH_W183e233: string = "DOOR01_AUTO_PUSH_W183e233";
+pub const Node002_M_T01presea_Hr: string = "m_t01presea_hr";
+pub const Node003_M_T01part1: string = "m_t01part1";
+pub const Node004_Ani_DummyBF01_A: string = "ani_Dummy-BF01_a";
+pub const Node005_T01Dummy_B_R: string = "t01Dummy_b_r";
+pub const Node006_T01BF_Body_A: string = "t01BF_Body_a";
+pub const Node007_T01BF_W01_A: string = "t01BF_W01_a";
+pub const Node008_T01BF_W02_A: string = "t01BF_W02_a";
+pub const Node009_M_Ground_New: string = "m_ground_new";
+pub const Node010_M_Enkei: string = "m_enkei";
+pub const Node011_M_Indoor: string = "m_indoor";
+pub const Node012_Ani_DummyBF01: string = "ani_Dummy-BF01";
+pub const Node013_T01Dummy_A_R: string = "t01Dummy_a_r";
+pub const Node014_T01BF_Body: string = "t01BF_Body";
+pub const Node015_T01BF_W01: string = "t01BF_W01";
+pub const Node016_T01BF_W02: string = "t01BF_W02";

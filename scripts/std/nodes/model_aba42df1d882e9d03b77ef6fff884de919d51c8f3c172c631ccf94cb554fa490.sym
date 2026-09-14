@@ -1,0 +1,3 @@
+script library;
+// Skeleton: aba42df1d882e9d03b77ef6fff884de919d51c8f3c172c631ccf94cb554fa490
+pub const Node000_Genius: string = "genius";

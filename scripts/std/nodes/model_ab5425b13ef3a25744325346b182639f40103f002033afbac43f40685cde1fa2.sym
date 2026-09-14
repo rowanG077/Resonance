@@ -1,0 +1,4 @@
+script library;
+// Skeleton: ab5425b13ef3a25744325346b182639f40103f002033afbac43f40685cde1fa2
+pub const Node000_L_Efect01: string = "L_efect01";
+pub const Node001_L_Efect02: string = "L_efect02";

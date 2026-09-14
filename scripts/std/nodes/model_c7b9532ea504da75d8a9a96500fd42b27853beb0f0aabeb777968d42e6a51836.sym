@@ -1,0 +1,12 @@
+script library;
+// Skeleton: c7b9532ea504da75d8a9a96500fd42b27853beb0f0aabeb777968d42e6a51836
+pub const Node000_B: string = "B";
+pub const Node001_Bg01: string = "bg01";
+pub const Node002_Moa_D01_Btn00: string = "moa_d01_btn00";
+pub const Node003_Moa_D00_Wana: string = "moa_d00_wana";
+pub const Node004_Bg00: string = "bg00";
+pub const Node005_Obj02: string = "obj02";
+pub const Node006_Moa_D01_Erv: string = "moa_d01_erv";
+pub const Node007_Object07: string = "ｵﾌﾞｼﾞｪｸﾄ07";
+pub const Node008_Object10: string = "ｵﾌﾞｼﾞｪｸﾄ10";
+pub const Node009_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

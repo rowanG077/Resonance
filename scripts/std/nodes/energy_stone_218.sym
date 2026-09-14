@@ -1,0 +1,16 @@
+script library;
+// Skeleton: d563a6c2ec76990388710c1a85cad58204923403d61ba1d6b71b4694f3f6a92a
+pub const Node000_Mo5_Bone_Core00: string = "mo5_Bone_core00";
+pub const Node001_Bone_D01: string = "Bone_d01";
+pub const Node002_Bone_D01_00: string = "Bone_d01_00";
+pub const Node003_Bone_D01_01: string = "Bone_d01_01";
+pub const Node004_Bone_D01_02: string = "Bone_d01_02";
+pub const Node005_Bone_D01_03: string = "Bone_d01_03";
+pub const Node006_Bone_D00: string = "Bone_d00";
+pub const Node007_Bone_Core00: string = "Bone_core00";
+pub const Node008_Bone_U01: string = "Bone_u01";
+pub const Node009_Bone_U01_03: string = "Bone_u01_03";
+pub const Node010_Bone_U01_02: string = "Bone_u01_02";
+pub const Node011_Bone_U01_01: string = "Bone_u01_01";
+pub const Node012_Bone_U01_00: string = "Bone_u01_00";
+pub const Node013_Bone_U00: string = "Bone_u00";

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 233a964100bb35bd5285ec1daab2d049d3762813faf8f585aa67670e0f8b1052
+pub const Node000_Dummycyou: string = "Dummycyou";
+pub const Node001_Hane_L02: string = "hane_l02";
+pub const Node002_Hane_R02: string = "hane_r02";
+pub const Node003_Dummycyou01: string = "Dummycyou01";
+pub const Node004_Hane_R03: string = "hane_r03";
+pub const Node005_Hane_L03: string = "hane_l03";

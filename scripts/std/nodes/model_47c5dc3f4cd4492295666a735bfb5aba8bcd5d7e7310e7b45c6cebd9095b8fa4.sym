@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 47c5dc3f4cd4492295666a735bfb5aba8bcd5d7e7310e7b45c6cebd9095b8fa4
+pub const Node000_Koori_Block_01_A: string = "koori_block_01_a";
+pub const Node001_Box01: string = "Box01";

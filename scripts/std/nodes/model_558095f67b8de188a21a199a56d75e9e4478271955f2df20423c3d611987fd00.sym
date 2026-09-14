@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 558095f67b8de188a21a199a56d75e9e4478271955f2df20423c3d611987fd00
+pub const Node000_Sinboku: string = "sinboku";

@@ -1,0 +1,12 @@
+script library;
+// Skeleton: d4d78b58d509670143e7e8492911bca69095d137fe658e969da75c28b29bd8e4
+pub const Node000_F0: string = "f0";
+pub const Node001_Door_0_R1: string = "door_0_r1";
+pub const Node002_Door_0_L1: string = "door_0_l1";
+pub const Node003_Door_0_R0: string = "door_0_r0";
+pub const Node004_Door_0_L0: string = "door_0_l0";
+pub const Node005_L_A1: string = "l_a1";
+pub const Node006_P0: string = "p0";
+pub const Node007_P1: string = "p1";
+pub const Node008_P2: string = "p2";
+pub const Node009_B0: string = "b0";

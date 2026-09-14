@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 6130a313ede5c87df0cf70b8484ead613cfa97037fd9fa28dce026e885c200ea
+pub const Node000_Kabe_All: string = "kabe_all";
+pub const Node001_Komono_A: string = "komono_a";
+pub const Node002_Yuka_A: string = "yuka_a";
+pub const Node003_Yuka_B: string = "yuka_b";
+pub const Node004_Komono_B: string = "komono_b";
+pub const Node005_Komono_Yuka_C: string = "komono_yuka_c";

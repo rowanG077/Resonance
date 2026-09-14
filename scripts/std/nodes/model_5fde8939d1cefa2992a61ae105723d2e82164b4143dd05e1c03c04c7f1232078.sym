@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 5fde8939d1cefa2992a61ae105723d2e82164b4143dd05e1c03c04c7f1232078
+pub const Node000_Moniter: string = "moniter";
+pub const Node001_Kabe: string = "kabe";
+pub const Node002_Faa_Moni_Of: string = "faa_moni_of";
+pub const Node003_Faa_Moni_On: string = "faa_moni_on";
+pub const Node004_Hibana_1: string = "hibana_1";
+pub const Node005_Hibana_2: string = "hibana_2";

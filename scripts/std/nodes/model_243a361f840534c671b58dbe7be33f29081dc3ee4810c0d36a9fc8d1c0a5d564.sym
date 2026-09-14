@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 243a361f840534c671b58dbe7be33f29081dc3ee4810c0d36a9fc8d1c0a5d564
+pub const Node000_Blue_Wave: string = "blue_wave";
+pub const Node001_Right_Door05: string = "Right_door05";
+pub const Node002_Left_Door06: string = "left_door06";
+pub const Node003_Right_Door06: string = "Right_door06";
+pub const Node004_Left_Door02: string = "left_door02";
+pub const Node005_Right_Door02: string = "Right_door02";
+pub const Node006_Left_Door05: string = "left_door05";

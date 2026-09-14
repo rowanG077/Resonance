@@ -1,0 +1,16 @@
+script library;
+// Skeleton: 12ba5bb8f4e4f973deb5098fd76954c8aeefec225b3f9608baf2d287f272da22
+pub const Node000_Y2001: string = "y2001";
+pub const Node001_Y2002: string = "y2002";
+pub const Node002_Y2000_Kabe: string = "y2000_kabe";
+pub const Node003_DOOR_AUTO_PULL_W171e801: string = "DOOR_AUTO_PULL_W-171e801";
+pub const Node004_Y2000_Window: string = "y2000_window";
+pub const Node005_Y2000_Lampbody_L: string = "y2000_lampbody_l";
+pub const Node006_Y2000_Lampbody_R: string = "y2000_lampbody_r";
+pub const Node007_Y2000_Hasira: string = "y2000_hasira";
+pub const Node008_Y2000_Winout: string = "y2000_winout";
+pub const Node009_Y2000_Anm: string = "y2000_anm";
+pub const Node010_Y2000_Hasira2: string = "y2000_hasira2";
+pub const Node011_Y2002anm: string = "y2002anm";
+pub const Node012_Y2002anm2: string = "y2002anm2";
+pub const Node013_Y2000_Winout2: string = "y2000_winout2";

@@ -1,0 +1,5 @@
+script library;
+// Skeleton: ce7a7643bcd90cb25fe8c00c34a5415330e3e69affa3c212c43e2c7fa99e2f1e
+pub const Node000_Heya_911Obj654: string = "heya_911.obj654";
+pub const Node001_Heya_911Obj657: string = "heya_911.obj657";
+pub const Node002_I02_Tenjyou: string = "i02_tenjyou";

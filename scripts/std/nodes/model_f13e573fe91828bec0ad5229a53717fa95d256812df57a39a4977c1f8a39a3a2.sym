@@ -1,0 +1,3 @@
+script library;
+// Skeleton: f13e573fe91828bec0ad5229a53717fa95d256812df57a39a4977c1f8a39a3a2
+pub const Node000_Switch_00: string = "switch_00";

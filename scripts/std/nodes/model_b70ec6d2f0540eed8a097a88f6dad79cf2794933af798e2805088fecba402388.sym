@@ -1,0 +1,7 @@
+script library;
+// Skeleton: b70ec6d2f0540eed8a097a88f6dad79cf2794933af798e2805088fecba402388
+pub const Node000_Wine01: string = "wine01";
+pub const Node001_Wine03: string = "wine03";
+pub const Node002_Wine02: string = "wine02";
+pub const Node003_Wine04: string = "wine04";
+pub const Node004_Wine00: string = "wine00";

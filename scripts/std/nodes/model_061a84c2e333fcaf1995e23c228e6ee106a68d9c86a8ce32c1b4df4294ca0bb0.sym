@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 061a84c2e333fcaf1995e23c228e6ee106a68d9c86a8ce32c1b4df4294ca0bb0
+pub const Node000_Default: string = "default";
+pub const Node001_Default01: string = "default01";
+pub const Node002_Default02: string = "default02";

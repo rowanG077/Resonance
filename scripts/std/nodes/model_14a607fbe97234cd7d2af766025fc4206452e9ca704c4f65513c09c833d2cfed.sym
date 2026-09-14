@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 14a607fbe97234cd7d2af766025fc4206452e9ca704c4f65513c09c833d2cfed
+pub const Node000_Gondola: string = "gondola";
+pub const Node001_Light_Left_ON: string = "light_left_ON";
+pub const Node002_Light_Left_OFF: string = "light_left_OFF";
+pub const Node003_Light_Right_OFF: string = "light_right_OFF";
+pub const Node004_Light_Right_ON: string = "light_right_ON";
+pub const Node005_Gondola_Green_Field: string = "gondola_green_field";

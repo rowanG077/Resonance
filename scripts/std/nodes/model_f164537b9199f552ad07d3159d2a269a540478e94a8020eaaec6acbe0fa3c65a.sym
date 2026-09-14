@@ -1,0 +1,3 @@
+script library;
+// Skeleton: f164537b9199f552ad07d3159d2a269a540478e94a8020eaaec6acbe0fa3c65a
+pub const Node000_Kawa: string = "kawa";

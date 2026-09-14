@@ -1,0 +1,21 @@
+script library;
+// Skeleton: f795339b491c0491226f004f3fcaa5450e81895ef6b824fa5bd4c86b61a8d0f0
+pub const Node000_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node001_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node002_Tenso: string = "tenso";
+pub const Node003_Anim_Tenso: string = "anim_tenso";
+pub const Node004_Anim_Tenso01: string = "anim_tenso01";
+pub const Node005_Tenso01: string = "tenso01";
+pub const Node006_Default: string = "default";
+pub const Node007_Object02: string = "Object02";
+pub const Node008_Pole: string = "pole";
+pub const Node009_Pole01: string = "pole01";
+pub const Node010_Pole02: string = "pole02";
+pub const Node011_Pole03: string = "pole03";
+pub const Node012_Panel: string = "panel";
+pub const Node013_Object03: string = "Object03";
+pub const Node014_Object05: string = "Object05";
+pub const Node015_Panel01: string = "panel01";
+pub const Node016_Panel02: string = "panel02";
+pub const Node017_Panel03: string = "panel03";
+pub const Node018_Default01: string = "default01";
