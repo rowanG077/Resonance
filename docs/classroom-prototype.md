@@ -90,6 +90,10 @@ History resets for every saved tick; invalid radiance samples are rejected befor
 they can contaminate the average or neighboring pixels. This accumulation is
 separate from Solari's driver-sensitive temporal reservoirs. It trades render
 time for cleaner images without advancing the dialogue or animation during sampling.
+The offline sampling loop runs without a frame-rate cap; 60 fps describes the
+encoded video and simulation cadence, not the rate of lighting evaluations.
+At the high preset, each saved frame requires 256 rendering evaluations, so
+capture speed is not an interactive frame-rate benchmark.
 
 ```sh
 # First second, high quality: 1920×1080, 60 frames, 256 lighting samples/frame.

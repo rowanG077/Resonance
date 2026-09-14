@@ -1035,6 +1035,13 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     {
         return showcase::plan(session, output, spec, showcase_director.unwrap());
     }
+    // Showcase game time advances once per saved frame in its director. Let
+    // frozen lighting samples run at device speed instead of sleeping at 60 Hz.
+    let render_interval = match target {
+        #[cfg(feature = "solari")]
+        CaptureTarget::Showcase(_) => std::time::Duration::ZERO,
+        _ => resonance_game::clock::UPDATE_STEP,
+    };
     let mut app = App::new();
     if target.modern().is_some() {
         app.insert_resource(super::hd_textures::Overrides::load(&root)?);
@@ -1066,9 +1073,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
             .disable::<bevy::winit::WinitPlugin>()
             .disable::<bevy::gilrs::GilrsPlugin>(),
     )
-    .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
-        resonance_game::clock::UPDATE_STEP,
-    ))
+    .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(render_interval))
     .add_plugins(MaterialPlugin::<TitleSurface>::default())
     .add_plugins(Material2dPlugin::<TitleOutput>::default())
     .add_plugins(FieldRendering)
