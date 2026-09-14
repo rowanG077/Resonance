@@ -955,6 +955,8 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         }
     };
     let mut ready_since = BTreeMap::new();
+    #[cfg(feature = "solari")]
+    let mut showcase_director = showcase::Director::default();
     for update in 0..20000 {
         if reached(&session, particle_probe_start) {
             break;
@@ -987,6 +989,10 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
                     .or_insert(update);
                 update - *since >= 120
             });
+        #[cfg(feature = "solari")]
+        if matches!(target, CaptureTarget::Showcase(_)) {
+            showcase_director.observe_audio(&mut session);
+        }
         session.events.world.audio_commands.clear();
         session.step(FieldInput {
             interact,
@@ -1025,7 +1031,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     }
     #[cfg(feature = "solari")]
     let showcase_director = if let CaptureTarget::Showcase(spec) = target {
-        Some(showcase::seek(&mut session, spec)?)
+        Some(showcase::seek(&mut session, spec, showcase_director)?)
     } else {
         None
     };
@@ -1033,7 +1039,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     if let CaptureTarget::Showcase(spec) = target
         && spec.plan_only
     {
-        return showcase::plan(session, output, spec, showcase_director.unwrap());
+        return showcase::plan(session, &root, output, spec, showcase_director.unwrap());
     }
     // Showcase game time advances once per saved frame in its director. Let
     // frozen lighting samples run at device speed instead of sleeping at 60 Hz.
@@ -1115,6 +1121,9 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     #[cfg(feature = "solari")]
     if target.modern() == Some(true) {
         super::ray_tracing::install(&mut app);
+        if let CaptureTarget::Showcase(spec) = target {
+            super::ray_tracing::configure_capture(&mut app, spec);
+        }
     }
     #[cfg(not(feature = "solari"))]
     ensure!(

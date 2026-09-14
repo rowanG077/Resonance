@@ -12,6 +12,8 @@ mod voice_tests;
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
 pub use record::record_field_audio;
+#[cfg(feature = "solari")]
+pub(super) use record::record_window;
 use resonance_audio::{
     package::{Loaded, Package},
     reverb::Studio,

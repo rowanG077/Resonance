@@ -128,7 +128,7 @@ black/fade and dialogue; no movie decoder or audio device is opened.
 The room becomes visible about eight seconds into the event; a one-second test
 therefore captures the opening dialogue against black. One game update becomes
 one frame in the 60 fps output (the original game's wall-clock
-cadence is 60000/1001 Hz, so this silent showcase plays 0.1% faster). Dialogue
+cadence is 60000/1001 Hz, so this showcase plays 0.1% faster). Dialogue
 advances after its text and voice timing finish, plus a two-second reading hold.
 No movement is injected. Rendering stops on Lloyd's control handoff or the
 requested duration, whichever comes first.
@@ -151,21 +151,53 @@ event timing. Low quality is intended for quick timing and camera checks.
 | `low` | 640×360 | 1 |
 | `medium` | 1280×720 | 32 |
 | `high` (default) | 1920×1080 | 256 |
+| `ultra` | 3840×2160 | 256 |
 
-`--samples` overrides the preset's sample count while keeping its resolution;
-for example, `--quality low --samples 4`. The selected dimensions and sample
-count are recorded in the capture metadata. `--plan-only` validates a preset
+`--samples` accepts 1 through 65,536 and overrides the preset's sample count
+while keeping its resolution; for example, `--quality ultra --samples 16384`. Full
+path-traced captures are unfiltered: increasing samples reduces Monte Carlo
+noise while retaining the original texture detail. Four times as many samples
+roughly halves the noise and takes four times the ray-tracing work. The selected
+dimensions, sample count, and per-frame render time are recorded in the metadata. `--plan-only` validates a preset
 and the event timing without rendering.
+
+The capture defaults to `--lighting pathtraced`: Bevy 0.19.1's reference path
+integrator adapted to the classroom compositor, with jittered camera rays,
+multiple importance sampling, and successive diffuse/specular bounces terminated
+by Russian roulette. It uses Bevy's ray scene and material sampling, without
+Solari's realtime ReSTIR approximation. Light proxies stay invisible to camera
+rays; back faces of the room shell are culled only for camera rays. Transparent
+authored effects, dialogue and emotes remain on their existing passes. The HD
+texture pack and UI colors are unchanged. The interactive game still uses Solari;
+`--lighting solari` selects that renderer for comparison captures.
+
+`--smaa strong` (default) extends the stock Ultra preset with a 0.025 edge
+threshold, 64 horizontal/vertical search steps and 20 diagonal steps. Use
+`--smaa ultra` for unmodified Bevy SMAA. Path tracing additionally averages
+subpixel camera samples. Accumulation resets at every video frame; batches of up
+to eight paths per pixel avoid repeating CPU scene work for every sample.
+
+```sh
+# Full 4K event with sound; first validate a visible frame on the remote GPU.
+tools/ray-tracing/capture-classroom.py --quality ultra --from 13.566666 --max-duration 0.016 --no-video --output local/pathtraced-validation
+tools/ray-tracing/capture-classroom.py --quality ultra --output local/pathtraced-classroom-4k
+```
 
 Each video frame freezes the game, camera and poses while lighting accumulates.
 The script writes `frames/frame-000000.png` onwards, per-frame JSON metadata,
 `settings.json`, `recording.json` with the actual stop reason, and a high-quality
 H.264 `classroom.mp4`. It checks that no frames are missing before encoding at
-exactly 60 fps. PNGs remain lossless. FFmpeg must be installed unless
+exactly 60 fps. PNGs remain lossless. The default soundtrack is recorded through
+the actual field mixer (music, sounds and voices), replaying pre-roll before
+`--from` so existing sounds remain continuous. `audio.wav` contains stereo PCM
+and the MP4 includes 320 kbps AAC; `audio-events.json` records command timing.
+No audio device is needed and render time does not affect synchronization.
+Use `--no-audio` to omit sound or `--audio-only` to validate the complete soundtrack
+without rendering. `--plan-only` continues to report timing without audio. FFmpeg must be installed unless
 `--no-video` is used. The output directory must be new.
 
-The default renderer is Lavapipe with eight workers; `--threads` changes this.
-Use `--renderer gpu` for a ray-query-capable GPU. Unsupported devices are rejected
+The default renderer is a ray-query-capable GPU. Use `--renderer lavapipe`
+for software rendering with eight workers; `--threads` changes this. Unsupported devices are rejected
 instead of silently capturing the raster fallback. Higher sample counts reduce
 noise further. CPU rendering can require hours for even a short clip at high
 sample counts. `--no-build` reuses an already built capture example; normally the
@@ -184,8 +216,10 @@ tools/ray-tracing/capture-classroom.py --renderer gpu --quality high \
 ```
 
 The script builds the capture example for the remote machine's architecture.
-Omit `--from` and `--max-duration` to record the full event. The default renderer
-is still Lavapipe, so retain `--renderer gpu` to use the NVIDIA card.
+Omit `--from` and `--max-duration` to record the full event. GPU rendering is
+the default. Use `--lighting solari --quality ultra --samples 256` for the
+standard ray-traced 4K showcase; `--lighting pathtraced` selects the reference
+path integrator. Keep the chosen lighting mode explicit for long captures.
 
 The prototype converts copies of rigid, opaque scenery to Solari's required
 position/normal/UV/tangent and 32-bit-index layout. Glass, translucent shafts,

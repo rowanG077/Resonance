@@ -30,6 +30,10 @@ pub struct ClassroomShowcase {
     pub start_tick: Option<u32>,
     /// Walk the real script and report its extent without starting a renderer.
     pub plan_only: bool,
+    /// Use Bevy's complete camera-path integrator instead of realtime ReSTIR GI.
+    pub pathtracing: bool,
+    pub strong_smaa: bool,
+    pub audio: bool,
 }
 impl Default for ClassroomShowcase {
     fn default() -> Self {
@@ -40,18 +44,24 @@ impl Default for ClassroomShowcase {
             from_frame: 0,
             start_tick: None,
             plan_only: false,
+            pathtracing: true,
+            strong_smaa: true,
+            audio: true,
         }
     }
 }
 impl ClassroomShowcase {
     pub(super) fn validate(&self) -> Result<()> {
         ensure!(
-            (1..=4096).contains(&self.samples),
-            "capture needs 1–4096 lighting samples"
+            (1..=65536).contains(&self.samples),
+            "capture needs 1–65536 lighting samples"
         );
         ensure!(
-            matches!(self.resolution, [640, 360] | [1280, 720] | [1920, 1080]),
-            "capture resolution must be 640x360, 1280x720 or 1920x1080"
+            matches!(
+                self.resolution,
+                [640, 360] | [1280, 720] | [1920, 1080] | [3840, 2160]
+            ),
+            "capture resolution must be 640x360, 1280x720, 1920x1080 or 3840x2160"
         );
         ensure!(
             self.max_frames.is_none_or(|f| (1..=36000).contains(&f)),
@@ -95,11 +105,16 @@ impl ClassroomShowcase {
 #[derive(Default)]
 pub(super) struct Director {
     ready_since: BTreeMap<(u64, usize), u32>,
+    audio: Vec<(u64, resonance_events::AudioCommand)>,
 }
 /// Advance before starting Bevy, retaining reading holds that began before the
 /// requested offset. This makes a middle clip match that part of a full capture.
-pub(super) fn seek(session: &mut FieldSession, spec: &ClassroomShowcase) -> Result<Director> {
-    let mut director = Director::default();
+pub(super) fn seek(
+    session: &mut FieldSession,
+    spec: &ClassroomShowcase,
+    mut director: Director,
+) -> Result<Director> {
+    director.observe_audio(session);
     for frame in 0..spec.from_frame {
         ensure!(
             !(session.player_has_control() && session.events.world.controlled_actor == 1),
@@ -112,6 +127,39 @@ pub(super) fn seek(session: &mut FieldSession, spec: &ClassroomShowcase) -> Resu
     Ok(director)
 }
 impl Director {
+    pub(super) fn observe_audio(&mut self, session: &mut FieldSession) {
+        let at = audio_frame(session.events.tick());
+        self.audio.extend(
+            session
+                .events
+                .world
+                .audio_commands
+                .drain(..)
+                .map(|command| (at, command)),
+        );
+    }
+
+    fn record_audio(&self, root: &Path, output: &Path, start: u32, frames: u32) -> Result<()> {
+        crate::field_audio::record_window(
+            root,
+            &output.join("audio.wav"),
+            audio_frame(start),
+            audio_frame(frames),
+            &self.audio,
+            true,
+            [127; 3],
+        )?;
+        let trace: Vec<_> = self.audio.iter().map(|(at, command)| serde_json::json!({
+            "pcm_frame":at,"video_seconds":(*at as f64 - audio_frame(start) as f64) / f64::from(crate::field_audio::PCM_SPEC.sample_rate),
+            "command":format!("{command:?}")
+        })).collect();
+        fs::write(
+            output.join("audio-events.json"),
+            serde_json::to_vec_pretty(&trace)?,
+        )?;
+        Ok(())
+    }
+
     fn advance(&mut self, session: &mut FieldSession) -> Result<()> {
         ensure!(
             !session.events.world.blocked_by_movie(),
@@ -138,9 +186,12 @@ impl Director {
             interact,
             ..Default::default()
         })?;
-        session.events.world.audio_commands.clear();
+        self.observe_audio(session);
         Ok(())
     }
+}
+fn audio_frame(tick: u32) -> u64 {
+    u64::from(tick) * u64::from(crate::field_audio::PCM_SPEC.sample_rate) / u64::from(FPS)
 }
 fn summary(
     spec: &ClassroomShowcase,
@@ -152,12 +203,15 @@ fn summary(
     serde_json::json!({
         "width":spec.resolution[0],"height":spec.resolution[1],"fps":FPS,"frames":frames,"duration_seconds":frames as f64 / FPS as f64,
         "start_tick":start,"end_tick":end,"stop_reason":reason,"lighting_samples_per_frame":spec.samples,
-        "plan_only":spec.plan_only,"audio":false,"simulation_updates_per_video_frame":1,
+        "plan_only":spec.plan_only,"audio":spec.audio,"simulation_updates_per_video_frame":1,
+        "pathtracing":spec.pathtracing,"strong_smaa":spec.strong_smaa,
+        "audio_sample_rate":crate::field_audio::PCM_SPEC.sample_rate,
         "from_frame":spec.from_frame,"from_seconds":f64::from(spec.from_frame)/f64::from(FPS),
     })
 }
 pub(super) fn plan(
     mut session: FieldSession,
+    root: &Path,
     output: &Path,
     spec: &ClassroomShowcase,
     mut director: Director,
@@ -176,6 +230,9 @@ pub(super) fn plan(
                 "dialogue":session.dialogue.values().filter(|p| !p.closed).map(|p|p.current().text()).collect::<Vec<_>>() }));
         }
         if let Some(reason) = spec.stop_reason(&session, frame + 1) {
+            if spec.audio {
+                director.record_audio(root, output, start, frame + 1)?;
+            }
             let mut result = summary(spec, start, world.tick, frame + 1, reason);
             result["milestones"] = milestones.into();
             fs::write(
@@ -268,7 +325,7 @@ fn advance(
     recording.reported_samples = 0;
     recording.since = Instant::now();
 }
-#[allow(clippy::too_many_arguments)] // Scene readiness, lighting progress and screenshot destination.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)] // Scene readiness, lighting progress and screenshot destination.
 fn capture(
     mut commands: Commands,
     mut recording: ResMut<Recording>,
@@ -283,7 +340,10 @@ fn capture(
         (),
         (
             With<crate::FieldCamera>,
-            With<bevy::solari::prelude::SolariLighting>,
+            Or<(
+                With<bevy::solari::prelude::SolariLighting>,
+                With<crate::ray_tracing::pathtracer::Pathtraced>,
+            )>,
         ),
     >,
     ui: Res<crate::field_ui::Artwork>,
@@ -322,7 +382,7 @@ fn capture(
     }
     let completed = recording.accumulation.as_ref().unwrap().completed();
     if completed < recording.spec.samples {
-        if completed >= recording.reported_samples + 32 {
+        if completed >= recording.reported_samples + (recording.spec.samples / 128).max(32) {
             info!(
                 "Frame {} lighting: {completed}/{} samples",
                 recording.frame, recording.spec.samples
@@ -353,16 +413,27 @@ fn capture(
         "event_frame":recording.spec.from_frame + recording.frame,
         "event_time_seconds":f64::from(recording.spec.from_frame + recording.frame)/f64::from(FPS),
         "lighting_samples":completed,"brightness":world.brightness(),"input_enabled":world.input_enabled,
-        "controlled_actor":world.controlled_actor,"renderer":"Bevy Solari",
+        "controlled_actor":world.controlled_actor,"renderer":if recording.spec.pathtracing {"Bevy path tracer"} else {"Bevy Solari ReSTIR"},
         "emotes":format!("{:?}",world.emotes),"dialogue_layouts":ui.diagnostic_layouts(&session.0),
     });
     commands.spawn(Screenshot(target.0.clone())).observe(
         move |event: On<ScreenshotCaptured>,
               mut recording: ResMut<Recording>,
+              root: Res<super::Root>,
               mut exit: MessageWriter<AppExit>| {
             let write = (|| -> Result<()> {
-                crate::screenshot::write(&event.image, &path, Some(&state))?;
+                let mut saved_state = state.clone();
+                saved_state["render_seconds"] = recording.since.elapsed().as_secs_f64().into();
+                crate::screenshot::write(&event.image, &path, Some(&saved_state))?;
                 if let Some(result) = &result {
+                    if recording.spec.audio {
+                        recording.director.record_audio(
+                            &root.0,
+                            &recording.output,
+                            recording.start_tick.unwrap(),
+                            recording.frame + 1,
+                        )?;
+                    }
                     fs::write(
                         recording.output.join("recording.json"),
                         serde_json::to_vec_pretty(result)?,

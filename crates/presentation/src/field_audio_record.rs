@@ -20,12 +20,32 @@ pub fn record_field_audio(
         (1..=u64::from(RATE) * 300).contains(&frames),
         "audio recording exceeds 300 seconds"
     );
+    record_window(root, output, 0, frames, events, stereo, levels)
+}
+
+/// Replay pre-roll through the same mixer, writing only the requested window.
+/// Seeking a showcase therefore preserves already-playing music and voices.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn record_window(
+    root: &Path,
+    output: &Path,
+    start: u64,
+    frames: u64,
+    events: &[(u64, AudioCommand)],
+    stereo: bool,
+    levels: [u8; 3],
+) -> Result<()> {
+    let end = start.checked_add(frames).context("audio window overflow")?;
+    ensure!(
+        frames > 0 && end <= u64::from(RATE) * 1000,
+        "invalid audio window"
+    );
     ensure!(
         events.windows(2).all(|pair| pair[0].0 <= pair[1].0),
         "audio requests are out of order"
     );
     ensure!(
-        events.iter().all(|(frame, _)| *frame < frames),
+        events.iter().all(|(frame, _)| *frame < end),
         "audio request is outside the recording"
     );
     ensure!(!output.exists(), "audio recording already exists");
@@ -38,7 +58,7 @@ pub fn record_field_audio(
     }
     let mut wave = hound::WavWriter::create(output, super::PCM_SPEC)?;
     let mut events = events.iter().peekable();
-    for frame in 0..frames {
+    for frame in 0..end {
         while let Some((_, command)) = events.next_if(|(at, _)| *at == frame) {
             control.send(command.clone())?;
         }
@@ -46,7 +66,9 @@ pub fn record_field_audio(
             .frame()?
             .context("field audio recording stopped early")?
         {
-            wave.write_sample((sample * 32768.).round().clamp(-32768., 32767.) as i16)?;
+            if frame >= start {
+                wave.write_sample((sample * 32768.).round().clamp(-32768., 32767.) as i16)?;
+            }
         }
     }
     control.check()?;

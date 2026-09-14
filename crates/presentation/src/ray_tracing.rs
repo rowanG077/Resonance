@@ -5,6 +5,8 @@ pub(super) mod denoise;
 mod matte;
 mod mesh;
 mod output;
+pub(super) mod pathtracer;
+mod smaa;
 mod symbols;
 mod windows;
 
@@ -47,6 +49,7 @@ pub(super) struct State {
     supported: bool,
     software: bool,
     active: bool,
+    pathtracing: bool,
 }
 impl State {
     /// Keep warmup and live views on identical material specialization keys.
@@ -76,10 +79,12 @@ impl State {
             },
         ));
         if self.supported {
-            camera.insert((
-                SolariLighting::default(),
-                CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING),
-            ));
+            camera.insert(CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING));
+            if self.pathtracing {
+                camera.insert(pathtracer::Pathtraced);
+            } else {
+                camera.insert(SolariLighting::default());
+            }
         }
     }
 }
@@ -115,6 +120,7 @@ pub(super) fn install(app: &mut App) {
         supported: false,
         software: false,
         active: false,
+        pathtracing: false,
     })
     .init_resource::<Cache>()
     .add_systems(Startup, check_support)
@@ -158,6 +164,15 @@ fn check_support(
             "This GPU cannot run Bevy Solari (missing {:?}); the classroom will use Bevy PBR lighting and shadow maps",
             SolariPlugins::required_wgpu_features().difference(device.features())
         );
+    }
+}
+
+pub(super) fn configure_capture(app: &mut App, spec: &crate::ClassroomShowcase) {
+    if spec.pathtracing {
+        pathtracer::install(app);
+    }
+    if spec.strong_smaa {
+        smaa::install(app);
     }
 }
 fn toggle(keys: Res<ButtonInput<KeyCode>>, mut state: ResMut<State>) {
@@ -449,6 +464,7 @@ mod tests {
                 supported,
                 software: false,
                 active: true,
+                pathtracing: false,
             })
             .init_resource::<Assets<TitleSurface>>()
             .init_resource::<Assets<StandardMaterial>>()
@@ -537,6 +553,7 @@ mod tests {
             supported: true,
             software: false,
             active: true,
+            pathtracing: false,
         })
         .init_resource::<Cache>()
         .init_resource::<Assets<Mesh>>()

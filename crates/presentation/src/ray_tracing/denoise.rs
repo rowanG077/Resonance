@@ -24,9 +24,9 @@ use std::sync::{
 
 #[derive(Component, Clone, ExtractComponent)]
 pub(crate) struct Accumulation {
-    generation: u32,
-    samples: u32,
-    completed: Arc<AtomicU32>,
+    pub(super) generation: u32,
+    pub(super) samples: u32,
+    pub(super) completed: Arc<AtomicU32>,
 }
 impl Accumulation {
     pub(crate) fn new(generation: u32, samples: u32) -> Self {
@@ -119,9 +119,13 @@ fn prepare_pipeline(mut commands: Commands, server: Res<AssetServer>, cache: Res
         filter,
     });
 }
+#[allow(clippy::type_complexity)] // Render views with illumination history, excluding path tracing.
 fn prepare_history(
     mut commands: Commands,
-    views: Query<(Entity, &ViewPrepassTextures, Option<&History>), With<ModernView>>,
+    views: Query<
+        (Entity, &ViewPrepassTextures, Option<&History>),
+        (With<ModernView>, Without<super::pathtracer::Pathtraced>),
+    >,
     retired: Query<Entity, (With<History>, Without<ModernView>)>,
     device: Res<RenderDevice>,
 ) {
@@ -159,7 +163,7 @@ fn denoise(
             &mut History,
             Option<&Accumulation>,
         ),
-        With<ModernView>,
+        (With<ModernView>, Without<super::pathtracer::Pathtraced>),
     >,
     pipeline: Res<Pipeline>,
     cache: Res<PipelineCache>,

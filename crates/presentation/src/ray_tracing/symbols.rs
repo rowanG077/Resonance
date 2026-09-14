@@ -131,6 +131,7 @@ mod tests {
             supported: true,
             software: false,
             active: true,
+            pathtracing: false,
         })
         .insert_resource(crate::display::Display(crate::Resolution::default()))
         .init_resource::<Assets<Mesh>>()
