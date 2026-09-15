@@ -7,6 +7,7 @@ use crate::{
 use anyhow::{Result, ensure};
 use std::collections::VecDeque;
 mod kernel;
+pub mod shared;
 pub mod stream;
 
 /// Dry, auxiliary A and auxiliary B, each in unclipped stereo PCM units.
@@ -59,10 +60,13 @@ pub struct VoiceLifetime {
 
 struct Active<'a> {
     voice: Voice<'a>,
+    /// Sequence notes use the channel bank; each SFX allocation owns a bank.
+    sound_controls: Option<crate::music_voice::Controls>,
     channel: usize,
     end_tick: Option<u32>,
     clock: usize,
     slot: usize,
+    lease: Option<shared::Lease>,
     retired: bool,
     lifetime: usize,
 }
@@ -95,6 +99,10 @@ pub fn render_preview_with_volume(
     frames: u32,
     mut group_volume: impl FnMut(u32) -> f32,
 ) -> Result<Preview> {
+    ensure!(
+        !shared::requires_shared(bank),
+        "cue preview requires shared synthesizer state"
+    );
     ensure!(
         (1..=32000 * 120).contains(&frames),
         "music preview exceeds 120 seconds"
