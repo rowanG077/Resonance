@@ -10,9 +10,11 @@ pub use resonance_audio::{
     control, dls, envelope, mix, modulation, music_voice, pitch, resample, reverb, sequence, volume,
 };
 pub mod compile;
+pub mod decode;
 pub mod dsp;
 pub mod instrument;
 pub mod parameters;
+pub mod pool;
 pub mod render;
 pub mod song;
 

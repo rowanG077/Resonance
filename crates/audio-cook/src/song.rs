@@ -2,10 +2,12 @@
 //! Keeps musical ticks and exact event ordering; no MIDI conversion or playback.
 use crate::read;
 use anyhow::{Context, Result, ensure};
+use serde::{Deserialize, Serialize};
 
 const LIMIT: usize = 1_000_000;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "operation", content = "parameters", rename_all = "snake_case")]
 pub enum EventKind {
     Pattern {
         program: Option<u8>,
@@ -26,7 +28,7 @@ pub enum EventKind {
     Modulation(u16),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Event {
     pub tick: u32,
     pub track: u8,
@@ -34,7 +36,7 @@ pub struct Event {
     pub kind: EventKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Track {
     pub id: u8,
     pub channel: u8,
@@ -44,12 +46,13 @@ pub struct Track {
     pub events: Vec<Event>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Tempo {
     pub tick: u32,
     pub bpm_1024: u32,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Song {
     pub has_master_track: bool,
     pub initial_bpm_1024: u32,
@@ -164,12 +167,6 @@ impl Song {
                     .all(|pair| pair[0].tick <= pair[1].tick),
                 "overlapping/backward patterns are not supported"
             );
-            ensure!(
-                track.events.last().is_none_or(|e| e.tick <= track.end_tick),
-                "song track {id} ends at {} before its last event {:?}",
-                track.end_tick,
-                track.events.last()
-            );
             tracks.push(track);
         }
         ensure!(!tracks.is_empty(), "song has no tracks");
@@ -259,9 +256,21 @@ impl Song {
         let end = first.end_tick;
         ensure!(
             looping.all(|track| track.end_tick == end)
-                && self.tracks.iter().all(|track| track.end_tick <= end),
+                && self.tracks.iter().all(|track| {
+                    track.end_tick <= end
+                        && (track.loop_region.is_some()
+                            || track.events.last().is_none_or(|event| event.tick <= end))
+                }),
             "song does not have one shared loop interval"
         );
+        // Patterns finish before their loop markers are consumed. The shared
+        // queue therefore drains after any events at or beyond the marker;
+        // note-off deadlines and pattern terminators do not delay the rewind.
+        let end = self
+            .tracks
+            .iter()
+            .filter_map(|track| track.events.last())
+            .fold(end, |end, event| end.max(event.tick));
         Ok((self.loop_start_tick, end))
     }
 }
@@ -455,7 +464,7 @@ mod tests {
                 ],
             })
             .collect();
-        let song = Song {
+        let mut song = Song {
             has_master_track: false,
             initial_bpm_1024: 120 * 1024,
             loop_start_tick: 1,
@@ -467,6 +476,8 @@ mod tests {
             [0, 1, 0, 1]
         );
         assert_eq!(song.playback_interval().unwrap(), (1, 10));
+        song.tracks[1].end_tick = 11;
+        assert!(song.playback_interval().is_err());
     }
 
     #[test]
@@ -506,6 +517,11 @@ mod tests {
             }
         );
         assert!(Song::parse(&bytes[..393]).is_err());
+        let mut late = bytes.clone();
+        late[360..364].copy_from_slice(&11u32.to_be_bytes());
+        let late = Song::parse(&late).unwrap();
+        assert_eq!(late.playback_interval().unwrap(), (1, 12));
+        assert_eq!(late.events(), song.events());
         let mut stopped = bytes.clone();
         stopped[360..364].fill(0); // Stop-marker timestamps are unused.
         stopped[368..370].copy_from_slice(&0xffffu16.to_be_bytes());
@@ -601,5 +617,108 @@ mod tests {
                 .iter()
                 .all(|event| event.track == 0)
         );
+    }
+
+    #[test]
+    #[ignore = "requires both extracted discs; audits all arrangements without audio playback"]
+    fn original_song_census_preserves_terminal_events_and_shared_loop_boundaries() -> Result<()> {
+        use crate::{
+            bank::{Channel, MusicSetup},
+            compile,
+        };
+        use resonance_audio::data::{EventKind as Cooked, Resources};
+        use std::{fs, path::Path};
+
+        let setup = MusicSetup {
+            group: 0,
+            normal: Default::default(),
+            drums: Default::default(),
+            channels: [Channel {
+                program: 0,
+                volume: 127,
+                pan: 64,
+                reverb: 0,
+                chorus: 0,
+            }; 16],
+        };
+        let resources = Resources {
+            programs: Default::default(),
+            samples: Default::default(),
+        };
+        let mut count = 0;
+        let mut terminal_songs = 0;
+        for disc in [1, 2] {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../local/extracted/disc{disc}/files/S"));
+            for path in fs::read_dir(root)? {
+                let path = path?.path();
+                if !path
+                    .extension()
+                    .is_some_and(|extension| extension == "song")
+                {
+                    continue;
+                }
+                let name = path.file_name().unwrap().to_str().unwrap();
+                let song = Song::parse(&fs::read(&path)?)?;
+                let score = compile::score(&song, &setup, |_, _, _, _| Ok(Vec::new()))?;
+                score
+                    .validate(&resources)
+                    .with_context(|| format!("disc{disc}/{name}"))?;
+                for events in [&score.first_events, &score.loop_events] {
+                    let terminal: Vec<_> = events
+                        .iter()
+                        .filter(|event| event.tick == score.end_tick)
+                        .collect();
+                    match name {
+                        "bgm_b005.song" | "bgm_t024.song" => {
+                            let (end, channels) = if name == "bgm_b005.song" {
+                                (49144, &[4, 5][..])
+                            } else {
+                                (28984, &[3][..])
+                            };
+                            assert_eq!(score.end_tick, end);
+                            assert_eq!(
+                                terminal
+                                    .iter()
+                                    .map(|event| event.channel)
+                                    .collect::<Vec<_>>(),
+                                channels
+                            );
+                            assert!(terminal.iter().all(|event| matches!(
+                                event.kind,
+                                Cooked::PitchBend { value: 8192 }
+                            )));
+                        }
+                        "bgm_b012.song" => {
+                            assert_eq!(score.end_tick, 62016);
+                            assert_eq!(terminal.len(), 1);
+                            assert_eq!(terminal[0].channel, 12);
+                            assert!(matches!(terminal[0].kind, Cooked::Notes { length: 80, .. }));
+                            let track = song.tracks.iter().find(|track| track.id == 16).unwrap();
+                            assert_eq!(track.end_tick, 62008);
+                            assert!(matches!(
+                                track.events.last().unwrap().kind,
+                                EventKind::Note {
+                                    key: 83,
+                                    velocity: 90,
+                                    length: 80
+                                }
+                            ));
+                        }
+                        _ => assert!(terminal.is_empty(), "unexpected boundary events in {name}"),
+                    }
+                }
+                terminal_songs += usize::from(
+                    score
+                        .first_events
+                        .last()
+                        .is_some_and(|event| event.tick == score.end_tick),
+                );
+                count += 1;
+            }
+        }
+        assert_eq!(count, 236);
+        assert_eq!(terminal_songs, 6);
+        Ok(())
     }
 }
