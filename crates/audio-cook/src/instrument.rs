@@ -2,7 +2,7 @@
 //! This resolves resources and initial controls; voice allocation is separate.
 use crate::{
     bank::{Bank, ObjectKind, Page},
-    read,
+    pool,
 };
 use anyhow::{Result, bail, ensure};
 pub use resonance_audio::data::Note as Voice;
@@ -64,15 +64,15 @@ fn expand(
         }
         0x4000 => {
             let bytes = bank.object(ObjectKind::Keymap, id)?;
-            let entry = read::slice(bytes, usize::from(voice.key) * 8, 8)?;
-            let child = read::u16(entry, 0)?;
+            let entry = pool::key(bytes, voice.key)?;
+            let child = entry.object;
             // The original rejects another keymap in this slot.
             ensure!(child & 0xc000 != 0x4000, "keymap references another keymap");
             let voice = Voice {
-                key: (i16::from(voice.key) + i16::from(entry[2] as i8)).clamp(0, 127) as u8,
-                pan: panning(voice.pan, entry[3]),
+                key: (i16::from(voice.key) + i16::from(entry.transpose)).clamp(0, 127) as u8,
+                pan: panning(voice.pan, entry.pan),
                 priority: i16::from(voice.priority)
-                    .wrapping_add(read::u16(entry, 4)? as i16)
+                    .wrapping_add(entry.priority_delta)
                     .clamp(0, 255) as u8,
                 ..voice
             };
@@ -80,25 +80,28 @@ fn expand(
         }
         0x8000 => {
             let bytes = bank.object(ObjectKind::Layer, id)?;
-            let count = usize::from(read::u16(bytes, 2)?);
-            let entries = read::slice(bytes, 4, count * 12)?;
             let mut priority = voice.priority;
-            for entry in entries.chunks_exact(12) {
-                let child = read::u16(entry, 0)?;
-                if child == u16::MAX || !(entry[2]..=entry[3]).contains(&voice.key) {
+            for entry in pool::layer_entries(bytes)? {
+                let entry = entry?;
+                let child = entry.object;
+                if child == u16::MAX
+                    || !(entry.minimum_key..=entry.maximum_key).contains(&voice.key)
+                {
                     continue;
                 }
                 // Original priority adjustments accumulate across matching layers.
                 priority = i16::from(priority)
-                    .wrapping_add(read::u16(entry, 6)? as i16)
+                    .wrapping_add(entry.priority_delta)
                     .clamp(0, 255) as u8;
                 expand(
                     bank,
                     child,
                     Voice {
-                        key: (i16::from(voice.key) + i16::from(entry[4] as i8)).clamp(0, 127) as u8,
-                        velocity: (u16::from(voice.velocity) * u16::from(entry[5]) / 127) as u8,
-                        pan: panning(voice.pan, entry[8]),
+                        key: (i16::from(voice.key) + i16::from(entry.transpose)).clamp(0, 127)
+                            as u8,
+                        velocity: (u16::from(voice.velocity) * u16::from(entry.velocity_scale)
+                            / 127) as u8,
+                        pan: panning(voice.pan, entry.pan),
                         priority,
                         ..voice
                     },
