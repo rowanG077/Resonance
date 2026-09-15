@@ -2,7 +2,7 @@
 //! Equal-priority ordering affects the sound because reused slots retain LFO phase.
 
 /// Input is newest-first studio order; preserve the partition’s unstable ties.
-pub(crate) fn completion_order(voices: &mut [(usize, u32)]) {
+pub(crate) fn completion_order<T>(voices: &mut [(T, u32)]) {
     if voices.len() < 2 {
         return;
     }

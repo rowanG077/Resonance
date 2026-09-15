@@ -25,19 +25,19 @@ impl Tables {
         Ok(())
     }
 
-    /// Input is MIDI pitch with sixteen fractional bits. Fractional pitch
-    /// interpolates the already-quantized rate of this and the next semitone.
+    /// Pitch has sixteen fractional bits. Effects can exceed the MIDI range:
+    /// the integer note wraps to eight bits before looking up its tuning.
+    /// Fractions interpolate already-quantized rates of adjacent semitones.
     pub fn ratio(&self, pitch: i32, sample: &Sample) -> Result<u32> {
-        ensure!(
-            (0..128 << 16).contains(&pitch) && sample.key < 128 && sample.rate != 0,
-            "invalid note or sample pitch"
-        );
-        let key = pitch >> 16;
+        ensure!(sample.key < 128 && sample.rate != 0, "invalid sample pitch");
+        let key = i32::from((pitch >> 16) as u8);
         let difference = key - i32::from(sample.key);
-        let factor = if difference >= 0 {
-            self.up[difference as usize]
-        } else {
-            self.down[(-difference) as usize]
+        let factor = match difference {
+            ..0 => self.down[(-difference) as usize],
+            0..128 => self.up[difference as usize],
+            // Large upward bends continue into the adjacent downward curve.
+            // Some sound effects rely on this discontinuity in the tuning bank.
+            _ => self.down[difference as usize - 128],
         };
         let rate = f32::from(sample.rate) * factor;
         let integer = ((4096. * rate) / 32000.) as u32 as u16;
@@ -68,11 +68,54 @@ mod tests {
             pcm: vec![],
             loop_pcm: vec![],
         };
-        assert_eq!(tables.ratio(60 << 16, &sample).unwrap(), 65536);
+        for key in 0..128 {
+            sample.key = key;
+            for (fraction, ratio) in [(0, 65536), (32768, 67472), (65535, 69408)] {
+                assert_eq!(
+                    tables
+                        .ratio((i32::from(key) << 16) + fraction, &sample)
+                        .unwrap(),
+                    ratio
+                );
+            }
+        }
+        sample.key = 60;
         assert_eq!(tables.ratio(72 << 16, &sample).unwrap(), 131072);
         assert_eq!(tables.ratio((60 << 16) + 32768, &sample).unwrap(), 67472);
         sample.rate = 22050;
         assert_eq!(tables.ratio(60 << 16, &sample).unwrap(), 45152);
-        assert!(tables.ratio(-1, &sample).is_err());
+        sample.key = 128;
+        assert!(tables.ratio(60 << 16, &sample).is_err());
+    }
+
+    #[test]
+    fn wide_effect_bends_wrap_notes_and_preserve_the_tuning_bank_boundary() {
+        let mut tables = Tables {
+            up: [1.; 128],
+            down: [1.; 128],
+            semitone: 1.059_463_1,
+        };
+        tables.up[68] = 2.;
+        tables.down[9] = 0.594_603_54;
+        tables.down[60] = 0.03125;
+        tables.down[67] = 0.020_856_857;
+        let sample = Sample {
+            key: 60,
+            rate: 32000,
+            loop_start: 0,
+            loop_length: 0,
+            pcm: vec![],
+            loop_pcm: vec![],
+        };
+        for (pitch, ratio) in [
+            (128 << 16, 131072),
+            (188 << 16, 65536),
+            ((188 << 16) + 32768, 67472),
+            (197 << 16, 38960),
+            (256 << 16, 2048),
+            (-1, 1424),
+        ] {
+            assert_eq!(tables.ratio(pitch, &sample).unwrap(), ratio, "{pitch}");
+        }
     }
 }

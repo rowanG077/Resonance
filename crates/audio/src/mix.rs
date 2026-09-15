@@ -4,6 +4,13 @@ use anyhow::{Result, ensure};
 pub const CENTER_PAN: u8 = 64;
 
 #[derive(serde::Serialize, serde::Deserialize)]
+pub struct Spatial {
+    pub pan_scale: f32,
+    #[serde(with = "crate::package::array")]
+    pub left_delay: [u8; 128],
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Tables {
     #[serde(with = "crate::package::array")]
     pub volume: [f32; 129],
@@ -13,17 +20,23 @@ pub struct Tables {
     pub volume_16_scale: f32,
     pub controller_14_scale: f32,
     pub pan_16_scale: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spatial: Option<Spatial>,
 }
 
 pub struct Parameters {
     pub volume: u32,
     pub controller: u16,
-    pub pan: u8,
+    /// Stereo pan in 16.16 units, retaining authored ramp fractions.
+    pub pan: u32,
+    /// Sends taken before MIDI volume and group gain.
+    pub pre: [u16; 2],
     pub post: [u16; 2],
     pub scale: f32,
     pub group_volume: f32,
     pub aux_a: u8,
     pub alternate: bool,
+    pub interaural_delay: bool,
 }
 
 impl Tables {
@@ -46,6 +59,14 @@ impl Tables {
             .all(|v| v.is_finite() && v > 0.0 && v <= 1.0),
             "invalid audio normalization"
         );
+        if let Some(spatial) = &self.spatial {
+            ensure!(
+                spatial.pan_scale.is_finite()
+                    && (0.0..=1.0).contains(&spatial.pan_scale)
+                    && spatial.left_delay.iter().all(|&delay| delay <= 32),
+                "invalid spatial audio table"
+            );
+        }
         Ok(())
     }
 
@@ -53,12 +74,14 @@ impl Tables {
         self.gains_for(Parameters {
             volume,
             controller,
-            pan,
+            pan: u32::from(pan) << 16,
+            pre: [0; 2],
             post,
             scale: 1.0,
             group_volume: 1.0,
             aux_a: 127,
             alternate: false,
+            interaural_delay: false,
         })
     }
 
@@ -67,17 +90,28 @@ impl Tables {
             volume,
             controller,
             pan,
+            pre,
             post,
             scale,
             group_volume,
             aux_a,
             alternate,
+            interaural_delay,
         } = parameters;
-        let volume = self.volume_16_scale * volume.min(127 << 16) as f32;
+        let volume = self.volume_16_scale * volume as f32;
         let volume = volume * scale;
         let direct =
             self.controller_14_scale * (volume * group_volume * f32::from(controller.min(16383)));
-        let pan = self.pan_16_scale * (u32::from(pan.min(127)) << 16).saturating_sub(65536) as f32;
+        let mut pan = self.pan_16_scale * pan.min(127 << 16).saturating_sub(65536) as f32;
+        if interaural_delay {
+            pan = 1.0
+                + self
+                    .spatial
+                    .as_ref()
+                    .expect("validated spatial audio")
+                    .pan_scale
+                    * (pan - 1.0);
+        }
         let sides = [
             interpolate(&self.pan, 2.0 - pan),
             interpolate(&self.pan, pan),
@@ -86,8 +120,10 @@ impl Tables {
             direct,
             (1.0_f32 / 127.0)
                 * (f32::from(aux_a)
-                    * (self.controller_14_scale * (direct * f32::from(post[0].min(16383))))),
-            self.controller_14_scale * (direct * f32::from(post[1].min(16383))),
+                    * (self.controller_14_scale * (direct * f32::from(post[0].min(16383)))))
+                + self.controller_14_scale * (volume * f32::from(pre[0].min(16383))),
+            self.controller_14_scale * (direct * f32::from(post[1].min(16383)))
+                + self.controller_14_scale * (volume * f32::from(pre[1].min(16383))),
         ]
         .map(|volume| {
             let curve = if alternate {
@@ -98,6 +134,32 @@ impl Tables {
             let weight = interpolate(curve, 127.0 * volume);
             sides.map(|pan| (32767.0 * (weight * pan)) as u16)
         })
+    }
+}
+
+/// A voice's post-envelope history, shared by its direct and auxiliary buses.
+pub(crate) struct StereoDelay {
+    history: [i16; 33],
+    cursor: usize,
+    pub shift: [u8; 2],
+}
+impl Default for StereoDelay {
+    fn default() -> Self {
+        Self {
+            history: [0; 33],
+            cursor: 0,
+            shift: [16; 2],
+        }
+    }
+}
+impl StereoDelay {
+    pub fn next(&mut self, sample: i16) -> [i16; 2] {
+        self.history[self.cursor] = sample;
+        let output = self
+            .shift
+            .map(|shift| self.history[(self.cursor + 33 - usize::from(shift)) % 33]);
+        self.cursor = (self.cursor + 1) % 33;
+        output
     }
 }
 
@@ -167,6 +229,27 @@ impl GainRamp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn spatial_delay_keeps_independent_ear_offsets_across_history_wraps() {
+        let mut delay = StereoDelay {
+            shift: [0, 32],
+            ..Default::default()
+        };
+        for frame in 0..100 {
+            let sample = if frame % 33 == 0 { -16384 } else { 0 };
+            assert_eq!(
+                delay.next(sample),
+                [sample, if frame % 33 == 32 { -16384 } else { 0 }]
+            );
+        }
+        let mut delay = StereoDelay::default();
+        for frame in 0..34 {
+            assert_eq!(
+                delay.next(if frame == 0 { 100 } else { 0 }),
+                [if frame == 16 { 100 } else { 0 }; 2]
+            );
+        }
+    }
     #[test]
     fn signed_pcm_rounds_down_at_each_gain_stage() {
         assert_eq!(apply(-1, 32767, 32767), -1);
