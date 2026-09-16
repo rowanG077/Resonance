@@ -1,6 +1,6 @@
-//! Streaming writer for our fixed RGB FFV1 + stereo PCM16 FLAC Matroska profile.
+//! Streaming RGB FFV1 + optional PCM16 FLAC tracks in a bounded Matroska profile.
 //! The EBML subset follows https://www.matroska.org/technical/elements.html.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use codec_ffv1::{Encoder, Frame, Plane};
 use flacenc::{
     bitsink::ByteSink,
@@ -36,34 +36,50 @@ fn master(id: u32, children: &[Vec<u8>]) -> Vec<u8> {
     element(id, &children.concat())
 }
 
+struct AudioTrack {
+    info: StreamInfo,
+    frame: FrameBuf,
+    blocks: usize,
+    frames: u64,
+    ended: bool,
+}
+
 pub struct MovieWriter<W: Write> {
     writer: W,
     video: Encoder,
     width: u32,
     height: u32,
-    audio_info: StreamInfo,
+    audio: Vec<AudioTrack>,
     audio_config: Verified<flacenc::config::Encoder>,
-    audio_frame: FrameBuf,
-    audio_blocks: usize,
-    audio_frames: u64,
-    audio_ended: bool,
-    sample_rate: u32,
     last_timestamp: Option<u64>,
     last_video: Option<Duration>,
 }
 impl<W: Write> MovieWriter<W> {
+    /// Convenience writer for a single stereo track of initially unknown length.
     pub fn new(
-        mut writer: W,
+        writer: W,
         width: u32,
         height: u32,
         frame_micros: u32,
         sample_rate: u32,
     ) -> Result<Self> {
+        Self::with_audio_tracks(writer, width, height, frame_micros, &[(2, sample_rate, 0)])
+    }
+
+    /// Audio tracks are (channels, sample rate, total frames), in source order.
+    /// An empty list produces a video-only movie; zero frames means unknown length.
+    pub fn with_audio_tracks(
+        mut writer: W,
+        width: u32,
+        height: u32,
+        frame_micros: u32,
+        tracks: &[(u16, u32, u64)],
+    ) -> Result<Self> {
         ensure!(
             (2..=1920).contains(&width)
                 && (2..=1080).contains(&height)
                 && frame_micros > 0
-                && (8000..=96000).contains(&sample_rate),
+                && tracks.len() <= 16,
             "invalid movie encoding format"
         );
         // Fixed v3 RGB8 range-coded profile: 2x2 slices, two quantization
@@ -83,12 +99,70 @@ impl<W: Write> MovieWriter<W> {
             66,
         ];
         let video = Encoder::from_configuration_record(CONFIG)?;
-        let mut audio_info = StreamInfo::new(sample_rate as usize, 2, 16)?;
-        audio_info.set_block_sizes(AUDIO_BLOCK, AUDIO_BLOCK)?;
-        let mut sink = ByteSink::new();
-        audio_info.write(&mut sink)?;
-        let mut private = b"fLaC\x80\x00\x00\x22".to_vec();
-        private.extend_from_slice(sink.as_slice());
+        let mut audio = Vec::with_capacity(tracks.len());
+        let mut entries = vec![master(
+            0xae,
+            &[
+                uint(0xd7, 1),
+                uint(0x73c5, 1),
+                uint(0x83, 1),
+                uint(0x9c, 0),
+                element(0x86, b"V_FFV1"),
+                element(0x63a2, &video.configuration_record().unwrap()),
+                uint(0x23e383, u64::from(frame_micros) * 1000),
+                master(
+                    0xe0,
+                    &[
+                        uint(0xb0, u64::from(width)),
+                        uint(0xba, u64::from(height)),
+                        master(0x55b0, &[uint(0x55b1, 0), uint(0x55b9, 2)]),
+                    ],
+                ),
+            ],
+        )];
+        for (index, &(channels, sample_rate, frames)) in tracks.iter().enumerate() {
+            ensure!(
+                (1..=2).contains(&channels)
+                    && (8000..=96000).contains(&sample_rate)
+                    && frames < 1 << 36,
+                "invalid movie audio format"
+            );
+            let mut info = StreamInfo::new(sample_rate as usize, usize::from(channels), 16)?;
+            info.set_block_sizes(AUDIO_BLOCK, AUDIO_BLOCK)?;
+            info.set_total_samples(usize::try_from(frames)?);
+            let mut sink = ByteSink::new();
+            info.write(&mut sink)?;
+            let mut private = b"fLaC\x80\x00\x00\x22".to_vec();
+            private.extend_from_slice(sink.as_slice());
+            let id = index as u64 + 2;
+            entries.push(master(
+                0xae,
+                &[
+                    uint(0xd7, id),
+                    uint(0x73c5, id),
+                    uint(0x83, 2),
+                    uint(0x9c, 0),
+                    element(0x536e, format!("Source stream {}", index + 1).as_bytes()),
+                    element(0x86, b"A_FLAC"),
+                    element(0x63a2, &private),
+                    master(
+                        0xe1,
+                        &[
+                            element(0xb5, &f64::from(sample_rate).to_be_bytes()),
+                            uint(0x9f, u64::from(channels)),
+                            uint(0x6264, 16),
+                        ],
+                    ),
+                ],
+            ));
+            audio.push(AudioTrack {
+                info,
+                frame: FrameBuf::with_size(usize::from(channels), AUDIO_BLOCK)?,
+                blocks: 0,
+                frames: 0,
+                ended: false,
+            });
+        }
         writer.write_all(&master(
             0x1a45dfa3,
             &[
@@ -112,64 +186,16 @@ impl<W: Write> MovieWriter<W> {
                 element(0x5741, b"resonance"),
             ],
         ))?;
-        writer.write_all(&master(
-            0x1654ae6b,
-            &[
-                master(
-                    0xae,
-                    &[
-                        uint(0xd7, 1),
-                        uint(0x73c5, 1),
-                        uint(0x83, 1),
-                        uint(0x9c, 0),
-                        element(0x86, b"V_FFV1"),
-                        element(0x63a2, &video.configuration_record().unwrap()),
-                        uint(0x23e383, u64::from(frame_micros) * 1000),
-                        master(
-                            0xe0,
-                            &[
-                                uint(0xb0, u64::from(width)),
-                                uint(0xba, u64::from(height)),
-                                master(0x55b0, &[uint(0x55b1, 0), uint(0x55b9, 2)]),
-                            ],
-                        ),
-                    ],
-                ),
-                master(
-                    0xae,
-                    &[
-                        uint(0xd7, 2),
-                        uint(0x73c5, 2),
-                        uint(0x83, 2),
-                        uint(0x9c, 0),
-                        element(0x86, b"A_FLAC"),
-                        element(0x63a2, &private),
-                        master(
-                            0xe1,
-                            &[
-                                element(0xb5, &f64::from(sample_rate).to_be_bytes()),
-                                uint(0x9f, 2),
-                                uint(0x6264, 16),
-                            ],
-                        ),
-                    ],
-                ),
-            ],
-        ))?;
+        writer.write_all(&master(0x1654ae6b, &entries))?;
         Ok(Self {
             writer,
             video,
             width,
             height,
-            audio_info,
+            audio,
             audio_config: flacenc::config::Encoder::default()
                 .into_verified()
                 .map_err(|(_, error)| anyhow::anyhow!("{error}"))?,
-            audio_frame: FrameBuf::with_size(2, AUDIO_BLOCK)?,
-            audio_blocks: 0,
-            audio_frames: 0,
-            audio_ended: false,
-            sample_rate,
             last_timestamp: None,
             last_video: None,
         })
@@ -219,39 +245,59 @@ impl<W: Write> MovieWriter<W> {
         self.last_video = Some(timestamp);
         Ok(())
     }
-    /// Full blocks except for the final block; samples are interleaved L/R.
+    /// Convenience wrapper for the first audio track.
     pub fn audio(&mut self, samples: &[i16]) -> Result<()> {
+        self.audio_track(0, samples)
+    }
+
+    /// Full blocks except the final block, with samples interleaved by channel.
+    pub fn audio_track(&mut self, index: usize, samples: &[i16]) -> Result<()> {
+        let track = self
+            .audio
+            .get_mut(index)
+            .context("movie audio track is absent")?;
+        let channels = track.info.channels();
         ensure!(
-            !self.audio_ended
+            !track.ended
                 && !samples.is_empty()
-                && samples.len().is_multiple_of(2)
-                && samples.len() <= AUDIO_BLOCK * 2,
+                && samples.len().is_multiple_of(channels)
+                && samples.len() <= AUDIO_BLOCK * channels,
             "invalid FLAC input block"
         );
-        let frames = samples.len() / 2;
-        self.audio_frame
+        let frames = samples.len() / channels;
+        ensure!(
+            track.info.total_samples() == 0
+                || track.frames + frames as u64 <= track.info.total_samples() as u64,
+            "movie audio exceeds declared sample count"
+        );
+        track
+            .frame
             .fill_interleaved(&samples.iter().map(|&s| i32::from(s)).collect::<Vec<_>>())
             .map_err(|error| anyhow::anyhow!("{error}"))?;
         let frame = flacenc::encode_fixed_size_frame(
             &self.audio_config,
-            &self.audio_frame,
-            self.audio_blocks,
-            &self.audio_info,
+            &track.frame,
+            track.blocks,
+            &track.info,
         )
         .map_err(|error| anyhow::anyhow!("{error}"))?;
         let mut sink = ByteSink::new();
         frame.write(&mut sink)?;
-        self.packet(
-            2,
-            Duration::from_micros(self.audio_frames * 1_000_000 / u64::from(self.sample_rate)),
-            sink.as_slice(),
-        )?;
-        self.audio_blocks += 1;
-        self.audio_frames += frames as u64;
-        self.audio_ended = frames < AUDIO_BLOCK;
-        Ok(())
+        let timestamp =
+            Duration::from_micros(track.frames * 1_000_000 / track.info.sample_rate() as u64);
+        track.blocks += 1;
+        track.frames += frames as u64;
+        track.ended = frames < AUDIO_BLOCK;
+        self.packet(index as u8 + 2, timestamp, sink.as_slice())
     }
     pub fn finish(mut self) -> Result<W> {
+        ensure!(
+            self.audio
+                .iter()
+                .all(|track| track.info.total_samples() == 0
+                    || track.frames == track.info.total_samples() as u64),
+            "movie audio ended before declared sample count"
+        );
         self.writer.flush()?;
         Ok(self.writer)
     }

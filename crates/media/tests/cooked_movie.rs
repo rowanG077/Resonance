@@ -13,9 +13,11 @@ use std::{
 fn cancellation_during_stream_probing_does_not_use_incomplete_formats() {
     let root = std::env::var_os("RESONANCE_COOKED_TEST_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"));
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets")
+        });
     let asset: MovieAsset =
-        serde_json::from_slice(&fs::read(root.join("story-intro.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(root.join("movies/1.json")).unwrap()).unwrap();
     // Exercise both cancellation before the worker opens the input and during
     // container probing, before any codec state is ready.
     for delay in [0, 1, 2, 4, 8, 16] {
@@ -30,33 +32,57 @@ fn cancellation_during_stream_probing_does_not_use_incomplete_formats() {
 }
 
 #[test]
-#[ignore = "requires locally cooked GQSEAF opening and its intermediate audio"]
+#[ignore = "requires the cooked opening and original H4M; silent comparison"]
 fn decodes_every_opening_frame_and_preserves_lossless_audio() {
-    check_movie("intro");
+    check_movie(0);
 }
 
 #[test]
-#[ignore = "requires locally cooked GQSEAF story movie and its intermediate audio"]
+#[ignore = "requires the cooked story movie and original H4M; silent comparison"]
 fn decodes_every_story_frame_and_preserves_lossless_audio() {
-    check_movie("story-intro");
+    check_movie(1);
 }
 
-fn check_movie(name: &str) {
+fn check_movie(id: u32) {
     let root = std::env::var_os("RESONANCE_COOKED_TEST_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"));
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets")
+        });
     let document: serde_json::Value = serde_json::from_slice(
-        &fs::read(root.join(format!("{name}.json"))).expect("cook-intro first"),
+        &fs::read(root.join(resonance_content::movie::metadata_path(id)))
+            .expect("run cook-all first"),
     )
     .unwrap();
     let asset: MovieAsset = serde_json::from_value(document.clone()).unwrap();
-    let stream = document["recipe"]["audio_stream"].as_u64().unwrap();
-    let mut wave =
-        hound::WavReader::open(root.join(format!("intermediate/{name}/audio-{stream}-stereo.wav")))
-            .unwrap();
+    let physical: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join(&asset.path).parent().unwrap().join("movie.json")).unwrap(),
+    )
+    .unwrap();
+    let extracted = std::env::var_os("RESONANCE_EXTRACTED_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1")
+        });
+    let mut source = h4m::AudioDecoder::new(
+        std::io::BufReader::new(
+            fs::File::open(
+                extracted
+                    .join("files")
+                    .join(physical["source"].as_str().unwrap()),
+            )
+            .unwrap(),
+        ),
+        asset.audio_track + 1,
+    )
+    .unwrap();
     let mut expected = Sha256::new();
-    for sample in wave.samples::<i16>() {
-        expected.update(sample.unwrap().to_le_bytes());
+    while let Some(pcm) = source.next_block().unwrap() {
+        for frame in pcm.chunks_exact(2) {
+            for sample in frame.iter().rev() {
+                expected.update(sample.to_le_bytes());
+            }
+        }
     }
     let decoder = MovieDecoder::open(&root.join(&asset.path), asset.clone()).unwrap();
     let started = Instant::now();
@@ -76,7 +102,7 @@ fn check_movie(name: &str) {
                     asset.width as usize * asset.height as usize * 4
                 );
                 assert!(video.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
-                if name == "intro" && video.index == 1137 {
+                if id == 0 && video.index == 1137 {
                     assert_eq!(video.rgba[(214 * 640 + 499) * 4], 217);
                 }
                 frames += 1;
