@@ -4510,6 +4510,7 @@ dependencies = [
  "codec_ffv1",
  "ffv1",
  "flacenc",
+ "h4m",
  "hound",
  "matroska-demuxer",
  "resonance-audio-device",

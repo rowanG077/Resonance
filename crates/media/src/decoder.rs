@@ -35,7 +35,16 @@ pub(super) fn decode(
         (video.width, video.height) == (asset.width, asset.height),
         "movie video format disagrees with the cooked manifest"
     );
-    let audio_track = container::track(&input, TrackType::Audio)?;
+    let audio_track = input
+        .tracks()
+        .iter()
+        .filter(|track| track.track_type() == TrackType::Audio)
+        .nth(usize::from(asset.audio_track))
+        .with_context(|| format!("movie has no audio track {}", asset.audio_track))?;
+    ensure!(
+        audio_track.content_encodings().is_none(),
+        "encoded container tracks are unsupported"
+    );
     let audio_id = audio_track.track_number().get();
     let info = audio_track.audio().context("missing movie audio format")?;
     ensure!(
