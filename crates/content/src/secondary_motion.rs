@@ -1,6 +1,26 @@
-//! Cooked bone chains for hair and cloth. No source node-name parsing at runtime.
+//! Authored bone chains for hair and cloth; model behavior is prepared at runtime.
+mod profiles;
+
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Definition {
+    /// Authored model identity, used by native character behavior.
+    pub model: String,
+    pub chains: Vec<Chain>,
+}
+
+impl Definition {
+    /// Bind model policies to skeleton names without changing the authored chains.
+    pub fn prepare(&self, names: &[String]) -> Result<Vec<Chain>> {
+        profiles::prepare(self, names)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.chains.is_empty()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chain {

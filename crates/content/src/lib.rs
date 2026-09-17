@@ -1,5 +1,6 @@
 //! Cooked asset contracts shared by the importer and game.
 use serde::{Deserialize, Serialize};
+pub mod animation;
 pub mod effect;
 pub mod field;
 pub mod field_audio;
@@ -8,12 +9,16 @@ pub mod figurine;
 pub mod font;
 pub mod menu;
 pub mod menu_data;
+pub mod model_behavior;
 pub mod model_preview;
 pub mod monster;
+pub mod movie;
 pub mod prepared;
 pub mod secondary_motion;
 pub mod session;
 pub mod skit;
+pub mod source;
+pub mod texture;
 
 pub const CONTENT_VERSION: u32 = 5;
 pub const WIDTH: u32 = 640;
@@ -42,7 +47,7 @@ impl BootAssets {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.version == 1 && self.textures.len() == 4,
-            "unsupported startup logos; run cook-boot"
+            "unsupported startup logos; run cook-all"
         );
         for texture in &self.textures {
             validate_asset_path(&texture.path)?;
@@ -55,7 +60,7 @@ impl BootAssets {
     }
 }
 
-/// Standard cooked movie with timing retained from the original source.
+/// Playable stereo movie with timing retained from the original source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MovieAsset {
     pub version: u32,
@@ -65,6 +70,8 @@ pub struct MovieAsset {
     pub height: u32,
     pub frames: u32,
     pub frame_micros: u32,
+    /// Zero-based audio stream within the shared movie container.
+    pub audio_track: u16,
     pub sample_rate: u32,
     pub channels: u16,
     pub audio_frames: u64,
@@ -74,18 +81,21 @@ impl MovieAsset {
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_asset_path(&self.path)?;
         anyhow::ensure!(
-            self.version == 1
+            self.version == 2
                 && (1..=1920).contains(&self.width)
                 && (1..=1080).contains(&self.height)
                 && (1..=100_000).contains(&self.frames)
                 && (10_000..=100_000).contains(&self.frame_micros)
-                && (8_000..=96_000).contains(&self.sample_rate)
-                && self.channels == 2
-                && self.audio_frames > 0
-                && self.audio_frames <= u64::from(self.sample_rate) * 3600
+                && self.audio_track < 256
                 && self.sha256.len() == 64
                 && self.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()),
             "invalid cooked movie manifest"
+        );
+        anyhow::ensure!(
+            (8_000..=96_000).contains(&self.sample_rate)
+                && self.channels == 2
+                && (1..=u64::from(self.sample_rate) * 3600).contains(&self.audio_frames),
+            "movie playback requires stereo audio with valid timing"
         );
         let video_micros = u64::from(self.frames) * u64::from(self.frame_micros);
         let audio_micros = self.audio_frames * 1_000_000 / u64::from(self.sample_rate);
@@ -190,8 +200,11 @@ pub struct ScenePart {
     /// Constant-color inverted hull, when this layer supplies actor outlines.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline_color: Option<[u8; 4]>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub secondary_motion: Vec<secondary_motion::Chain>,
+    #[serde(
+        default,
+        skip_serializing_if = "secondary_motion::Definition::is_empty"
+    )]
+    pub secondary_motion: secondary_motion::Definition,
 }
 
 /// Optional vertical atlas channels supplied by character model metadata.
@@ -210,14 +223,14 @@ pub struct AtlasChannel {
 
 /// Sampled UV translations at the scene's 60 Hz clock, with an optional intro.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextureAnimation {
-    pub texture: usize,
+pub struct TextureAnimation<Texture = usize> {
+    pub texture: Texture,
     pub delay_ticks: u32,
     pub loop_start: usize,
     pub offsets: Vec<[f32; 2]>,
 }
 
-impl TextureAnimation {
+impl<Texture> TextureAnimation<Texture> {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.offsets.is_empty()
@@ -245,6 +258,8 @@ impl TextureAnimation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneClip {
+    /// Shared authored curves, independent of the geometry and scene instance.
+    pub motion: String,
     pub resource_slot: u16,
     pub duration_seconds: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -264,6 +279,7 @@ impl SceneClip {
 pub struct SceneMaterial {
     pub color: Option<TextureBinding>,
     pub multiply: Option<TextureBinding>,
+    pub vertex_color: bool,
     pub blend: bool,
     pub depth_write: bool,
     #[serde(default, skip_serializing_if = "is_back_cull")]
@@ -319,15 +335,12 @@ pub struct TitleScene {
     pub fov_degrees: f32,
 }
 
-/// Baked world-space attachment paths for the title's two short glow trails.
+/// Static model bindings for script-driven attachments; clips retain sparse curves.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TitleGlow {
     pub texture: String,
     pub source_sha256: String,
-    pub feather: Vec<[f32; 3]>,
-    pub reflection: Vec<[f32; 3]>,
-    pub landing: [f32; 3],
-    pub landing_loop: Vec<[f32; 3]>,
+    pub skeletons: std::collections::BTreeMap<u16, animation::Skeleton>,
 }
 
 impl TitleAssets {
@@ -362,21 +375,21 @@ impl TitleAssets {
                 "invalid script digest"
             );
             validate_asset_path(&scene.glow.texture)?;
-            anyhow::ensure!(
-                scene.glow.feather.len() == 731
-                    && scene.glow.reflection.len() == 731
-                    && scene.glow.landing_loop.len() == 361
-                    && scene
-                        .glow
-                        .feather
-                        .iter()
-                        .chain(&scene.glow.reflection)
-                        .chain(&scene.glow.landing_loop)
-                        .chain(std::iter::once(&scene.glow.landing))
-                        .flatten()
-                        .all(|v| v.is_finite()),
-                "invalid glow attachment paths"
-            );
+            for part in scene
+                .parts
+                .iter()
+                .filter(|part| !part.autoplay && !part.clips.is_empty())
+            {
+                let skeleton =
+                    scene.glow.skeletons.get(&part.resource).ok_or_else(|| {
+                        anyhow::anyhow!("missing title skeleton {}", part.resource)
+                    })?;
+                skeleton.validate()?;
+                anyhow::ensure!(
+                    skeleton.bones.iter().map(|b| &b.name).eq(&part.bone_names),
+                    "title skeleton names differ from scene"
+                );
+            }
             anyhow::ensure!(!scene.parts.is_empty(), "title scene has no parts");
             anyhow::ensure!(
                 scene.fov_degrees.is_finite() && (1.0..179.0).contains(&scene.fov_degrees),
@@ -441,7 +454,10 @@ impl TitleAssets {
                         );
                     }
                 }
-                for name in std::iter::once(&part.mesh).chain(&part.textures) {
+                for name in std::iter::once(&part.mesh)
+                    .chain(&part.textures)
+                    .chain(part.clips.iter().map(|clip| &clip.motion))
+                {
                     validate_asset_path(name)?;
                 }
             }

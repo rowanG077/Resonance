@@ -3,6 +3,9 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub const TILE_SIZE: u32 = 8;
+pub const MAX_PORTRAITS: usize = 32;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkitCatalog {
     pub version: u32,
@@ -12,6 +15,7 @@ pub struct SkitCatalog {
     pub resources: BTreeMap<u16, SkitResourcePaths>,
     #[serde(default)]
     pub portraits: BTreeMap<u32, PortraitAsset>,
+    pub portrait_recipes: Vec<PortraitRecipe>,
     #[serde(default)]
     pub media: BTreeMap<u32, SkitMedia>,
 }
@@ -22,26 +26,32 @@ pub struct SkitResourcePaths {
     pub messages: String,
 }
 
-/// Precomposed expression frames: patches replace pixels, including alpha.
+/// Original images stay independent; each portrait maintains its own tile canvas.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortraitAsset {
-    pub layout_sha256: String,
+    pub size: [u32; 2],
+    pub images: Vec<PortraitImage>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortraitImage {
     pub texture: String,
     pub size: [u32; 2],
-    pub atlas_size: [u32; 2],
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PortraitRecipe {
     pub tracks: [Vec<PortraitFrame>; 3],
     pub repeat: [bool; 3],
-    pub variants: Vec<PortraitVariant>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortraitFrame {
-    pub ticks: u16,
-    pub image: u16,
+    pub ticks: i16,
+    pub image: Option<u16>,
+    pub position: [i16; 2],
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PortraitVariant {
-    pub images: [u16; 3],
-    pub rect: [u32; 4],
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PortraitTile {
+    pub image: u16,
+    pub block: u32,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkitMedia {
@@ -82,7 +92,7 @@ pub enum SkitCondition {
 
 impl SkitCatalog {
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.version == 1, "unsupported skit catalog");
+        ensure!(self.version == 2, "unsupported skit catalog");
         ensure!(self.skits.len() <= 512, "too many skit definitions");
         let mut previous = 0;
         for skit in &self.skits {
@@ -105,35 +115,24 @@ impl SkitCatalog {
             crate::validate_asset_path(&resource.script)?;
             crate::validate_asset_path(&resource.messages)?;
             ensure!(
-                self.skits.iter().any(|skit| skit.id == id)
-                    && resource.script.starts_with("game/skits/")
-                    && resource.messages.starts_with("game/skits/"),
+                self.skits.iter().any(|skit| skit.id == id),
                 "invalid skit resource {id}"
             );
         }
         for portrait in self.portraits.values() {
-            crate::validate_asset_path(&portrait.texture)?;
             ensure!(
                 portrait.size.iter().all(|&v| v > 0 && v <= 1024)
-                    && portrait.atlas_size.iter().all(|&v| v > 0 && v <= 8192)
-                    && !portrait.variants.is_empty()
-                    && portrait.variants.len() <= 512,
+                    && portrait
+                        .images
+                        .first()
+                        .is_some_and(|image| image.size == portrait.size),
                 "invalid skit portrait dimensions"
             );
-            ensure!(
-                portrait
-                    .tracks
-                    .iter()
-                    .all(|track| track.len() <= 64 && track.iter().all(|frame| frame.ticks < 253)),
-                "invalid portrait timeline"
-            );
-            for variant in &portrait.variants {
-                let [x, y, w, h] = variant.rect;
+            for image in &portrait.images {
+                crate::validate_asset_path(&image.texture)?;
                 ensure!(
-                    [w, h] == portrait.size
-                        && x + w <= portrait.atlas_size[0]
-                        && y + h <= portrait.atlas_size[1],
-                    "portrait frame outside atlas"
+                    image.size.iter().all(|&size| size > 0 && size <= 1024),
+                    "invalid portrait image dimensions"
                 );
             }
         }
