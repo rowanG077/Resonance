@@ -24,7 +24,6 @@ use bevy::{
     ecs::system::SystemParam,
     image::{ImageLoaderSettings, ImageSampler},
     prelude::*,
-    sprite_render::Material2dPlugin,
     world_serialization::WorldInstanceReady,
 };
 use resonance_content::{
@@ -190,7 +189,7 @@ impl Plugin for FieldPlugin {
 struct FieldRendering;
 impl Plugin for FieldRendering {
     fn build(&self, app: &mut App) {
-        super::field_ui::install_menu_draws(app);
+        super::field_ui::install(app);
         super::materials::install(app);
         super::sparse_animation::install(app);
         super::field_refraction::install(app);
@@ -2361,8 +2360,10 @@ fn capture_field_cached(
     .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
         std::time::Duration::ZERO,
     ))
-    .add_plugins(MaterialPlugin::<TitleSurface>::default())
-    .add_plugins(Material2dPlugin::<TitleOutput>::default())
+    .add_plugins((
+        super::materials::install_surface_material,
+        super::materials::install_output_materials,
+    ))
     .add_plugins(FieldRendering)
     .add_plugins(DrawOrderPlugin)
     .init_resource::<super::scene::SampledImages>()
@@ -2393,9 +2394,7 @@ fn capture_field_cached(
         )
             .chain(),
     );
-    super::materials::embed_shaders(&mut app);
     super::renderer::configure(&mut app);
-    bevy::asset::embedded_asset!(app, "title_output.wgsl");
     let ready = super::RenderReady::default();
     app.insert_resource(ready.clone());
     app.add_systems(
