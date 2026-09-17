@@ -12,6 +12,8 @@ image.workspace = true
 resonance-content.workspace = true
 resonance-audio-cook.workspace = true
 resonance-audio.workspace = true
+resonance-media.workspace = true
+h4m = "=0.3.0"
 nod = "=2.0.0-alpha.9"
 thiserror = "2"
 cab = "0.6"
