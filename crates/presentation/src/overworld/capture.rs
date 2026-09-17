@@ -270,7 +270,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             .after(ui)
             .before(capture),
     );
-    crate::field_ui::install_menu_draws(&mut app);
+    crate::field_ui::install(&mut app);
     crate::materials::install(&mut app);
     sparse_animation::install(&mut app);
     crate::renderer::configure(&mut app);

@@ -22,7 +22,11 @@ pub(super) use game_over_ui::Artwork as GameOverArt;
 mod menu;
 #[cfg(test)]
 pub(super) use menu::MenuDraws;
-pub(super) use menu::install as install_menu_draws;
+pub(super) fn install(app: &mut App) {
+    app.add_plugins(bevy::sprite_render::Material2dPlugin::<Surface>::default());
+    bevy::asset::embedded_asset!(app, "field_ui.wgsl");
+    menu::install(app);
+}
 #[path = "field_ui_overlay.rs"]
 mod overlay;
 pub(super) fn model_preview_depth() -> f32 {
