@@ -1,15 +1,10 @@
 {
   description = "Resonance development and asset conversion environment";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/34ab99075ac4f7e40cf037eef32cb1c360bb85e9";
-  inputs.hvqm4 = {
-    url = "github:Tilka/hvqm4/09700757304af4f439f0e50e7a0160cadc4d7a48";
-    flake = false;
-  };
   outputs =
     {
-      self,
       nixpkgs,
-      hvqm4,
+      ...
     }:
     let
       systems = [
@@ -20,15 +15,6 @@
       eachSystem = nixpkgs.lib.genAttrs systems;
     in
     {
-      packages = eachSystem (
-        system:
-        let
-          pkgs = import nixpkgs { inherit system; };
-        in
-        {
-          hvqm4 = pkgs.callPackage ./tools/media/hvqm4.nix { hvqm4Src = hvqm4; };
-        }
-      );
       devShells = eachSystem (
         system:
         let
@@ -85,11 +71,7 @@
                 p.pillow
               ]))
               lz4
-              ffmpeg
-              ffmpeg.dev
               vgmstream
-              rustPlatform.bindgenHook
-              self.packages.${system}.hvqm4
               dolphin-emu
               ktxTools
               nodejs
@@ -113,7 +95,6 @@
                 platformLibraries
                 ++ [
                   pkgs.lz4
-                  pkgs.ffmpeg.lib
                 ]
               );
             };
@@ -159,16 +140,15 @@
             pname = "resonance-workspace-check";
             version = "0.1.0";
             src = source;
-            cargoLock.lockFile = ./Cargo.lock;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              outputHashes."ffv1-0.0.0" = "sha256-/ENsKVXIivMPsubqzfKUdGE/4rz8jev3LO/L+/4EVjY=";
+            };
             nativeBuildInputs = [
               pkgs.pkg-config
               pkgs.cmake
-              pkgs.rustPlatform.bindgenHook
             ];
-            buildInputs = [
-              pkgs.ffmpeg.dev
-            ]
-            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+            buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
               pkgs.alsa-lib
               pkgs.dbus
               pkgs.udev

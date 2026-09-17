@@ -11,11 +11,13 @@ use std::{
 #[test]
 #[ignore = "requires a locally cooked story movie; never opens an audio device"]
 fn cancellation_during_stream_probing_does_not_use_incomplete_formats() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked");
+    let root = std::env::var_os("RESONANCE_COOKED_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"));
     let asset: MovieAsset =
         serde_json::from_slice(&fs::read(root.join("story-intro.json")).unwrap()).unwrap();
     // Exercise both cancellation before the worker opens the input and during
-    // FFmpeg's stream probe. Invalid pixel formats previously aborted in swscale.
+    // container probing, before any codec state is ready.
     for delay in [0, 1, 2, 4, 8, 16] {
         for _ in 0..8 {
             let decoder = MovieDecoder::open(&root.join(&asset.path), asset.clone()).unwrap();
@@ -30,14 +32,27 @@ fn cancellation_during_stream_probing_does_not_use_incomplete_formats() {
 #[test]
 #[ignore = "requires locally cooked GQSEAF opening and its intermediate audio"]
 fn decodes_every_opening_frame_and_preserves_lossless_audio() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked");
-    let document: serde_json::Value =
-        serde_json::from_slice(&fs::read(root.join("intro.json")).expect("cook-intro first"))
-            .unwrap();
+    check_movie("intro");
+}
+
+#[test]
+#[ignore = "requires locally cooked GQSEAF story movie and its intermediate audio"]
+fn decodes_every_story_frame_and_preserves_lossless_audio() {
+    check_movie("story-intro");
+}
+
+fn check_movie(name: &str) {
+    let root = std::env::var_os("RESONANCE_COOKED_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"));
+    let document: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join(format!("{name}.json"))).expect("cook-intro first"),
+    )
+    .unwrap();
     let asset: MovieAsset = serde_json::from_value(document.clone()).unwrap();
     let stream = document["recipe"]["audio_stream"].as_u64().unwrap();
     let mut wave =
-        hound::WavReader::open(root.join(format!("intermediate/intro/audio-{stream}-stereo.wav")))
+        hound::WavReader::open(root.join(format!("intermediate/{name}/audio-{stream}-stereo.wav")))
             .unwrap();
     let mut expected = Sha256::new();
     for sample in wave.samples::<i16>() {
@@ -61,7 +76,7 @@ fn decodes_every_opening_frame_and_preserves_lossless_audio() {
                     asset.width as usize * asset.height as usize * 4
                 );
                 assert!(video.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
-                if video.index == 1137 {
+                if name == "intro" && video.index == 1137 {
                     assert_eq!(video.rgba[(214 * 640 + 499) * 4], 217);
                 }
                 frames += 1;

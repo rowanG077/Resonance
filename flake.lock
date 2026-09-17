@@ -1,22 +1,5 @@
 {
   "nodes": {
-    "hvqm4": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1604752962,
-        "narHash": "sha256-YZR39V/O4WuNCajJzZV+fyOET46NrNVfVvzfPjUAlXQ=",
-        "owner": "Tilka",
-        "repo": "hvqm4",
-        "rev": "09700757304af4f439f0e50e7a0160cadc4d7a48",
-        "type": "github"
-      },
-      "original": {
-        "owner": "Tilka",
-        "repo": "hvqm4",
-        "rev": "09700757304af4f439f0e50e7a0160cadc4d7a48",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1788179007,
@@ -35,7 +18,6 @@
     },
     "root": {
       "inputs": {
-        "hvqm4": "hvqm4",
         "nixpkgs": "nixpkgs"
       }
     }
