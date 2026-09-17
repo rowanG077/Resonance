@@ -1,509 +1,300 @@
-use crate::read::{f32 as f32_at, u32 as u32_at};
-use crate::{animation, digest, geometry, glow, write_atomic};
+#[cfg(test)]
+use crate::{animation, geometry, read::u32 as u32_at};
+use crate::{digest, glow};
 use anyhow::{Context, Result, ensure};
-use resonance_content::{
-    CameraKey, SceneClip, SceneMaterial, ScenePart, TextureBinding, TextureWrap, TitleGlow,
-    TitleScene,
-};
-use std::{
-    fs,
-    io::{Cursor, Read},
-    path::Path,
-};
+use resonance_content::{CameraKey, TitleGlow, TitleScene};
+#[cfg(test)]
+use std::fs;
+use std::path::Path;
+pub(crate) mod binding;
+pub(crate) mod glb;
+mod projection;
+pub(crate) mod recovered;
+pub(crate) mod source;
+pub(crate) mod title;
 
-fn vector(bytes: &[u8], offset: usize) -> Result<[f32; 3]> {
-    Ok([
-        f32_at(bytes, offset)?,
-        f32_at(bytes, offset + 4)?,
-        f32_at(bytes, offset + 8)?,
-    ])
-}
-fn section(map: &[u8], index: usize) -> Result<&[u8]> {
-    let count = u32_at(map, 0)? as usize;
-    ensure!(count <= 256 && index < count, "invalid map section count");
-    let start = u32_at(map, 4 + index * 4)? as usize;
-    ensure!(start >= 4 + count * 4, "missing map section {index}");
-    let mut end = map.len();
-    for i in index + 1..count {
-        let next = u32_at(map, 4 + i * 4)? as usize;
-        if next != 0 {
-            end = next;
-            break;
-        }
-    }
-    map.get(start..end).context("invalid map section range")
-}
-fn camera(bytes: &[u8]) -> Result<Vec<CameraKey>> {
-    ensure!(bytes.get(..4) == Some(b"CAMM"), "expected camera track");
-    let count = u32_at(bytes, 8)? as usize;
-    let optional = u32_at(bytes, 4)? as usize;
+fn camera(track: crate::all_assets::CameraTrack) -> Result<Vec<CameraKey>> {
     ensure!(
-        count > 1 && count < 10000 && optional != 0,
-        "invalid camera track"
+        track.transforms.len() >= 2 && track.transforms.len() == track.targets.len(),
+        "title camera needs matching position and target tracks"
     );
-    (0..count)
-        .map(|i| {
-            let at = 12 + i * 36;
-            let target = optional + 12 + i * 20;
-            let time = f32_at(bytes, at)?;
+    track
+        .transforms
+        .into_iter()
+        .zip(track.targets)
+        .map(|(position, target)| {
             ensure!(
-                f32_at(bytes, target)? == time,
+                position.time == target.time,
                 "camera tracks have different times"
             );
             Ok(CameraKey {
-                time,
-                position: vector(bytes, at + 4)?,
-                target: vector(bytes, target + 4)?,
+                time: position.time,
+                position: position.position,
+                target: target.position,
             })
         })
         .collect()
 }
 
-pub fn cook(source: &Path, executable: &Path, output: &Path) -> Result<TitleScene> {
-    let bytes = fs::read(source)?;
-    let dol = fs::read(executable)?;
-    let mut cabinet = cab::Cabinet::new(Cursor::new(&bytes))?;
-    let mut map = Vec::new();
-    cabinet
-        .read_file("TIT_T00.BIN")?
-        .take(64 * 1024 * 1024)
-        .read_to_end(&mut map)?;
+pub(crate) fn title_source(extracted: &Path, executable: &[u8]) -> Result<String> {
+    // The title field owns this renderer in the native phase catalogue.
+    let phases = crate::field_catalogue::read(executable)?;
+    let mut title = phases.records.iter().filter(|phase| {
+        phase.render_before_objects == Some(crate::field_catalogue::NativeCallback::TITLE_SCENE)
+    });
+    let resource = title
+        .next()
+        .context("missing title field declaration")?
+        .resource
+        .as_deref()
+        .context("title field has no resource")?;
+    ensure!(title.next().is_none(), "ambiguous title field declarations");
+    resonance_content::validate_asset_path(resource)?;
+    crate::field_resources::resolve_path(&extracted.join("files"), &format!("MAP/{resource}"))
+}
+
+pub(crate) fn bind_title(
+    extracted: &Path,
+    output: &Path,
+    recipe: &title::Recipe,
+    executable: &[u8],
+) -> Result<TitleScene> {
+    ensure!(
+        crate::digest(executable) == recipe.executable_sha256,
+        "title executable digest mismatch"
+    );
+    let map = binding::Map::open(output, &extracted.join("files").join(&recipe.field.path))?;
+    ensure!(
+        map.source_sha256 == recipe.field.sha256,
+        "title field source digest mismatch"
+    );
     let mut parts = Vec::new();
-    let mut feather = None;
-    let mut reflection = None;
-    let mut landing = None;
-    let mut landing_loop = None;
-    for index in [0, 2, 17, 18, 20, 21, 22] {
-        let (part, gltf, binary) = cook_part(
-            PartSource {
-                name: &format!("title-scene/{index:02}"),
-                source: section(&map, index)?,
-                resource: index as u16,
-                draw_order: [0, 20, 21, 17, 18, 22, 2]
-                    .iter()
-                    .position(|p| *p == index)
-                    .unwrap() as u32,
-                depth_write: index != 2,
-                translation: [0., 0., if index == 17 { 5. } else { 0. }],
-                autoplay: if matches!(index, 0 | 2) {
-                    Some(section(&map, index + 1)?)
-                } else {
-                    None
-                },
-                animation_slots: if [17, 18, 21].contains(&index) {
-                    &[12, 36]
-                } else if [20, 22].contains(&index) {
-                    &[12]
-                } else {
-                    &[]
-                },
-                clip_prefix: &format!("title-{index}"),
-                extra_clips: &[],
-                texture_animations: if index == 2 {
-                    crate::texture_animation::cook(&dol)?
-                } else {
-                    Vec::new()
-                },
-            },
-            output,
-        )?;
-        if index == 17 {
-            feather = Some(glow::positions(
-                &gltf,
-                &binary,
-                "Fz_Bone01",
-                glam::Vec3::Z * 5.,
-                0,
-                730,
-            )?);
-            let points = glow::positions(&gltf, &binary, "Dummy", glam::Vec3::Z * 5., 0, 730)?;
-            ensure!(
-                points.iter().all(|p| *p == points[0]),
-                "landing attachment unexpectedly moves"
+    let mut skeletons = std::collections::BTreeMap::new();
+    for (order, index) in [0, 20, 21, 17, 18, 22, 2].into_iter().enumerate() {
+        let (part, glb) = map.title_part(index, order as u32)?;
+        if !part.autoplay {
+            skeletons.insert(
+                part.resource,
+                glow::skeleton(&glb.json, part.bone_names.len())?,
             );
-            landing = Some(points[0]);
-            landing_loop = Some(glow::positions(
-                &gltf,
-                &binary,
-                "Dummy",
-                glam::Vec3::Z * 5.,
-                1,
-                360,
-            )?);
-        }
-        if index == 18 {
-            reflection = Some(glow::positions(
-                &gltf,
-                &binary,
-                "Rf_Fez_Ref_120",
-                glam::Vec3::ZERO,
-                0,
-                730,
-            )?);
         }
         parts.push(part);
     }
-    let (texture, source_sha256) = glow::texture(
-        &source
-            .parent()
-            .context("map directory")?
-            .parent()
-            .context("files directory")?
-            .join("effect.cab"),
-        output,
-    )?;
-    let script_bytes = section(&map, 6)?;
-    symphonia_script::Program::decode(script_bytes)?;
-    let script_path = "title/events.ssb";
-    write_atomic(&output.join(script_path), script_bytes)?;
-    let (listing, _) = symphonia_script::scenario::disassemble(script_bytes)?;
-    write_atomic(
-        &output.join("intermediate/title/events.ssasm"),
-        listing.as_bytes(),
-    )?;
+    let texture = glow::texture(extracted, output, &recipe.effects)?;
+    let script_bytes = map.script()?;
+    let [script_path, _] = map.publish_script()?;
+    parts
+        .iter_mut()
+        .find(|part| part.resource == 2)
+        .context("missing title lighting layer")?
+        .texture_animations = crate::texture_animation::bind_title(executable, &script_bytes)?;
+    let cameras = [16, 23]
+        .into_iter()
+        .map(|index| camera(map.camera(index)?))
+        .collect::<Result<_>>()?;
     Ok(TitleScene {
         script: resonance_content::ScriptAsset {
-            path: script_path.into(),
-            sha256: digest(script_bytes),
+            path: script_path,
+            sha256: digest(&script_bytes),
         },
-        source_sha256: digest(&bytes),
-        code_source_sha256: digest(&dol),
+        source_sha256: recipe.field.sha256.clone(),
+        code_source_sha256: recipe.executable_sha256.clone(),
         parts,
         glow: TitleGlow {
             texture,
-            source_sha256,
-            feather: feather.context("missing feather")?,
-            reflection: reflection.context("missing reflection")?,
-            landing: landing.context("missing landing")?,
-            landing_loop: landing_loop.context("missing landing loop")?,
+            source_sha256: recipe.effects.sha256.clone(),
+            skeletons,
         },
-        cameras: vec![camera(section(&map, 16)?)?, camera(section(&map, 23)?)?],
+        cameras,
         fov_degrees: 27.,
     })
 }
 
-pub(crate) struct PartSource<'a> {
-    pub name: &'a str,
-    pub source: &'a [u8],
-    pub resource: u16,
-    pub draw_order: u32,
-    pub depth_write: bool,
-    pub translation: [f32; 3],
-    pub autoplay: Option<&'a [u8]>,
-    pub animation_slots: &'a [usize],
-    pub clip_prefix: &'a str,
-    pub extra_clips: &'a [SourceClip<'a>],
-    pub texture_animations: Vec<resonance_content::TextureAnimation>,
-}
-
-pub(crate) struct SourceClip<'a> {
-    pub slot: u16,
-    pub bytes: &'a [u8],
-    pub resource: Option<u32>,
-}
-
-/// Compile source geometry and materials into ordinary runtime assets.
-/// The extra glTF and vertex data are available for offline attachment baking.
-pub(crate) fn cook_part(
-    spec: PartSource<'_>,
-    output: &Path,
-) -> Result<(ScenePart, serde_json::Value, Vec<u8>)> {
-    let name = spec.name;
-    let intermediate = output.join("intermediate").join(name);
-    let manifest = geometry::export_section(spec.source, &intermediate)?;
-    let mut gltf: serde_json::Value =
-        serde_json::from_slice(&fs::read(intermediate.join("scene.gltf"))?)?;
-    // Keep non-triangle objects in the import diagnostics; never hand
-    // zero-length accessors to the runtime loader.
-    let empty: Vec<usize> = gltf["meshes"]
-        .as_array()
-        .context("meshes")?
-        .iter()
-        .enumerate()
-        .filter(|(_, m)| {
-            m["primitives"].as_array().unwrap().iter().all(|p| {
-                let accessor = p["indices"].as_u64().unwrap() as usize;
-                gltf["accessors"][accessor]["count"].as_u64() == Some(0)
-            })
-        })
-        .map(|(i, _)| i)
-        .collect();
-    let mut unsupported = Vec::new();
-    for node in gltf["nodes"].as_array_mut().context("nodes")? {
-        if node["mesh"]
-            .as_u64()
-            .is_some_and(|m| empty.contains(&(m as usize)))
-        {
-            unsupported.push(node["name"].clone());
-            node.as_object_mut().unwrap().remove("mesh");
-        } else if let Some(old) = node["mesh"].as_u64() {
-            node["mesh"] = serde_json::json!(
-                old as usize - empty.iter().filter(|i| **i < old as usize).count()
-            );
-        }
-    }
-    let meshes = gltf["meshes"].as_array_mut().context("meshes")?;
-    let mut i = 0;
-    meshes.retain(|_| {
-        let keep = !empty.contains(&i);
-        i += 1;
-        keep
-    });
-    if !unsupported.is_empty() {
-        eprintln!(
-            "Scene part {name}: {} objects have no triangle geometry",
-            unsupported.len()
-        );
-        write_atomic(
-            &intermediate.join("unsupported-effects.json"),
-            &serde_json::to_vec_pretty(&unsupported)?,
-        )?;
-    }
-    let mut textures = Vec::new();
-    for texture in &manifest.textures {
-        let path = format!("{name}/texture_{:03}.ktx2", texture.index);
-        let destination = output.join(&path);
-        fs::create_dir_all(destination.parent().context("texture directory")?)?;
-        crate::texture::cook_png(&intermediate.join(&texture.image), &destination)?;
-        textures.push(path);
-    }
-    // Compile texture/vertex-color combination modes into material recipes.
-    let templates = gltf["materials"]
-        .as_array()
-        .context("materials array")?
-        .clone();
-    let mut materials = Vec::new();
-    // Draw backdrop, actors in creation order, then lights.
-    let part_order = spec.draw_order;
-    let mut cooked_materials = Vec::new();
-    for object in manifest
-        .objects
-        .iter()
-        .filter(|o| !empty.contains(&o.index))
-    {
-        let mode = object
-            .tev_modes
-            .first()
-            .copied()
-            .context("missing scene material mode")?;
-        ensure!(
-            [1, 4, 5, 0x11].contains(&mode),
-            "unsupported scene material mode {mode:#x}"
-        );
-        let binding = |stage: usize| -> Result<TextureBinding> {
-            let command = *object
-                .texture_commands
-                .get(stage)
-                .context("missing material texture stage")?;
-            ensure!(
-                ((command >> 13) & 7) as usize == stage,
-                "unexpected texture stage"
-            );
-            let wrap = |v| -> Result<TextureWrap> {
-                match v {
-                    0 => Ok(TextureWrap::Clamp),
-                    1 => Ok(TextureWrap::Repeat),
-                    2 => Ok(TextureWrap::Mirror),
-                    _ => anyhow::bail!("invalid texture wrap {v}"),
+#[test]
+#[ignore = "requires both original extracted discs; camera projection only"]
+fn original_title_camera_projection_preserves_positions_targets_and_times() -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+    for disc in ["disc1", "disc2"] {
+        let extracted = root.join(disc);
+        let executable = fs::read(extracted.join("sys/main.dol"))?;
+        let source = title_source(&extracted, &executable)?;
+        let map = crate::field::MapArchive::open(&extracted.join("files").join(source))?;
+        for index in [16, 23] {
+            let bytes = map.section(index)?;
+            let keys = camera(crate::all_assets::camera(bytes)?)?;
+            assert_eq!(keys.len(), u32_at(bytes, 8)? as usize);
+            for (index, key) in keys.iter().enumerate() {
+                let position = 12 + index * 36;
+                let target = u32_at(bytes, 4)? as usize + 12 + index * 20;
+                assert_eq!(key.time, crate::read::f32(bytes, position)?);
+                assert_eq!(key.time, crate::read::f32(bytes, target)?);
+                for axis in 0..3 {
+                    assert_eq!(
+                        key.position[axis],
+                        crate::read::f32(bytes, position + 4 + axis * 4)?
+                    );
+                    assert_eq!(
+                        key.target[axis],
+                        crate::read::f32(bytes, target + 4 + axis * 4)?
+                    );
                 }
-            };
-            let min = (command >> 24) & 15;
-            let mag = command >> 28;
-            ensure!(min <= 5 && mag <= 1, "unsupported texture filter");
-            Ok(TextureBinding {
-                texture: (command & 0x1fff) as usize,
-                wrap_u: wrap((command >> 16) & 15)?,
-                wrap_v: wrap((command >> 20) & 15)?,
-                nearest_min: [0, 2, 4].contains(&min),
-                nearest_mag: mag == 0,
-            })
-        };
-        let mut material = templates
-            .get(object.material)
-            .context("missing material template")?
-            .clone();
-        let color = if mode == 5 { None } else { Some(binding(0)?) };
-        let multiply = if mode == 0x11 {
-            Some(binding(1)?)
-        } else {
-            None
-        };
-        let blend = material["alphaMode"] == "BLEND" || multiply.is_some();
-        let mesh_index = object.index - empty.iter().filter(|i| **i < object.index).count();
-        for primitive in gltf["meshes"][mesh_index]["primitives"]
-            .as_array_mut()
-            .context("primitives")?
-        {
-            primitive["material"] = serde_json::json!(materials.len());
-            if mode == 4 {
-                primitive["attributes"]
-                    .as_object_mut()
-                    .unwrap()
-                    .remove("COLOR_0");
             }
-            ensure!(
-                multiply.is_none() || primitive["attributes"].get("TEXCOORD_1").is_some(),
-                "multiply material needs secondary UVs"
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires both original discs; fresh output, no cooked intermediates"]
+fn original_title_cooks_from_sources_and_preserves_native_clips_and_assets() -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
+    for disc in [1, 2] {
+        let temporary = tempfile::tempdir()?;
+        let output = temporary.path();
+        let extracted = root.join(format!("extracted/disc{disc}"));
+        let executable = fs::read(extracted.join("sys/main.dol"))?;
+        let source = title_source(&extracted, &executable)?;
+        let raw = crate::field::MapArchive::open(&extracted.join("files").join(&source))?;
+        crate::cook_title(&extracted, output)?;
+        let manifest: resonance_content::TitleAssets =
+            serde_json::from_slice(&fs::read(output.join("title.json"))?)?;
+        let title = manifest.scene.context("missing title scene")?;
+        assert!(!output.join("sources.json").exists());
+        assert!(!output.join("data").exists());
+        assert_eq!(title.source_sha256, raw.source_sha256);
+        assert_eq!(fs::read(output.join(&title.script.path))?, raw.section(6)?);
+        assert!(title.glow.texture.starts_with("textures/"));
+        assert_eq!(title.parts.len(), 7);
+        for part in &title.parts {
+            assert!(
+                part.textures
+                    .iter()
+                    .all(|path| path.starts_with("textures/"))
+            );
+            let index = usize::from(part.resource);
+            let source = raw.section(index)?;
+            let (_, model) = geometry::model_resource(source)?;
+            let bindings =
+                animation::ModelBindings::read(&model[geometry::skeleton_range(model)?])?;
+            // Build the semantic physical reference privately; frozen libraries may
+            // use an older model schema and are never rewritten by this test.
+            let reference = tempfile::tempdir()?;
+            let mut failures = Vec::new();
+            assert!(crate::all_assets::geometry::cook(
+                model,
+                "model",
+                reference.path(),
+                None,
+                crate::all_assets::geometry::Input::Member,
+                &mut |path, result| {
+                    if let Err(error) = result {
+                        failures.push(format!("{path}: {error:#}"));
+                    }
+                }
+            ));
+            assert!(failures.is_empty(), "{}", failures.join("\n"));
+            let (shared, expected) = binding::model(reference.path(), "model")?;
+            assert_eq!(part.textures.len(), shared.textures.len());
+            for (actual, expected) in part.textures.iter().zip(&shared.textures) {
+                assert_eq!(
+                    fs::read(output.join(actual))?,
+                    fs::read(reference.path().join(expected))?
+                );
+            }
+            for binding in &part.clips {
+                let bytes = if binding.resource_slot == 0 {
+                    raw.section(index + 1)?
+                } else {
+                    &source[u32_at(source, usize::from(binding.resource_slot))? as usize..]
+                };
+                let motion = bindings.motion(bytes)?;
+                let published = resonance_content::animation::Motion::decode(&fs::read(
+                    output.join(&binding.motion),
+                )?)?;
+                assert_eq!(
+                    serde_json::to_value(&published)?,
+                    serde_json::to_value(&motion)?
+                );
+                assert_eq!(
+                    binding.duration_seconds,
+                    motion.duration_frames / resonance_content::animation::FRAME_HZ,
+                );
+                if let Some(skeleton) = title.glow.skeletons.get(&part.resource) {
+                    let original = glow::skeleton(&expected.json, part.bone_names.len())?;
+                    assert_eq!(
+                        serde_json::to_value(skeleton)?,
+                        serde_json::to_value(&original)?
+                    );
+                    let bones: Vec<_> = ["Fz_Bone01", "Dummy", "Rf_Fez_Ref_120"]
+                        .into_iter()
+                        .filter_map(|name| original.bone(name).map(|bone| (name, bone)))
+                        .collect();
+                    if bones.is_empty() {
+                        continue;
+                    }
+                    // Check every native emitter tick against the original
+                    // full-pose evaluator, without publishing sampled paths.
+                    for tick in 0..=binding.duration_ticks() {
+                        let frame = (tick as f32 * resonance_content::animation::FRAME_HZ
+                            / resonance_content::ANIMATION_HZ)
+                            .min(motion.duration_frames);
+                        let pose = original.sample(&motion, frame)?;
+                        for &(name, bone) in &bones {
+                            let actual = skeleton.sample_point(&published, frame, bone, [0.; 3])?;
+                            let expected = pose.point(bone, [0.; 3])?;
+                            let world = |p: [f32; 3]| {
+                                std::array::from_fn::<_, 3, _>(|i| {
+                                    (p[i] + part.translation[i]).trunc()
+                                })
+                            };
+                            assert_eq!(
+                                world(actual),
+                                world(expected),
+                                "part {index} clip {} bone {name} tick {tick}",
+                                binding.resource_slot
+                            );
+                        }
+                    }
+                }
+            }
+            let expected =
+                resonance_asset_writer::gltf::pack_glb(&expected.json, &expected.binary)?;
+            assert_eq!(
+                fs::read(output.join(&part.mesh))?,
+                expected,
+                "disc{disc} title part {index}"
             );
         }
-        material["name"] = serde_json::json!(object.name);
-        material["pbrMetallicRoughness"]
-            .as_object_mut()
-            .context("material")?
-            .remove("baseColorTexture");
-        material["extensions"] = serde_json::json!({"KHR_materials_unlit": {}});
-        material.as_object_mut().unwrap().remove("extras");
-        cooked_materials.push(material);
-        ensure!(
-            object.draw_order < 65536,
-            "too many authored draws in scene part"
-        );
-        materials.push(SceneMaterial {
-            color,
-            multiply,
-            blend,
-            depth_write: spec.depth_write,
-            cull: resonance_content::CullFace::Back,
-            draw_order: part_order * 65536 + object.draw_order,
-        });
-    }
-    gltf["materials"] = serde_json::json!(cooked_materials);
-    gltf["extensionsUsed"] = serde_json::json!(["KHR_materials_unlit"]);
-    for key in ["images", "textures", "samplers", "extras"] {
-        gltf.as_object_mut().unwrap().remove(key);
-    }
-    gltf["buffers"][0]
-        .as_object_mut()
-        .context("buffer")?
-        .remove("uri");
-    let mut binary = fs::read(intermediate.join("scene.bin"))?;
-    let mut clips = Vec::new();
-    let autoplay = spec.autoplay.is_some();
-    if let Some(animation) = spec.autoplay {
-        // Map sections 1 and 3 hold backdrop and light groups.
-        let source = spec.source;
-        let model = manifest.model_offset.context("field group has no model")?;
-        write_atomic(&intermediate.join("default-animation.bin"), animation)?;
-        let duration_seconds = animation::bake_with_model(
-            animation,
-            &source[model..],
-            &mut gltf,
-            &mut binary,
-            &format!("field-{}", spec.resource),
-        )?;
-        clips.push(SceneClip {
-            resource_slot: 0,
-            duration_seconds,
-            animation_resource: None,
-            secondary_pose_nodes: Vec::new(),
-        });
-    }
-    if !spec.animation_slots.is_empty() {
-        let source = spec.source;
-        let model = manifest
-            .model_offset
-            .context("animated title part has no model")?;
-        let schedule = spec.animation_slots;
-        for (clip, slot) in schedule.iter().enumerate() {
-            let offset = u32_at(source, *slot)? as usize;
-            let duration_seconds = animation::bake(
-                source,
-                offset,
-                model,
-                &mut gltf,
-                &mut binary,
-                &format!("{}-{clip}", spec.clip_prefix),
-            )?;
-            clips.push(SceneClip {
-                resource_slot: *slot as u16,
-                duration_seconds,
-                animation_resource: None,
-                secondary_pose_nodes: Vec::new(),
-            });
+        for (camera_index, section) in [16, 23].into_iter().enumerate() {
+            assert_eq!(
+                serde_json::to_value(&title.cameras[camera_index])?,
+                serde_json::to_value(camera(crate::all_assets::camera(raw.section(section)?)?)?)?
+            );
         }
     }
-    for clip in spec.extra_clips {
-        let model = manifest
-            .model_offset
-            .context("animated part has no model")?;
-        let duration_seconds = animation::bake_with_model(
-            clip.bytes,
-            &spec.source[model..],
-            &mut gltf,
-            &mut binary,
-            &format!("{}-{}", spec.clip_prefix, clip.slot),
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires an original executable; mutates only a temporary source declaration"]
+fn title_declaration_resolves_renamed_case_alias_and_rejects_missing_source() -> Result<()> {
+    let root = crate::temporary_path(&std::env::temp_dir().join("title-declaration"));
+    let result = (|| -> Result<()> {
+        let mut executable = fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1/sys/main.dol"),
         )?;
-        clips.push(SceneClip {
-            resource_slot: clip.slot,
-            duration_seconds,
-            animation_resource: clip.resource,
-            secondary_pose_nodes: serde_json::from_value(
-                gltf["animations"]
-                    .as_array()
-                    .context("cooked animations")?
-                    .last()
-                    .context("cooked clip")?["extras"]["secondary_pose_nodes"]
-                    .clone(),
-            )?,
-        });
+        let declaration = crate::dol::slice(&executable, 0x8017be78, 12)?;
+        let offset = declaration.as_ptr() as usize - executable.as_ptr() as usize;
+        executable[offset..offset + 12].copy_from_slice(b"renamed.bin\0");
+        fs::create_dir_all(root.join("files/Map"))?;
+        fs::write(root.join("files/Map/ReNaMeD.bin"), [])?;
+        assert_eq!(title_source(&root, &executable)?, "Map/ReNaMeD.bin");
+        fs::remove_file(root.join("files/Map/ReNaMeD.bin"))?;
+        assert!(title_source(&root, &executable).is_err());
+        Ok(())
+    })();
+    if root.exists() {
+        fs::remove_dir_all(root)?;
     }
-    let mut json = serde_json::to_vec(&gltf)?;
-    while json.len() % 4 != 0 {
-        json.push(b' ');
-    }
-    while binary.len() % 4 != 0 {
-        binary.push(0);
-    }
-    let length = 12 + 8 + json.len() + 8 + binary.len();
-    let mut glb = Vec::with_capacity(length);
-    for v in [
-        0x46546C67u32,
-        2,
-        length as u32,
-        json.len() as u32,
-        0x4E4F534A,
-    ] {
-        glb.extend(v.to_le_bytes());
-    }
-    glb.extend(json);
-    for v in [binary.len() as u32, 0x004E4942] {
-        glb.extend(v.to_le_bytes());
-    }
-    glb.extend(&binary);
-    // Fields share character packages; a new clip set must not overwrite the
-    // mesh still referenced by another field's manifest.
-    let mesh = format!("{name}/{}.glb", digest(&glb));
-    write_atomic(&output.join(&mesh), &glb)?;
-    let part = ScenePart {
-        resource: spec.resource,
-        mesh,
-        textures,
-        materials,
-        appearance: None,
-        outline_color: None,
-        secondary_motion: Vec::new(),
-        clips,
-        autoplay,
-        texture_animations: spec.texture_animations,
-        translation: spec.translation,
-        bone_names: manifest
-            .model_nodes
-            .iter()
-            .map(|n| n.name.clone())
-            .collect(),
-        material_nodes: manifest
-            .objects
-            .iter()
-            .filter(|object| !empty.contains(&object.index))
-            .map(|object| {
-                manifest
-                    .model_nodes
-                    .iter()
-                    .filter(|node| node.object_index == object.source_index)
-                    .map(|node| node.index as u16)
-                    .collect()
-            })
-            .collect(),
-    };
-    Ok((part, gltf, binary))
+    result
 }

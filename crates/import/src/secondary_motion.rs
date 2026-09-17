@@ -1,6 +1,6 @@
 //! Cook named hair, scarf, and clothing chains into joint dynamics.
 use anyhow::{Context, Result, ensure};
-use resonance_content::secondary_motion::{Chain, CollisionPlane, Joint};
+use resonance_content::secondary_motion::{Chain, Definition, Joint};
 use serde_json::Value;
 
 fn parameter(name: &str, tag: &str) -> Result<Option<f32>> {
@@ -17,8 +17,28 @@ fn parameter(name: &str, tag: &str) -> Result<Option<f32>> {
     Ok((value != 0.).then_some(value))
 }
 
-pub(crate) fn cook(gltf: &Value, names: &[String], lloyd: bool) -> Result<Vec<Chain>> {
+#[cfg(test)]
+pub(crate) fn cook(source: &[u8], gltf: &Value, names: &[String]) -> Result<Definition> {
+    let mut definition = bind("", gltf, names)?;
+    if !definition.chains.is_empty() {
+        let model = source
+            .get(crate::read::u32(source, 4)? as usize..)
+            .context("chain model")?;
+        let name = model
+            .get(crate::read::u32(model, 16)? as usize..)
+            .context("chain model name")?;
+        let end = name
+            .iter()
+            .position(|&b| b == 0)
+            .context("unterminated model name")?;
+        definition.model = std::str::from_utf8(&name[..end])?.to_owned();
+    }
+    Ok(definition)
+}
+
+pub(crate) fn bind(model: &str, gltf: &Value, names: &[String]) -> Result<Definition> {
     let nodes = gltf["nodes"].as_array().context("chain skeleton")?;
+    ensure!(nodes.len() >= names.len(), "incomplete chain skeleton");
     let mut chains = Vec::new();
     for (index, name) in names
         .iter()
@@ -55,156 +75,19 @@ pub(crate) fn cook(gltf: &Value, names: &[String], lloyd: bool) -> Result<Vec<Ch
             let Some(child) = nodes[node]["children"].as_array().and_then(|c| c.first()) else {
                 break;
             };
-            node = child.as_u64().context("invalid chain child")? as usize;
+            node = child.as_u64().context("invalid chain child")?.try_into()?;
         }
         chain.attraction = if follows_pose { attraction } else { 0. };
-        // Lloyd’s hair has separate dynamics; both scarf chains stay within
-        // the spine’s local XZ half-space.
-        if lloyd && name.starts_with("AB_ROOT_NR_FP_01_kami") {
-            chain.attraction = 0.4165;
-            for joint in &mut chain.joints {
-                joint.gravity = -0.7333;
-                joint.damping = 0.7666;
-            }
-        } else if lloyd && name.contains("manto_") {
-            // Attached models can reuse Lloyd's resource name without his
-            // skeleton. Only an actual scarf chain needs the spine plane.
-            let spine = names
-                .iter()
-                .position(|name| name.starts_with("Bone_sebone02"))
-                .context("Lloyd chain collision anchor")?;
-            chain.collision_plane = Some(CollisionPlane {
-                anchor: spine.try_into()?,
-                normal: [0., -1., 0.],
-                offset: 0.,
-                strength: 1.,
-            });
-        }
         chain.validate(names.len())?;
         chains.push(chain);
     }
-    Ok(chains)
-}
-
-/// Colette’s chain dynamics and body collision planes.
-pub(crate) fn colette(chains: &mut [Chain], names: &[String]) -> Result<()> {
-    let bone = |prefix: &str| -> Result<u16> {
-        Ok(names
-            .iter()
-            .position(|name| name.starts_with(prefix))
-            .context("Colette chain collision anchor")? as u16)
-    };
-    for chain in chains {
-        let name = &names[usize::from(chain.joints[0].node)];
-        let plane = if name.contains("_kami01") || name.contains("_manto02_") {
-            chain.rotation_locks[1] = true;
-            if name.contains("_kami01") {
-                // DOL doubles 8035B7B8=1.66 and 8035B790=1.2.
-                chain.joints[0].gravity = (f64::from(chain.joints[0].gravity) * 1.66) as f32;
-                chain.joints[0].damping = (f64::from(chain.joints[0].damping) * 1.66) as f32;
-                for index in 1..chain.joints.len() {
-                    chain.joints[index].gravity =
-                        (f64::from(chain.joints[index - 1].gravity) / 1.2) as f32;
-                    chain.joints[index].damping =
-                        (f64::from(chain.joints[index - 1].damping) / 1.2) as f32;
-                }
-            }
-            Some(CollisionPlane {
-                anchor: bone("Bone_sebone02")?,
-                normal: [0., -1., 0.],
-                offset: 1.,
-                strength: 0.2,
-            })
-        } else if name.contains("_manto01_") {
-            chain.rotation_locks[1] = true;
-            Some(CollisionPlane {
-                anchor: bone("Bone_sebone02")?,
-                normal: [0., 1., 0.],
-                offset: 0.,
-                strength: 1.,
-            })
-        } else if name.contains("_kata_") {
-            chain.rotation_locks[0] = true;
-            Some(CollisionPlane {
-                anchor: bone(if name.contains("_kata_L_") {
-                    "Bone_ude01_L"
-                } else {
-                    "Bone_ude01_R"
-                })?,
-                normal: [0., 1., 0.],
-                offset: 0.,
-                strength: 1.,
-            })
-        } else {
-            None
-        };
-        chain.collision_plane = plane;
-        chain.validate(names.len())?;
+    if chains.is_empty() {
+        return Ok(Definition::default());
     }
-    Ok(())
-}
-
-/// Raine’s coat follows her spine and legs. Cook joint indices, dynamics,
-/// and collision planes into the same format as other characters.
-pub(crate) fn raine(chains: &mut [Chain], names: &[String]) -> Result<()> {
-    let bone = |prefix: &str| -> Result<u16> {
-        Ok(names
-            .iter()
-            .position(|name| name.starts_with(prefix))
-            .with_context(|| format!("Raine chain collision anchor {prefix}"))? as u16)
-    };
-    for chain in chains {
-        let name = &names[usize::from(chain.joints[0].node)];
-        let back = name.contains("_manto02_") || name.contains("_manto03_");
-        let front = name.contains("_manto04_");
-        if back {
-            chain.attraction = 0.008167;
-            let (mut gravity, mut damping) = (1.6_f32, 0.633_f32);
-            for joint in &mut chain.joints {
-                joint.gravity = gravity;
-                joint.damping = damping;
-                gravity = (f64::from(gravity) / 1.2) as f32;
-                damping = (f64::from(damping) / 1.2) as f32;
-            }
-        } else if front {
-            chain.attraction = 0.04;
-            for joint in &mut chain.joints {
-                joint.gravity = 3.933;
-                joint.damping = 0.666;
-            }
-        }
-        let plane = if name.contains("_manto01_") {
-            Some(("Bone_sebone03", [0., 1., 0.], -1., 0.4))
-        } else if name.contains("_manto02_") {
-            Some(("Bone_sebone03", [0., -1., 0.], 0., 1.))
-        } else if name.contains("_manto03_") || front {
-            chain.rotation_locks[1] = true;
-            Some((
-                if name.contains("_L_") {
-                    "Bone_ashi01_L"
-                } else {
-                    "Bone_ashi01_R"
-                },
-                [0., if front { -1. } else { 1. }, 0.],
-                if front { -1. } else { 0. },
-                1.,
-            ))
-        } else {
-            None
-        };
-        chain.collision_plane = plane
-            .map(|(anchor, normal, offset, strength)| {
-                Ok::<_, anyhow::Error>(CollisionPlane {
-                    anchor: bone(anchor)?,
-                    normal,
-                    offset,
-                    strength,
-                })
-            })
-            .transpose()?;
-        chain.validate(names.len())?;
-    }
-    Ok(())
+    Ok(Definition {
+        model: model.to_owned(),
+        chains,
+    })
 }
 
 #[cfg(test)]
@@ -212,31 +95,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lloyd_collision_anchor_is_required_only_for_scarf_chains() {
-        let mut gltf = serde_json::json!({"nodes": [{"children": [1]}, {}]});
-        let mut names = vec!["default".into(), "default01".into()];
-        assert!(cook(&gltf, &names, true).unwrap().is_empty());
-
-        names[0] = "AB_ROOT_NR_FP_01_kami".into();
-        let hair = cook(&gltf, &names, true).unwrap();
-        assert_eq!(hair[0].attraction, 0.4165);
-        assert_eq!(hair[0].joints[0].gravity, -0.7333);
-        assert!(hair[0].collision_plane.is_none());
-
-        names[0] = "AB_ROOT_FP_01_manto_L".into();
-        assert!(
-            cook(&gltf, &names, true)
-                .unwrap_err()
-                .to_string()
-                .contains("Lloyd chain collision anchor")
-        );
-        names.push("Bone_sebone02".into());
-        gltf["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .push(serde_json::json!({}));
-        let scarf = cook(&gltf, &names, true).unwrap();
-        assert_eq!(scarf[0].collision_plane.as_ref().unwrap().anchor, 2);
+    fn model_identity_does_not_change_authored_chain_decoding() -> Result<()> {
+        let names = vec![
+            "AB_ROOT_NR_FP_01_kami".into(),
+            "AB_Dt-0e5_Bb0e4_Pow0e1".into(),
+        ];
+        let gltf = serde_json::json!({"nodes": [{"children": [1]}, {}]});
+        let mut reference = None;
+        for model in ["llo00", "col00", "ref00", "new_model"] {
+            let mut source = vec![0; 44];
+            source[4..8].copy_from_slice(&12_u32.to_be_bytes());
+            source[28..32].copy_from_slice(&32_u32.to_be_bytes());
+            source.extend_from_slice(model.as_bytes());
+            source.push(0);
+            let definition = cook(&source, &gltf, &names)?;
+            assert_eq!(definition.model, model);
+            let chain = &definition.chains[0];
+            assert_eq!(chain.attraction, 0.1);
+            assert_eq!(chain.joints[0].gravity, 1.2);
+            assert_eq!(chain.joints[1].gravity, -0.5);
+            assert!(chain.preserve_rotation && chain.collision_plane.is_none());
+            let encoded = serde_json::to_vec(&definition.chains)?;
+            assert_eq!(reference.get_or_insert_with(|| encoded.clone()), &encoded);
+            source.pop();
+            assert!(cook(&source, &gltf, &names).is_err());
+        }
+        assert!(cook(&[], &serde_json::json!({"nodes": []}), &names).is_err());
+        Ok(())
     }
 
     #[test]
