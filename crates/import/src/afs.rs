@@ -1,45 +1,60 @@
-//! Read-only subset of the original AFS tooling, with borrowed member payloads.
+//! AFS archive directory and checked payload ranges.
 use anyhow::{Context, Result, ensure};
+use std::io::{Read, Seek, SeekFrom};
+
+pub(crate) struct Entry {
+    pub name: String,
+    pub offset: u64,
+    pub size: usize,
+}
+
 pub(crate) struct Member<'a> {
     pub name: &'a str,
     pub data: &'a [u8],
 }
-pub(crate) fn parse(data: &[u8]) -> Result<Vec<Member<'_>>> {
+pub(crate) fn index(reader: &mut (impl Read + Seek)) -> Result<Vec<Entry>> {
+    let length = reader.seek(SeekFrom::End(0))?;
+    reader.seek(SeekFrom::Start(0))?;
+    let mut header = [0; 8];
+    reader.read_exact(&mut header)?;
+    ensure!(header.starts_with(b"AFS\0"), "invalid AFS header");
+    let count = u32::from_le_bytes(header[4..].try_into()?) as usize;
+    ensure!((1..=65536).contains(&count), "invalid AFS member count");
+    let mut table = vec![0; count * 8 + 8];
+    reader.read_exact(&mut table)?;
     let word = |at: usize| -> Result<usize> {
         Ok(u32::from_le_bytes(
-            data.get(at..at + 4)
+            table
+                .get(at..at + 4)
                 .context("truncated AFS table")?
                 .try_into()?,
         ) as usize)
     };
-    ensure!(
-        data.len() >= 16 && data.starts_with(b"AFS\0"),
-        "invalid AFS header"
-    );
-    let count = word(4)?;
-    ensure!((1..=65536).contains(&count), "invalid AFS member count");
     let end = 8 + count * 8;
-    let names = word(end)?;
-    let names_size = word(end + 4)?;
+    let names = word(count * 8)?;
+    let names_size = word(count * 8 + 4)?;
     ensure!(
         names >= end + 8
             && names_size >= count * 48
             && names
                 .checked_add(names_size)
-                .is_some_and(|n| n <= data.len()),
+                .is_some_and(|n| n as u64 <= length),
         "invalid AFS name table"
     );
     let mut ranges = vec![(0, end + 8), (names, names + names_size)];
+    reader.seek(SeekFrom::Start(names as u64))?;
+    let mut name_bytes = vec![0; count * 48];
+    reader.read_exact(&mut name_bytes)?;
     let mut members = Vec::with_capacity(count);
     for index in 0..count {
-        let offset = word(8 + index * 8)?;
-        let size = word(12 + index * 8)?;
+        let offset = word(index * 8)?;
+        let size = word(4 + index * 8)?;
         let end = offset
             .checked_add(size)
             .context("AFS member range overflow")?;
-        ensure!(size > 0 && end <= data.len(), "invalid AFS member range");
+        ensure!(size > 0 && end as u64 <= length, "invalid AFS member range");
         ranges.push((offset, end));
-        let name = &data[names + index * 48..names + index * 48 + 32];
+        let name = &name_bytes[index * 48..index * 48 + 32];
         let end = name
             .iter()
             .position(|b| *b == 0)
@@ -49,9 +64,10 @@ pub(crate) fn parse(data: &[u8]) -> Result<Vec<Member<'_>>> {
             !name.is_empty() && !name.contains(['/', '\\']),
             "invalid AFS member name"
         );
-        members.push(Member {
-            name,
-            data: &data[offset..offset + size],
+        members.push(Entry {
+            name: name.into(),
+            offset: offset as u64,
+            size,
         });
     }
     ranges.sort_unstable();
@@ -64,6 +80,7 @@ pub(crate) fn parse(data: &[u8]) -> Result<Vec<Member<'_>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
     fn fixture() -> Vec<u8> {
         let mut bytes = vec![0u8; 112];
         bytes[..4].copy_from_slice(b"AFS\0");
@@ -75,15 +92,15 @@ mod tests {
         bytes
     }
     #[test]
-    fn payload_and_names_are_borrowed_and_ranges_cannot_overlap() {
+    fn member_names_and_ranges_are_checked() {
         let mut bytes = fixture();
-        let parsed = parse(&bytes).unwrap();
+        let parsed = index(&mut Cursor::new(&bytes)).unwrap();
         assert_eq!(parsed[0].name, "line.ahx");
-        assert_eq!(parsed[0].data, b"AHX!");
+        assert_eq!((parsed[0].offset, parsed[0].size), (32, 4));
         bytes[8..12].copy_from_slice(&16u32.to_le_bytes());
-        assert!(parse(&bytes).is_err());
+        assert!(index(&mut Cursor::new(&bytes)).is_err());
         let mut bytes = fixture();
         bytes[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert!(parse(&bytes).is_err());
+        assert!(index(&mut Cursor::new(&bytes)).is_err());
     }
 }
