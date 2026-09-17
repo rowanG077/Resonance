@@ -123,8 +123,6 @@ enum Action {
     CookStoryIntro {
         #[command(flatten)]
         paths: MediaPaths,
-        #[arg(long, default_value = "hvqm4-video")]
-        video_decoder: PathBuf,
         #[arg(long, default_value = "vgmstream-cli")]
         audio_decoder: PathBuf,
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
@@ -304,8 +302,6 @@ enum Action {
     CookIntro {
         #[command(flatten)]
         paths: MediaPaths,
-        #[arg(long, default_value = "hvqm4-video")]
-        video_decoder: PathBuf,
         #[arg(long, default_value = "vgmstream-cli")]
         audio_decoder: PathBuf,
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
@@ -319,8 +315,6 @@ struct MediaPaths {
     extracted: PathBuf,
     #[arg(long, default_value = "local/cooked")]
     output: PathBuf,
-    #[arg(long, default_value = "ffmpeg")]
-    ffmpeg: PathBuf,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -408,15 +402,12 @@ fn main() -> anyhow::Result<()> {
         ),
         Action::CookStoryIntro {
             paths,
-            video_decoder,
             audio_decoder,
             audio_stream,
         } => resonance_import::media::cook_movie(
             &paths.extracted,
             &paths.output,
-            &video_decoder,
             &audio_decoder,
-            &paths.ffmpeg,
             audio_stream,
             resonance_import::media::MovieSource::StoryIntroduction,
         ),
@@ -563,15 +554,12 @@ fn main() -> anyhow::Result<()> {
         } => resonance_import::media::render_sound_buses(&extracted, &bank, id, &output),
         Action::CookIntro {
             paths,
-            video_decoder,
             audio_decoder,
             audio_stream,
         } => resonance_import::media::cook_movie(
             &paths.extracted,
             &paths.output,
-            &video_decoder,
             &audio_decoder,
-            &paths.ffmpeg,
             audio_stream,
             resonance_import::media::MovieSource::Opening,
         ),

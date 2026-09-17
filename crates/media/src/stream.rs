@@ -85,7 +85,7 @@ impl MovieStream {
                     *state.error.lock().expect("movie fault queue poisoned") =
                         Some(format!("{error:#}"));
                 }
-                // Closing and joining FFmpeg happens on this worker, never on a
+                // Closing and joining the decoder happens on this worker, never on a
                 // skip, field transition, or device callback.
                 drop(decoder);
                 state.retired.store(true, Ordering::Release);

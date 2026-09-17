@@ -6,7 +6,7 @@ use anyhow::{Context, Result, ensure};
 use serde_json::json;
 use std::{
     fs,
-    io::{BufReader, Read, Write},
+    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
     time::Duration,
 };
@@ -132,9 +132,7 @@ impl MovieSource {
 pub fn cook_movie(
     extracted: &Path,
     output: &Path,
-    video_decoder: &Path,
     audio_decoder: &Path,
-    ffmpeg: &Path,
     audio_stream: u8,
     source: MovieSource,
 ) -> Result<()> {
@@ -145,9 +143,7 @@ pub fn cook_movie(
         "movie audio stream must be 1 or 2"
     );
     let workspace = Workspace::open(extracted, output)?;
-    let video_decoder = Tool::resolve(video_decoder)?;
     let audio_decoder = Tool::resolve(audio_decoder)?;
-    let ffmpeg = Tool::resolve(ffmpeg)?;
     let movie = workspace
         .extracted
         .join(format!("files/MOV/{source_name}.h4m"));
@@ -156,9 +152,9 @@ pub fn cook_movie(
     let header = Header::parse(&header_bytes)?;
     let dol = workspace.extracted.join("sys/main.dol");
     let colors = Colors::from_dol(&fs::read(&dol)?)?;
-    let recipe = json!({"version": 2, "movie_sha256": hash_file(&movie)?,
-        "dol_sha256": hash_file(&dol)?, "video_decoder_sha256": video_decoder.hash,
-        "audio_decoder_sha256": audio_decoder.hash, "ffmpeg_sha256": ffmpeg.hash,
+    let recipe = json!({"version": 3, "movie_sha256": hash_file(&movie)?,
+        "dol_sha256": hash_file(&dol)?, "video_decoder": "h4m-0.3.0",
+        "audio_decoder_sha256": audio_decoder.hash, "video_encoder": "codec_ffv1-0.1.0", "audio_encoder": "flacenc-0.5.1", "muxer": "resonance-matroska-v1",
         "audio_stream": audio_stream, "video_codec": "ffv1", "audio_codec": "flac",
         "color_conversion": "gqseaf-yuv-table-v2", "audio_channel_order": "swap_lr"});
     let metadata = workspace.output.join(format!("{name}.json"));
@@ -179,7 +175,8 @@ pub fn cook_movie(
     let directory = workspace.intermediate(name)?;
     let yuv = directory.join("video.yuv");
     let decode_metadata = directory.join("video-recipe.json");
-    let decode_recipe = json!({"movie_sha256": recipe["movie_sha256"], "video_decoder_sha256": recipe["video_decoder_sha256"]});
+    let decode_recipe =
+        json!({"movie_sha256": recipe["movie_sha256"], "video_decoder": recipe["video_decoder"]});
     let expected = header.frame_bytes() as u64 * u64::from(header.frames);
     if !(json_file(&decode_metadata).is_some_and(|value| {
         value["recipe"] == decode_recipe
@@ -189,15 +186,40 @@ pub fn cook_movie(
     }) && fs::metadata(&yuv).is_ok_and(|metadata| metadata.len() == expected))
     {
         let temporary = yuv.with_extension("partial.yuv");
-        process::pipe(
-            video_decoder
-                .command(&directory)
-                .arg(&movie)
-                .arg(&temporary),
-            &directory.join("decode.log"),
-            Duration::from_secs(600),
-            |_| Ok(()),
+        let mut decoder = h4m::Decoder::with_limits(
+            BufReader::new(fs::File::open(&movie)?),
+            h4m::Limits {
+                max_pixels: 640 * 480,
+                max_frame_bytes: 64 * 1024 * 1024,
+            },
         )?;
+        let mut target = fs::File::create(&temporary)?;
+        let mut seen = vec![false; header.frames as usize];
+        while let Some(frame) = decoder.next_frame()? {
+            let index = frame.display_index as usize;
+            ensure!(
+                index < seen.len() && !seen[index],
+                "invalid or repeated H4M presentation index"
+            );
+            ensure!(
+                frame.y.data.len() + frame.u.data.len() + frame.v.data.len()
+                    == header.frame_bytes(),
+                "unexpected H4M plane layout"
+            );
+            // H4M returns decoding order (I0, P3, B1, B2). Place each frame by
+            // its display index without retaining an unbounded reorder queue.
+            target.seek(SeekFrom::Start(index as u64 * header.frame_bytes() as u64))?;
+            for plane in [frame.y, frame.u, frame.v] {
+                target.write_all(plane.data)?;
+            }
+            seen[index] = true;
+        }
+        ensure!(
+            seen.iter().all(|&seen| seen),
+            "H4M movie is missing presentation frames"
+        );
+        target.sync_all()?;
+        drop(target);
         ensure!(
             fs::metadata(&temporary)?.len() == expected,
             "decoded video frame count mismatch"
@@ -218,7 +240,11 @@ pub fn cook_movie(
         &directory.join("audio.log"),
         b"",
     )?;
-    let audio_frames = wav_frames(&audio, header.sample_rate, header.sample_rate * 3600)?;
+    let audio_frames = u64::from(wav_frames(
+        &audio,
+        header.sample_rate,
+        header.sample_rate * 3600,
+    )?);
     ensure!(
         !matches!(source, MovieSource::Opening) || audio_frames == 3_879_328,
         "unexpected opening audio frame count"
@@ -236,67 +262,52 @@ pub fn cook_movie(
             .context("movie destination has no parent")?,
     )?;
     let temporary = destination.with_extension("partial.mkv");
-    process::pipe(
-        ffmpeg
-            .command(&directory)
-            .args([
-                "-nostdin",
-                "-v",
-                "error",
-                "-y",
-                "-f",
-                "rawvideo",
-                "-pixel_format",
-                "rgb24",
-                "-video_size",
-            ])
-            .arg(format!("{}x{}", header.width, header.height))
-            .arg("-framerate")
-            .arg(format!("1000000/{}", header.frame_micros))
-            .args(["-i", "pipe:0", "-i"])
-            .arg(&normalized_audio)
-            .args([
-                "-map",
-                "0:v:0",
-                "-map",
-                "1:a:0",
-                "-c:v",
-                "ffv1",
-                "-level",
-                "3",
-                "-pix_fmt",
-                "bgr0",
-                "-threads",
-                "4",
-                "-c:a",
-                "flac",
-                "-map_metadata",
-                "-1",
-                "-color_range",
-                "pc",
-                "-colorspace",
-                "rgb",
-            ])
-            .arg(&temporary),
-        &directory.join("encode.log"),
-        Duration::from_secs(1200),
-        |stdin| {
-            let mut source = BufReader::new(fs::File::open(&yuv)?);
-            let mut raw = vec![0; header.frame_bytes()];
-            let mut rgb = vec![0; header.width * header.height * 3];
-            for frame in 0..header.frames {
-                source.read_exact(&mut raw)?;
-                colors
-                    .convert(&raw, header.width, header.height, &mut rgb)
-                    .with_context(|| format!("convert {name} frame {frame}"))?;
-                stdin.write_all(&rgb)?;
-                if frame % 300 == 0 {
-                    println!("Converted {name} frame {frame}/{}", header.frames);
-                }
-            }
-            Ok(())
-        },
+    let mut encoder = resonance_media::encode::MovieWriter::new(
+        BufWriter::new(fs::File::create(&temporary)?),
+        header.width as u32,
+        header.height as u32,
+        header.frame_micros,
+        header.sample_rate,
     )?;
+    let mut video = BufReader::new(fs::File::open(&yuv)?);
+    let mut wave = hound::WavReader::open(&normalized_audio)?;
+    let mut samples = wave.samples::<i16>();
+    let mut raw = vec![0; header.frame_bytes()];
+    let mut rgb = vec![0; header.width * header.height * 3];
+    let (mut video_index, mut audio_index) = (0u32, 0u64);
+    while video_index < header.frames || audio_index < audio_frames {
+        if audio_index < audio_frames
+            && (video_index == header.frames
+                || u128::from(audio_index) * 1_000_000
+                    <= u128::from(video_index)
+                        * u128::from(header.frame_micros)
+                        * u128::from(header.sample_rate))
+        {
+            let count = (audio_frames - audio_index)
+                .min(resonance_media::encode::AUDIO_BLOCK as u64) as usize;
+            let block = samples
+                .by_ref()
+                .take(count * 2)
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            ensure!(block.len() == count * 2, "truncated normalized movie audio");
+            encoder.audio(&block)?;
+            audio_index += count as u64;
+        } else {
+            video.read_exact(&mut raw)?;
+            colors
+                .convert(&raw, header.width, header.height, &mut rgb)
+                .with_context(|| format!("convert {name} frame {video_index}"))?;
+            encoder.video(
+                &rgb,
+                Duration::from_micros(u64::from(video_index) * u64::from(header.frame_micros)),
+            )?;
+            if video_index % 300 == 0 {
+                println!("Converted {name} frame {video_index}/{}", header.frames);
+            }
+            video_index += 1;
+        }
+    }
+    encoder.finish()?.into_inner()?.sync_all()?;
     fs::rename(&temporary, &destination)?;
     write_json(
         &metadata,

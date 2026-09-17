@@ -18,7 +18,7 @@ audio JSON; the runtime applies that gain to decoded PCM. Level 64 is about
 |---|---|
 | `resonance-audio` | Resumable native synthesis in 160-frame blocks at 32028 Hz; no device or thread |
 | `resonance-playback` | Source epochs, scheduled starts, pause/stop/drain, bounded queues, timeline mapping and offline execution |
-| `resonance-media` | FFmpeg decoding, independent movie feeding and final band-limited device-rate conversion |
+| `resonance-media` | Rust FFV1/FLAC decoding, independent movie feeding and final band-limited device-rate conversion |
 | `resonance-audio-device` | Negotiated CPAL stream, platform audio priority, timestamp/error forwarding and permanent mute |
 | `resonance-presentation` | Device recovery, movie deadlines, subtitles and audible voice-completion acknowledgements |
 
@@ -34,7 +34,7 @@ clamped to supported limits. The ring targets three actual callback periods
 with a 768-frame minimum. This is queued PCM, not total speaker latency. Movie
 PCM has half a second of decoded lookahead; video queues are bounded. A full
 video queue discards its oldest decoded frame without blocking audio. Compressed
-packet dependencies remain inside FFmpeg.
+packet dependencies remain inside the stateful Rust FFV1 decoder.
 
 The callback publishes output positions and predicted playback timestamps.
 Timeline spans map the monotonic audible estimate to each source, accounting
@@ -42,7 +42,7 @@ for pauses. A sink owns a unique epoch, so an old stop cannot stop a replacement
 Decoder EOF, source EOF and audible completion are distinct. Already committed
 device audio drains before pause/stop is audible.
 
-Native synthesis retains its own control quantization. The final FFmpeg
+Native synthesis retains its own control quantization. The final Rubato sinc
 resampler advances its cursor only for emitted samples and drains filter tails.
 Immediate starts use the earliest unwritten mixer frame; scheduled starts use
 absolute native frames. Field cues retain their next-block control semantics.

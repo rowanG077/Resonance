@@ -1,5 +1,8 @@
-//! Bounded movie decoding through FFmpeg, independent of Bevy.
+//! Bounded Rust movie codecs and device-rate conversion, independent of Bevy.
+mod container;
 mod decoder;
+pub mod encode;
+pub use container::VideoReader;
 pub mod output;
 mod stream;
 pub use stream::MovieStream;
@@ -43,7 +46,7 @@ pub enum MovieEvent {
 type DecodeResult = std::result::Result<MovieEvent, String>;
 
 /// A local-file decoder with a bounded, interleaved output queue. Dropping it
-/// closes the receiver, interrupts FFmpeg, and joins the worker even when the
+/// closes the receiver, cancels decoding, and joins the worker even when the
 /// producer is blocked on a full queue. No audio device is opened here.
 pub struct MovieDecoder {
     receiver: Option<Mutex<Receiver<DecodeResult>>>,

@@ -90,7 +90,9 @@ target/debug/resonance-oracle video-frames VIDEO --output local/oracle/frames \
   --first-vi 0 --vi 0 100 300
 ```
 
-The Rust tool uses FFmpeg and retains timestamps/hashes in `frames.json`.
+The Rust tool streams Matroska through the Rust FFV1 decoder and retains
+container timestamps and image hashes in `frames.json`. No external media
+extraction command is required.
 It rejects missing presentations instead of choosing a nearby frame. A pair's
 `dolphin.video_first_vi` registers the first frame; its frames use `dolphin_vi`
 without a PNG index. Multiple video segments require explicit `video_segment`.
