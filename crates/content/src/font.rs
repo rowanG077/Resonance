@@ -3,6 +3,11 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Latin text and halfwidth kana use the source font's narrow glyph metrics.
+pub fn is_single_byte(character: char) -> bool {
+    character.is_ascii() || ('\u{ff61}'..='\u{ff9f}').contains(&character)
+}
+
 /// A literal text run using the dialogue palette, shared by system notices and menus.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextSpan {
@@ -96,6 +101,17 @@ pub struct UiTexture {
     pub width: u32,
     pub height: u32,
 }
+impl UiTexture {
+    pub fn validate(&self) -> Result<()> {
+        crate::validate_asset_path(&self.path)?;
+        ensure!(
+            (1..=4096).contains(&self.width) && (1..=4096).contains(&self.height),
+            "invalid UI texture size"
+        );
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectionArt {
     pub mode: u8,
@@ -125,11 +141,7 @@ impl DialogueArt {
             "invalid selection artwork"
         );
         for texture in self.textures.iter().chain([&self.cursor]) {
-            crate::validate_asset_path(&texture.path)?;
-            ensure!(
-                (1..=4096).contains(&texture.width) && (1..=4096).contains(&texture.height),
-                "invalid dialogue texture size"
-            );
+            texture.validate()?;
         }
         ensure!(
             self.source_sha256.len() == 64

@@ -20,6 +20,25 @@ pub struct Files {
 #[derive(Default)]
 pub struct Cache(BTreeMap<String, Weak<[u8]>>);
 impl Files {
+    /// Authored code comes from this verified snapshot, never a second disk read.
+    pub fn script_sources(&self) -> Result<BTreeMap<String, String>> {
+        self.bytes
+            .iter()
+            .filter_map(|(path, bytes)| {
+                path.strip_prefix("scripts/")
+                    .and_then(|path| path.strip_suffix(".sym"))
+                    .map(|module| (path, module, bytes))
+            })
+            .map(|(path, module, bytes)| {
+                Ok((
+                    module.replace('/', "::"),
+                    std::str::from_utf8(bytes)
+                        .with_context(|| format!("invalid cooked script UTF-8: {path}"))?
+                        .to_owned(),
+                ))
+            })
+            .collect()
+    }
     pub fn read(&self, path: &str) -> Result<Arc<[u8]>> {
         self.bytes
             .get(path)
@@ -39,7 +58,8 @@ impl Files {
         let mut inventory = BTreeMap::new();
         for path in paths {
             crate::validate_asset_path(path)?;
-            let manifest: Manifest = serde_json::from_reader(File::open(root.join(path))?)?;
+            let manifest: Manifest =
+                serde_json::from_reader(std::io::BufReader::new(File::open(root.join(path))?))?;
             manifest.validate()?;
             ensure!(
                 manifest.is_complete(),
