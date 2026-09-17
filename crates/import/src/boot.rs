@@ -3,6 +3,7 @@ use super::*;
 use resonance_content::{BootAssets, BootTexture};
 
 pub fn cook(extracted: &Path, output: &Path) -> Result<()> {
+    let _publications = crate::publication::Session::start_if_needed(output)?;
     let boot = fs::read(extracted.join("sys/boot.bin"))?;
     ensure!(
         boot.get(..6) == Some(b"GQSEAF") && boot.get(7) == Some(&0),
