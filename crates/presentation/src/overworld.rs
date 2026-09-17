@@ -1254,12 +1254,6 @@ fn ui(
     }
 }
 
-fn embed_shaders(app: &mut App) {
-    super::materials::embed_shaders(app);
-    bevy::asset::embedded_asset!(app, "field_ui.wgsl");
-    bevy::asset::embedded_asset!(app, "title_output.wgsl");
-}
-
 pub(super) fn ready(world: &mut World) -> bool {
     world
         .get_resource::<Art>()

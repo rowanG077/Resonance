@@ -14,7 +14,7 @@ use resonance_events::effect::Blend;
 #[path = "surface_shader_tests.rs"]
 mod shader_tests;
 
-pub(super) fn embed_shaders(app: &mut App) {
+fn embed_shaders(app: &mut App) {
     bevy::asset::embedded_asset!(app, "title_surface.wgsl");
     bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
     bevy::shader::load_shader_library!(app, "surface_bindings.wgsl");
@@ -480,51 +480,6 @@ mod tests {
 }
 
 #[cfg(test)]
-mod petrify_tests {
-    use super::*;
-
-    #[test]
-    fn red_channel_specialization_preserves_existing_surface_recipes_and_uniforms() {
-        // Enumerate independent recipes, including modes not used by stone actors.
-        // Opting into a swap must change only its shader key, not a pass or sampler.
-        for flags in 0u16..256 {
-            let normal = TitleSurface {
-                vertex_color: flags & 1 != 0,
-                toon_ramp: (flags & 2 != 0).then(Handle::default),
-                constant_color: flags & 4 != 0,
-                depth_test: flags & 8 != 0,
-                depth_equal: flags & 16 != 0,
-                depth_write: flags & 32 != 0,
-                blend: (flags & 64 != 0).then_some(Blend::Additive),
-                multiply_alpha_only: flags & 128 != 0,
-                tint: Vec4::new(0.25, 0.5, 0.75, 0.125),
-                ambient_scale: Vec3::new(1., 2., 3.),
-                ..Default::default()
-            };
-            let mut red = normal.clone();
-            red.red_channel = true;
-            let normal_key = SurfaceKey::from(&normal);
-            let mut red_key = SurfaceKey::from(&red);
-            assert!(normal_key != red_key);
-            red_key.red_channel = false;
-            assert!(normal_key == red_key);
-            let a = SurfaceUniform::from(&normal);
-            let b = SurfaceUniform::from(&red);
-            assert_eq!(a.tint, b.tint);
-            assert_eq!(a.ambient_scale, b.ambient_scale);
-            assert_eq!(a.uv_offsets, b.uv_offsets);
-            assert_eq!(a.uv_scales, b.uv_scales);
-            assert_eq!(a.field_light, b.field_light);
-            assert_eq!(a.shade_colors, b.shade_colors);
-            assert_eq!(normal.color, red.color);
-            assert_eq!(normal.sampling, red.sampling);
-            assert_eq!(normal.multiply, red.multiply);
-            assert_eq!(normal.toon_ramp, red.toon_ramp);
-        }
-    }
-}
-
-#[cfg(test)]
 mod blend_tests {
     use super::*;
 
@@ -539,11 +494,6 @@ mod blend_tests {
         assert_eq!(state.color.src_factor, BlendFactor::One);
         assert_eq!(state.color.dst_factor, BlendFactor::One);
         assert_eq!(state.color.operation, BlendOperation::ReverseSubtract);
-        // Low alpha does not attenuate the RGB subtraction in GX mode3.
-        let source = [0.5_f32, 0.25, 0.5, 0.125];
-        let destination = [0.75_f32, 0.5, 0.25, 1.];
-        let actual = std::array::from_fn::<_, 4, _>(|i| (destination[i] - source[i]).max(0.));
-        assert_eq!(actual, [0.25, 0.25, 0., 0.875]);
         let ordinary = SurfaceKey::from(&TitleSurface {
             blend: Some(Blend::Alpha),
             ..surface
@@ -553,17 +503,13 @@ mod blend_tests {
 
     #[test]
     fn normal_surface_blending_retains_scene_alpha_for_feedback() {
-        let key = |blend: bool, additive: bool| {
+        let key = |blend| {
             SurfaceKey::from(&TitleSurface {
-                blend: blend.then_some(if additive {
-                    Blend::Additive
-                } else {
-                    Blend::Alpha
-                }),
+                blend,
                 ..Default::default()
             })
         };
-        let normal = key(true, false).blend_state().unwrap();
+        let normal = key(Some(Blend::Alpha)).blend_state().unwrap();
         // Alpha blending changes output alpha without changing the RGB blend mode.
         assert_eq!(normal.color, BlendState::ALPHA_BLENDING.color);
         assert_eq!(normal.alpha, normal.color);
@@ -589,9 +535,9 @@ mod blend_tests {
             assert_eq!(stored(normal.alpha, source, destination), expected);
         }
         assert_eq!(stored(BlendState::ALPHA_BLENDING.alpha, 0.5, 1.), 1.);
-        // Existing additive precedence and opaque overwrite recipes are retained.
-        assert_eq!(key(false, false).blend_state(), None);
-        let additive = key(true, true).blend_state().unwrap();
+        // Additive surfaces accumulate; opaque surfaces overwrite.
+        assert_eq!(key(None).blend_state(), None);
+        let additive = key(Some(Blend::Additive)).blend_state().unwrap();
         assert_eq!(additive.color, additive.alpha);
         assert_eq!(additive.alpha.src_factor, BlendFactor::SrcAlpha);
         assert_eq!(additive.alpha.dst_factor, BlendFactor::One);

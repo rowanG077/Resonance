@@ -7,7 +7,6 @@ use bevy::{
         render_resource::{TextureFormat, TextureUsages},
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
-    sprite_render::Material2dPlugin,
     window::ExitCondition,
 };
 use resonance_content::{HEIGHT, SCENE_HEIGHT, WIDTH};
@@ -206,9 +205,10 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
     .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
         resonance_game::clock::UPDATE_STEP,
     ))
-    .add_plugins(MaterialPlugin::<TitleSurface>::default())
-    .add_plugins(Material2dPlugin::<TitleOutput>::default())
-    .add_plugins(Material2dPlugin::<crate::field_ui::Surface>::default())
+    .add_plugins((
+        crate::materials::install_surface_material,
+        crate::materials::install_output_materials,
+    ))
     .add_plugins(crate::draw_order::DrawOrderPlugin)
     .init_resource::<crate::display::Display>()
     .init_resource::<crate::scene::SampledImages>()
@@ -249,10 +249,9 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
             .after(ui)
             .before(capture),
     );
-    crate::field_ui::install_menu_draws(&mut app);
+    crate::field_ui::install(&mut app);
     crate::materials::install(&mut app);
     sparse_animation::install(&mut app);
-    crate::overworld::embed_shaders(&mut app);
     crate::renderer::configure(&mut app);
     let ready = crate::RenderReady::default();
     app.insert_resource(ready.clone());
