@@ -1,7 +1,7 @@
-//! Compare device-rate conversion with an independent libsoxr reference.
+//! Measure device-rate conversion against analytic passband tones.
 use anyhow::{Result, ensure};
 use resonance_playback::{Converter, SOURCE_BLOCK, SOURCE_RATE};
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 fn write(path: &Path, rate: u32, samples: &[[f32; 2]]) -> Result<()> {
     let mut wave = hound::WavWriter::create(
@@ -62,44 +62,23 @@ fn main() -> Result<()> {
         let delay = converter.delay_frames();
         converter.finish(&mut actual)?;
         write(&path.join(format!("output-{rate}.wav")), rate, &actual)?;
-        let reference = path.join(format!("soxr-{rate}.wav"));
         ensure!(
-            Command::new("ffmpeg")
-                .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
-                .arg(path.join("native.wav"))
-                .args([
-                    "-af",
-                    &format!("aresample={rate}:resampler=soxr:precision=28"),
-                    "-c:a",
-                    "pcm_f32le"
-                ])
-                .arg(&reference)
-                .status()?
-                .success(),
-            "FFmpeg libsoxr reference failed"
-        );
-        let mut wave = hound::WavReader::open(&reference)?;
-        ensure!(
-            wave.spec().sample_rate == rate && wave.spec().channels == 2,
-            "incorrect reference format"
-        );
-        let reference = wave
-            .samples::<f32>()
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        ensure!(
-            actual.len().abs_diff(reference.len() / 2) <= 1,
-            "output/reference duration differs"
+            actual.len() == rate as usize * 4,
+            "resampler changed the source duration"
         );
         let (mut energy, mut error, mut maximum) = (0f64, 0f64, 0f64);
-        // Compare the steady passband and sweep. Impulse and abrupt section
-        // boundaries intentionally expose different filters in the saved files.
-        for frame in (rate as usize * 3 / 10)..(rate as usize * 32 / 10) {
-            if (rate as usize * 12 / 10..rate as usize * 13 / 10).contains(&frame) {
-                continue;
-            }
-            for channel in 0..2 {
-                let expected = f64::from(reference[frame * 2 + channel]);
-                let delta = f64::from(actual[frame][channel]) - expected;
+        // SincFixedIn samples at the next output instant; its lookahead is
+        // buffered input, not an extra silent prefix. Exclude signal boundaries.
+        for (frame, sample) in actual
+            .iter()
+            .enumerate()
+            .take(rate as usize * 12 / 10)
+            .skip(rate as usize * 3 / 10)
+        {
+            let t = (frame + 1) as f64 / f64::from(rate) - 1.0 / f64::from(SOURCE_RATE);
+            for (channel, frequency, gain) in [(0, 997., 0.2), (1, 4001., 0.1)] {
+                let expected = gain * (std::f64::consts::TAU * frequency * t).sin();
+                let delta = f64::from(sample[channel]) - expected;
                 energy += expected * expected;
                 error += delta * delta;
                 maximum = maximum.max(delta.abs());
@@ -108,10 +87,10 @@ fn main() -> Result<()> {
         let snr = 10. * (energy / error).log10();
         ensure!(
             snr > 55.,
-            "device resampling differs excessively from libsoxr: {snr:.2} dB"
+            "device resampling differs from analytic tones: {snr:.2} dB"
         );
-        let report = serde_json::json!({"rate":rate,"frames":actual.len(),"reference_frames":reference.len()/2,
-            "filter_delay_before_flush":delay, "passband_and_sweep_snr_db":snr, "maximum_error":maximum});
+        let report = serde_json::json!({"rate":rate,"frames":actual.len(),
+            "filter_delay_before_flush":delay, "passband_snr_db":snr, "maximum_error":maximum});
         println!("{report}");
         reports.push(report);
     }

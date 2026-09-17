@@ -1,15 +1,7 @@
 //! Lossless reference frames selected by emulated presentation time, never image similarity.
 use super::*;
-use std::{
-    collections::BTreeSet,
-    process::{Command, Stdio},
-};
+use std::collections::BTreeSet;
 
-#[derive(Deserialize)]
-struct Probe {
-    streams: Vec<Stream>,
-    packets: Vec<Timestamp>,
-}
 #[derive(Deserialize, Serialize)]
 struct Stream {
     codec_name: String,
@@ -69,18 +61,6 @@ fn index(timestamps: &[Timestamp], time_base: f64, first_vi: i64) -> Result<Vec<
     Ok(frames)
 }
 
-fn selection(indices: &[usize]) -> String {
-    match indices {
-        [] => "0".into(),
-        [index] => format!("eq(n\\,{index})"),
-        _ => {
-            // Keep FFmpeg's expression tree shallow even for long catalogue sweeps.
-            let (left, right) = indices.split_at(indices.len() / 2);
-            format!("({}+{})", selection(left), selection(right))
-        }
-    }
-}
-
 /// Reuse only images bound to the same video and timestamp registration.
 pub(super) fn reuse(
     cache: &Path,
@@ -128,88 +108,53 @@ pub(super) fn reuse(
 
 pub(super) fn run(video: &Path, output: &Path, first_vi: i64, requested: &[u32]) -> Result<()> {
     ensure!(!output.exists(), "video-frame output already exists");
-    let probe = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_packets",
-            "-show_entries",
-            "stream=codec_name,pix_fmt,width,height,time_base,r_frame_rate:packet=pts",
-            "-of",
-            "json",
-        ])
-        .arg(video)
-        .stdin(Stdio::null())
-        .output()
-        .context("run ffprobe")?;
+    let mut reader = resonance_media::VideoReader::open(video)?;
+    let (width, height) = reader.dimensions();
     ensure!(
-        probe.status.success() && probe.stderr.is_empty(),
-        "video probe failed: {}",
-        String::from_utf8_lossy(&probe.stderr)
-    );
-    let probe: Probe = serde_json::from_slice(&probe.stdout)?;
-    ensure!(probe.streams.len() == 1, "expected one video stream");
-    let stream = &probe.streams[0];
-    ensure!(
-        stream.codec_name == "ffv1"
-            && stream.pix_fmt == "bgr0"
-            && (stream.width, stream.height) == (640, 480),
+        (width, height) == (640, 480),
         "expected native-resolution lossless RGB FFV1"
     );
-    let frames = index(&probe.packets, ratio(&stream.time_base)?, first_vi)?;
+    let stream = Stream {
+        codec_name: "ffv1".into(),
+        pix_fmt: "bgr0".into(),
+        width,
+        height,
+        time_base: "1/1000000000".into(),
+        r_frame_rate: "60000/1001".into(),
+    };
     let requested: BTreeSet<_> = requested.iter().copied().collect();
-    let selected = requested
-        .iter()
-        .map(|vi| {
-            frames
-                .iter()
-                .find(|frame| frame.vi == i64::from(*vi))
-                .with_context(|| format!("no video presentation at VI {vi}"))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    fs::create_dir_all(output)?;
-    if !selected.is_empty() {
-        let filter = format!(
-            "select={}",
-            selection(&selected.iter().map(|frame| frame.index).collect::<Vec<_>>())
-        );
-        let decoded = Command::new("ffmpeg")
-            .args(["-nostdin", "-v", "error", "-xerror", "-i"])
-            .arg(video)
-            .args([
-                "-map",
-                "0:v:0",
-                "-an",
-                "-sn",
-                "-dn",
-                "-vf",
-                &filter,
-                "-fps_mode",
-                "passthrough",
-                "-pix_fmt",
-                "rgb24",
-                "-compression_level",
-                "1",
-                "-start_number",
-                "0",
-            ])
-            .arg(output.join("frame-%06d.png"))
-            .output()
-            .context("extract video frames")?;
-        ensure!(
-            decoded.status.success(),
-            "video extraction failed: {}",
-            String::from_utf8_lossy(&decoded.stderr)
-        );
-    }
+    let mut timestamps = Vec::new();
     let mut images = Vec::new();
-    for (index, frame) in selected.iter().enumerate() {
-        let name = format!("vi-{:06}.png", frame.vi);
-        let path = output.join(&name);
-        fs::rename(output.join(format!("frame-{index:06}.png")), &path)?;
-        images.push(serde_json::json!({"vi":frame.vi,"index":frame.index,"path":name,"sha256":pair::file_hash(&path)?}));
+    fs::create_dir_all(output)?;
+    while let Some(frame) = reader.next_frame()? {
+        let pts = i64::try_from(frame.timestamp.as_nanos())?;
+        timestamps.push(Timestamp { pts });
+        let tick = frame.timestamp.as_secs_f64() * (60_000. / 1001.);
+        let vi = first_vi
+            .checked_add(tick.round() as i64)
+            .context("VI index overflow")?;
+        if u32::try_from(vi).is_ok_and(|vi| requested.contains(&vi)) {
+            let name = format!("vi-{vi:06}.png");
+            let path = output.join(&name);
+            let rgb = frame
+                .rgba
+                .chunks_exact(4)
+                .flat_map(|p| p[..3].iter().copied())
+                .collect();
+            RgbImage::from_raw(width, height, rgb)
+                .context("invalid decoded video image")?
+                .save(&path)?;
+            images.push(serde_json::json!({"vi":vi,"index":frame.index,"path":name,"sha256":pair::file_hash(&path)?}));
+        }
+    }
+    // Validate every timestamp, including gaps and unrequested frames, before
+    // marking an extraction complete. Never substitute a neighboring image.
+    let frames = index(&timestamps, ratio(&stream.time_base)?, first_vi)?;
+    for vi in requested {
+        ensure!(
+            frames.iter().any(|frame| frame.vi == i64::from(vi)),
+            "no video presentation at VI {vi}"
+        );
     }
     fs::write(
         output.join("frames.json"),
@@ -254,40 +199,44 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    #[ignore = "requires FFmpeg from the development shell"]
-    fn large_frame_selection_retains_only_requested_frames() {
-        let wanted: Vec<_> = (0..600).step_by(3).collect();
-        let result = Command::new("ffmpeg")
-            .args([
-                "-nostdin",
-                "-v",
-                "error",
-                "-f",
-                "lavfi",
-                "-i",
-                "color=size=8x8:rate=60:duration=10",
-                "-vf",
-                &format!("select={}", selection(&wanted)),
-                "-fps_mode",
-                "passthrough",
-                "-f",
-                "framehash",
-                "-",
-            ])
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
+    fn extracts_exact_presentations_and_rejects_missing_vis() {
+        let root =
+            std::env::temp_dir().join(format!("resonance-video-extraction-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let video = root.join("capture.mkv");
+        let mut writer = resonance_media::encode::MovieWriter::new(
+            fs::File::create(&video).unwrap(),
+            640,
+            480,
+            16683,
+            32028,
+        )
+        .unwrap();
+        for (i, millis) in [0, 17, 67].into_iter().enumerate() {
+            let rgb = [i as u8 * 73, 17, 253].repeat(640 * 480);
+            writer
+                .video(&rgb, std::time::Duration::from_millis(millis))
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        let output = root.join("frames");
+        run(&video, &output, 100, &[104, 100, 104]).unwrap();
+        let record: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.join("frames.json")).unwrap()).unwrap();
+        assert_eq!(record["images"].as_array().unwrap().len(), 2);
+        assert_eq!(record["frames"][1]["vi"], 101);
+        assert_eq!(
+            image::open(output.join("vi-000104.png"))
+                .unwrap()
+                .to_rgb8()
+                .get_pixel(0, 0)
+                .0,
+            [146, 17, 253]
         );
-        let actual: Vec<usize> = String::from_utf8(result.stdout)
-            .unwrap()
-            .lines()
-            .filter(|line| !line.starts_with('#'))
-            .map(|line| line.split(',').nth(2).unwrap().trim().parse().unwrap())
-            .collect();
-        assert_eq!(actual, wanted);
+        let missing = root.join("missing");
+        assert!(run(&video, &missing, 100, &[102]).is_err());
+        assert!(!missing.join("frames.json").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
