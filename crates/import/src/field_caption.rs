@@ -5,14 +5,13 @@ use resonance_content::{
     effect::{CaptionSprite, LocationCaption},
     font::UiTexture,
 };
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, path::Path};
 use symphonia_script::NativeCall;
 
 pub(crate) fn cook(
     map: &MapArchive,
     prefix: &str,
     output: &Path,
-    ktx: &Path,
 ) -> Result<(BTreeMap<i32, String>, Vec<String>)> {
     let mut captions = BTreeMap::new();
     let mut files = Vec::new();
@@ -40,11 +39,8 @@ pub(crate) fn cook(
         let mut textures = Vec::new();
         for (i, (width, height, rgba)) in decoded.iter().enumerate() {
             let name = format!("{prefix}/caption-{index}-{i}");
-            let png = output.join(format!("intermediate/{name}.png"));
-            fs::create_dir_all(png.parent().unwrap())?;
-            image::save_buffer(&png, rgba, *width, *height, image::ColorType::Rgba8)?;
             let path = format!("{name}.ktx2");
-            crate::texture::cook(ktx, &png, &output.join(&path))?;
+            crate::texture::cook(*width, *height, rgba, &output.join(&path))?;
             files.push(path.clone());
             textures.push(UiTexture {
                 path,

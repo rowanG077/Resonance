@@ -3,7 +3,7 @@ use crate::tpl;
 use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
 
-pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<String> {
+pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
     let mut source = fs::read(extracted.join("files/toon.tpl"))?;
     let mut texture = tpl::parse_tpl(&source)?
         .into_iter()
@@ -29,11 +29,8 @@ pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<String
         );
     }
     let rgba = tpl::decode_texture(&source, &texture)?;
-    let intermediate = output.join("intermediate/effects/toon-ramp.png");
-    fs::create_dir_all(intermediate.parent().unwrap())?;
     fs::create_dir_all(output.join("effects"))?;
-    image::save_buffer(&intermediate, &rgba, 256, 32, image::ColorType::Rgba8)?;
     let path = "effects/toon-ramp.ktx2";
-    crate::texture::cook(ktx, &intermediate, &output.join(path))?;
+    crate::texture::cook(256, 32, &rgba, &output.join(path))?;
     Ok(path.into())
 }

@@ -20,7 +20,6 @@ pub(crate) fn layers(
     parts: &mut Vec<PreviewPart>,
     name: &str,
     output: &Path,
-    ktx: &Path,
 ) -> Result<()> {
     for (outline, source) in [(false, Some(layer.model)), (true, layer.outline)] {
         let Some(source) = source else { continue };
@@ -40,7 +39,6 @@ pub(crate) fn layers(
                 texture_animations: Vec::new(),
             },
             output,
-            ktx,
         )
         .with_context(|| format!("preview layer {}", parts.len()))?;
         let model = &normalized[crate::read::u32(&normalized, 4)? as usize..];
