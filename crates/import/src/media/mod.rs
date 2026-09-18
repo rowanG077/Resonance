@@ -37,37 +37,6 @@ const SAMPLE_RATE: u32 = 32_000;
 // Preserve the sample sequence and label its playback clock; do not resample.
 const PLAYBACK_RATE: u32 = 32_028;
 
-pub(crate) struct Tool {
-    pub(crate) path: PathBuf,
-    pub(crate) hash: String,
-}
-
-impl Tool {
-    pub(crate) fn resolve(name: &Path) -> Result<Self> {
-        let path = if name.components().count() > 1 || name.is_absolute() {
-            name.to_path_buf()
-        } else {
-            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-                .flat_map(|directory| {
-                    let path = directory.join(name);
-                    #[cfg(windows)]
-                    {
-                        vec![path.clone(), path.with_extension("exe")]
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        vec![path]
-                    }
-                })
-                .find(|path| path.is_file())
-                .with_context(|| format!("{} is missing; enter nix develop", name.display()))?
-        };
-        let path = path.canonicalize()?;
-        let hash = hash_file(&path)?;
-        Ok(Self { path, hash })
-    }
-}
-
 pub(crate) struct Workspace {
     extracted: PathBuf,
     output: PathBuf,

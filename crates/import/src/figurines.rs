@@ -26,7 +26,7 @@ pub(crate) fn book(executable: &[u8], output: &Path) -> Result<FigurineBook> {
     })
 }
 
-pub fn cook(extracted: &Path, output: &Path, ktx: &Path, selected: &[u16]) -> Result<()> {
+pub fn cook(extracted: &Path, output: &Path, selected: &[u16]) -> Result<()> {
     ensure!(
         selected.iter().all(|&id| usize::from(id) < FIGURINE_COUNT),
         "unknown figurine"
@@ -45,7 +45,7 @@ pub fn cook(extracted: &Path, output: &Path, ktx: &Path, selected: &[u16]) -> Re
         let bytes = archive_entry(&archive, resource as usize)?;
         if let std::collections::btree_map::Entry::Vacant(entry) = models.entry(resource) {
             entry.insert(
-                model(bytes, resource, output, ktx)
+                model(bytes, resource, output)
                     .with_context(|| format!("figurine {id} model {resource}"))?,
             );
         }
@@ -134,7 +134,7 @@ pub fn cook(extracted: &Path, output: &Path, ktx: &Path, selected: &[u16]) -> Re
     Ok(())
 }
 
-fn model(bytes: &[u8], id: u32, output: &Path, ktx: &Path) -> Result<Vec<PreviewPart>> {
+fn model(bytes: &[u8], id: u32, output: &Path) -> Result<Vec<PreviewPart>> {
     let ranges = sections(bytes)?;
     let model = &bytes[ranges[0].clone().context("missing figurine mesh")?];
     let outline = ranges
@@ -167,7 +167,6 @@ fn model(bytes: &[u8], id: u32, output: &Path, ktx: &Path) -> Result<Vec<Preview
         &mut parts,
         &format!("figurines/models/{id:03}"),
         output,
-        ktx,
     )?;
     Ok(parts)
 }

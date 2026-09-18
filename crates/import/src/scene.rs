@@ -59,7 +59,7 @@ fn camera(bytes: &[u8]) -> Result<Vec<CameraKey>> {
         .collect()
 }
 
-pub fn cook(source: &Path, executable: &Path, output: &Path, ktx: &Path) -> Result<TitleScene> {
+pub fn cook(source: &Path, executable: &Path, output: &Path) -> Result<TitleScene> {
     let bytes = fs::read(source)?;
     let dol = fs::read(executable)?;
     let mut cabinet = cab::Cabinet::new(Cursor::new(&bytes))?;
@@ -106,7 +106,6 @@ pub fn cook(source: &Path, executable: &Path, output: &Path, ktx: &Path) -> Resu
                 },
             },
             output,
-            ktx,
         )?;
         if index == 17 {
             feather = Some(glow::positions(
@@ -152,7 +151,6 @@ pub fn cook(source: &Path, executable: &Path, output: &Path, ktx: &Path) -> Resu
             .context("files directory")?
             .join("effect.cab"),
         output,
-        ktx,
     )?;
     let script_bytes = section(&map, 6)?;
     symphonia_script::Program::decode(script_bytes)?;
@@ -209,7 +207,6 @@ pub(crate) struct SourceClip<'a> {
 pub(crate) fn cook_part(
     spec: PartSource<'_>,
     output: &Path,
-    ktx: &Path,
 ) -> Result<(ScenePart, serde_json::Value, Vec<u8>)> {
     let name = spec.name;
     let intermediate = output.join("intermediate").join(name);
@@ -267,7 +264,7 @@ pub(crate) fn cook_part(
         let path = format!("{name}/texture_{:03}.ktx2", texture.index);
         let destination = output.join(&path);
         fs::create_dir_all(destination.parent().context("texture directory")?)?;
-        crate::texture::cook(ktx, &intermediate.join(&texture.image), &destination)?;
+        crate::texture::cook_png(&intermediate.join(&texture.image), &destination)?;
         textures.push(path);
     }
     // Compile texture/vertex-color combination modes into material recipes.

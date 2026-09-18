@@ -140,7 +140,6 @@ fn special_clip_model(resource: u32) -> Result<u32> {
 pub(crate) fn cook_field(
     extracted: &Path,
     output: &Path,
-    ktx: &Path,
     map_id: u32,
     map: &crate::field::MapArchive,
 ) -> Result<Vec<ActorAssets>> {
@@ -189,7 +188,7 @@ pub(crate) fn cook_field(
     }
     let mut model_resources = declarations.resources.clone();
     let mut assets = Vec::new();
-    let package = |id, name: &str, data: &[u8]| cook(id, name, data, data, &[], output, ktx);
+    let package = |id, name: &str, data: &[u8]| cook(id, name, data, data, &[], output);
     let party: BTreeSet<_> = (1..=4)
         .chain(declared_clips.keys().copied().filter(|id| *id <= 9))
         .collect();
@@ -258,7 +257,7 @@ pub(crate) fn cook_field(
                 extra.push(clip(resource)?);
             }
         }
-        assets.push(cook(id, name, &model, &animation, &extra, output, ktx)?);
+        assets.push(cook(id, name, &model, &animation, &extra, output)?);
     }
     for index in declarations
         .resources
@@ -281,7 +280,6 @@ pub(crate) fn cook_field(
             data,
             &extra,
             output,
-            ktx,
         )?);
     }
     for &id in declarations.resources.range(..=u32::from(u16::MAX)) {
@@ -377,7 +375,6 @@ fn cook(
     animation: &[u8],
     extra: &[SourceClip<'_>],
     output: &Path,
-    ktx: &Path,
 ) -> Result<ActorAssets> {
     let ranges = sections(model)?;
     let primary = section(model, &ranges, 0)?;
@@ -425,7 +422,6 @@ fn cook(
                 texture_animations: Vec::new(),
             },
             output,
-            ktx,
         )
         .with_context(|| format!("cook {name} layer {index}"))?;
         part.secondary_motion = crate::secondary_motion::cook(&gltf, &part.bone_names, id == 1)?;

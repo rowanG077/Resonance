@@ -8,7 +8,7 @@ use std::{
     path::Path,
 };
 
-pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<ContactShadow> {
+pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<ContactShadow> {
     let mut archive =
         cab::Cabinet::new(Cursor::new(fs::read(extracted.join("files/effect.cab"))?))?;
     let mut source = Vec::new();
@@ -29,12 +29,9 @@ pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<Contac
         "unsupported contact shadow atlas"
     );
     let rgba = tpl::decode_texture(&source, texture)?;
-    let intermediate = output.join("intermediate/effects/contact-shadow.png");
-    fs::create_dir_all(intermediate.parent().unwrap())?;
     fs::create_dir_all(output.join("effects"))?;
-    image::save_buffer(&intermediate, &rgba, 256, 256, image::ColorType::Rgba8)?;
     let path = "effects/contact-shadow.ktx2";
-    crate::texture::cook(ktx, &intermediate, &output.join(path))?;
+    crate::texture::cook(256, 256, &rgba, &output.join(path))?;
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let value = |address| -> Result<f32> {
         Ok(f32::from_be_bytes(
