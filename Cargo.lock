@@ -128,6 +128,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ahx-rs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02c9b8d1fab24c57b17922741208cdc44aedb53483a5529872358262c8aa8c8f"
+dependencies = [
+ "libm",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2800,9 +2809,9 @@ dependencies = [
 
 [[package]]
 name = "h4m"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b250224d68a5376a5e4a7a87f7ada56be86a8dad16e209e9815a6704bf9143bf"
+checksum = "f3d9d059df0b50390cf8d09dbbc924c41f9868a854e025b63603e0985b55bcea"
 
 [[package]]
 name = "half"
@@ -4443,6 +4452,7 @@ dependencies = [
 name = "resonance-import"
 version = "0.1.0"
 dependencies = [
+ "ahx-rs",
  "anyhow",
  "cab",
  "encoding_rs",

@@ -365,7 +365,7 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
     crate::font::cook_repertoire(extracted, output, ktx, &required)?;
     let session_data = crate::session::cook(extracted, output)?;
     let text = crate::session::cook_text(extracted, output)?;
-    let skits = crate::skit::cook(extracted, output, ktx, Path::new("vgmstream-cli"))?;
+    let skits = crate::skit::cook(extracted, output, ktx)?;
     let ui: resonance_content::font::DialogueArt =
         serde_json::from_slice(&fs::read(output.join("ui/dialogue.json"))?)?;
     let font: resonance_content::font::BitmapFont =

@@ -1,5 +1,5 @@
 //! Offline media recipes. Rust owns parsing, validation, caching, and conversion;
-//! established command-line codecs run without opening an audio output device.
+//! pure Rust codecs run without opening an audio output device.
 mod cooked_music;
 mod field_audio;
 pub use field_audio::cook_field_audio;
@@ -8,7 +8,6 @@ mod music;
 mod music_score;
 mod music_voice;
 mod pitched_sample;
-mod process;
 mod sound_buses;
 mod sounds;
 
@@ -30,7 +29,6 @@ use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 const SAMPLE_RATE: u32 = 32_000;
@@ -67,12 +65,6 @@ impl Tool {
         let path = path.canonicalize()?;
         let hash = hash_file(&path)?;
         Ok(Self { path, hash })
-    }
-
-    fn command(&self, directory: &Path) -> Command {
-        let mut command = Command::new(&self.path);
-        command.current_dir(directory);
-        command
     }
 }
 
@@ -246,3 +238,6 @@ fn validate_wave(path: &Path, rate: u32, maximum: u32, allow_float: bool) -> Res
     ensure!(audible, "rendered audio is silent: {}", path.display());
     Ok(frames)
 }
+
+// Bump whenever AHX output semantics change; invalidates voice and skit caches.
+pub(crate) const AHX_DECODER: &str = "ahx-mpg123-neon64-pcm16-v1";
