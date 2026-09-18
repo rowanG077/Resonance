@@ -4,7 +4,9 @@ use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
 
 pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
-    let mut source = fs::read(extracted.join("files/toon.tpl"))?;
+    let executable = fs::read(extracted.join("sys/main.dol"))?;
+    let source = crate::all_assets::roles::toon_path(extracted, &executable)?;
+    let mut source = fs::read(extracted.join("files").join(source))?;
     let mut texture = tpl::parse_tpl(&source)?
         .into_iter()
         .next()
@@ -29,7 +31,6 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
         );
     }
     let rgba = tpl::decode_texture(&source, &texture)?;
-    fs::create_dir_all(output.join("effects"))?;
     let path = "effects/toon-ramp.ktx2";
     crate::texture::cook(256, 32, &rgba, &output.join(path))?;
     Ok(path.into())
