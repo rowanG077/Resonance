@@ -7,10 +7,8 @@ use resonance_content::{
 pub(super) fn cook(
     extracted: &Path,
     output: &Path,
-    decoder: &Path,
     executable: &[u8],
 ) -> Result<BTreeMap<u32, SkitMedia>> {
-    let decoder = crate::media::Tool::resolve(decoder)?;
     let directory = output.join("intermediate/skits/media");
     fs::create_dir_all(&directory)?;
     fs::create_dir_all(output.join("audio/skits"))?;
@@ -32,7 +30,7 @@ pub(super) fn cook(
             let cache = directory.join(format!("{id:08x}.json"));
             if let Ok(bytes) = fs::read(&cache)
                 && let Ok((hash, previous)) = serde_json::from_slice::<(String, SkitMedia)>(&bytes)
-                && hash == decoder.hash
+                && hash == crate::media::AHX_DECODER
                 && previous.source_sha256 == source_sha256
                 && previous.voice.as_ref().is_none_or(|v| {
                     crate::media::hash_file(&output.join(&v.asset.path))
@@ -44,49 +42,42 @@ pub(super) fn cook(
                 result.insert(id, previous);
                 continue;
             }
-            let raw = directory.join(format!("{id:08x}.ahx"));
-            write_atomic(&raw, member.data)?;
-            let wav = directory.join(format!("{id:08x}.wav"));
-            let process = std::process::Command::new(&decoder.path)
-                .args(["-i", "-o"])
-                .arg(&wav)
-                .arg(&raw)
-                .output()?;
-            ensure!(
-                process.status.success(),
-                "decode skit media {id:x}: {}",
-                String::from_utf8_lossy(&process.stderr)
-            );
-            let mut reader = hound::WavReader::open(&wav)?;
-            let spec = reader.spec();
-            ensure!(
-                spec.bits_per_sample == 16
-                    && (8000..=48000).contains(&spec.sample_rate)
-                    && spec.sample_format == hound::SampleFormat::Int
-                    && (1..=2).contains(&spec.channels),
-                "invalid skit PCM {id:x}: {spec:?}"
-            );
-            let frames = reader.duration();
-            let pcm: Vec<i16> = reader.samples().collect::<std::result::Result<_, _>>()?;
+            let mut decoder = ahx_rs::Decoder::new(member.data)
+                .with_context(|| format!("decode skit media {id:x}"))?;
+            let info = decoder.metadata();
+            let frames = info.samples();
+            let spec = hound::WavSpec {
+                channels: info.channels(),
+                sample_rate: info.sample_rate(),
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
             // US skits use silent AHX tracks as subtitle clocks. Do not infer
             // silence from a region or filename; verify every decoded sample.
             let sample_rate = (u64::from(spec.sample_rate) * 32028 / 32000) as u32;
-            let voice = if pcm.iter().all(|&s| s == 0) {
-                None
-            } else {
-                let path = format!("audio/skits/{id:08x}.wav");
-                let target = output.join(&path);
-                let mut writer = hound::WavWriter::create(
-                    &target,
-                    hound::WavSpec {
-                        sample_rate,
-                        ..spec
-                    },
-                )?;
-                for sample in pcm {
+            let path = format!("audio/skits/{id:08x}.wav");
+            let target = output.join(&path);
+            let temporary = target.with_extension("partial.wav");
+            let mut writer = hound::WavWriter::create(
+                &temporary,
+                hound::WavSpec {
+                    sample_rate,
+                    ..spec
+                },
+            )?;
+            let mut silent = true;
+            while let Some(pcm) = decoder.next_block()? {
+                for &sample in pcm {
+                    silent &= sample == 0;
                     writer.write_sample(sample)?;
                 }
-                writer.finalize()?;
+            }
+            writer.finalize()?;
+            let voice = if silent {
+                fs::remove_file(&temporary)?;
+                None
+            } else {
+                fs::rename(&temporary, &target)?;
                 Some(Voice {
                     asset: Asset {
                         sha256: crate::media::hash_file(&target)?,
@@ -106,7 +97,10 @@ pub(super) fn cook(
                 sample_rate,
                 source_sha256,
             };
-            write_atomic(&cache, &serde_json::to_vec(&(&decoder.hash, &media))?)?;
+            write_atomic(
+                &cache,
+                &serde_json::to_vec(&(&crate::media::AHX_DECODER, &media))?,
+            )?;
             result.insert(id, media);
         }
     }
