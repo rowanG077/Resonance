@@ -2,10 +2,7 @@
   description = "Resonance development and asset conversion environment";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/34ab99075ac4f7e40cf037eef32cb1c360bb85e9";
   outputs =
-    {
-      nixpkgs,
-      ...
-    }:
+    { nixpkgs, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -71,7 +68,6 @@
                 p.pillow
               ]))
               lz4
-              vgmstream
               dolphin-emu
               ktxTools
               nodejs
