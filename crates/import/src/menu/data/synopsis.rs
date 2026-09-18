@@ -1,35 +1,20 @@
 use super::*;
 use resonance_content::menu_data::{
-    SYNOPSIS_COUNT, SynopsisData, SynopsisEntry, SynopsisLine, SynopsisLocation, SynopsisSpan,
+    SynopsisData, SynopsisEntry, SynopsisLine, SynopsisLocation, SynopsisSpan,
 };
 use std::collections::BTreeMap;
 
 pub(super) fn cook(
-    executable: &[u8],
-    text: &impl Fn(&[u8], usize) -> Result<String>,
+    font: &crate::font_directory::Metrics,
+    ui: &synopsis_catalogue::Catalogue,
+    map: &crate::all_assets::world_map::Catalogue,
 ) -> Result<SynopsisData> {
     let mut metrics = BTreeMap::new();
     let mut wrap = |text: &str| -> Result<Vec<SynopsisLine>> {
         let chars: Vec<_> = text.chars().collect();
         for &ch in &chars {
             if !ch.is_control() && !metrics.contains_key(&ch) {
-                let code = if ch.is_ascii() {
-                    if ch == '^' {
-                        0x81a7
-                    } else {
-                        let address = 0x801f8984 + (ch as u32 - 32) * 2;
-                        u16::from_be_bytes(dol::slice(executable, address, 2)?.try_into()?)
-                    }
-                } else {
-                    let character = ch.to_string();
-                    let (bytes, _, invalid) = encoding_rs::SHIFT_JIS.encode(&character);
-                    ensure!(
-                        !invalid && bytes.len() == 2,
-                        "invalid synopsis character {ch:?}"
-                    );
-                    u16::from_be_bytes(bytes.as_ref().try_into()?)
-                };
-                metrics.insert(ch, crate::font::glyph_advance(executable, code)?);
+                metrics.insert(ch, font.advance(font.code(ch)?));
             }
         }
         let mut lines = Vec::new();
@@ -87,41 +72,38 @@ pub(super) fn cook(
         }
         Ok(lines)
     };
-    let entries = dol::slice(executable, 0x802a1c30, SYNOPSIS_COUNT * 24)?
-        .chunks_exact(24)
+    let entries = ui
+        .entries
+        .iter()
         .map(|row| {
-            let id = u16::from_be_bytes(row[2..4].try_into()?);
+            let id = row.location;
             let location = if id < 0x152 {
                 let world = u8::from(id >= 0x100);
                 let id = id & 255;
-                let base = [0x8026ae80, 0x8026b650][usize::from(world)];
                 let point = if id == 0 {
                     None
                 } else {
-                    let point = dol::slice(executable, base + u32::from(id) * 20, 8)?;
-                    Some(
-                        std::array::from_fn(|axis| {
-                            i32::from_be_bytes(point[axis * 4..axis * 4 + 4].try_into().unwrap())
-                                / 300
-                        })
-                        .map(|v| v as i16),
-                    )
+                    let row = map
+                        .world(usize::from(world))?
+                        .get(usize::from(id))
+                        .context("synopsis location exceeds world map")?;
+                    Some(row.position.map(|value| (value / 300) as i16))
                 };
                 Some(SynopsisLocation { world, point })
             } else {
                 None
             };
             Ok(SynopsisEntry {
-                heading: text(row, 4)?,
-                title: text(row, 8)?,
+                heading: ui.required(row.heading)?.to_owned(),
+                title: ui.required(row.title)?.to_owned(),
                 location,
-                text: (0..3)
-                    .map(|i| {
-                        if row[12 + i * 4..16 + i * 4] == [0; 4] {
-                            Ok(None)
-                        } else {
-                            wrap(&text(row, 12 + i * 4)?).map(Some)
-                        }
+                text: row
+                    .text
+                    .iter()
+                    .map(|reference| {
+                        reference
+                            .map(|reference| wrap(ui.text(reference)))
+                            .transpose()
                     })
                     .collect::<Result<Vec<_>>>()?
                     .try_into()
@@ -131,8 +113,10 @@ pub(super) fn cook(
         .collect::<Result<_>>()?;
     Ok(SynopsisData {
         entries,
-        months: (0..12)
-            .map(|i| text(&(0x8035d974u32 + i * 4).to_be_bytes(), 0))
+        months: ui
+            .months
+            .iter()
+            .map(|&reference| Ok(ui.required(reference)?.to_owned()))
             .collect::<Result<Vec<_>>>()?
             .try_into()
             .unwrap(),
