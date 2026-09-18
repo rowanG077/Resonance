@@ -1,11 +1,11 @@
 //! Field audio recipes, using original resource tables and Rust synthesis.
-use super::{Tool, Workspace, hash_file, write_json, write_pcm16, write_sample_assets};
+use super::{Workspace, hash_file, write_json, write_sample_assets};
 use anyhow::{Context, Result, ensure};
 use resonance_audio::package::Package;
 use resonance_audio_cook::{bank::Bank, compile, song::Song};
 use resonance_content::field_audio::{Asset, FieldAudio, Voice};
 use serde_json::json;
-use std::{collections::BTreeMap, fs, io::ErrorKind, path::Path, time::Duration};
+use std::{collections::BTreeMap, fs, io::ErrorKind, path::Path};
 mod resources;
 
 /// Resolve the saved setting through CRI attenuation and the stream mixer.
@@ -32,7 +32,6 @@ pub fn cook_field_audio(
     output: &Path,
     map_id: u32,
     coefficients: &Path,
-    decoder: &Path,
     additional_disc: Option<&Path>,
 ) -> Result<()> {
     let workspace = Workspace::open(extracted, output)?;
@@ -45,9 +44,6 @@ pub fn cook_field_audio(
     let resources = resources::Resources::read(extracted, &executable, map.section(6)?)
         .with_context(|| format!("inventory field {map_id} audio"))?;
     let coefficients = read_file(coefficients)?;
-    let decoder = (!resources.voices.is_empty())
-        .then(|| Tool::resolve(decoder))
-        .transpose()?;
     let mut archives = BTreeMap::new();
     let mut sources = BTreeMap::new();
     let mut voice_sources = BTreeMap::new();
@@ -84,9 +80,9 @@ pub fn cook_field_audio(
                 .with_context(|| format!("hash field {map_id} audio source {source}"))?,
         );
     }
-    let recipe = json!({"version":5,"map_id":map_id,"map_sha256":map.source_sha256,"sound_banks":resources.banks,
+    let recipe = json!({"version":6,"map_id":map_id,"map_sha256":map.source_sha256,"sound_banks":resources.banks,
         "executable_sha256":crate::digest(&executable),"coefficients_sha256":crate::digest(&coefficients),
-        "voice_decoder_sha256":decoder.as_ref().map(|tool| &tool.hash),
+        "voice_decoder":super::AHX_DECODER,
         "compiler_sha256":hash_file(&std::env::current_exe()?)?,"sources":sources,"voice_sources":voice_sources,"audio_device":false});
     let metadata = output.join(if map_id == 340 {
         "fields/iselia-classroom-audio.json".into()
@@ -135,11 +131,7 @@ pub fn cook_field_audio(
             "field-sound",
             &resources.banks,
         )?,
-        voices: if let Some(decoder) = decoder {
-            cook_voices(&workspace, &decoder, &archives, &resources.voices)?
-        } else {
-            BTreeMap::new()
-        },
+        voices: cook_voices(&workspace, &archives, &resources.voices)?,
         recipe,
     };
     manifest.validate()?;
@@ -155,12 +147,9 @@ pub fn cook_field_audio(
 
 fn cook_voices(
     workspace: &Workspace,
-    decoder: &Tool,
     archives: &BTreeMap<u32, Vec<u8>>,
     ids: &std::collections::BTreeSet<u32>,
 ) -> Result<BTreeMap<u32, Voice>> {
-    let intermediate = workspace.output.join("intermediate/field-voices");
-    fs::create_dir_all(&intermediate)?;
     fs::create_dir_all(workspace.output.join("audio/voices"))?;
     let mut voices = BTreeMap::new();
     for (&group, archive) in archives {
@@ -169,39 +158,34 @@ fn cook_voices(
             let member = members
                 .get((id & 0xffff) as usize)
                 .context("spoken line is missing from its AFS archive")?;
-            let raw = intermediate.join(format!("{id:08x}.ahx"));
-            fs::write(&raw, member.data)?;
             let path = format!("audio/voices/{id:08x}.wav");
             let target = workspace.output.join(&path);
             let temporary = target.with_extension("partial.wav");
-            let mut command = decoder.command(&intermediate);
-            command.arg("-i").arg("-o").arg(&temporary).arg(&raw);
-            super::process::pipe(
-                &mut command,
-                &intermediate.join(format!("{id:08x}.log")),
-                Duration::from_secs(30),
-                |_| Ok(()),
-            )?;
-            let mut wave = hound::WavReader::open(&temporary)
-                .with_context(|| format!("read decoded voice {id:#x}: {}", temporary.display()))?;
-            let spec = wave.spec();
+            let mut decoder = ahx_rs::Decoder::new(member.data)
+                .with_context(|| format!("decode voice {id:#x}"))?;
+            let info = decoder.metadata();
             ensure!(
-                spec.bits_per_sample == 16
-                    && spec.sample_format == hound::SampleFormat::Int
-                    && spec.sample_rate == 32000
-                    && (1..=2).contains(&spec.channels)
-                    && (1..=32_000_000).contains(&wave.duration()),
+                info.sample_rate() == 32000 && (1..=32_000_000).contains(&info.samples()),
                 "voice decoder did not produce bounded 32 kHz PCM16"
             );
-            let frames = wave.duration();
-            let pcm = wave
-                .samples::<i16>()
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            drop(wave);
-            // The AHX header describes the nominal synthesis rate. As with the
-            // music bank, Dolphin consumes these samples at the actual DAC clock.
-            // Relabel the WAV in Rust; preserve every decoded sample unchanged.
-            write_pcm16(&temporary, spec.channels, super::PLAYBACK_RATE, pcm)?;
+            let frames = info.samples();
+            // Relabel the declared synthesis rate to the actual DAC clock,
+            // preserving every decoded sample without resampling.
+            let mut writer = hound::WavWriter::create(
+                &temporary,
+                hound::WavSpec {
+                    channels: info.channels(),
+                    sample_rate: super::PLAYBACK_RATE,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )?;
+            while let Some(pcm) = decoder.next_block()? {
+                for &sample in pcm {
+                    writer.write_sample(sample)?;
+                }
+            }
+            writer.finalize()?;
             fs::rename(&temporary, &target)?;
             voices.insert(
                 id,
@@ -213,8 +197,8 @@ fn cook_voices(
                     },
                     frames,
                     sample_rate: super::PLAYBACK_RATE,
-                    source_sample_rate: spec.sample_rate,
-                    channels: spec.channels,
+                    source_sample_rate: info.sample_rate(),
+                    channels: info.channels(),
                     source_name: member.name.into(),
                     source_sha256: crate::digest(member.data),
                 },

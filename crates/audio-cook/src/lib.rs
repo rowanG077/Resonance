@@ -1,8 +1,8 @@
 //! Offline compilation of the original MusyX resources.
 //!
-//! This crate has no audio device, Bevy, FFmpeg, or emulator dependency. Its
-//! Outputs are typed musical data and decoded PCM for the importer. Playback
-//! shares resonance-audio's synthesis core and reads only the cooked package.
+//! This crate compiles resources directly in Rust. Its outputs are typed
+//! musical data and decoded PCM for the importer. Playback shares
+//! resonance-audio's synthesis core and reads only the cooked package.
 //! The renderer exposes voice buses and a standard-reverb studio mix for oracle
 //! diagnosis; it rejects unsupported macro commands instead of dropping them.
 pub mod bank;

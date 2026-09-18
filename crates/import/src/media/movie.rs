@@ -1,6 +1,4 @@
-use super::{
-    Tool, Workspace, be_u32, hash_file, json_file, process, valid_asset, wav_frames, write_json,
-};
+use super::{Workspace, be_u32, hash_file, json_file, valid_asset, wav_frames, write_json};
 use crate::dol::slice as dol_slice;
 use anyhow::{Context, Result, ensure};
 use serde_json::json;
@@ -132,7 +130,6 @@ impl MovieSource {
 pub fn cook_movie(
     extracted: &Path,
     output: &Path,
-    audio_decoder: &Path,
     audio_stream: u8,
     source: MovieSource,
 ) -> Result<()> {
@@ -143,7 +140,6 @@ pub fn cook_movie(
         "movie audio stream must be 1 or 2"
     );
     let workspace = Workspace::open(extracted, output)?;
-    let audio_decoder = Tool::resolve(audio_decoder)?;
     let movie = workspace
         .extracted
         .join(format!("files/MOV/{source_name}.h4m"));
@@ -152,9 +148,9 @@ pub fn cook_movie(
     let header = Header::parse(&header_bytes)?;
     let dol = workspace.extracted.join("sys/main.dol");
     let colors = Colors::from_dol(&fs::read(&dol)?)?;
-    let recipe = json!({"version": 3, "movie_sha256": hash_file(&movie)?,
-        "dol_sha256": hash_file(&dol)?, "video_decoder": "h4m-0.3.0",
-        "audio_decoder_sha256": audio_decoder.hash, "video_encoder": "codec_ffv1-0.1.0", "audio_encoder": "flacenc-0.5.1", "muxer": "resonance-matroska-v1",
+    let recipe = json!({"version": 4, "movie_sha256": hash_file(&movie)?,
+        "dol_sha256": hash_file(&dol)?, "video_decoder": "h4m-0.4.0",
+        "audio_decoder": "h4m-0.4.0-ima-pcm16-v1", "video_encoder": "codec_ffv1-0.1.0", "audio_encoder": "flacenc-0.5.1", "muxer": "resonance-matroska-v1",
         "audio_stream": audio_stream, "video_codec": "ffv1", "audio_codec": "flac",
         "color_conversion": "gqseaf-yuv-table-v2", "audio_channel_order": "swap_lr"});
     let metadata = workspace.output.join(format!("{name}.json"));
@@ -186,9 +182,9 @@ pub fn cook_movie(
     }) && fs::metadata(&yuv).is_ok_and(|metadata| metadata.len() == expected))
     {
         let temporary = yuv.with_extension("partial.yuv");
-        let mut decoder = h4m::Decoder::with_limits(
+        let mut decoder = h4m::VideoDecoder::with_limits(
             BufReader::new(fs::File::open(&movie)?),
-            h4m::Limits {
+            h4m::VideoLimits {
                 max_pixels: 640 * 480,
                 max_frame_bytes: 64 * 1024 * 1024,
             },
@@ -196,21 +192,21 @@ pub fn cook_movie(
         let mut target = fs::File::create(&temporary)?;
         let mut seen = vec![false; header.frames as usize];
         while let Some(frame) = decoder.next_frame()? {
-            let index = frame.display_index as usize;
+            let index = frame.display_index() as usize;
             ensure!(
                 index < seen.len() && !seen[index],
                 "invalid or repeated H4M presentation index"
             );
             ensure!(
-                frame.y.data.len() + frame.u.data.len() + frame.v.data.len()
+                frame.y().data().len() + frame.u().data().len() + frame.v().data().len()
                     == header.frame_bytes(),
                 "unexpected H4M plane layout"
             );
             // H4M returns decoding order (I0, P3, B1, B2). Place each frame by
             // its display index without retaining an unbounded reorder queue.
             target.seek(SeekFrom::Start(index as u64 * header.frame_bytes() as u64))?;
-            for plane in [frame.y, frame.u, frame.v] {
-                target.write_all(plane.data)?;
+            for plane in frame.planes() {
+                target.write_all(plane.data())?;
             }
             seen[index] = true;
         }
@@ -231,15 +227,26 @@ pub fn cook_movie(
         )?;
     }
     let audio = directory.join(format!("audio-{audio_stream}.wav"));
-    process::run(
-        audio_decoder
-            .command(&directory)
-            .args(["-i", "-s", &audio_stream.to_string(), "-o"])
-            .arg(&audio)
-            .arg(&movie),
-        &directory.join("audio.log"),
-        b"",
+    let mut decoder = h4m::AudioDecoder::new(
+        BufReader::new(fs::File::open(&movie)?),
+        u16::from(audio_stream),
     )?;
+    let info = decoder.metadata();
+    let mut wave = hound::WavWriter::create(
+        &audio,
+        hound::WavSpec {
+            channels: info.channels(),
+            sample_rate: info.sample_rate(),
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )?;
+    while let Some(pcm) = decoder.next_block()? {
+        for &sample in pcm {
+            wave.write_sample(sample)?;
+        }
+    }
+    wave.finalize()?;
     let audio_frames = u64::from(wav_frames(
         &audio,
         header.sample_rate,
@@ -250,7 +257,7 @@ pub fn cook_movie(
         "unexpected opening audio frame count"
     );
     // The game's movie DMA output has the opposite channel order to this
-    // vgmstream decoder. Stereo stream 1, swapped here, matches recorded
+    // HVQM4 IMA decoder. Stereo stream 1, swapped here, matches recorded
     // Dolphin PCM exactly in steady playback windows. Normalize it offline;
     // the runtime receives ordinary left/right stereo audio.
     let normalized_audio = directory.join(format!("audio-{audio_stream}-stereo.wav"));

@@ -75,8 +75,6 @@ enum Action {
         output: PathBuf,
         #[arg(long, default_value = "ktx")]
         ktx: PathBuf,
-        #[arg(long, default_value = "vgmstream-cli")]
-        voice_decoder: PathBuf,
     },
     /// Build a conservative preload manifest from an already cooked field.
     CookFieldPreload {
@@ -100,8 +98,6 @@ enum Action {
         output: PathBuf,
         #[arg(long)]
         coefficients: PathBuf,
-        #[arg(long, default_value = "vgmstream-cli")]
-        voice_decoder: PathBuf,
     },
     /// Cook a field's declared music, cues, and spoken lines without playback.
     CookFieldAudio {
@@ -113,8 +109,6 @@ enum Action {
         output: PathBuf,
         #[arg(long)]
         coefficients: PathBuf,
-        #[arg(long, default_value = "vgmstream-cli")]
-        voice_decoder: PathBuf,
         /// Additional extracted disc containing voices absent from the primary disc.
         #[arg(long)]
         additional_disc: Option<PathBuf>,
@@ -123,8 +117,6 @@ enum Action {
     CookStoryIntro {
         #[command(flatten)]
         paths: MediaPaths,
-        #[arg(long, default_value = "vgmstream-cli")]
-        audio_decoder: PathBuf,
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
         audio_stream: u8,
     },
@@ -302,8 +294,6 @@ enum Action {
     CookIntro {
         #[command(flatten)]
         paths: MediaPaths,
-        #[arg(long, default_value = "vgmstream-cli")]
-        audio_decoder: PathBuf,
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
         audio_stream: u8,
     },
@@ -366,22 +356,19 @@ fn main() -> anyhow::Result<()> {
             extracted,
             output,
             coefficients,
-            voice_decoder,
             additional_disc,
         } => resonance_import::media::cook_field_audio(
             &extracted,
             &output,
             map,
             &coefficients,
-            &voice_decoder,
             additional_disc.as_deref(),
         ),
         Action::CookSkits {
             extracted,
             output,
             ktx,
-            voice_decoder,
-        } => resonance_import::skit::cook_all(&extracted, &output, &ktx, &voice_decoder),
+        } => resonance_import::skit::cook_all(&extracted, &output, &ktx),
         Action::CookEffects {
             extracted,
             output,
@@ -391,23 +378,15 @@ fn main() -> anyhow::Result<()> {
             extracted,
             output,
             coefficients,
-            voice_decoder,
-        } => resonance_import::media::cook_field_audio(
-            &extracted,
-            &output,
-            340,
-            &coefficients,
-            &voice_decoder,
-            None,
-        ),
+        } => {
+            resonance_import::media::cook_field_audio(&extracted, &output, 340, &coefficients, None)
+        }
         Action::CookStoryIntro {
             paths,
-            audio_decoder,
             audio_stream,
         } => resonance_import::media::cook_movie(
             &paths.extracted,
             &paths.output,
-            &audio_decoder,
             audio_stream,
             resonance_import::media::MovieSource::StoryIntroduction,
         ),
@@ -554,12 +533,10 @@ fn main() -> anyhow::Result<()> {
         } => resonance_import::media::render_sound_buses(&extracted, &bank, id, &output),
         Action::CookIntro {
             paths,
-            audio_decoder,
             audio_stream,
         } => resonance_import::media::cook_movie(
             &paths.extracted,
             &paths.output,
-            &audio_decoder,
             audio_stream,
             resonance_import::media::MovieSource::Opening,
         ),
