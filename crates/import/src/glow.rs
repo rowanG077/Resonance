@@ -120,7 +120,7 @@ pub fn positions(
     Ok(output)
 }
 
-pub fn texture(source: &Path, output: &Path, ktx: &Path) -> Result<(String, String)> {
+pub fn texture(source: &Path, output: &Path) -> Result<(String, String)> {
     let source = fs::read(source)?;
     let mut cabinet = cab::Cabinet::new(Cursor::new(&source))?;
     let mut tpl = Vec::new();
@@ -137,11 +137,7 @@ pub fn texture(source: &Path, output: &Path, ktx: &Path) -> Result<(String, Stri
         width == 256 && height == 256,
         "unexpected glow atlas dimensions"
     );
-    let intermediate = output.join("intermediate/glow");
-    fs::create_dir_all(&intermediate)?;
-    let png = intermediate.join("atlas.png");
-    image::save_buffer(&png, &pixels, width, height, image::ColorType::Rgba8)?;
     let path = "title/glow.ktx2";
-    crate::texture::cook(ktx, &png, &output.join(path))?;
+    crate::texture::cook(width, height, &pixels, &output.join(path))?;
     Ok((path.into(), crate::digest(&source)))
 }

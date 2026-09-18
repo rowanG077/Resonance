@@ -8,36 +8,34 @@ mod shops;
 pub use shops::{ShopInventoryCheck, ShopInventoryValidation, ShopItemCheck, validate_shops};
 
 /// Refresh the shared player menus and their field preparation manifests.
-pub fn cook_all(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
+pub fn cook_all(extracted: &Path, output: &Path) -> Result<()> {
     let session = crate::session::cook(extracted, output)?;
     cook(
         extracted,
         &fs::read(extracted.join("sys/main.dol"))?,
         output,
-        ktx,
     )?;
     crate::field::refresh_shared(output, &[session])
 }
 
-pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path, ktx: &Path) -> Result<()> {
+pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path) -> Result<()> {
     let missing: Vec<_> = (0..resonance_content::monster::MONSTER_COUNT as u8)
         .filter(|id| !output.join(format!("monsters/{id:03}.json")).is_file())
         .collect();
     if !missing.is_empty() {
-        crate::monsters::cook(extracted, output, ktx, &missing)?;
+        crate::monsters::cook(extracted, output, &missing)?;
     }
     let missing: Vec<_> = (0..resonance_content::figurine::FIGURINE_COUNT as u16)
         .filter(|id| !output.join(format!("figurines/{id:03}.json")).is_file())
         .collect();
     if !missing.is_empty() {
-        crate::figurines::cook(extracted, output, ktx, &missing)?;
+        crate::figurines::cook(extracted, output, &missing)?;
     }
     data::cook(executable, output)?;
     let settings = dol::slice(executable, 0x80219cf8, 44)?;
     ensure!(settings[7] == 0x15, "unsupported default menu theme");
     let bank = dol::slice(executable, 0x80234260, 0x2c20)?;
     let mut textures = Vec::new();
-    fs::create_dir_all(output.join("intermediate/ui/menu"))?;
     fs::create_dir_all(output.join("ui/menu"))?;
     let arrows = dol::slice(executable, 0x80249780, 0x16a0)?;
     let images = tpl::parse_tpl(bank)?
@@ -63,10 +61,8 @@ pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path, ktx: &Pat
                 pixel[3] = 255;
             }
         }
-        let png = output.join(format!("intermediate/ui/menu/{i}.png"));
-        image::save_buffer(&png, &rgba, width, height, image::ColorType::Rgba8)?;
         let path = format!("ui/menu/{i}.ktx2");
-        crate::texture::cook(ktx, &png, &output.join(&path))?;
+        crate::texture::cook(width, height, &rgba, &output.join(&path))?;
         textures.push(MenuTexture {
             path,
             width,
@@ -74,7 +70,7 @@ pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path, ktx: &Pat
             repeat: source.wrap[0] == 1,
         });
     }
-    let (atlas, sprites) = cook_sprites(extracted, executable, output, ktx)?;
+    let (atlas, sprites) = cook_sprites(extracted, executable, output)?;
     textures.push(atlas);
     use std::io::{Cursor, Read};
     let mut cabinet = cab::Cabinet::new(Cursor::new(fs::read(extracted.join("files/FIELD/s.z"))?))?;
@@ -89,10 +85,8 @@ pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path, ktx: &Pat
     let portraits = tpl::decode(&portraits)?;
     ensure!(portraits.len() == 9, "invalid status portrait count");
     for (index, (width, height, rgba)) in portraits.into_iter().enumerate() {
-        let png = output.join(format!("intermediate/ui/menu/portrait-{index}.png"));
-        image::save_buffer(&png, &rgba, width, height, image::ColorType::Rgba8)?;
         let path = format!("ui/menu/portrait-{index}.ktx2");
-        crate::texture::cook(ktx, &png, &output.join(&path))?;
+        crate::texture::cook(width, height, &rgba, &output.join(&path))?;
         textures.push(MenuTexture {
             path,
             width,
@@ -103,10 +97,8 @@ pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path, ktx: &Pat
     let maps = tpl::decode(dol::slice(executable, 0x8024e2a0, 0x1b0e0)?)?;
     ensure!(maps.len() == 2, "invalid world-map artwork");
     for (index, (width, height, rgba)) in maps.into_iter().enumerate() {
-        let png = output.join(format!("intermediate/ui/menu/world-{index}.png"));
-        image::save_buffer(&png, &rgba, width, height, image::ColorType::Rgba8)?;
         let path = format!("ui/menu/world-{index}.ktx2");
-        crate::texture::cook(ktx, &png, &output.join(&path))?;
+        crate::texture::cook(width, height, &rgba, &output.join(&path))?;
         textures.push(MenuTexture {
             path,
             width,
@@ -114,7 +106,7 @@ pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path, ktx: &Pat
             repeat: false,
         });
     }
-    let windows = cook_windows(executable, output, ktx, &mut textures)?;
+    let windows = cook_windows(executable, output, &mut textures)?;
     let art = MenuArt {
         version: MenuArt::VERSION,
         windows,
@@ -203,7 +195,6 @@ pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path, ktx: &Pat
 fn cook_windows(
     executable: &[u8],
     output: &Path,
-    ktx: &Path,
     textures: &mut Vec<MenuTexture>,
 ) -> Result<[WindowArt; 3]> {
     let mut bank = |address, size, name: &str, opaque_images: usize| -> Result<Vec<usize>> {
@@ -219,10 +210,8 @@ fn cook_windows(
                         pixel[3] = 255;
                     }
                 }
-                let png = output.join(format!("intermediate/ui/menu/{name}-{i}.png"));
-                image::save_buffer(&png, &rgba, width, height, image::ColorType::Rgba8)?;
                 let path = format!("ui/menu/{name}-{i}.ktx2");
-                crate::texture::cook(ktx, &png, &output.join(&path))?;
+                crate::texture::cook(width, height, &rgba, &output.join(&path))?;
                 let index = textures.len();
                 textures.push(MenuTexture {
                     path,
@@ -303,7 +292,6 @@ fn cook_sprites(
     extracted: &Path,
     executable: &[u8],
     output: &Path,
-    ktx: &Path,
 ) -> Result<(MenuTexture, MenuSprites)> {
     let mut atlas = image::RgbaImage::new(1024, 1024);
     let (mut x, mut y, mut row_height) = (1, 1, 0);
@@ -471,10 +459,13 @@ fn cook_sprites(
         .collect::<Result<Vec<_>>>()?
         .try_into()
         .map_err(|_| anyhow::anyhow!("missing equipment comparison markers"))?;
-    let png = output.join("intermediate/ui/menu/party.png");
-    atlas.save(&png)?;
     let path = "ui/menu/party.ktx2";
-    crate::texture::cook(ktx, &png, &output.join(path))?;
+    crate::texture::cook(
+        atlas.width(),
+        atlas.height(),
+        atlas.as_raw(),
+        &output.join(path),
+    )?;
     Ok((
         MenuTexture {
             path: path.into(),

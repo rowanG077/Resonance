@@ -184,12 +184,11 @@ pub fn inspect(source: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> Result<()> {
-    use crate::media::{Tool, Workspace, hash_file};
+pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
+    use crate::media::{Workspace, hash_file};
     use crate::scene::{PartSource, cook_part};
     use resonance_content::{ScriptAsset, field::FieldAssets};
     let _workspace = Workspace::open(extracted, output)?;
-    let ktx = Tool::resolve(ktx)?;
     let source = source_for_id(extracted, map_id)?;
     let name = if map_id == 340 {
         "iselia-classroom".into()
@@ -243,8 +242,12 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
             .into_owned(),
         hash_file(&source)?,
     );
-    let recipe = serde_json::json!({"version":1,"sources":sources,"ktx_sha256":ktx.hash,"compiler_sha256":hash_file(&std::env::current_exe()?)?});
-    let ktx = ktx.path.as_path();
+    let recipe = serde_json::json!({
+        "version": 2,
+        "sources": sources,
+        "texture_recipe": crate::texture::RECIPE,
+        "compiler_sha256": hash_file(&std::env::current_exe()?)?,
+    });
     let metadata = output.join(format!("{prefix}.json"));
     let cache = output.join(format!("intermediate/{prefix}-recipe.json"));
     if let Ok(bytes) = fs::read(&metadata)
@@ -290,7 +293,6 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
                 texture_animations: Vec::new(),
             },
             output,
-            ktx,
         )?;
         if index == 0 {
             doors = crate::field_doors::cook(&gltf)?;
@@ -308,8 +310,8 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
         &output.join(&messages_path),
         &serde_json::to_vec(&messages)?,
     )?;
-    let (effects, effect_files) = crate::field_effects::cook(extracted, output, ktx)?;
-    let (captions, caption_files) = crate::field_caption::cook(&map, &prefix, output, ktx)?;
+    let (effects, effect_files) = crate::field_effects::cook(extracted, output)?;
+    let (captions, caption_files) = crate::field_caption::cook(&map, &prefix, output)?;
     let mut assets = FieldAssets {
         version: 7,
         map_id,
@@ -327,9 +329,9 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
             .transpose()?
             .unwrap_or_default(),
         doors,
-        actors: crate::character::cook_field(extracted, output, ktx, map_id, &map)?,
-        contact_shadow: crate::field_shadow::cook(extracted, output, ktx)?,
-        toon_ramp: crate::field_lighting::cook(extracted, output, ktx)?,
+        actors: crate::character::cook_field(extracted, output, map_id, &map)?,
+        contact_shadow: crate::field_shadow::cook(extracted, output)?,
+        toon_ramp: crate::field_lighting::cook(extracted, output)?,
         effects,
         blink: crate::field_effects::blink(extracted)?,
         particles: crate::field_effects::particles(extracted)?,
@@ -362,10 +364,10 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
                 .flat_map(|span| span.text.chars()),
         )
         .collect();
-    crate::font::cook_repertoire(extracted, output, ktx, &required)?;
+    crate::font::cook_repertoire(extracted, output, &required)?;
     let session_data = crate::session::cook(extracted, output)?;
     let text = crate::session::cook_text(extracted, output)?;
-    let skits = crate::skit::cook(extracted, output, ktx)?;
+    let skits = crate::skit::cook(extracted, output)?;
     let ui: resonance_content::font::DialogueArt =
         serde_json::from_slice(&fs::read(output.join("ui/dialogue.json"))?)?;
     let font: resonance_content::font::BitmapFont =
@@ -403,9 +405,7 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path, ktx: &Path) -> R
         .map(|path| Ok((path.clone(), hash_file(&output.join(path))?)))
         .collect::<Result<_>>()?;
     if map_id == 340 {
-        assets
-            .files
-            .extend(cook_setup(extracted, output, ktx, &assets)?);
+        assets.files.extend(cook_setup(extracted, output, &assets)?);
         let setup: FieldAssets =
             serde_json::from_slice(&fs::read(output.join("fields/new-game-setup.json"))?)?;
         let setup_messages: Vec<symphonia_script::message::Message> =
@@ -539,7 +539,6 @@ pub(crate) fn refresh_preloads(output: &Path) -> Result<()> {
 fn cook_setup(
     extracted: &Path,
     output: &Path,
-    ktx: &Path,
     classroom: &resonance_content::field::FieldAssets,
 ) -> Result<BTreeMap<String, String>> {
     use crate::scene::{PartSource, cook_part};
@@ -559,7 +558,6 @@ fn cook_setup(
             texture_animations: Vec::new(),
         },
         output,
-        ktx,
     )?;
     let script = map.section(6)?;
     Program::decode(script)?;

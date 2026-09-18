@@ -73,14 +73,13 @@ mod system_text_tests {
     }
 }
 
-pub fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
-    cook_repertoire(extracted, output, ktx, &Default::default())
+pub fn cook(extracted: &Path, output: &Path) -> Result<()> {
+    cook_repertoire(extracted, output, &Default::default())
 }
 
 pub(crate) fn cook_repertoire(
     extracted: &Path,
     output: &Path,
-    ktx: &Path,
     required: &std::collections::BTreeSet<char>,
 ) -> Result<()> {
     let source = fs::read(extracted.join("files/u_f_fontb0.dat"))?;
@@ -168,12 +167,9 @@ pub(crate) fn cook_repertoire(
             skit.id
         );
     }
-    let intermediate = output.join("intermediate/fonts/dialogue.png");
-    fs::create_dir_all(intermediate.parent().unwrap())?;
-    image::save_buffer(&intermediate, &rgba, width, height, image::ColorType::Rgba8)?;
     fs::create_dir_all(output.join("fonts"))?;
     let texture = "fonts/dialogue.ktx2";
-    crate::texture::cook(ktx, &intermediate, &output.join(texture))?;
+    crate::texture::cook(width, height, &rgba, &output.join(texture))?;
     let font = BitmapFont {
         version: 1,
         texture: texture.into(),
@@ -190,8 +186,8 @@ pub(crate) fn cook_repertoire(
         &output.join("fonts/dialogue.json"),
         &serde_json::to_vec_pretty(&font)?,
     )?;
-    cook_windows(extracted, output, ktx)?;
-    crate::menu::cook(extracted, &executable, output, ktx)?;
+    cook_windows(extracted, output)?;
+    crate::menu::cook(extracted, &executable, output)?;
     Ok(())
 }
 pub(crate) fn glyph_advance(executable: &[u8], code: u16) -> Result<u32> {
@@ -268,16 +264,13 @@ fn cook_subtitles(executable: &[u8], output: &Path, font: &BitmapFont) -> Result
 }
 
 /// Compose system.tpl’s nine textures into frames, speaker tabs, and fills.
-fn cook_windows(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
+fn cook_windows(extracted: &Path, output: &Path) -> Result<()> {
     let source = fs::read(extracted.join("files/system.tpl"))?;
     let mut textures = Vec::new();
     fs::create_dir_all(output.join("ui"))?;
-    fs::create_dir_all(output.join("intermediate/ui"))?;
     for (index, (width, height, pixels)) in crate::tpl::decode(&source)?.into_iter().enumerate() {
-        let png = output.join(format!("intermediate/ui/system-{index}.png"));
-        image::save_buffer(&png, &pixels, width, height, image::ColorType::Rgba8)?;
         let path = format!("ui/system-{index}.ktx2");
-        crate::texture::cook(ktx, &png, &output.join(&path))?;
+        crate::texture::cook(width, height, &pixels, &output.join(&path))?;
         textures.push(UiTexture {
             path,
             width,
@@ -296,10 +289,8 @@ fn cook_windows(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
     let cursor_bank = dol::slice(&executable, address, size)?;
     let decoded = crate::tpl::decode(cursor_bank)?;
     let (width, height, pixels) = decoded.get(index).context("default cursor is missing")?;
-    let png = output.join("intermediate/ui/choice-cursor.png");
-    image::save_buffer(&png, pixels, *width, *height, image::ColorType::Rgba8)?;
     let path = "ui/choice-cursor.ktx2";
-    crate::texture::cook(ktx, &png, &output.join(path))?;
+    crate::texture::cook(*width, *height, pixels, &output.join(path))?;
     let art = DialogueArt {
         version: 2,
         font: "fonts/dialogue.json".into(),

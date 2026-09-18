@@ -23,8 +23,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
         #[arg(long, num_args = 1..)]
         figurine: Vec<u16>,
     },
@@ -34,8 +32,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
         #[arg(long, num_args = 1..)]
         monster: Vec<u8>,
     },
@@ -45,8 +41,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
     },
     /// Compare every cooked shop inventory and price with the original disc data.
     ValidateShops {
@@ -64,8 +58,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
     },
     /// Cook skit scripts, animated portraits and media without opening audio.
     CookSkits {
@@ -73,8 +65,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
     },
     /// Build a conservative preload manifest from an already cooked field.
     CookFieldPreload {
@@ -126,8 +116,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
     },
     /// Cook a field's geometry, collision, scenario and model packages by disc ID.
     CookField {
@@ -137,8 +125,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
     },
     /// Inspect a field archive, its original scenario, messages, and native calls.
     InspectField {
@@ -238,8 +224,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
     },
     /// Decode the original startup logos in Rust and store KTX2 textures.
     CookBoot {
@@ -247,8 +231,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/cooked")]
         output: PathBuf,
-        #[arg(long, default_value = "ktx")]
-        ktx: PathBuf,
     },
     /// Cook typed score/instrument data and decoded WAV samples in Rust.
     CookTitleAudio {
@@ -313,20 +295,16 @@ fn main() -> anyhow::Result<()> {
         Action::CookFigurines {
             extracted,
             output,
-            ktx,
             figurine,
-        } => resonance_import::figurines::cook(&extracted, &output, &ktx, &figurine),
+        } => resonance_import::figurines::cook(&extracted, &output, &figurine),
         Action::CookMonsters {
             extracted,
             output,
-            ktx,
             monster,
-        } => resonance_import::monsters::cook(&extracted, &output, &ktx, &monster),
-        Action::CookMenu {
-            extracted,
-            output,
-            ktx,
-        } => resonance_import::menu::cook_all(&extracted, &output, &ktx),
+        } => resonance_import::monsters::cook(&extracted, &output, &monster),
+        Action::CookMenu { extracted, output } => {
+            resonance_import::menu::cook_all(&extracted, &output)
+        }
         Action::ValidateShops {
             extracted,
             cooked,
@@ -364,16 +342,12 @@ fn main() -> anyhow::Result<()> {
             &coefficients,
             additional_disc.as_deref(),
         ),
-        Action::CookSkits {
-            extracted,
-            output,
-            ktx,
-        } => resonance_import::skit::cook_all(&extracted, &output, &ktx),
-        Action::CookEffects {
-            extracted,
-            output,
-            ktx,
-        } => resonance_import::cook_effects(&extracted, &output, &ktx),
+        Action::CookSkits { extracted, output } => {
+            resonance_import::skit::cook_all(&extracted, &output)
+        }
+        Action::CookEffects { extracted, output } => {
+            resonance_import::cook_effects(&extracted, &output)
+        }
         Action::CookClassroomAudio {
             extracted,
             output,
@@ -404,17 +378,14 @@ fn main() -> anyhow::Result<()> {
             },
         )
         .map(|_| ()),
-        Action::CookClassroom {
-            extracted,
-            output,
-            ktx,
-        } => resonance_import::field::cook_field(&extracted, 340, &output, &ktx),
+        Action::CookClassroom { extracted, output } => {
+            resonance_import::field::cook_field(&extracted, 340, &output)
+        }
         Action::CookField {
             map,
             extracted,
             output,
-            ktx,
-        } => resonance_import::field::cook_field(&extracted, map, &output, &ktx),
+        } => resonance_import::field::cook_field(&extracted, map, &output),
         Action::InspectField {
             source,
             map,
@@ -494,16 +465,10 @@ fn main() -> anyhow::Result<()> {
             resonance_import::media::inspect_title_audio(&extracted, &output)
         }
         Action::Extract { disc, output } => resonance_import::extract(&disc, &output),
-        Action::CookBoot {
-            extracted,
-            output,
-            ktx,
-        } => resonance_import::cook_boot(&extracted, &output, &ktx),
-        Action::CookTitle {
-            extracted,
-            output,
-            ktx,
-        } => resonance_import::cook_title(&extracted, &output, &ktx),
+        Action::CookBoot { extracted, output } => resonance_import::cook_boot(&extracted, &output),
+        Action::CookTitle { extracted, output } => {
+            resonance_import::cook_title(&extracted, &output)
+        }
         Action::CookTitleAudio {
             extracted,
             output,

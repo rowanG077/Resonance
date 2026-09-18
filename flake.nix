@@ -16,22 +16,6 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          # nixpkgs limits this derivation's metadata to Linux; upstream KTX
-          # also builds its CLI on macOS. Keep that override local and disable
-          # documentation/tests in the converter package.
-          ktxTools =
-            if pkgs.stdenv.hostPlatform.isDarwin then
-              pkgs.ktx-tools.overrideAttrs (old: {
-                cmakeFlags = [
-                  "-DKTX_FEATURE_DOC=OFF"
-                  "-DKTX_FEATURE_TESTS=OFF"
-                ];
-                meta = old.meta // {
-                  platforms = [ "aarch64-darwin" ];
-                };
-              })
-            else
-              pkgs.ktx-tools;
           platformLibraries =
             with pkgs;
             lib.optionals stdenv.hostPlatform.isLinux [
@@ -69,7 +53,6 @@
               ]))
               lz4
               dolphin-emu
-              ktxTools
               nodejs
               typescript
               esbuild

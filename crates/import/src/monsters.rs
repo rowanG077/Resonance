@@ -58,7 +58,7 @@ pub(crate) fn book(
     })
 }
 
-pub fn cook(extracted: &Path, output: &Path, ktx: &Path, selected: &[u8]) -> Result<()> {
+pub fn cook(extracted: &Path, output: &Path, selected: &[u8]) -> Result<()> {
     ensure!(
         selected.iter().all(|&id| usize::from(id) < MONSTER_COUNT),
         "unknown monster requested"
@@ -79,7 +79,7 @@ pub fn cook(extracted: &Path, output: &Path, ktx: &Path, selected: &[u8]) -> Res
                 .context("enemy package exceeds archive")?,
         )
         .with_context(|| format!("decode monster {id}"))?;
-        cook_monster(&executable, &bytes, id, output, ktx)
+        cook_monster(&executable, &bytes, id, output)
             .with_context(|| format!("cook monster {id}"))?;
     }
     Ok(())
@@ -88,7 +88,7 @@ pub fn cook(extracted: &Path, output: &Path, ktx: &Path, selected: &[u8]) -> Res
 #[cfg(test)]
 mod tests;
 
-fn cook_monster(executable: &[u8], bytes: &[u8], id: u8, output: &Path, ktx: &Path) -> Result<()> {
+fn cook_monster(executable: &[u8], bytes: &[u8], id: u8, output: &Path) -> Result<()> {
     ensure!(bytes.starts_with(b"em8\0"), "invalid enemy package");
     let metadata = bytes
         .get(usize::from(half(bytes, 4)?)..)
@@ -158,7 +158,7 @@ fn cook_monster(executable: &[u8], bytes: &[u8], id: u8, output: &Path, ktx: &Pa
         attack_element: element(metadata[0])?,
         weaknesses: elements(|v| v == 1),
         resistances: elements(|v| v > 1),
-        preview: preview::cook(bytes, metadata, id, output, ktx)?,
+        preview: preview::cook(bytes, metadata, id, output)?,
     };
     monster.validate(528)?;
     write_atomic(
