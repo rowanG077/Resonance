@@ -1,6 +1,7 @@
 //! Diagnostic Rust synthesis with separate voice buses and a studio mix.
-use super::{Workspace, hash_file, write_json, write_pcm16};
+use super::{Workspace, hash_file, write_json};
 use anyhow::{Result, ensure};
+use resonance_asset_writer::wav::write_pcm16;
 use resonance_audio_cook::{bank::Bank, mix::Tables, render, reverb::mix_studio};
 use serde_json::json;
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
@@ -24,6 +25,7 @@ pub fn render_sound_sequence(
         "sound events must be ordered at shared block boundaries"
     );
     let workspace = Workspace::open(extracted, output)?;
+    let _publications = crate::publication::Session::start_if_needed(output)?;
     let executable = fs::read(workspace.extracted.join("sys/main.dol"))?;
     let bytes = fs::read(workspace.extracted.join("files/S/se.snd"))?;
     let bank = Bank::parse(&bytes)?;
@@ -46,7 +48,7 @@ pub fn render_sound_sequence(
         cues.insert(id, Arc::new(resonance_audio::cue::Cue::new(pcm)?));
     }
     let path = workspace.output.join("sound-sequence.wav");
-    let temporary = path.with_extension("partial.wav");
+    let temporary = crate::temporary_path(&path);
     let mut writer = hound::WavWriter::create(
         &temporary,
         hound::WavSpec {
@@ -69,7 +71,7 @@ pub fn render_sound_sequence(
         }
     }
     writer.finalize()?;
-    fs::rename(temporary, &path)?;
+    crate::publication::install(&temporary, &path, &hash_file(&temporary)?)?;
     write_json(
         &workspace.output.join("sound-sequence.json"),
         &json!({
@@ -107,11 +109,21 @@ pub(super) fn tables(bytes: &[u8]) -> Result<Tables> {
         volume_16_scale: float(0x8035_e1d4)?,
         controller_14_scale: float(0x8035_e1ec)?,
         pan_16_scale: float(0x8035_e2a8)?,
+        spatial: Some(resonance_audio::mix::Spatial {
+            pan_scale: float(0x8035_e2bc)?,
+            left_delay: crate::dol::slice(bytes, 0x801e_0618, 128 * 2)?
+                .chunks_exact(2)
+                .map(|bytes| Ok(u8::try_from(u16::from_be_bytes(bytes.try_into()?))?))
+                .collect::<Result<Vec<_>>>()?
+                .try_into()
+                .expect("fixed spatial table length"),
+        }),
     })
 }
 
 pub fn render_sound_buses(extracted: &Path, bank: &Path, id: u16, output: &Path) -> Result<()> {
     let workspace = Workspace::open(extracted, output)?;
+    let _publications = crate::publication::Session::start_if_needed(output)?;
     let executable = workspace.extracted.join("sys/main.dol");
     let bytes = fs::read(&executable)?;
     let tables = tables(&bytes)?;
@@ -129,14 +141,14 @@ pub fn render_sound_buses(extracted: &Path, bank: &Path, id: u16, output: &Path)
         let studio_effects_applied = name == "studio";
         let name = format!("sound-{id}-{name}.wav");
         let path = workspace.output.join(&name);
-        let temporary = path.with_extension("partial.wav");
+        let temporary = crate::temporary_path(&path);
         write_pcm16(
             &temporary,
             2,
             render::PLAYBACK_RATE,
             samples.iter().copied(),
         )?;
-        fs::rename(temporary, &path)?;
+        crate::publication::install(&temporary, &path, &hash_file(&temporary)?)?;
         buses.insert(
             name,
             json!({"sha256": hash_file(&path)?, "frames": samples.len() / 2,

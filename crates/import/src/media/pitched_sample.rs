@@ -1,6 +1,7 @@
 //! Offline diagnostic for pitched instrument PCM, before envelope and studio gain.
-use super::{Workspace, hash_file, write_json, write_pcm16};
+use super::{Workspace, hash_file, write_json};
 use anyhow::{Result, ensure};
+use resonance_asset_writer::wav::write_pcm16;
 use resonance_audio_cook::{bank::Bank, pitch, render, resample};
 use serde_json::json;
 use std::{fs, path::Path};
@@ -46,6 +47,7 @@ pub fn render_pitched_sample(options: PitchedSampleOptions<'_>) -> Result<()> {
     );
     ensure!(options.coefficient_set < 4, "invalid coefficient set");
     let workspace = Workspace::open(options.extracted, options.output)?;
+    let _publications = crate::publication::Session::start_if_needed(options.output)?;
     let executable_bytes = fs::read(workspace.extracted.join("sys/main.dol"))?;
     let bank_bytes = fs::read(options.bank)?;
     let coefficient_bytes = fs::read(options.coefficients)?;
@@ -65,10 +67,10 @@ pub fn render_pitched_sample(options: PitchedSampleOptions<'_>) -> Result<()> {
         options.id, options.cents
     );
     let path = workspace.output.join(&name);
-    let temporary = path.with_extension("partial.wav");
+    let temporary = crate::temporary_path(&path);
     let stereo = (0..options.frames).flat_map(|_| [source.next_sample(|| cursor.next_sample()); 2]);
     write_pcm16(&temporary, 2, render::PLAYBACK_RATE, stereo)?;
-    fs::rename(temporary, &path)?;
+    crate::publication::install(&temporary, &path, &hash_file(&temporary)?)?;
     write_json(
         &path.with_extension("json"),
         &json!({
