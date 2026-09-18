@@ -4,7 +4,6 @@ use resonance_content::skit::{PortraitAsset, PortraitFrame, PortraitVariant};
 pub(super) fn cook(
     extracted: &Path,
     output: &Path,
-    ktx: &Path,
     executable: &[u8],
 ) -> Result<BTreeMap<u32, PortraitAsset>> {
     let archive = fs::read(extracted.join("files/skit.skt"))?;
@@ -137,14 +136,17 @@ pub(super) fn cook(
             }
         }
         let texture = format!("game/skits/portraits/{index:03}.ktx2");
-        let png = output.join(format!("intermediate/skits/{index:03}.png"));
-        let hash_path = png.with_extension("sha256");
-        let hash = crate::digest(atlas.as_raw());
+        let hash_path = output.join(format!("intermediate/skits/{index:03}.sha256"));
+        let hash = crate::texture::fingerprint(atlas.width(), atlas.height(), atlas.as_raw());
         if fs::read_to_string(&hash_path).ok().as_deref() != Some(&hash)
             || !output.join(&texture).is_file()
         {
-            atlas.save(&png)?;
-            crate::texture::cook(ktx, &png, &output.join(&texture))?;
+            crate::texture::cook(
+                atlas.width(),
+                atlas.height(),
+                atlas.as_raw(),
+                &output.join(&texture),
+            )?;
             write_atomic(&hash_path, hash.as_bytes())?;
         }
         let layout_sha256 = crate::digest(&serde_json::to_vec(&(&tracks, &patches, repeat))?);

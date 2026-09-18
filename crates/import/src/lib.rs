@@ -121,8 +121,8 @@ pub fn extract(disc_path: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Convert title art using the recovered TPL decoder and Khronos' KTX tools.
-pub fn cook_title(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
+/// Convert title art into lossless runtime textures.
+pub fn cook_title(extracted: &Path, output: &Path) -> Result<()> {
     let boot = fs::read(extracted.join("sys/boot.bin"))
         .context("missing extracted sys/boot.bin; run extract first")?;
     ensure!(
@@ -133,15 +133,11 @@ pub fn cook_title(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
     let hash = format!("{:x}", Sha256::digest(&source));
     let decoded = tpl::decode(&source)?;
     let texture_dir = output.join("title");
-    let intermediate = output.join("intermediate/title");
     fs::create_dir_all(&texture_dir)?;
-    fs::create_dir_all(&intermediate)?;
     let mut textures = Vec::new();
     for (index, (width, height, pixels)) in decoded.into_iter().enumerate() {
-        let png = intermediate.join(format!("{index:02}.png"));
-        image::save_buffer(&png, &pixels, width, height, image::ColorType::Rgba8)?;
         let path = format!("title/{index:02}.ktx2");
-        crate::texture::cook(ktx, &png, &output.join(&path))?;
+        crate::texture::cook(width, height, &pixels, &output.join(&path))?;
         textures.push(TitleTexture {
             index,
             path,
@@ -153,7 +149,6 @@ pub fn cook_title(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
         &extracted.join("files/MAP/tit_t00.bin"),
         &extracted.join("sys/main.dol"),
         output,
-        ktx,
     )?);
     let manifest = TitleAssets {
         version: CONTENT_VERSION,

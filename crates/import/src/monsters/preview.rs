@@ -16,13 +16,7 @@ fn optional(bytes: &[u8], offset: usize) -> Result<Option<&[u8]>> {
     (offset != 0).then(|| resource(bytes, offset)).transpose()
 }
 
-pub(super) fn cook(
-    bytes: &[u8],
-    metadata: &[u8],
-    id: u8,
-    output: &Path,
-    ktx: &Path,
-) -> Result<ModelPreview> {
+pub(super) fn cook(bytes: &[u8], metadata: &[u8], id: u8, output: &Path) -> Result<ModelPreview> {
     let at = |offset| -> Result<&[u8]> { resource(bytes, word(bytes, offset)? as usize) };
     let maybe =
         |offset| -> Result<Option<&[u8]>> { optional(bytes, word(bytes, offset)? as usize) };
@@ -38,7 +32,6 @@ pub(super) fn cook(
         &mut parts,
         &format!("monsters/{id:03}"),
         output,
-        ktx,
     )?;
     let bones = parts[0].scene.bone_names.clone();
     let bone = |prefix: &str| -> Result<String> {
@@ -61,7 +54,6 @@ pub(super) fn cook(
             &mut parts,
             &format!("monsters/{id:03}"),
             output,
-            ktx,
         )?;
     }
     let count = usize::from(metadata[0x1e4]);
@@ -80,7 +72,6 @@ pub(super) fn cook(
             &mut parts,
             &format!("monsters/{id:03}"),
             output,
-            ktx,
         )?;
         if i == 0 && word(record, 0)? >= 6 {
             extra = optional(record, word(record, 0x18)? as usize)?;
@@ -98,7 +89,6 @@ pub(super) fn cook(
             &mut parts,
             &format!("monsters/{id:03}"),
             output,
-            ktx,
         )?;
     }
     let mut node_scales = Vec::new();

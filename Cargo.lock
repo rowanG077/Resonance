@@ -4454,22 +4454,27 @@ version = "0.1.0"
 dependencies = [
  "ahx-rs",
  "anyhow",
+ "bevy_image",
  "cab",
  "encoding_rs",
  "glam",
  "h4m",
  "hound",
  "image",
+ "ktx2",
  "nod",
  "png",
  "resonance-audio",
  "resonance-audio-cook",
  "resonance-content",
  "resonance-media",
+ "ruzstd",
  "serde",
  "serde_json",
  "sha2",
+ "structured-zstd",
  "symphonia-script",
+ "tempfile",
  "thiserror 2.0.20",
 ]
 
@@ -4912,6 +4917,12 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "structured-zstd"
+version = "0.0.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5766ced82e3363917864a41e3dcc6fd580eb98cc199bc4b6ff42f2e29a31b5b"
 
 [[package]]
 name = "svg_fmt"

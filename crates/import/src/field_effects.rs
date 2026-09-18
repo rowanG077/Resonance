@@ -50,13 +50,13 @@ pub(crate) fn blink(extracted: &Path) -> Result<resonance_content::effect::Blink
     Ok(blink)
 }
 
-pub fn cook_all(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
-    let (effects, mut files) = cook(extracted, output, ktx)?;
+pub fn cook_all(extracted: &Path, output: &Path) -> Result<()> {
+    let (effects, mut files) = cook(extracted, output)?;
     files.push(effects);
     crate::field::refresh_shared(output, &files)
 }
 
-pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<(String, Vec<String>)> {
+pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<(String, Vec<String>)> {
     let mut archive =
         cab::Cabinet::new(Cursor::new(fs::read(extracted.join("files/effect.cab"))?))?;
     let mut bytes = Vec::new();
@@ -81,12 +81,9 @@ pub(crate) fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<(Strin
             (*width, *height) == if index == 5 { (64, 64) } else { (256, 256) },
             "unexpected effect atlas size"
         );
-        let png = output.join(format!("intermediate/effects/{name}.png"));
-        fs::create_dir_all(png.parent().unwrap())?;
-        image::save_buffer(&png, rgba, *width, *height, image::ColorType::Rgba8)?;
         let path = format!("effects/{name}.ktx2");
         fs::create_dir_all(output.join("effects"))?;
-        crate::texture::cook(ktx, &png, &output.join(&path))?;
+        crate::texture::cook(*width, *height, rgba, &output.join(&path))?;
         files.push(path);
     }
     let executable = fs::read(extracted.join("sys/main.dol"))?;

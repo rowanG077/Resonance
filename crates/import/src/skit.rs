@@ -6,13 +6,13 @@ use std::{collections::BTreeMap, fs, path::Path};
 mod media;
 mod portraits;
 
-pub fn cook(extracted: &Path, output: &Path, ktx: &Path) -> Result<String> {
+pub fn cook(extracted: &Path, output: &Path) -> Result<String> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let mut catalog = SkitCatalog {
         version: 1,
         skits: definitions(&executable)?,
         resources: BTreeMap::new(),
-        portraits: portraits::cook(extracted, output, ktx, &executable)?,
+        portraits: portraits::cook(extracted, output, &executable)?,
         media: media::cook(extracted, output, &executable)?,
     };
     for skit in &catalog.skits {
@@ -85,8 +85,8 @@ fn source_path(executable: &[u8], pointer: u32) -> Result<String> {
 }
 
 /// Refresh existing fields after cooking shared skit content independently.
-pub fn cook_all(extracted: &Path, output: &Path, ktx: &Path) -> Result<()> {
-    let path = cook(extracted, output, ktx)?;
+pub fn cook_all(extracted: &Path, output: &Path) -> Result<()> {
+    let path = cook(extracted, output)?;
     let names = crate::session::cook_text(extracted, output)?;
     crate::field::refresh_shared(output, &[path, names])
 }
