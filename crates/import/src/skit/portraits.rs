@@ -1,207 +1,221 @@
 use super::*;
-use resonance_content::skit::{PortraitAsset, PortraitFrame, PortraitVariant};
+use crate::all_assets::skits::Portrait;
+use crate::read::u32 as word;
+use resonance_content::skit::{PortraitAsset, PortraitImage};
 
-pub(super) fn cook(
-    extracted: &Path,
-    output: &Path,
-    executable: &[u8],
-) -> Result<BTreeMap<u32, PortraitAsset>> {
-    let archive = fs::read(extracted.join("files/skit.skt"))?;
-    let word = |at| -> Result<usize> {
-        Ok(u32::from_be_bytes(
+pub(crate) fn members(archive: &[u8]) -> Result<Vec<&[u8]>> {
+    let count = word(archive, 0)? as usize;
+    let end = count
+        .checked_mul(8)
+        .and_then(|n| n.checked_add(4))
+        .context("portrait directory size overflow")?;
+    let table = archive
+        .get(4..end)
+        .context("truncated portrait directory")?;
+    table
+        .chunks_exact(8)
+        .map(|row| {
+            let start = word(row, 0)? as usize;
+            let size = word(row, 4)? as usize;
+            if size == 0 {
+                return Ok(&archive[..0]);
+            }
+            ensure!(start >= end, "portrait overlaps directory");
             archive
-                .get(at..at + 4)
-                .context("portrait archive table truncated")?
-                .try_into()?,
-        ) as usize)
-    };
-    let count = word(0)?;
-    ensure!(count <= 230, "unexpected portrait count {count}");
-    let mut result = BTreeMap::new();
-    fs::create_dir_all(output.join("intermediate/skits"))?;
-    fs::create_dir_all(output.join("game/skits/portraits"))?;
-    for index in 0..count {
-        let offset = word(4 + index * 8)?;
-        let size = word(8 + index * 8)?;
-        if size == 0 {
-            continue;
-        }
-        let data = archive
-            .get(offset..offset + size)
-            .context("portrait outside archive")?;
-        let textures = crate::tpl::decode(data).with_context(|| format!("portrait {index}"))?;
-        let &(width, height, _) = textures.first().context("empty portrait")?;
-        let ptr = u32::from_be_bytes(
-            dol::slice(executable, 0x8020f49c + index as u32 * 4, 4)?.try_into()?,
-        );
-        let mut tracks: [Vec<PortraitFrame>; 3] = Default::default();
-        let mut patches: [BTreeMap<u16, [u32; 2]>; 3] = Default::default();
-        let mut repeat = [false; 3];
-        if ptr != 0 {
-            let mut at = ptr + 4;
-            for _ in 0..4 {
-                let head = dol::slice(executable, at, 4)?;
-                let tag = u16::from_be_bytes(head[..2].try_into()?);
-                if tag == 0xfefe {
-                    break;
-                }
-                let channel = match tag {
-                    0x7000 => 0,
-                    0x7003 => 1,
-                    0x7006 => 2,
-                    _ => anyhow::bail!("portrait {index}: unknown timeline tag {tag:x}"),
-                };
-                let n = u16::from_be_bytes(head[2..].try_into()?);
-                ensure!(
-                    n <= 64 && tracks[channel].is_empty(),
-                    "invalid portrait {index} timeline"
-                );
-                at += 4;
-                for _ in 0..=n {
-                    let row = dol::slice(executable, at, 8)?;
-                    let v: Vec<_> = row
-                        .chunks_exact(2)
-                        .map(|b| u16::from_be_bytes(b.try_into().unwrap()))
-                        .collect();
-                    at += 8;
-                    match v[2] {
-                        0xfd => {
-                            repeat[channel] = true;
-                            break;
-                        }
-                        0xfe => break,
-                        ticks => {
-                            ensure!(
-                                ticks < 253 && usize::from(v[3]) < textures.len(),
-                                "portrait {index}: invalid patch"
-                            );
-                            patches[channel]
-                                .insert(v[3], [u32::from(v[0]) / 8 * 8, u32::from(v[1]) / 8 * 8]);
-                            tracks[channel].push(PortraitFrame { ticks, image: v[3] });
-                        }
-                    }
-                }
-            }
-        }
-        let choices: [Vec<u16>; 3] = std::array::from_fn(|i| {
-            if patches[i].is_empty() {
-                vec![0]
-            } else {
-                patches[i].keys().copied().collect()
-            }
-        });
-        let count = choices.iter().map(Vec::len).product::<usize>();
-        ensure!(count <= 512, "too many portrait expressions");
-        let columns = (count as f32).sqrt().ceil() as u32;
-        let rows = (count as u32).div_ceil(columns);
-        // Each source portrait is clamped independently. Duplicate its edge
-        // texels so linear filtering cannot reach the next atlas expression.
-        let cell_width = width + 2;
-        let cell_height = height + 2;
-        let mut atlas = image::RgbaImage::new(cell_width * columns, cell_height * rows);
-        let base = image::RgbaImage::from_raw(width, height, textures[0].2.clone())
-            .context("portrait pixels")?;
-        let mut variants = Vec::new();
-        for &eye in &choices[0] {
-            for &mouth in &choices[1] {
-                for &extra in &choices[2] {
-                    let images = [eye, mouth, extra];
-                    let mut pixels = base.clone();
-                    for channel in 0..3 {
-                        if let Some(&[x, y]) = patches[channel].get(&images[channel]) {
-                            let (w, h, rgba) = &textures[usize::from(images[channel])];
-                            ensure!(
-                                x + w <= width && y + h <= height,
-                                "portrait {index}: patch outside image"
-                            );
-                            let patch = image::RgbaImage::from_raw(*w, *h, rgba.clone())
-                                .context("patch pixels")?;
-                            image::imageops::replace(
-                                &mut pixels,
-                                &patch,
-                                i64::from(x),
-                                i64::from(y),
-                            );
-                        }
-                    }
-                    let n = variants.len() as u32;
-                    let x = n % columns * cell_width;
-                    let y = n / columns * cell_height;
-                    copy_with_gutter(&mut atlas, &pixels, x, y);
-                    variants.push(PortraitVariant {
-                        images,
-                        rect: [x + 1, y + 1, width, height],
-                    });
-                }
-            }
-        }
-        let texture = format!("game/skits/portraits/{index:03}.ktx2");
-        let hash_path = output.join(format!("intermediate/skits/{index:03}.sha256"));
-        let hash = crate::texture::fingerprint(atlas.width(), atlas.height(), atlas.as_raw());
-        if fs::read_to_string(&hash_path).ok().as_deref() != Some(&hash)
-            || !output.join(&texture).is_file()
-        {
-            crate::texture::cook(
-                atlas.width(),
-                atlas.height(),
-                atlas.as_raw(),
-                &output.join(&texture),
-            )?;
-            write_atomic(&hash_path, hash.as_bytes())?;
-        }
-        let layout_sha256 = crate::digest(&serde_json::to_vec(&(&tracks, &patches, repeat))?);
-        result.insert(
-            0xd0000 + index as u32,
-            PortraitAsset {
-                layout_sha256,
-                texture,
-                size: [width, height],
-                atlas_size: [atlas.width(), atlas.height()],
-                tracks,
-                repeat,
-                variants,
-            },
-        );
-    }
-    println!("Cooked {} portrait expression atlases", result.len());
-    Ok(result)
+                .get(start..start.checked_add(size).context("portrait range overflow")?)
+                .context("portrait outside archive")
+        })
+        .collect()
 }
 
-fn copy_with_gutter(atlas: &mut image::RgbaImage, pixels: &image::RgbaImage, x: u32, y: u32) {
-    let (width, height) = pixels.dimensions();
-    for py in 0..height + 2 {
-        for px in 0..width + 2 {
-            let pixel = pixels.get_pixel(
-                px.saturating_sub(1).min(width - 1),
-                py.saturating_sub(1).min(height - 1),
+/// Pixels and their bindings stay together until terminal publication.
+pub(super) struct Decoded {
+    pub id: u32,
+    pub asset: PortraitAsset,
+    directory: String,
+    textures: crate::texture::Decoded,
+}
+
+pub(super) fn decode(archive: &[u8], portrait: &Portrait, directory: &str) -> Result<Decoded> {
+    let index = portrait.member;
+    let members = members(archive)?;
+    let bytes = members.get(index).context("portrait member is absent")?;
+    let directory = format!("{directory}/{index}");
+    let textures = crate::texture::decode(bytes, &directory)?;
+    textures.validate()?;
+    ensure!(
+        portrait.images.len() == textures.catalogue.textures.len(),
+        "portrait {index} image inventory changed"
+    );
+    let images = portrait
+        .images
+        .iter()
+        .zip(&textures.catalogue.textures)
+        .map(|(original, texture)| {
+            let texture = texture.as_ref().context("invalid portrait texture")?;
+            ensure!(
+                texture.dimensions == [original.width, original.height]
+                    && texture.images.len() == 1,
+                "portrait {index} image binding differs from source"
             );
-            atlas.put_pixel(x + px, y + py, *pixel);
-        }
+            Ok(PortraitImage {
+                texture: texture.images[0].clone(),
+                size: texture.dimensions.map(u32::from),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let size = images.first().context("empty portrait")?.size;
+    Ok(Decoded {
+        id: 0xd0000 | u32::from(u16::try_from(index).context("portrait exceeds native member ID")?),
+        asset: PortraitAsset { size, images },
+        directory,
+        textures,
+    })
+}
+
+impl Decoded {
+    pub fn publish(&self, output: &Path) -> Result<(u32, PortraitAsset)> {
+        let mut failures = Vec::new();
+        self.textures.publish(output, |name, result| {
+            if let Err(error) = result {
+                failures.push(format!("{name}: {error:#}"));
+            }
+        });
+        ensure!(failures.is_empty(), "{}", failures.join("\n"));
+        write_atomic(
+            &output.join(&self.directory).join("textures.json"),
+            &serde_json::to_vec(&self.textures.catalogue)?,
+        )?;
+        Ok((self.id, self.asset.clone()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{Rgba, RgbaImage, imageops::sample_bilinear};
 
     #[test]
-    fn atlas_filtering_matches_the_standalone_clamped_portrait() {
-        let portrait = RgbaImage::from_fn(2, 2, |x, y| {
-            Rgba([40 + x as u8 * 180, y as u8 * 120, 80, (1 - x) as u8 * 255])
-        });
-        let mut atlas = RgbaImage::from_pixel(8, 8, Rgba([255; 4]));
-        copy_with_gutter(&mut atlas, &portrait, 2, 2);
-        // Include samples between an outermost texel's center and image edge,
-        // where an unpadded atlas would pick up its opaque neighbour.
-        for u in [0., 0.125, 0.25, 0.5, 0.75, 0.875, 1.] {
-            for v in [0., 0.125, 0.25, 0.5, 0.75, 0.875, 1.] {
-                assert_eq!(
-                    sample_bilinear(&atlas, (3. + u * 2.) / 8., (3. + v * 2.) / 8.),
-                    sample_bilinear(&portrait, u, v),
-                    "portrait UV ({u}, {v})"
-                );
+    fn image_members_are_independent_of_recipe_count_and_names() -> Result<()> {
+        let root = crate::temporary_path(&std::env::temp_dir().join("resonance-skit-images"));
+        let result = (|| -> Result<()> {
+            let count = recipe::COUNT + 1;
+            let start = 4 + count * 8;
+            let mut archive = vec![0; start + 96];
+            archive[..4].copy_from_slice(&(count as u32).to_be_bytes());
+            let row = 4 + (count - 1) * 8;
+            archive[row..row + 4].copy_from_slice(&(start as u32).to_be_bytes());
+            archive[row + 4..row + 8].copy_from_slice(&96u32.to_be_bytes());
+            let tpl = &mut archive[start..];
+            for (at, value) in [
+                (0, 0x0020af30u32),
+                (4, 1),
+                (8, 12),
+                (12, 20),
+                (20, 0x00080008),
+                (24, 14),
+                (28, 64),
+            ] {
+                tpl[at..at + 4].copy_from_slice(&value.to_be_bytes());
+            }
+            let image = format!("assets/renamed/{}/texture-0.ktx2", count - 1);
+            let members = members(&archive)?;
+            assert_eq!(members.len(), count);
+            assert!(members[..count - 1].iter().all(|row| row.is_empty()));
+            let mut physical = [Portrait {
+                member: count - 1,
+                images: vec![crate::all_assets::skits::PortraitImage {
+                    width: 8,
+                    height: 8,
+                }],
+            }];
+            let portrait = decode(&archive, &physical[0], "assets/renamed")?;
+            assert!(!root.exists(), "decoding must not publish intermediates");
+            let (id, asset) = portrait.publish(&root)?;
+            assert_eq!(id, 0xd0000 + (count - 1) as u32);
+            assert_eq!(asset.images[0].texture, image);
+            assert_eq!(
+                crate::texture::pixels(&root.join(image))?.dimensions(),
+                (8, 8)
+            );
+            physical[0].images[0].width = 16;
+            assert!(decode(&archive, &physical[0], "assets/renamed").is_err());
+            assert!(self::members(&archive[..start - 1]).is_err());
+            archive[row..row + 4].copy_from_slice(&4u32.to_be_bytes());
+            assert!(self::members(&archive).is_err());
+            archive[row..row + 4].copy_from_slice(&u32::MAX.to_be_bytes());
+            assert!(self::members(&archive).is_err());
+            Ok(())
+        })();
+        if root.exists() {
+            fs::remove_dir_all(root)?;
+        }
+        result
+    }
+
+    #[test]
+    #[ignore = "requires both extracted discs; decodes portrait pixels without publication or playback"]
+    fn original_portrait_images_and_all_recipes_decode_without_intermediate_assets() -> Result<()> {
+        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
+        for disc in [1, 2] {
+            let extracted = local.join(format!("extracted/disc{disc}"));
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            let catalog = Catalog::read(&extracted, &executable)?;
+            assert_eq!(
+                catalog
+                    .portraits
+                    .iter()
+                    .filter(|p| !p.images.is_empty())
+                    .count(),
+                108
+            );
+            let recipes = recipe::read(&executable)?;
+            assert_eq!(recipes.len(), 230);
+            let archive = fs::read(
+                extracted
+                    .join("files")
+                    .join(portrait_path(&extracted, &executable)?),
+            )?;
+            for physical in catalog.portraits.iter().filter(|p| !p.images.is_empty()) {
+                let decoded = decode(&archive, physical, "assets/portraits")?;
+                let portrait = &decoded.asset;
+                let index = physical.member;
+                let start = word(&archive, 4 + index * 8)? as usize;
+                let size = word(&archive, 8 + index * 8)? as usize;
+                let textures = crate::tpl::parse_tpl(&archive[start..start + size])?;
+                assert_eq!(textures.len(), portrait.images.len());
+                for (original, image) in textures.iter().zip(&portrait.images) {
+                    assert_eq!(
+                        [u32::from(original.width), u32::from(original.height)],
+                        image.size
+                    );
+                    assert_eq!(original.format, 14);
+                    assert!(image.size.iter().all(|size| size.is_multiple_of(8)));
+                }
+            }
+            for recipe in &recipes {
+                let prepared = recipe.prepared();
+                for timeline in &recipe.timelines {
+                    let track = &prepared.tracks[timeline.channel.index()];
+                    let rows = timeline
+                        .records
+                        .iter()
+                        .filter_map(|row| {
+                            let recipe::Timing::Frame { duration } = row.timing else {
+                                return None;
+                            };
+                            Some((duration, row.image, row.position))
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        track
+                            .iter()
+                            .map(|row| (row.ticks, row.image, row.position))
+                            .collect::<Vec<_>>(),
+                        rows
+                    );
+                }
             }
         }
+        Ok(())
     }
 }
