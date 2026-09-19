@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/resonance", "apps/resonance-import", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/script-content"]
+members = ["apps/resonance", "apps/resonance-import", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ rust-version = "1.97"
 license = "MIT"
 
 [workspace.dependencies]
+resonance-model-behavior = { path = "crates/model-behavior" }
 resonance-script-content = { path = "crates/script-content" }
 resonance-asset-writer = { path = "crates/asset-writer" }
 resonance-persistence = { path = "crates/persistence" }
