@@ -4523,6 +4523,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "resonance-model-behavior"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "resonance-content",
+ "symphonia-script",
+ "symphonia-script-compiler",
+ "symphonia-script-tools",
+ "symphonia-script-vm",
+]
+
+[[package]]
 name = "resonance-oracle"
 version = "0.1.0"
 dependencies = [

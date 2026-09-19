@@ -1,0 +1,13 @@
+[package]
+name = "resonance-model-behavior"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+resonance-content.workspace = true
+symphonia-script.workspace = true
+symphonia-script-vm.workspace = true
+symphonia-script-compiler.workspace = true
+symphonia-script-tools.workspace = true
