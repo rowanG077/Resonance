@@ -7,8 +7,8 @@ use bevy::{
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
     prelude::*,
     render::{
-        RenderPlugin,
-        render_resource::{Extent3d, TextureDimension, TextureFormat},
+        Render, RenderApp, RenderPlugin, RenderSystems,
+        render_resource::{Extent3d, PollType, TextureDimension, TextureFormat},
         renderer::{RenderAdapterInfo, RenderDevice},
         settings::{Backends, RenderCreation, WgpuSettings, WgpuSettingsPriority},
         view::screenshot::{Screenshot, ScreenshotCaptured},
@@ -55,33 +55,35 @@ fn main() -> Result<()> {
         adapter_name: None,
         ..default()
     };
-    let exit = App::new()
-        .insert_resource(Smoke {
-            directory,
-            started: Instant::now(),
-            target: None,
-            frames: 0,
-        })
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: None,
-                    exit_condition: ExitCondition::DontExit,
-                    ..default()
-                })
-                .set(ImagePlugin::default_nearest())
-                .set(RenderPlugin {
-                    render_creation: RenderCreation::Automatic(Box::new(settings)),
-                    synchronous_pipeline_compilation: true,
-                    ..default()
-                })
-                .disable::<bevy::winit::WinitPlugin>()
-                .disable::<bevy::gilrs::GilrsPlugin>(),
-        )
-        .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_millis(10)))
-        .add_systems(Startup, setup)
-        .add_systems(Update, capture)
-        .run();
+    let mut app = App::new();
+    app.insert_resource(Smoke {
+        directory,
+        started: Instant::now(),
+        target: None,
+        frames: 0,
+    })
+    .add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: None,
+                exit_condition: ExitCondition::DontExit,
+                ..default()
+            })
+            .set(ImagePlugin::default_nearest())
+            .set(RenderPlugin {
+                render_creation: RenderCreation::Automatic(Box::new(settings)),
+                synchronous_pipeline_compilation: true,
+                ..default()
+            })
+            .disable::<bevy::winit::WinitPlugin>()
+            .disable::<bevy::gilrs::GilrsPlugin>(),
+    )
+    .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_millis(10)))
+    .add_systems(Startup, setup)
+    .add_systems(Update, capture);
+    app.sub_app_mut(RenderApp)
+        .add_systems(Render, wait_for_frame.after(RenderSystems::Render));
+    let exit = app.run();
     ensure!(exit == AppExit::Success, "rendering smoke test failed");
     Ok(())
 }
@@ -188,16 +190,19 @@ fn setup(
     smoke.target = Some(target);
 }
 
-fn capture(
-    mut commands: Commands,
-    mut smoke: ResMut<Smoke>,
-    device: Res<RenderDevice>,
-    mut exit: MessageWriter<AppExit>,
-) {
-    // Screenshot completion still needs polling when there is no window/event loop.
+fn wait_for_frame(device: Res<RenderDevice>) {
+    // Headless rendering has no vsync to limit queued frames. Wait on the render
+    // thread after submission so slow CPU adapters cannot build up a backlog
+    // that outlives the screenshot and exceeds wgpu's shutdown timeout.
     device
-        .poll(bevy::render::render_resource::PollType::Poll)
-        .expect("poll renderer");
+        .poll(PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(60)),
+        })
+        .expect("wait for rendered frame");
+}
+
+fn capture(mut commands: Commands, mut smoke: ResMut<Smoke>, mut exit: MessageWriter<AppExit>) {
     if smoke.started.elapsed() > Duration::from_secs(60) {
         error!("Rendering timed out before screenshot completion");
         exit.write(AppExit::error());
