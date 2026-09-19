@@ -1,0 +1,103 @@
+name: Build executables
+
+on:
+  push:
+    # PR updates already run the full build matrix; only build main on push.
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+          - platform: macos-arm64
+            runner: macos-15
+          - platform: linux-x64
+            runner: ubuntu-24.04
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+    defaults:
+      run:
+        shell: bash
+    env:
+      EXE: ${{ startsWith(matrix.runner, 'windows-') && '.exe' || '' }}
+      CARGO_BUILD_JOBS: "2"
+      # Bundle the importer's compression codecs into the executable instead
+      # of linking against a runner's Homebrew or vcpkg installation.
+      LIBZ_SYS_STATIC: "1"
+      LZMA_API_STATIC: "1"
+      BZIP2_NO_PKG_CONFIG: "1"
+      VCPKGRS_DISABLE: "1"
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential pkg-config cmake ninja-build \
+            libasound2-dev libdbus-1-dev libudev-dev libvulkan-dev mesa-vulkan-drivers \
+            libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
+            libxkbcommon-dev libwayland-dev
+
+      - name: Build release executables
+        run: cargo build --locked --release -p resonance -p resonance-import-cli
+
+      - name: Run smoke tests without private resources
+        env:
+          RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
+        run: |
+          cargo test --locked --release -p resonance-import --lib texture::tests::
+          cargo test --locked --release -p resonance-media --test rust_codecs --test audio_smoke
+          cargo test --locked --release -p resonance-persistence --test slots
+          "target/release/resonance$EXE" --help
+          "target/release/resonance-import$EXE" --help
+
+      - name: Render and check pixels (Metal on macOS, CPU elsewhere)
+        run: cargo run --locked --release -p resonance-presentation --example ci_render -- target/smoke
+
+      - name: Upload synthetic render and audio diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-${{ matrix.platform }}
+          path: target/smoke/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Package executables
+        run: |
+          mkdir -p target/package
+          cp "target/release/resonance$EXE" "target/release/resonance-import$EXE" \
+            README.md LICENSE target/package/
+          tar -czf "target/resonance-${{ matrix.platform }}.tar.gz" -C target/package .
+
+      - name: Upload executable archives
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: target/resonance-${{ matrix.platform }}.tar.gz
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
