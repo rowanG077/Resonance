@@ -4399,6 +4399,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "resonance-audio",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 
@@ -4462,6 +4464,7 @@ dependencies = [
  "hound",
  "image",
  "ktx2",
+ "matroska-demuxer",
  "nod",
  "png",
  "resonance-audio",
@@ -4496,6 +4499,7 @@ dependencies = [
  "codec_ffv1",
  "ffv1",
  "flacenc",
+ "h4m",
  "hound",
  "matroska-demuxer",
  "resonance-audio-device",

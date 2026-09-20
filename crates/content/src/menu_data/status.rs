@@ -28,6 +28,8 @@ impl Element {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EquipmentProperties {
     pub attack_element: Option<Element>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_bonus: Option<crate::battle::Family>,
     pub resistance: BTreeMap<Element, i8>,
     pub effects: Vec<u8>,
 }

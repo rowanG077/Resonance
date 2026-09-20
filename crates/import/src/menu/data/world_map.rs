@@ -1,107 +1,195 @@
 use super::*;
+use crate::{all_assets::world_map as source, field_catalogue as phases};
 use resonance_content::menu_data::{MapLocation, MapShopVariant, Shop, WorldMapData};
+use serde::Serialize;
+use std::collections::BTreeMap;
 
-const SHOP_COUNT: usize = 52;
-const SHOP_ROW_SIZE: usize = 48;
-const SHOP_MAX_STOCK: usize = 21;
-const SHOP_TABLE: u32 = 0x80230980;
-
-pub(in crate::menu) fn cook(
-    executable: &[u8],
-    text: &impl Fn(&[u8], usize) -> Result<String>,
+pub(crate) fn cook(
+    catalogue: &source::Catalogue,
+    phases: &phases::Phases,
+    ui: &inventory_ui::Catalogue,
 ) -> Result<WorldMapData> {
-    let word = |row: &[u8], at| u32::from_be_bytes(row[at..at + 4].try_into().unwrap());
-    let half = |row: &[u8], at| u16::from_be_bytes(row[at..at + 2].try_into().unwrap());
-    let shop_list = |address| -> Result<Vec<u8>> {
-        if address == 0 {
-            return Ok(Vec::new());
-        }
-        let count = usize::from(dol::slice(executable, address, 1)?[0]);
-        ensure!(count <= 8, "invalid map shop list");
-        Ok(dol::slice(executable, address + 1, count)?.to_vec())
-    };
-    let mut locations = std::collections::BTreeMap::new();
-    for (world, address) in [0x8026ae80, 0x8026b650].into_iter().enumerate() {
-        let mut terminated = false;
-        for local in 1..128u16 {
-            let row = dol::slice(executable, address + u32::from(local) * 20, 20)?;
-            let position = [word(row, 0) as i32, word(row, 4) as i32];
-            if position == [-1, -1] {
-                terminated = true;
-                break;
-            }
-            let id = (world as u16) * 256 + local;
+    Ok(read(catalogue, phases, ui)?.runtime)
+}
+
+pub(super) fn cook_source(
+    catalogue: &source::Catalogue,
+    phases: &phases::Phases,
+    ui: &inventory_ui::Catalogue,
+) -> Result<serde_json::Value> {
+    Ok(serde_json::to_value(read(catalogue, phases, ui)?)?)
+}
+
+#[derive(Serialize)]
+struct SourceWorldMap<'a> {
+    #[serde(flatten)]
+    runtime: WorldMapData,
+    phases: &'a phases::Phases,
+    authored_shops: Vec<AuthoredShop>,
+    authored_locations: [Vec<AuthoredLocation>; 2],
+    item_rewards: Vec<&'a source::ItemReward>,
+    exploration_party_requirements: Vec<&'a source::PartyRequirement>,
+}
+
+#[derive(Serialize)]
+struct AuthoredLocation {
+    position: [i32; 2],
+    height: f32,
+    radius: u16,
+    listed: bool,
+    interaction: source::Interaction,
+    marker: source::Marker,
+    text: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AuthoredShop {
+    id: usize,
+    name: String,
+    active_count: usize,
+    slots: [Option<u16>; 21],
+}
+
+impl AuthoredShop {
+    fn active(&self) -> Result<Shop> {
+        let shop = Shop {
+            name: self.name.clone(),
+            items: self
+                .slots
+                .get(..self.active_count)
+                .context("shop stock count exceeds fixed slots")?
+                .iter()
+                .map(|item| item.context("empty active shop slot"))
+                .collect::<Result<_>>()?,
+        };
+        shop.validate(528)?;
+        Ok(shop)
+    }
+}
+
+fn read<'a>(
+    source: &'a source::Catalogue,
+    phases: &'a phases::Phases,
+    ui: &inventory_ui::Catalogue,
+) -> Result<SourceWorldMap<'a>> {
+    let authored_locations = source.locations.each_ref().map(|rows| {
+        rows.iter()
+            .map(|row| AuthoredLocation {
+                position: row.position,
+                height: row.height,
+                radius: row.radius,
+                listed: row.listed,
+                interaction: row.interaction,
+                marker: row.marker,
+                text: row.text.map(|id| source.text(id).into()),
+            })
+            .collect()
+    });
+    let mut locations = BTreeMap::new();
+    for world in 0..2 {
+        for (local, row) in source
+            .world(world)?
+            .iter()
+            .take_while(|row| !row.is_terminator())
+            .enumerate()
+            .skip(1)
+        {
+            let id = world as u16 * 256 + local as u16;
             let mut location = MapLocation {
-                name: text(row, 16)?,
-                point: position.map(|v| (v / 200) as i16),
-                listed: row[14] & 0x80 != 0,
+                name: row
+                    .text
+                    .map(|id| source.text(id))
+                    .unwrap_or_default()
+                    .into(),
+                point: row.position.map(|v| (v / 200) as i16),
+                listed: row.listed,
                 visit_alias: matches!(id, 43 | 44).then_some(7),
                 shops: if local < 11 {
-                    let pointer = dol::slice(
-                        executable,
-                        0x80227f00 + world as u32 * 44 + u32::from(local) * 4,
-                        4,
-                    )?;
-                    shop_list(word(pointer, 0))?
+                    source.shops(source.shop_bindings[world][local])?
                 } else {
                     Vec::new()
                 },
                 shop_variants: Vec::new(),
             };
             let variant = match id {
-                7 => Some((0x2e, 500_000, 0x8035a190, 0x8035a194)),
-                8 => Some((3, 301, 0x8035a198, 0x8035a19c)),
-                262 => Some((0, 0x014fc8f0, 0x8035a1b8, 0x8035a1bc)),
+                7 => Some((0x2e, 500_000, &source.story_shops.luin)),
+                8 => Some((3, 301, &source.story_shops.hima)),
+                262 => Some((0, 0x014fc8f0, &source.story_shops.flanoir)),
                 _ => None,
             };
-            if let Some((global, at_least, before, after)) = variant {
-                location.shops = shop_list(before)?;
+            if let Some((global, at_least, stock)) = variant {
+                location.shops = source.shops(Some(stock.before))?;
                 location.shop_variants.push(MapShopVariant {
                     global: global + 16,
                     at_least,
-                    shops: shop_list(after)?,
+                    shops: source.shops(Some(stock.after))?,
                 });
             }
             locations.insert(id, location);
         }
-        ensure!(terminated, "unterminated world location table");
     }
-    let field_locations = dol::slice(executable, 0x801e4060, 0x3348)?
-        .chunks_exact(24)
-        .enumerate()
-        .filter_map(|(field, row)| {
-            let id = half(row, 6);
-            (!matches!(id, 0 | 0x100 | 0x200)).then_some((field as u32, id))
-        })
-        .collect();
-    let shops = dol::slice(executable, SHOP_TABLE, SHOP_COUNT * SHOP_ROW_SIZE)?
-        .chunks_exact(SHOP_ROW_SIZE)
-        .enumerate()
-        .map(|(id, row)| {
-            let count = usize::from(half(row, 4));
+    let item_rewards = source
+        .item_rewards
+        .iter()
+        .take_while(|row| row.location != 0)
+        .map(|row| {
             ensure!(
-                (1..=SHOP_MAX_STOCK).contains(&count),
-                "invalid shop {id} inventory count"
+                locations.contains_key(&row.location) && (1..528).contains(&row.item),
+                "invalid active world-map item reward"
             );
-            // Unused slots may retain old stock; only the declared count is live.
-            let shop = Shop {
-                name: text(row, 0)?,
-                items: row[6..6 + count * 2]
-                    .chunks_exact(2)
-                    .map(|v| half(v, 0))
-                    .collect(),
-            };
-            shop.validate(528)?;
-            Ok(shop)
+            Ok(row)
         })
         .collect::<Result<_>>()?;
-    Ok(WorldMapData {
-        names: [
-            text(dol::slice(executable, 0x8019d650 + 152, 4)?, 0)?,
-            text(dol::slice(executable, 0x8019d650 + 156, 4)?, 0)?,
-        ],
-        locations,
-        field_locations,
-        shops,
+    let exploration_party_requirements = source
+        .party_requirements
+        .iter()
+        .take_while(|row| row.location != 0)
+        .map(|row| {
+            ensure!(
+                locations.contains_key(&row.location) && (1..=9).contains(&row.required_character),
+                "invalid active world-map party requirement"
+            );
+            Ok(row)
+        })
+        .collect::<Result<_>>()?;
+    let authored_shops = source
+        .shops
+        .iter()
+        .enumerate()
+        .map(|(id, shop)| {
+            Ok(AuthoredShop {
+                id,
+                name: source.required_text(shop.name)?.into(),
+                active_count: usize::from(shop.active_count),
+                slots: shop.slots,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let shops = authored_shops
+        .iter()
+        .map(AuthoredShop::active)
+        .collect::<Result<_>>()?;
+    Ok(SourceWorldMap {
+        phases,
+        authored_shops,
+        authored_locations,
+        item_rewards,
+        exploration_party_requirements,
+        runtime: WorldMapData {
+            names: ui
+                .inventory
+                .worlds
+                .map(|reference| ui.text(reference).to_owned()),
+            locations,
+            field_locations: phases
+                .records
+                .iter()
+                .filter_map(|phase| {
+                    (!matches!(phase.location, 0 | 0x100 | 0x200))
+                        .then_some((phase.id as u32, phase.location))
+                })
+                .collect(),
+            shops,
+        },
     })
 }

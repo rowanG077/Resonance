@@ -1,6 +1,10 @@
 //! Read-only executable constants for comparing native implementations.
 #[path = "../src/dol.rs"]
+#[allow(dead_code)]
 mod dol;
+#[path = "../src/read.rs"]
+#[allow(dead_code)]
+mod read;
 use anyhow::{Context, Result};
 use std::fs;
 fn main() -> Result<()> {

@@ -397,6 +397,7 @@ fn load_live(
     root: Res<super::RunOptions>,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
+    mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
     resident: Res<super::loading::Resident>,
@@ -425,6 +426,7 @@ fn load_live(
         &session.assets,
         &server,
         &mut materials,
+        &mut images,
         files.as_deref(),
     ) {
         Ok(ui) => ui,
@@ -644,7 +646,7 @@ fn ui(
     state: State,
     mut art: ResMut<super::field_ui::Artwork>,
     display: Option<Res<super::display::Display>>,
-    images: Res<Assets<Image>>,
+    mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
     roots: Query<(Entity, &ActorPart, &super::field_animation::Rig)>,
@@ -694,7 +696,7 @@ fn ui(
                 .map(|position| (part.actor, position))
         })
         .collect();
-    match art.render_captions(&state.get().events.world, &mut commands, &mut meshes) {
+    match art.render_overlays(&state.get().events.world, &mut commands, &mut meshes) {
         Ok(handled) => {
             for id in handled {
                 applied.ack(Request::Overlay(id));
@@ -722,6 +724,7 @@ fn ui(
         &mut commands,
         &mut meshes,
         &mut materials,
+        &mut images,
     ) {
         error!("Field dialogue rendering failed: {error:#}");
         exit.write(AppExit::error());
@@ -1074,8 +1077,14 @@ fn setup(
         .expect("validated cooked field effects");
     effects.prepare(&mut commands, &mut meshes, &mut surfaces);
     commands.insert_resource(effects);
-    let mut ui = super::field_ui::Artwork::load(&root.0, &manifest.0, &server, &mut ui_materials)
-        .expect("validated cooked dialogue artwork");
+    let mut ui = super::field_ui::Artwork::load(
+        &root.0,
+        &manifest.0,
+        &server,
+        &mut ui_materials,
+        &mut images,
+    )
+    .expect("validated cooked dialogue artwork");
     ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
     commands.insert_resource(ui);
     let mut final_image =

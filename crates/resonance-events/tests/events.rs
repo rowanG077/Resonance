@@ -2247,3 +2247,121 @@ fn dialogue_names_use_cooked_companion_names_and_saved_renames_but_reject_unknow
         "{error}"
     );
 }
+
+#[test]
+fn sprite_overlay_handles_and_properties_preserve_independent_draw_state() {
+    let mut code = Vec::new();
+    let id = 77;
+    let handle = 0xffff0000u32 as i32;
+    native(&mut code, Call::ResolveScriptResource, &[38]);
+    native(
+        &mut code,
+        Call::CreateOverlay,
+        &[id, handle, 320, 240, -1, 72, 30, 255, 128, 0, 200, 0, 12],
+    );
+    native(&mut code, Call::ReleaseScriptResource, &[handle]);
+    for (slot, (call, args)) in [
+        (Call::GetActorProperty, &[id, 62][..]),
+        (Call::SetActorProperty, &[id, 62, 258][..]),
+        (Call::GetActorProperty, &[id, 62][..]),
+        (Call::SetActorProperty, &[id, 30, 150][..]),
+        (Call::SetActorProperty, &[id, 31, -50][..]),
+        (Call::SetActorProperty, &[id, 32, 200][..]),
+        (Call::SetActorProperty, &[id, 37, -45][..]),
+        (Call::SetActorProperty, &[id, 42, 300][..]),
+        (Call::SetActorProperty, &[id, 43, -1][..]),
+        (Call::SetActorProperty, &[id, 44, 64][..]),
+        (Call::SetActorProperty, &[id, 8, 0][..]),
+        (Call::SetActorProperty, &[id, 4, 180][..]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        native(&mut code, call, args);
+        code.extend([
+            0x3000,
+            0x1200,
+            0x100 + slot as u16 * 4,
+            0x1200,
+            0x20,
+            0x3010,
+            0x3000,
+        ]);
+    }
+    native(&mut code, Call::YieldCommand, &[0, 2]);
+    native(&mut code, Call::DespawnActor, &[id]);
+    code.push(0x20ff);
+    let mut resources = ResourceLibrary::default();
+    resources.bindings.insert(38, (ResourceKind::Overlay, 900));
+    let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
+    for (slot, previous) in [0, 0, 2, 100, 100, 100, 30, 255, 128, 0, 0, -45]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            events
+                .memory()
+                .read(0x100 + slot as u16 * 4, Width::S32)
+                .unwrap(),
+            previous
+        );
+    }
+    let overlay = &events.world.overlays[&id];
+    let OverlayKind::Sprite(sprite) = &overlay.kind else {
+        panic!()
+    };
+    assert_eq!(
+        (sprite.image, sprite.depth, sprite.scale),
+        (2, 12, [1.5, -0.5, 2.])
+    );
+    assert_eq!(overlay.rgba, [44, 255, 64, 0]);
+    assert_eq!(overlay.size, [-1, 72]);
+    assert_eq!(events.world.actors[&id].resource, 900);
+    events.step().unwrap();
+    let actor = &events.world.actors[&id];
+    assert_eq!((actor.heading, actor.target_heading), (-45., 180.));
+    assert!(actor.visible);
+    assert_eq!(events.world.overlays[&id].alpha(events.world.tick), 200);
+    events.step().unwrap();
+    assert!(!events.world.overlays.contains_key(&id));
+    assert!(!events.world.actors.contains_key(&id));
+}
+
+#[test]
+fn sprite_overlay_fades_advance_on_ticks_and_stop_without_removing_the_actor() {
+    let id = 77;
+    let code = script(&[
+        (
+            Call::CreateOverlay,
+            &[id, 38, 0, 0, -1, -1, 0, 255, 255, 255, 120, 4, 0],
+        ),
+        (Call::YieldCommand, &[0, 4]),
+        (Call::SetActorProperty, &[id, 15, -40]),
+        (Call::YieldCommand, &[0, 5]),
+        (Call::SetActorProperty, &[id, 8, 60]),
+        (Call::SetActorProperty, &[id, 15, 30]),
+    ]);
+    let mut resources = ResourceLibrary::default();
+    resources.bindings.insert(38, (ResourceKind::Overlay, 900));
+    let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
+    for (tick, alpha) in [0, 0, 30, 60, 90, 120, 80, 40, 0, 0, 0, 30, 60]
+        .into_iter()
+        .enumerate()
+    {
+        if tick > 0 {
+            events.step().unwrap();
+        }
+        let overlay = &events.world.overlays[&id];
+        // Rendering repeatedly, including at a future timestamp, never advances a fade.
+        assert_eq!(overlay.alpha(events.world.tick), alpha);
+        assert_eq!(overlay.alpha(events.world.tick + 1000), alpha);
+        let OverlayKind::Sprite(sprite) = &overlay.kind else {
+            panic!()
+        };
+        if matches!(tick, 8 | 12) {
+            assert_eq!(sprite.alpha_step, 0.);
+        }
+    }
+    assert!(events.world.actors[&id].visible);
+    assert_eq!(events.world.overlays[&id].rgba[3], 60);
+}

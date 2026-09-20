@@ -4141,12 +4141,12 @@
     },
     {
       "opcode": 205,
-      "name": "native_cd",
+      "name": "start_battle",
       "handler": "fn_8005098C",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
+        "encounter_id",
+        "arena_id",
+        "resume_after_defeat",
         "arg3",
         "arg4",
         "arg5",
@@ -4171,10 +4171,14 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_8005098C.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "deferred-output-proven",
+      "notes": "Starts a battle and suspends in command state 23. fn_8005B3F0 resumes after battle mode exits, pushes the route result and writes it to script memory byte address 0x24. Results: escape 1, victory 2, defeat 3. Argument 2 selects continuation after defeat; otherwise defeat enters game over. Final three arguments are consumed but not read. Nondefault route overrides remain unresolved."
     },
     {
       "opcode": 206,

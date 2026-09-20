@@ -8,6 +8,63 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
+fn is_zero(value: &u16) -> bool {
+    *value == 0
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Variable {
+    Local(u8),
+    Global(u8),
+    Controller(Controller),
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Controller {
+    Paired(u8),
+    PitchBend,
+    Surround,
+    Lfo,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Operand {
+    Variable(Variable),
+    Constant(i16),
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Arithmetic {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+impl Arithmetic {
+    pub(crate) fn evaluate(self, left: i16, right: i16) -> i16 {
+        let (left, right) = (i32::from(left), i32::from(right));
+        match self {
+            Self::Add => left + right,
+            Self::Subtract => left - right,
+            Self::Multiply => left * right,
+            Self::Divide => left.checked_div(right).unwrap_or(0),
+        }
+        .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Comparison {
+    Equal,
+    Less,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
     pub macro_id: u16,
@@ -25,7 +82,7 @@ pub enum Envelope {
     Dls(dls::Definition),
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Interpolation {
     Polyphase,
@@ -34,12 +91,113 @@ pub enum Interpolation {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PanAxis {
+    Pan,
+    Surround,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SweepSlot {
+    #[default]
+    First,
+    Second,
+}
+
+impl SweepSlot {
+    fn is_first(&self) -> bool {
+        matches!(self, Self::First)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct VolumeCurve(#[serde(with = "crate::package::array")] pub [u8; 128]);
+
+impl VolumeCurve {
+    /// Interpolate a clamped 16.16 input. Authored output may exceed 127.
+    pub(crate) fn translate(&self, volume: u32) -> u32 {
+        let index = (volume >> 16) as usize;
+        let current = i32::from(self.0[index]);
+        let next = i32::from(self.0[(index + 1).min(127)]);
+        ((current << 16) + (volume & 65535) as i32 * (next - current)) as u32
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageTarget {
+    Handle(Variable),
+    Macro(u16),
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum Command {
+    VoiceHandle {
+        destination: Variable,
+        child: bool,
+    },
+    SendMessage {
+        target: MessageTarget,
+        value: Variable,
+    },
+    ReceiveMessage {
+        destination: Variable,
+    },
+    MessageTrap {
+        program: u16,
+        instruction: usize,
+    },
+    ClearMessageTrap,
+    Noop,
     End,
+    SetVariable {
+        destination: Variable,
+        value: i16,
+    },
+    Calculate {
+        destination: Variable,
+        #[serde(rename = "arithmetic")]
+        operation: Arithmetic,
+        left: Variable,
+        right: Operand,
+    },
+    Branch {
+        comparison: Comparison,
+        left: Variable,
+        right: Variable,
+        invert: bool,
+        instruction: usize,
+    },
     Jump {
         program: u16,
         instruction: usize,
+    },
+    SpawnMacro {
+        program: u16,
+        instruction: u16,
+        key_offset: i8,
+        priority: u8,
+        max_voices: u8,
+    },
+    RandomBranch {
+        minimum: u8,
+        program: u16,
+        instruction: usize,
+    },
+    Loop {
+        instruction: usize,
+        count: u16,
+        key_off: bool,
+        sample_end: bool,
+    },
+    RandomLoop {
+        instruction: usize,
+        /// Exclusive upper bound, sampled only when entering the loop.
+        count: u16,
+        key_off: bool,
+        sample_end: bool,
     },
     Envelope {
         envelope: Envelope,
@@ -58,10 +216,31 @@ pub enum Command {
         from_original: bool,
         semitones: i8,
         cents: i8,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        wait_ms: u16,
+        #[serde(default, skip_serializing_if = "is_false")]
+        from_start: bool,
     },
     SetNote {
         key: u8,
         cents: i8,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        wait_ms: u16,
+        #[serde(default, skip_serializing_if = "is_false")]
+        from_start: bool,
+    },
+    RandomNote {
+        low: u8,
+        high: u8,
+        cents: i8,
+        random_cents: bool,
+        relative: bool,
+    },
+    PanRamp {
+        axis: PanAxis,
+        initial: u8,
+        delta: i8,
+        milliseconds: u16,
     },
     ScaleVolume {
         from_velocity: bool,
@@ -70,11 +249,13 @@ pub enum Command {
     SetVolume {
         factor: u8,
         offset: u8,
+        curve: Option<VolumeCurve>,
         from_velocity: bool,
     },
     FadeVolume {
         factor: u8,
         offset: u8,
+        curve: Option<VolumeCurve>,
         milliseconds: u16,
         #[serde(default, skip_serializing_if = "is_false")]
         from_silence: bool,
@@ -82,6 +263,9 @@ pub enum Command {
     Auxiliary {
         bus: u8,
         value: u8,
+    },
+    VolumeControl {
+        value: u16,
     },
     SetAge {
         value: u16,
@@ -93,6 +277,8 @@ pub enum Command {
         milliseconds: u32,
     },
     PitchSweep {
+        #[serde(default, skip_serializing_if = "SweepSlot::is_first")]
+        slot: SweepSlot,
         step_hz: i16,
         period: u8,
         wait_ms: u16,
@@ -108,6 +294,16 @@ pub enum Command {
         key_off: bool,
         sample_end: bool,
     },
+    BeatWait {
+        ticks: Option<u16>,
+        key_off: bool,
+        sample_end: bool,
+    },
+    /// Uniform duration below the authored bound, drawn from the shared synthesizer.
+    RandomWait {
+        upper_ms: u16,
+        key_off: bool,
+    },
     Priority {
         value: u8,
     },
@@ -118,6 +314,8 @@ pub enum Command {
     },
     VolumeCurve {
         alternate: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        interaural_delay: bool,
     },
     Interpolation {
         mode: Interpolation,
@@ -129,8 +327,10 @@ pub enum Command {
     },
     Vibrato {
         period_ms: u16,
-        semitones: u8,
-        cents: u8,
+        /// Unsigned 8.8 semitones after authored sign normalization.
+        depth_8: u16,
+        /// Start half a cycle ahead.
+        reverse: bool,
         scale_by_modulation: bool,
     },
     Lfo {
@@ -146,6 +346,39 @@ pub enum Command {
 pub struct Resources {
     pub programs: BTreeMap<u16, Vec<Command>>,
     pub samples: BTreeMap<u16, std::sync::Arc<Sample>>,
+}
+
+impl Command {
+    pub(crate) fn variables(&self) -> [Option<Variable>; 3] {
+        match *self {
+            Self::SetVariable { destination, .. }
+            | Self::VoiceHandle { destination, .. }
+            | Self::ReceiveMessage { destination } => [Some(destination), None, None],
+            Self::SendMessage { target, value } => [
+                Some(value),
+                match target {
+                    MessageTarget::Handle(variable) => Some(variable),
+                    MessageTarget::Macro(_) => None,
+                },
+                None,
+            ],
+            Self::Calculate {
+                destination,
+                left,
+                right,
+                ..
+            } => [
+                Some(destination),
+                Some(left),
+                match right {
+                    Operand::Variable(variable) => Some(variable),
+                    Operand::Constant(_) => None,
+                },
+            ],
+            Self::Branch { left, right, .. } => [Some(left), Some(right), None],
+            _ => [None; 3],
+        }
+    }
 }
 
 impl Resources {
@@ -166,7 +399,34 @@ impl Resources {
                 "invalid instrument program length"
             );
             for command in program {
+                for variable in command.variables().into_iter().flatten() {
+                    match variable {
+                        Variable::Local(index) | Variable::Global(index) => {
+                            ensure!(index < 16, "macro variable index exceeds register bank")
+                        }
+                        Variable::Controller(Controller::Paired(index)) => {
+                            ensure!(index < 32, "paired controller index exceeds bank")
+                        }
+                        Variable::Controller(_) => {}
+                    }
+                }
                 match *command {
+                    Command::SetVariable {
+                        destination: Variable::Controller(Controller::Paired(6)),
+                        ..
+                    }
+                    | Command::Calculate {
+                        destination: Variable::Controller(Controller::Paired(6)),
+                        ..
+                    } => {
+                        anyhow::bail!("RPN data-entry controller writes are not implemented");
+                    }
+                    Command::SendMessage {
+                        target: MessageTarget::Macro(u16::MAX),
+                        ..
+                    } => {
+                        anyhow::bail!("host message callbacks are not implemented");
+                    }
                     Command::Jump {
                         program,
                         instruction,
@@ -183,12 +443,49 @@ impl Resources {
                     Command::StartSample { sample } => {
                         self.sample(sample)?;
                     }
+                    Command::RandomBranch {
+                        program,
+                        instruction,
+                        ..
+                    }
+                    | Command::MessageTrap {
+                        program,
+                        instruction,
+                    } => {
+                        ensure!(
+                            self.programs
+                                .get(&program)
+                                .is_none_or(|commands| instruction < commands.len()),
+                            "instrument conditional target is out of bounds"
+                        );
+                    }
+                    Command::SpawnMacro {
+                        program,
+                        instruction,
+                        ..
+                    } => {
+                        ensure!(
+                            self.programs
+                                .get(&program)
+                                .is_none_or(|commands| usize::from(instruction) < commands.len()),
+                            "child macro entry is out of bounds"
+                        );
+                    }
+                    Command::Loop { instruction, .. }
+                    | Command::RandomLoop { instruction, .. }
+                    | Command::Branch { instruction, .. } => {
+                        ensure!(
+                            instruction < program.len(),
+                            "instrument loop target is out of bounds"
+                        );
+                        ensure!(
+                            !matches!(command, Command::RandomLoop { count: 0, .. }),
+                            "random loop requires a nonzero bound"
+                        );
+                    }
                     Command::Interpolation { coefficients, .. } => {
                         ensure!(coefficients < 4, "invalid interpolation coefficients")
                     }
-                    Command::Vibrato {
-                        semitones, cents, ..
-                    } => ensure!(semitones < 128 && cents < 128, "invalid vibrato depths"),
                     Command::PitchEnvelope { sustain, .. } => {
                         ensure!(sustain <= 4095, "invalid pitch envelope sustain")
                     }
@@ -197,6 +494,9 @@ impl Resources {
                         bus < 2 && value < 128,
                         "invalid instrument auxiliary control"
                     ),
+                    Command::VolumeControl { value } => {
+                        ensure!(value < 16384, "invalid volume selector")
+                    }
                     Command::Envelope {
                         envelope: Envelope::Ordinary(p),
                     } => ensure!(p.sustain <= 32767, "invalid ordinary sustain"),
@@ -239,13 +539,30 @@ impl Resources {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventKind {
-    Notes { voices: Vec<Note>, length: u16 },
-    Volume { value: u8 },
-    Pan { value: u8 },
-    Expression { value: u8 },
-    Auxiliary { bus: u8, value: u8 },
-    PitchBend { value: u16 },
-    Modulation { value: u16 },
+    Notes {
+        source: VoiceSource,
+        voices: Vec<Note>,
+        length: u16,
+    },
+    Volume {
+        value: u8,
+    },
+    Pan {
+        value: u8,
+    },
+    Expression {
+        value: u8,
+    },
+    Auxiliary {
+        bus: u8,
+        value: u8,
+    },
+    PitchBend {
+        value: u16,
+    },
+    Modulation {
+        value: u16,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -261,10 +578,44 @@ pub struct Tempo {
     pub bpm_1024: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScoreOrigin {
+    /// Arrangement events run in newest-sequence-first order.
+    Sequence,
+    /// Entry notes allocate in request order before arrangement events.
+    SoundEffect,
+}
+
+/// Allocation limits apply to the authored instrument or sound, across cues.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VoiceSource {
+    Sequence {
+        group: u16,
+        program: u8,
+        drums: bool,
+    },
+    SoundEffect {
+        id: u16,
+    },
+}
+
+impl VoiceSource {
+    pub fn origin(self) -> ScoreOrigin {
+        match self {
+            Self::Sequence { .. } => ScoreOrigin::Sequence,
+            Self::SoundEffect { .. } => ScoreOrigin::SoundEffect,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Score {
+    pub origin: ScoreOrigin,
     pub initial_bpm_1024: u32,
     pub loop_start_tick: u32,
+    /// Inclusive time at which all queued events have finished and looping may resume.
     pub end_tick: u32,
     pub has_master_track: bool,
     pub tempos: Vec<Tempo>,
@@ -275,6 +626,16 @@ pub struct Score {
 
 impl Score {
     pub fn validate(&self, resources: &Resources) -> Result<()> {
+        if self.origin == ScoreOrigin::SoundEffect {
+            ensure!(
+                self.tempos.is_empty()
+                    && self.loop_events.is_empty()
+                    && self.first_events.iter().all(|event| {
+                        event.tick == 0 && matches!(&event.kind, EventKind::Notes { .. })
+                    }),
+                "sound effects require entry notes; timed events belong to sequences"
+            );
+        }
         ensure!(
             self.loop_start_tick < self.end_tick && self.end_tick < u32::MAX - 65536,
             "invalid musical loop interval"
@@ -293,22 +654,7 @@ impl Score {
             "invalid tempo stream"
         );
         for control in self.controls {
-            ensure!(
-                [
-                    control.volume,
-                    control.expression,
-                    control.pan,
-                    control.post[0],
-                    control.post[1]
-                ]
-                .into_iter()
-                .all(|v| v < 128)
-                    && control.pitch_bend < 16384
-                    && control.modulation < 16384
-                    && control.group_volume.is_finite()
-                    && (0.0..=1.0).contains(&control.group_volume),
-                "invalid initial music controls"
-            );
+            control.validate()?;
         }
         for (events, start) in [
             (&self.first_events, 0),
@@ -320,11 +666,15 @@ impl Score {
             );
             for event in events {
                 ensure!(
-                    event.channel < 16 && (start..self.end_tick).contains(&event.tick),
+                    event.channel < 16 && (start..=self.end_tick).contains(&event.tick),
                     "invalid score event location"
                 );
                 match &event.kind {
-                    EventKind::Notes { voices, .. } => {
+                    EventKind::Notes { source, voices, .. } => {
+                        ensure!(
+                            source.origin() == self.origin,
+                            "note allocation source differs from score origin"
+                        );
                         ensure!(voices.len() <= 64, "note exceeds voice budget");
                         for note in voices {
                             ensure!(

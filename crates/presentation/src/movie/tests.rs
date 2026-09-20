@@ -10,7 +10,8 @@ fn subtitles_follow_media_time_when_video_is_held() {
         active: true,
         presented_frame: Some(5),
         asset: Some(MovieAsset {
-            version: 1,
+            audio_track: 0,
+            version: 2,
             path: "movies/test.mkv".into(),
             sha256: "0".repeat(64),
             width: 640,

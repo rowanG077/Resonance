@@ -1,13 +1,24 @@
-use super::{Workspace, be_u32, hash_file, json_file, valid_asset, wav_frames, write_json};
+mod binding;
+pub(crate) use binding::cook_directory;
+pub use binding::{MovieSource, cook_movie};
+
+use super::{Workspace, be_u32, hash_file, json_file, valid_asset, write_json};
 use crate::dol::slice as dol_slice;
 use anyhow::{Context, Result, ensure};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     fs,
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
-    path::Path,
+    path::{Path, PathBuf},
     time::Duration,
 };
+
+const SIGNATURE: &[u8; 16] = b"HVQM4 1.5\0\0\0\0\0\0\0";
+
+pub(crate) fn is_movie(bytes: &[u8]) -> bool {
+    bytes.starts_with(SIGNATURE)
+}
 
 struct Header {
     width: usize,
@@ -15,12 +26,14 @@ struct Header {
     frames: u32,
     frame_micros: u32,
     sample_rate: u32,
+    channels: u16,
+    audio_streams: u16,
 }
 
 impl Header {
     fn parse(bytes: &[u8]) -> Result<Self> {
         ensure!(
-            bytes.len() >= 68 && &bytes[..16] == b"HVQM4 1.5\0\0\0\0\0\0\0",
+            bytes.len() >= 68 && is_movie(bytes),
             "expected HVQM4 1.5 movie"
         );
         let header = Self {
@@ -29,18 +42,27 @@ impl Header {
             frames: be_u32(bytes, 0x1c)?,
             frame_micros: be_u32(bytes, 0x24)?,
             sample_rate: be_u32(bytes, 0x40)?,
+            channels: u16::from(bytes[0x3c]),
+            audio_streams: if bytes[0x3c] == 0 && be_u32(bytes, 0x40)? == 0 {
+                0
+            } else {
+                u16::from(bytes[0x3f] & 15) + 1
+            },
         };
         ensure!(
             be_u32(bytes, 0x10)? == 68
                 && bytes[0x38..0x3a] == [2, 2]
-                && bytes[0x3c..0x3f] == [2, 16, 0]
                 && (2..=640).contains(&header.width)
                 && (2..=480).contains(&header.height)
                 && header.width.is_multiple_of(2)
                 && header.height.is_multiple_of(2)
                 && (1..=100_000).contains(&header.frames)
-                && header.frame_micros == 33366
-                && header.sample_rate == 32028,
+                && (10_000..=100_000).contains(&header.frame_micros)
+                && (header.audio_streams != 0) == (be_u32(bytes, 0x20)? != 0)
+                && (header.audio_streams == 0
+                    || ((1..=2).contains(&header.channels)
+                        && bytes[0x3d..0x3f] == [16, 0]
+                        && (8_000..=96_000).contains(&header.sample_rate))),
             "unsupported movie dimensions or timing"
         );
         Ok(header)
@@ -59,24 +81,34 @@ struct Colors {
 
 impl Colors {
     fn from_dol(dol: &[u8]) -> Result<Self> {
-        // Use the cooked fixed-point YUV coefficients, shared chroma, and rounding.
-        let bytes = dol_slice(dol, 0x802a3178, 0x1000)?;
+        const TABLE: u32 = 0x802a3178;
+        const COEFFICIENT_BYTES: u32 = 5 * 256 * 2;
+        let bytes = dol_slice(dol, TABLE, COEFFICIENT_BYTES as usize)?;
         let mut components = [[0; 256]; 5];
         for (index, value) in components.iter_mut().flatten().enumerate() {
             *value = i32::from(i16::from_be_bytes(
                 bytes[index * 2..index * 2 + 2].try_into()?,
             ));
         }
+        let bounds = [i32::min, i32::max].map(|choose| {
+            let [y, vr, vg, ug, ub] =
+                components.map(|channel| channel.into_iter().reduce(choose).unwrap());
+            [y + vr, y + vg + ug, y + ub]
+                .into_iter()
+                .reduce(choose)
+                .unwrap()
+        });
+        let [min, max] = bounds;
+        // The converter reads a byte at the signed coefficient sum, without
+        // saturating to the declared clamp array. Include the entire reachable
+        // interval: vivid colors also read adjacent static data on either side.
+        let start = (TABLE + COEFFICIENT_BYTES)
+            .checked_add_signed(min)
+            .context("movie color lookup address overflow")?;
         Ok(Self {
             components,
-            // Original instructions 800F06A0..800F06B0 add the signed
-            // coefficients to the table base, then load at offset 0xA00.
-            // Opening frame 1137 contains one negative index (-11): the
-            // executable reads the preceding coefficient byte (217). Retain
-            // that lookup in this bounded offline slice rather than indexing
-            // a Rust clamp array out of bounds or changing the source pixel.
-            table: bytes.to_vec(),
-            clamp_offset: 0xa00,
+            table: dol_slice(dol, start, (max - min + 1) as usize)?.to_vec(),
+            clamp_offset: -min,
         })
     }
 
@@ -112,253 +144,449 @@ impl Colors {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum MovieSource {
-    Opening,
-    StoryIntroduction,
-}
-impl MovieSource {
-    fn names(self) -> (&'static str, &'static str) {
-        match self {
-            Self::Opening => ("op", "intro"),
-            Self::StoryIntroduction => ("s01", "story-intro"),
-        }
-    }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MovieAudioTrack {
+    /// One-based source stream index; audio streams retain this order in the mux.
+    pub stream: u16,
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub frames: u32,
 }
 
-/// Convert a source movie to a standard, device-independent cooked asset.
-pub fn cook_movie(
-    extracted: &Path,
-    output: &Path,
-    audio_stream: u8,
-    source: MovieSource,
-) -> Result<()> {
-    let (source_name, name) = source.names();
-    let relative = format!("movies/{name}.mkv");
-    ensure!(
-        (1..=2).contains(&audio_stream),
-        "movie audio stream must be 1 or 2"
-    );
+/// A physical movie can contain multiple audio tracks, or no audio at all.
+/// Runtime playback metadata is produced separately for a selected track.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CookedMovie {
+    pub version: u32,
+    pub source: String,
+    pub source_sha256: String,
+    pub path: String,
+    pub sha256: String,
+    pub width: u32,
+    pub height: u32,
+    pub frames: u32,
+    pub frame_micros: u32,
+    pub audio_tracks: Vec<MovieAudioTrack>,
+}
+
+/// Cook any physical movie, preserving video and all source audio tracks.
+/// Runtime metadata binds one audio track separately without copying this file.
+pub fn cook_movie_file(extracted: &Path, source: &Path, output: &Path) -> Result<CookedMovie> {
     let workspace = Workspace::open(extracted, output)?;
-    let movie = workspace
-        .extracted
-        .join(format!("files/MOV/{source_name}.h4m"));
-    let mut header_bytes = [0u8; 68];
-    fs::File::open(&movie)?.read_exact(&mut header_bytes)?;
-    let header = Header::parse(&header_bytes)?;
+    let source = source.to_str().context("movie source path is not UTF-8")?;
+    resonance_content::validate_asset_path(source)?;
+    let files = workspace.extracted.join("files").canonicalize()?;
+    let movie = files.join(source).canonicalize()?;
+    ensure!(
+        movie.starts_with(&files),
+        "movie source escapes extracted files"
+    );
+    let mut bytes = [0; 68];
+    fs::File::open(&movie)?.read_exact(&mut bytes)?;
+    let header = Header::parse(&bytes)?;
     let dol = workspace.extracted.join("sys/main.dol");
     let colors = Colors::from_dol(&fs::read(&dol)?)?;
-    let recipe = json!({"version": 4, "movie_sha256": hash_file(&movie)?,
-        "dol_sha256": hash_file(&dol)?, "video_decoder": "h4m-0.4.0",
-        "audio_decoder": "h4m-0.4.0-ima-pcm16-v1", "video_encoder": "codec_ffv1-0.1.0", "audio_encoder": "flacenc-0.5.1", "muxer": "resonance-matroska-v1",
-        "audio_stream": audio_stream, "video_codec": "ffv1", "audio_codec": "flac",
-        "color_conversion": "gqseaf-yuv-table-v2", "audio_channel_order": "swap_lr"});
-    let metadata = workspace.output.join(format!("{name}.json"));
+    let recipe = json!({"version":5, "movie_sha256":hash_file(&movie)?,
+        "dol_sha256":hash_file(&dol)?, "video_decoder":"h4m-0.4.0",
+        "audio_decoder":"h4m-0.4.0-ima-pcm16-v1", "video_encoder":"codec_ffv1-0.1.0",
+        "audio_encoder":"flacenc-0.5.1", "muxer":"resonance-matroska-multitrack-v2",
+        "video_codec":"ffv1", "audio_codec":"flac", "color_conversion":"gqseaf-yuv-table-v2",
+        "audio_channel_order":"swap_lr"});
+    let metadata = workspace.output.join("movie.json");
     if let Some(previous) = json_file(&metadata)
         && previous["version"] == 1
         && previous["recipe"] == recipe
-        && previous["path"] == relative
+        && previous["path"] == "movie.mkv"
+        && previous["source"] == source
         && valid_asset(&workspace.output, &previous)
-        && serde_json::from_value::<resonance_content::MovieAsset>(previous)
-            .is_ok_and(|movie| movie.validate().is_ok())
+        && let Ok(cooked) = serde_json::from_value::<CookedMovie>(previous)
+        && cooked.audio_tracks.len() == usize::from(header.audio_streams)
     {
-        println!("{name} movie is current");
-        if matches!(source, MovieSource::StoryIntroduction) {
-            crate::field::refresh_preloads(&workspace.output)?;
-        }
-        return Ok(());
+        verify_mux(&workspace.output.join(&cooked.path), &cooked)?;
+        return Ok(cooked);
     }
-    let directory = workspace.intermediate(name)?;
+    let directory = workspace.output.join("intermediate/movie");
+    fs::create_dir_all(&directory)?;
     let yuv = directory.join("video.yuv");
-    let decode_metadata = directory.join("video-recipe.json");
-    let decode_recipe =
-        json!({"movie_sha256": recipe["movie_sha256"], "video_decoder": recipe["video_decoder"]});
-    let expected = header.frame_bytes() as u64 * u64::from(header.frames);
-    if !(json_file(&decode_metadata).is_some_and(|value| {
-        value["recipe"] == decode_recipe
-            && value["sha256"]
-                .as_str()
-                .is_some_and(|hash| hash_file(&yuv).is_ok_and(|actual| actual == hash))
-    }) && fs::metadata(&yuv).is_ok_and(|metadata| metadata.len() == expected))
-    {
-        let temporary = yuv.with_extension("partial.yuv");
-        let mut decoder = h4m::VideoDecoder::with_limits(
-            BufReader::new(fs::File::open(&movie)?),
-            h4m::VideoLimits {
-                max_pixels: 640 * 480,
-                max_frame_bytes: 64 * 1024 * 1024,
-            },
-        )?;
-        let mut target = fs::File::create(&temporary)?;
-        let mut seen = vec![false; header.frames as usize];
-        while let Some(frame) = decoder.next_frame()? {
-            let index = frame.display_index() as usize;
-            ensure!(
-                index < seen.len() && !seen[index],
-                "invalid or repeated H4M presentation index"
-            );
-            ensure!(
-                frame.y().data().len() + frame.u().data().len() + frame.v().data().len()
-                    == header.frame_bytes(),
-                "unexpected H4M plane layout"
-            );
-            // H4M returns decoding order (I0, P3, B1, B2). Place each frame by
-            // its display index without retaining an unbounded reorder queue.
-            target.seek(SeekFrom::Start(index as u64 * header.frame_bytes() as u64))?;
-            for plane in frame.planes() {
-                target.write_all(plane.data())?;
-            }
-            seen[index] = true;
-        }
-        ensure!(
-            seen.iter().all(|&seen| seen),
-            "H4M movie is missing presentation frames"
-        );
-        target.sync_all()?;
-        drop(target);
-        ensure!(
-            fs::metadata(&temporary)?.len() == expected,
-            "decoded video frame count mismatch"
-        );
-        fs::rename(&temporary, &yuv)?;
-        write_json(
-            &decode_metadata,
-            &json!({"recipe": decode_recipe, "sha256": hash_file(&yuv)?}),
-        )?;
-    }
-    let audio = directory.join(format!("audio-{audio_stream}.wav"));
-    let mut decoder = h4m::AudioDecoder::new(
-        BufReader::new(fs::File::open(&movie)?),
-        u16::from(audio_stream),
-    )?;
-    let info = decoder.metadata();
-    let mut wave = hound::WavWriter::create(
-        &audio,
-        hound::WavSpec {
-            channels: info.channels(),
-            sample_rate: info.sample_rate(),
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )?;
-    while let Some(pcm) = decoder.next_block()? {
-        for &sample in pcm {
-            wave.write_sample(sample)?;
-        }
-    }
-    wave.finalize()?;
-    let audio_frames = u64::from(wav_frames(
-        &audio,
-        header.sample_rate,
-        header.sample_rate * 3600,
-    )?);
-    ensure!(
-        !matches!(source, MovieSource::Opening) || audio_frames == 3_879_328,
-        "unexpected opening audio frame count"
-    );
-    // The game's movie DMA output has the opposite channel order to this
-    // HVQM4 IMA decoder. Stereo stream 1, swapped here, matches recorded
-    // Dolphin PCM exactly in steady playback windows. Normalize it offline;
-    // the runtime receives ordinary left/right stereo audio.
-    let normalized_audio = directory.join(format!("audio-{audio_stream}-stereo.wav"));
-    normalize_channels(&audio, &normalized_audio)?;
-    let destination = workspace.output.join(&relative);
-    fs::create_dir_all(
-        destination
-            .parent()
-            .context("movie destination has no parent")?,
-    )?;
-    let temporary = destination.with_extension("partial.mkv");
-    let mut encoder = resonance_media::encode::MovieWriter::new(
+    decode_video(&movie, &yuv, &header)?;
+    let (audio_tracks, audio_paths) = cook_audio(&movie, &directory, &header)?;
+    let destination = workspace.output.join("movie.mkv");
+    let temporary = crate::temporary_path(&destination);
+    let formats: Vec<_> = audio_tracks
+        .iter()
+        .map(|track| (track.channels, track.sample_rate, u64::from(track.frames)))
+        .collect();
+    let mut encoder = resonance_media::encode::MovieWriter::with_audio_tracks(
         BufWriter::new(fs::File::create(&temporary)?),
         header.width as u32,
         header.height as u32,
         header.frame_micros,
-        header.sample_rate,
+        &formats,
     )?;
+    let mut waves = audio_paths
+        .iter()
+        .map(hound::WavReader::open)
+        .collect::<Result<Vec<_>, _>>()?;
     let mut video = BufReader::new(fs::File::open(&yuv)?);
-    let mut wave = hound::WavReader::open(&normalized_audio)?;
-    let mut samples = wave.samples::<i16>();
     let mut raw = vec![0; header.frame_bytes()];
     let mut rgb = vec![0; header.width * header.height * 3];
-    let (mut video_index, mut audio_index) = (0u32, 0u64);
-    while video_index < header.frames || audio_index < audio_frames {
-        if audio_index < audio_frames
+    let mut video_index = 0u32;
+    let mut audio_indices = vec![0u64; audio_tracks.len()];
+    loop {
+        let audio = audio_tracks
+            .iter()
+            .enumerate()
+            .filter(|&(index, track)| audio_indices[index] < u64::from(track.frames))
+            .min_by_key(|&(index, track)| {
+                audio_indices[index] * 1_000_000 / u64::from(track.sample_rate)
+            })
+            .map(|(index, track)| {
+                (
+                    index,
+                    audio_indices[index] * 1_000_000 / u64::from(track.sample_rate),
+                )
+            });
+        if let Some((index, timestamp)) = audio
             && (video_index == header.frames
-                || u128::from(audio_index) * 1_000_000
-                    <= u128::from(video_index)
-                        * u128::from(header.frame_micros)
-                        * u128::from(header.sample_rate))
+                || timestamp <= u64::from(video_index) * u64::from(header.frame_micros))
         {
-            let count = (audio_frames - audio_index)
+            let track = &audio_tracks[index];
+            let count = (u64::from(track.frames) - audio_indices[index])
                 .min(resonance_media::encode::AUDIO_BLOCK as u64) as usize;
-            let block = samples
-                .by_ref()
-                .take(count * 2)
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            ensure!(block.len() == count * 2, "truncated normalized movie audio");
-            encoder.audio(&block)?;
-            audio_index += count as u64;
-        } else {
+            let pcm = waves[index]
+                .samples::<i16>()
+                .take(count * usize::from(track.channels))
+                .collect::<Result<Vec<_>, _>>()?;
+            ensure!(
+                pcm.len() == count * usize::from(track.channels),
+                "truncated normalized movie audio"
+            );
+            encoder.audio_track(index, &pcm)?;
+            audio_indices[index] += count as u64;
+        } else if video_index < header.frames {
             video.read_exact(&mut raw)?;
-            colors
-                .convert(&raw, header.width, header.height, &mut rgb)
-                .with_context(|| format!("convert {name} frame {video_index}"))?;
+            colors.convert(&raw, header.width, header.height, &mut rgb)?;
             encoder.video(
                 &rgb,
                 Duration::from_micros(u64::from(video_index) * u64::from(header.frame_micros)),
             )?;
-            if video_index % 300 == 0 {
-                println!("Converted {name} frame {video_index}/{}", header.frames);
-            }
             video_index += 1;
+        } else {
+            break;
         }
     }
     encoder.finish()?.into_inner()?.sync_all()?;
-    fs::rename(&temporary, &destination)?;
-    write_json(
-        &metadata,
-        &json!({"version": 1, "path": relative,
-        "sha256": hash_file(&destination)?, "width": header.width, "height": header.height,
-        "frames": header.frames, "frame_micros": header.frame_micros,
-        "sample_rate": header.sample_rate, "channels": 2, "audio_frames": audio_frames, "recipe": recipe}),
-    )?;
+    let cooked = CookedMovie {
+        version: 1,
+        source: source.into(),
+        source_sha256: recipe["movie_sha256"].as_str().unwrap().into(),
+        path: "movie.mkv".into(),
+        sha256: hash_file(&temporary)?,
+        width: header.width as u32,
+        height: header.height as u32,
+        frames: header.frames,
+        frame_micros: header.frame_micros,
+        audio_tracks,
+    };
+    verify_mux(&temporary, &cooked)?;
+    fs::rename(temporary, destination)?;
+    let mut record = json!(cooked);
+    record["recipe"] = recipe;
+    write_json(&metadata, &record)?;
+    drop(waves);
+    drop(video);
+    fs::remove_dir_all(directory)?;
     println!(
-        "Cooked {name}: {} video frames, {audio_frames} audio frames",
-        header.frames
+        "Cooked {source}: {} video frames, {} audio tracks",
+        cooked.frames,
+        cooked.audio_tracks.len()
     );
-    if matches!(source, MovieSource::StoryIntroduction) {
-        crate::field::refresh_preloads(&workspace.output)?;
+    Ok(cooked)
+}
+
+fn decode_video(movie: &Path, output: &Path, header: &Header) -> Result<()> {
+    let mut decoder = h4m::VideoDecoder::with_limits(
+        BufReader::new(fs::File::open(movie)?),
+        h4m::VideoLimits {
+            max_pixels: 640 * 480,
+            max_frame_bytes: 64 * 1024 * 1024,
+        },
+    )?;
+    let mut target = fs::File::create(output)?;
+    let mut seen = vec![false; header.frames as usize];
+    while let Some(frame) = decoder.next_frame()? {
+        let index = frame.display_index() as usize;
+        ensure!(
+            index < seen.len() && !seen[index],
+            "invalid or repeated H4M presentation index"
+        );
+        ensure!(
+            frame.y().data().len() + frame.u().data().len() + frame.v().data().len()
+                == header.frame_bytes(),
+            "unexpected H4M plane layout"
+        );
+        // H4M yields decode order, e.g. I0, P3, B1, B2. Place by display index
+        // without retaining an unbounded reorder queue in memory.
+        target.seek(SeekFrom::Start(index as u64 * header.frame_bytes() as u64))?;
+        for plane in frame.planes() {
+            target.write_all(plane.data())?;
+        }
+        seen[index] = true;
     }
+    ensure!(
+        seen.iter().all(|&seen| seen),
+        "H4M movie is missing presentation frames"
+    );
+    ensure!(
+        target.metadata()?.len() == header.frame_bytes() as u64 * u64::from(header.frames),
+        "decoded video frame count mismatch"
+    );
+    target.sync_all()?;
     Ok(())
 }
 
-fn normalize_channels(source: &Path, destination: &Path) -> Result<()> {
-    let mut source = hound::WavReader::open(source)?;
-    let spec = source.spec();
-    ensure!(
-        spec.channels == 2
-            && spec.bits_per_sample == 16
-            && spec.sample_format == hound::SampleFormat::Int,
-        "expected stereo PCM16 movie intermediate"
-    );
-    let temporary = destination.with_extension("partial.wav");
-    let mut output = hound::WavWriter::create(&temporary, spec)?;
-    let mut samples = source.samples::<i16>();
-    while let Some(left) = samples.next() {
-        let left = left?;
-        let right = samples.next().context("incomplete stereo movie frame")??;
-        output.write_sample(right)?;
-        output.write_sample(left)?;
+fn cook_audio(
+    movie: &Path,
+    directory: &Path,
+    header: &Header,
+) -> Result<(Vec<MovieAudioTrack>, Vec<PathBuf>)> {
+    let mut tracks = Vec::new();
+    let mut paths = Vec::new();
+    for stream in 1..=header.audio_streams {
+        let mut decoder = h4m::AudioDecoder::new(BufReader::new(fs::File::open(movie)?), stream)?;
+        let info = decoder.metadata();
+        ensure!(
+            info.channels() == header.channels && info.sample_rate() == header.sample_rate,
+            "unexpected movie audio format"
+        );
+        let path = directory.join(format!("audio-{stream}.wav"));
+        let mut writer = hound::WavWriter::create(
+            &path,
+            hound::WavSpec {
+                channels: info.channels(),
+                sample_rate: info.sample_rate(),
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )?;
+        let mut frames = 0u32;
+        while let Some(pcm) = decoder.next_block()? {
+            // Match the game's opposite movie-DMA stereo channel order.
+            ensure!(
+                pcm.len().is_multiple_of(usize::from(info.channels())),
+                "incomplete movie audio frame"
+            );
+            for frame in pcm.chunks_exact(usize::from(info.channels())) {
+                for &sample in frame.iter().rev() {
+                    writer.write_sample(sample)?;
+                }
+                frames = frames
+                    .checked_add(1)
+                    .context("movie audio frame count overflow")?;
+            }
+            ensure!(
+                frames <= header.sample_rate * 3600,
+                "movie audio exceeds one hour"
+            );
+        }
+        writer.finalize()?;
+        ensure!(frames > 0, "movie audio track is empty");
+        tracks.push(MovieAudioTrack {
+            stream,
+            channels: info.channels(),
+            sample_rate: info.sample_rate(),
+            frames,
+        });
+        paths.push(path);
     }
-    output.finalize()?;
-    fs::rename(&temporary, destination)?;
+    Ok((tracks, paths))
+}
+
+fn verify_mux(path: &Path, movie: &CookedMovie) -> Result<()> {
+    use matroska_demuxer::{MatroskaFile, TrackType};
+    let mut input = MatroskaFile::open(BufReader::new(fs::File::open(path)?))?;
+    let tracks = input.tracks();
+    ensure!(
+        tracks.len() == movie.audio_tracks.len() + 1,
+        "movie stream count mismatch"
+    );
+    let video = &tracks[0];
+    let format = video.video().context("missing video dimensions")?;
+    ensure!(
+        video.track_type() == TrackType::Video
+            && video.codec_id() == "V_FFV1"
+            && video.track_number().get() == 1
+            && format.pixel_width().get() == u64::from(movie.width)
+            && format.pixel_height().get() == u64::from(movie.height)
+            && video.default_duration().map(|value| value.get())
+                == Some(u64::from(movie.frame_micros) * 1000),
+        "movie video format mismatch"
+    );
+    for (index, track) in movie.audio_tracks.iter().enumerate() {
+        let audio = &tracks[index + 1];
+        let format = audio.audio().context("missing audio format")?;
+        let private = audio
+            .codec_private()
+            .context("missing FLAC configuration")?;
+        ensure!(
+            audio.track_type() == TrackType::Audio
+                && audio.codec_id() == "A_FLAC"
+                && audio.track_number().get() == index as u64 + 2
+                && track.stream as usize == index + 1
+                && audio.name() == Some(format!("Source stream {}", track.stream).as_str())
+                && format.channels().get() == u64::from(track.channels)
+                && format.sampling_frequency() == f64::from(track.sample_rate)
+                && private.len() == 42
+                && &private[..8] == b"fLaC\x80\x00\x00\x22",
+            "movie audio track format or order mismatch"
+        );
+        let info = &private[8..];
+        let packed = u64::from_be_bytes(info[10..18].try_into()?);
+        ensure!(
+            u16::from_be_bytes(info[..2].try_into()?) as usize
+                == resonance_media::encode::AUDIO_BLOCK
+                && info[..2] == info[2..4]
+                && packed >> 44 == u64::from(track.sample_rate)
+                && ((packed >> 41) & 7) + 1 == u64::from(track.channels)
+                && ((packed >> 36) & 31) + 1 == 16
+                && packed & 0xf_ffff_ffff == u64::from(track.frames),
+            "movie FLAC sample count or format mismatch"
+        );
+    }
+    let scale = input.info().timestamp_scale().get();
+    let mut counts = vec![0u64; tracks.len()];
+    let mut packet = matroska_demuxer::Frame::default();
+    while input.next_frame(&mut packet)? {
+        let index = usize::try_from(packet.track)
+            .ok()
+            .and_then(|id| id.checked_sub(1))
+            .filter(|&index| index < counts.len())
+            .context("unexpected movie track number")?;
+        let expected = if index == 0 {
+            counts[0] * u64::from(movie.frame_micros)
+        } else {
+            counts[index] * resonance_media::encode::AUDIO_BLOCK as u64 * 1_000_000
+                / u64::from(movie.audio_tracks[index - 1].sample_rate)
+        };
+        ensure!(
+            !packet.is_invisible
+                && packet.timestamp.checked_mul(scale) == expected.checked_mul(1000),
+            "movie packet timestamp mismatch"
+        );
+        counts[index] += 1;
+    }
+    ensure!(
+        counts[0] == u64::from(movie.frames),
+        "movie frame count mismatch"
+    );
+    for (index, track) in movie.audio_tracks.iter().enumerate() {
+        ensure!(
+            counts[index + 1]
+                == u64::from(track.frames).div_ceil(resonance_media::encode::AUDIO_BLOCK as u64),
+            "movie audio packet count mismatch"
+        );
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mux_verification_checks_complete_video_and_audio_tracks() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("movie.mkv");
+        for count in [0, 1, 2] {
+            let formats = vec![(2, 32_000, 32); count];
+            let mut writer = resonance_media::encode::MovieWriter::with_audio_tracks(
+                fs::File::create(&path)?,
+                16,
+                16,
+                40_000,
+                &formats,
+            )?;
+            for index in 0..count {
+                writer.audio_track(index, &[17; 64])?;
+            }
+            for index in 0..2 {
+                writer.video(&[41; 16 * 16 * 3], Duration::from_micros(index * 40_000))?;
+            }
+            writer.finish()?;
+            let mut movie = CookedMovie {
+                version: 1,
+                source: "example.h4m".into(),
+                source_sha256: String::new(),
+                path: "movie.mkv".into(),
+                sha256: String::new(),
+                width: 16,
+                height: 16,
+                frames: 2,
+                frame_micros: 40_000,
+                audio_tracks: (0..count)
+                    .map(|index| MovieAudioTrack {
+                        stream: index as u16 + 1,
+                        channels: 2,
+                        sample_rate: 32_000,
+                        frames: 32,
+                    })
+                    .collect(),
+            };
+            verify_mux(&path, &movie)?;
+            movie.frames += 1;
+            assert!(verify_mux(&path, &movie).is_err());
+            movie.frames -= 1;
+            if count > 0 {
+                movie.audio_tracks[0].frames += 1;
+                assert!(verify_mux(&path, &movie).is_err());
+                movie.audio_tracks.clear();
+                assert!(verify_mux(&path, &movie).is_err());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn header_distinguishes_no_audio_from_one_or_more_tracks() -> Result<()> {
+        let mut bytes = [0; 68];
+        bytes[..16].copy_from_slice(SIGNATURE);
+        for (at, value) in [(0x10, 68u32), (0x1c, 1), (0x24, 40_000)] {
+            bytes[at..at + 4].copy_from_slice(&value.to_be_bytes());
+        }
+        bytes[0x34..0x3a].copy_from_slice(&[0, 2, 0, 2, 2, 2]);
+        assert_eq!(Header::parse(&bytes)?.audio_streams, 0);
+        bytes[0x3c] = 2;
+        bytes[0x3d] = 16;
+        bytes[0x40..].copy_from_slice(&32_028u32.to_be_bytes());
+        assert!(Header::parse(&bytes).is_err()); // Audio format with no packets.
+        bytes[0x23] = 1;
+        for maximum in [0, 1, 15] {
+            bytes[0x3f] = maximum;
+            assert_eq!(Header::parse(&bytes)?.audio_streams, u16::from(maximum) + 1);
+        }
+        bytes[0x3c] = 0;
+        assert!(Header::parse(&bytes).is_err()); // Incomplete audio format.
+        Ok(())
+    }
+
+    #[test]
+    fn executable_lookup_covers_both_sides_of_the_declared_clamp_array() {
+        let mut dol = vec![0; 0x1500];
+        for (at, word) in [(0, 0x100u32), (0x48, 0x802a3178), (0x90, 0x1400)] {
+            dol[at..at + 4].copy_from_slice(&word.to_be_bytes());
+        }
+        let table = &mut dol[0x100..];
+        table[0x202..0x204].copy_from_slice(&(-1i16).to_be_bytes());
+        table[0x802..0x804].copy_from_slice(&1800i16.to_be_bytes());
+        table[0xa00 - 1] = 41;
+        table[0xa00 + 1800] = 211;
+        let colors = Colors::from_dol(&dol).unwrap();
+        let mut rgb = [0; 12];
+        colors.convert(&[0, 0, 0, 0, 1, 1], 2, 2, &mut rgb).unwrap();
+        assert_eq!(rgb, [41, 0, 211, 41, 0, 211, 41, 0, 211, 41, 0, 211]);
+        assert!(Colors::from_dol(&dol[..0x100 + 0xa00 + 1800]).is_err());
+    }
+
     #[test]
     fn shares_chroma_across_a_two_by_two_block_and_checks_sizes() {
         let mut colors = Colors {

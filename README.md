@@ -25,9 +25,10 @@ nix develop
 cargo build --workspace
 target/debug/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
 target/debug/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
-target/debug/resonance-import cook-title --extracted local/extracted/disc1
+target/debug/resonance-import cook-all --jobs 6 --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
+target/debug/resonance-import cook-title
 target/debug/resonance-import cook-boot
-target/debug/resonance-import cook-title-audio --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
+target/debug/resonance-import cook-title-audio
 target/debug/resonance-import cook-title-sounds --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
 target/debug/resonance-import cook-intro
 target/debug/resonance-import cook-story-intro
@@ -45,11 +46,14 @@ target/debug/resonance-import validate-shops --json local/shop-inventories.json
 The current import profile supports North American GQSEAF revision 0.
 Disc 2 supplies later-story voices referenced by Colette's house; the importer
 checks the primary disc first and uses `--additional-disc` for missing archives.
-Extraction is a one-time step. Cooks reuse valid outputs and default to
-`local/extracted/disc1` and `local/cooked`; inspect each command's `--help` for
-other paths. Keep discs, extracted files, cooked assets and recordings in the
-ignored `local/` directory. All cooking is Rust, with established native codec
-helpers supplied by the [development flake](flake.nix).
+Extraction is a one-time step. `cook-all` converts both discs, including unused
+assets, into one shared `local/all-assets` library. Identical resources are reused
+across discs; disc names remain provenance only. The later commands prepare that
+library for the playable route. Cooks reuse valid outputs; inspect `--help` for
+other paths and worker limits. Keep discs, extracted files, cooked assets and
+recordings in the ignored `local/` directory. Cooking uses in-process Rust codecs,
+with no FFmpeg, vgmstream or KTX command-line tools. The
+[development flake](flake.nix) supplies the build and oracle tools.
 The importer parses original databases into validated, editable JSON, including
 recipes, ingredients, item statistics, EX skill definitions and menu settings in
 `game/menu-data.json`.
@@ -57,8 +61,10 @@ Executable addresses and packed table layouts stay inside the importer; the
 player reads the converted records.
 
 Field cooking includes skit scripts, animated portraits and media timing. The
-English disc's skit tracks are silent; cooking verifies that and retains their
-duration without storing silent audio files. Shared content can be refreshed with
+English disc's skit tracks are silent; preparation verifies that and uses their
+duration without playing them. The shared library retains the decoded audio.
+After format or compiler changes,
+rerun `cook-all` before preparation. Shared content can be refreshed with
 `cook-skits`, `cook-menu`, `cook-text` and `cook-effects`; dependent field manifests
 refresh with them. After a separate `cook-monsters` run, use `cook-menu` to refresh
 embedded catalogue records. Field audio includes every declared script
@@ -67,8 +73,8 @@ branch and shared menu sounds. Repeat the cooking commands after importer change
 ## Play
 
 ```sh
-cargo run -p resonance -- --silent
-cargo run --release -p resonance -- --silent --resolution 1920x1080
+cargo run -p resonance -- --silent --assets local/all-assets
+cargo run --release -p resonance -- --silent --assets local/all-assets --resolution 1920x1080
 ```
 
 `--silent` permanently mutes speaker output, including after device recovery.
@@ -153,6 +159,7 @@ The supported route has been exercised on ARM Linux; Windows, Steam Deck and
 Apple Silicon macOS hardware validation remains pending. Intel macOS is out
 of scope.
 
+- [Generic asset cooking](docs/cooking.md)
 - [SymphoniaScript and native registration](docs/symphonia-script.md)
 - [Audio/video ownership and clocks](docs/audio-video-architecture.md)
 - [Field preparation](docs/field-preloading.md)

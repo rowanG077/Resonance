@@ -26,10 +26,48 @@ impl BlinkCycle {
     }
 }
 
-/// Screen-space location lettering, baked once into an opening sprite track.
+/// All images in one script texture resource, in authored index order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverlayArt {
+    pub textures: Vec<OverlayTexture>,
+    pub caption: Option<LocationCaption>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverlayTexture {
+    /// Palette variants share dimensions and sampling. Ordinary overlays use
+    /// the first palette; keeping the complete bank avoids losing authored data.
+    pub images: Vec<crate::font::UiTexture>,
+    pub sampler: crate::texture::Sampler,
+}
+
+impl OverlayArt {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(!self.textures.is_empty(), "empty overlay texture bank");
+        for texture in &self.textures {
+            ensure!(!texture.images.is_empty(), "empty overlay palette bank");
+            texture.sampler.validate()?;
+            let first = &texture.images[0];
+            for image in &texture.images {
+                crate::validate_asset_path(&image.path)?;
+                ensure!(
+                    (1..=4096).contains(&image.width)
+                        && (1..=4096).contains(&image.height)
+                        && (image.width, image.height) == (first.width, first.height),
+                    "invalid overlay image dimensions"
+                );
+            }
+        }
+        if let Some(caption) = &self.caption {
+            caption.validate(self.textures.len())?;
+        }
+        Ok(())
+    }
+}
+
+/// Optional location-lettering controller over the same shared image bank.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocationCaption {
-    pub textures: Vec<crate::font::UiTexture>,
     pub frames: Vec<Vec<CaptionSprite>>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,25 +78,16 @@ pub struct CaptionSprite {
     pub alpha: u8,
 }
 impl LocationCaption {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self, textures: usize) -> Result<()> {
         ensure!(
-            (4..=13).contains(&self.textures.len()) && (2..=512).contains(&self.frames.len()),
+            (4..=13).contains(&textures) && (2..=512).contains(&self.frames.len()),
             "invalid location caption track"
         );
-        for texture in &self.textures {
-            crate::validate_asset_path(&texture.path)?;
-            ensure!(
-                [texture.width, texture.height]
-                    .iter()
-                    .all(|v| (1..=4096).contains(v)),
-                "invalid location caption texture size"
-            );
-        }
         for frame in &self.frames {
             ensure!(frame.len() <= 16, "location caption exceeds sprite limit");
             for sprite in frame {
                 ensure!(
-                    sprite.texture < self.textures.len()
+                    sprite.texture < textures
                         && sprite.rect.iter().all(|v| v.is_finite())
                         && sprite.rect[0] <= sprite.rect[2]
                         && sprite.rect[1] <= sprite.rect[3]
@@ -81,8 +110,8 @@ impl LocationCaption {
 
 /// A textured leaf tumbling in world space, with wind expressed per gameplay tick.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FlutterRecipe {
-    pub texture: String,
+pub struct FlutterRecipe<Image = String> {
+    pub texture: Image,
     pub uv: [f32; 4],
     pub aspect_ratio: f32,
     pub palette: Vec<[u8; 4]>,
@@ -90,9 +119,9 @@ pub struct FlutterRecipe {
     pub fall_variation: f32,
     pub spin: f32,
 }
-impl FlutterRecipe {
+impl<Image: AsRef<str>> FlutterRecipe<Image> {
     pub fn validate(&self) -> Result<()> {
-        crate::validate_asset_path(&self.texture)?;
+        crate::validate_asset_path(self.texture.as_ref())?;
         ensure!(
             self.uv
                 .iter()
@@ -111,25 +140,25 @@ impl FlutterRecipe {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FieldEffects {
+pub struct FieldEffects<Image = String> {
     pub version: u32,
-    pub emote_texture: String,
-    pub status_texture: String,
+    pub emote_texture: Image,
+    pub status_texture: Image,
     pub paralysis: EmoteTrack,
-    pub sprites: BTreeMap<u16, SpriteRecipe>,
-    pub refraction: RefractionRecipe,
+    pub sprites: BTreeMap<u16, SpriteRecipe<Image>>,
+    pub refraction: RefractionRecipe<Image>,
     pub emotes: BTreeMap<u16, EmoteTrack>,
     pub mouth_cycle: Vec<u8>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpriteRecipe {
-    pub texture: String,
+pub struct SpriteRecipe<Image = String> {
+    pub texture: Image,
     pub uv: [f32; 4],
     pub additive: bool,
 }
-impl SpriteRecipe {
+impl<Image: AsRef<str>> SpriteRecipe<Image> {
     pub fn validate(&self) -> Result<()> {
-        crate::validate_asset_path(&self.texture)?;
+        crate::validate_asset_path(self.texture.as_ref())?;
         ensure!(
             self.uv
                 .iter()
@@ -142,19 +171,42 @@ impl SpriteRecipe {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RefractionRecipe {
-    pub sprite: SpriteRecipe,
+pub struct RefractionRecipe<Image = String> {
+    pub sprite: SpriteRecipe<Image>,
     /// Signed displacements in authored scene texels.
     pub displacement: [f32; 2],
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmoteTrack {
     pub anchor: String,
+    /// Added to logical actor position when the named model node is absent.
+    /// Sprite offsets already include their ordinary height above the anchor.
+    pub missing_anchor_offset: [f32; 3],
+    pub rotation: EmoteRotation,
     /// Frames are interleaved by the controller's initial random phase.
     #[serde(default = "single_phase")]
     pub phase_count: u8,
     pub intro: Vec<Vec<Sprite>>,
     pub cycle: Vec<Vec<Sprite>>,
+}
+
+/// Rotation can follow the shared effect clock independently of a sprite's age.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(tag = "clock", rename_all = "snake_case")]
+pub enum EmoteRotation {
+    Fixed,
+    GlobalTick { degrees_per_tick: u16 },
+}
+impl EmoteRotation {
+    pub fn angle(self, tick: u32) -> f32 {
+        match self {
+            Self::Fixed => 0.,
+            Self::GlobalTick { degrees_per_tick } => {
+                // The authored angle is a signed 16-bit degree value.
+                tick.wrapping_mul(u32::from(degrees_per_tick)) as i16 as f32
+            }
+        }
+    }
 }
 fn single_phase() -> u8 {
     1
@@ -183,17 +235,17 @@ pub struct Sprite {
 fn opaque() -> u8 {
     255
 }
-impl FieldEffects {
+impl<Image: AsRef<str>> FieldEffects<Image> {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 3
+            self.version == 5
                 && self.emotes.len() <= 256
                 && self.sprites.len() <= 256
                 && self.sprites.contains_key(&10),
             "invalid or outdated field effects; run cook-effects"
         );
-        crate::validate_asset_path(&self.emote_texture)?;
-        crate::validate_asset_path(&self.status_texture)?;
+        crate::validate_asset_path(self.emote_texture.as_ref())?;
+        crate::validate_asset_path(self.status_texture.as_ref())?;
         ensure!(
             self.paralysis.intro.is_empty()
                 && self.paralysis.cycle.len() == 2
@@ -219,7 +271,8 @@ impl FieldEffects {
         for track in self.emotes.values().chain([&self.paralysis]) {
             ensure!(
                 !track.anchor.is_empty()
-                    && (1..=16).contains(&track.phase_count)
+                    && track.missing_anchor_offset.iter().all(|v| v.is_finite())
+                    && (1..=32).contains(&track.phase_count)
                     && !track.cycle.is_empty()
                     && track
                         .intro
@@ -269,13 +322,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn emote_phase_variants_preserve_age_and_legacy_defaults() {
-        let legacy = serde_json::json!({
-            "anchor":"head", "intro":[[]], "cycle":[[{
+    fn emote_phase_variants_preserve_age_and_sprite_defaults() {
+        let data = serde_json::json!({
+            "anchor":"head", "missing_anchor_offset":[0.,0.,128.],
+            "rotation":{"clock":"fixed"}, "intro":[[]], "cycle":[[{
                 "offset":[0.,0.,0.], "size":[3.,3.], "uv":[0.,0.,1.,1.], "rotation":0.
             }]]
         });
-        let mut track: EmoteTrack = serde_json::from_value(legacy).unwrap();
+        let mut track: EmoteTrack = serde_json::from_value(data).unwrap();
         assert!(track.frame_with_phase(0, 0).is_empty());
         assert_eq!(track.frame_with_phase(1, 31)[0].alpha, 255);
         assert!(matches!(
@@ -295,5 +349,23 @@ mod tests {
         assert_eq!(track.frame_with_phase(1, 31)[0].alpha, 30);
         assert_eq!(track.frame_with_phase(2, 0)[0].alpha, 30);
         assert_eq!(track.frame_with_phase(3, 0)[0].alpha, 255);
+    }
+
+    #[test]
+    fn global_emote_rotation_preserves_signed_angle_wrap() {
+        let rotation = EmoteRotation::GlobalTick {
+            degrees_per_tick: 4,
+        };
+        for (tick, angle) in [
+            (0, 0.),
+            (90, 360.),
+            (8191, 32764.),
+            (8192, -32768.),
+            (16384, 0.),
+            (u32::MAX, -4.),
+        ] {
+            assert_eq!(rotation.angle(tick), angle);
+            assert_eq!(EmoteRotation::Fixed.angle(tick), 0.);
+        }
     }
 }

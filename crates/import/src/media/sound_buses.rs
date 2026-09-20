@@ -107,6 +107,15 @@ pub(super) fn tables(bytes: &[u8]) -> Result<Tables> {
         volume_16_scale: float(0x8035_e1d4)?,
         controller_14_scale: float(0x8035_e1ec)?,
         pan_16_scale: float(0x8035_e2a8)?,
+        spatial: Some(resonance_audio::mix::Spatial {
+            pan_scale: float(0x8035_e2bc)?,
+            left_delay: crate::dol::slice(bytes, 0x801e_0618, 128 * 2)?
+                .chunks_exact(2)
+                .map(|bytes| Ok(u8::try_from(u16::from_be_bytes(bytes.try_into()?))?))
+                .collect::<Result<Vec<_>>>()?
+                .try_into()
+                .expect("fixed spatial table length"),
+        }),
     })
 }
 

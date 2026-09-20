@@ -862,7 +862,7 @@ fn record(
         resonance_game::clock::UPDATE_STEP,
     ));
     let restart_began = Instant::now();
-    for _ in 0..1800 {
+    loop {
         app.update();
         playthrough::check_exit(&app)?;
         playthrough::attach::<field_audio::FieldSource>(app.world_mut(), &mixer)?;

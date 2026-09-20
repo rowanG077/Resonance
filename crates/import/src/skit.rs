@@ -1,19 +1,31 @@
-//! Skit scripts, expression atlases and media clocks extracted without playback.
+//! Skit scripts, portrait image bindings and media clocks prepared without playback.
 use crate::{dol, write_atomic};
 use anyhow::{Context, Result, ensure};
 use resonance_content::skit::{SkitCatalog, SkitResourcePaths};
 use std::{collections::BTreeMap, fs, path::Path};
 mod media;
-mod portraits;
+pub(crate) mod portraits;
+pub(crate) mod recipe;
+
+/// Portrait IDs use resource group 13; its source comes from the resource directory.
+pub(crate) fn portrait_path(extracted: &Path, executable: &[u8]) -> Result<String> {
+    let resources = crate::resource::read(executable)?;
+    crate::field_resources::resolve_path(&extracted.join("files"), resources.source(0xd0000)?)
+}
 
 pub fn cook(extracted: &Path, output: &Path) -> Result<String> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
+    let files = extracted.join("files");
     let mut catalog = SkitCatalog {
-        version: 1,
+        version: 2,
         skits: definitions(&executable)?,
         resources: BTreeMap::new(),
         portraits: portraits::cook(extracted, output, &executable)?,
-        media: media::cook(extracted, output, &executable)?,
+        portrait_recipes: recipe::read(&executable)?
+            .iter()
+            .map(recipe::Recipe::prepared)
+            .collect(),
+        media: BTreeMap::new(),
     };
     for skit in &catalog.skits {
         let (table, index) = if skit.id < 120 {
@@ -24,9 +36,10 @@ pub fn cook(extracted: &Path, output: &Path) -> Result<String> {
         let pointer = u32::from_be_bytes(
             dol::slice(&executable, table + u32::from(index) * 4, 4)?.try_into()?,
         );
-        let source = extracted
-            .join("files")
-            .join(source_path(&executable, pointer)?);
+        let source = files.join(crate::all_assets::roles::declared_path(
+            &files,
+            &dol::text(&executable, pointer)?,
+        )?);
         let package =
             fs::read(&source).with_context(|| format!("skit {}: {}", skit.id, source.display()))?;
         ensure!(
@@ -63,25 +76,11 @@ pub fn cook(extracted: &Path, output: &Path) -> Result<String> {
             },
         );
     }
+    catalog.media = media::cook(extracted, output, &executable, &catalog.resources)?;
     catalog.validate()?;
     let path = "game/skits.json";
     write_atomic(&output.join(path), &serde_json::to_vec_pretty(&catalog)?)?;
     Ok(path.into())
-}
-
-fn source_path(executable: &[u8], pointer: u32) -> Result<String> {
-    let bytes = dol::slice(executable, pointer, 96)?;
-    let end = bytes
-        .iter()
-        .position(|&b| b == 0)
-        .context("unterminated skit resource path")?;
-    let path = std::str::from_utf8(&bytes[..end])?;
-    let (dir, file) = path
-        .split_once('/')
-        .context("skit resource directory missing")?;
-    let path = format!("{}/{file}", dir.to_ascii_uppercase());
-    resonance_content::validate_asset_path(&path)?;
-    Ok(path)
 }
 
 /// Refresh existing fields after cooking shared skit content independently.

@@ -10,7 +10,7 @@ use resonance_audio_cook::{
 use serde_json::json;
 use std::{fs, path::Path};
 
-pub(super) fn tables(executable: &[u8], coefficients: &[u8]) -> Result<music_voice::Tables> {
+pub(crate) fn tables(executable: &[u8], coefficients: &[u8]) -> Result<music_voice::Tables> {
     let bytes = |address, size| crate::dol::slice(executable, address, size);
     let float = |address| -> Result<f32> { Ok(f32::from_be_bytes(bytes(address, 4)?.try_into()?)) };
     let mut attenuation = [0; 194];
@@ -244,6 +244,23 @@ mod tests {
     #[ignore = "requires the local GQSEAF executable; expected gains are pinned Dolphin observations"]
     fn music_gain_curves_match_independent_dolphin_voice_state() {
         let bytes = fs::read(extracted().join("sys/main.dol")).unwrap();
+        // Full channel reset copies these MSB/LSB bytes before setup overrides.
+        let defaults = crate::dol::slice(&bytes, 0x801e_04d8, 0x86).unwrap();
+        let controls = music_voice::Controls::default();
+        assert_eq!(
+            controls.paired,
+            std::array::from_fn(|index| {
+                (u16::from(defaults[index]) << 7) | u16::from(defaults[index + 32])
+            })
+        );
+        assert_eq!(
+            controls.pitch_bend,
+            (u16::from(defaults[0x80]) << 7) | u16::from(defaults[0x81])
+        );
+        assert_eq!(
+            controls.surround,
+            (u16::from(defaults[0x84]) << 7) | u16::from(defaults[0x85])
+        );
         let tables = super::super::sound_buses::tables(&bytes).unwrap();
         // title-entry GQSEAF.s01: active sample 384 at pan 50, then sample 155 at pan 40.
         // These are oracle expectations, never cooker inputs.
@@ -255,12 +272,13 @@ mod tests {
                 tables.gains_for(mix::Parameters {
                     volume,
                     controller: 8890,
-                    pan,
+                    pan: pan << 16,
                     post: [127 << 7, 0],
                     scale: 1.0,
                     group_volume: 1.0,
                     aux_a: 128,
-                    alternate: true
+                    alternate: true,
+                    interaural_delay: false,
                 }),
                 expected
             );
@@ -357,5 +375,273 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[ignore = "requires original sound banks and RESONANCE_DSP_COEFFICIENTS; silent in-memory synthesis"]
+    fn original_layered_random_cues_share_music_clock_and_finish_after_release() -> Result<()> {
+        use anyhow::Context;
+        use resonance_audio::{
+            data::{Command, EventKind, Note, VoiceSource},
+            package::{Loaded, Package, SampleAsset, SampleCache},
+            sequence::{LiveControls, shared::Synthesizer, stream::Stream},
+        };
+        use resonance_audio_cook::{bank::Page, decode};
+        use sha2::{Digest, Sha256};
+        use std::{collections::BTreeMap, io::Cursor, sync::Arc};
+
+        // Exercise the physical decoder, scene binder and runtime loader without
+        // writing a package, opening a device or depending on a previous cook.
+        fn load(
+            bank: &Bank<'_>,
+            source: VoiceSource,
+            notes: Vec<Note>,
+            tables: music_voice::Tables,
+        ) -> Result<Arc<Loaded>> {
+            let resources = decode::programs(bank, notes.iter().map(|note| note.macro_id))?;
+            let mut files = BTreeMap::new();
+            let mut samples = BTreeMap::new();
+            for (id, sample) in resources.samples {
+                let mut bytes = Cursor::new(Vec::new());
+                let mut wave = hound::WavWriter::new(
+                    &mut bytes,
+                    hound::WavSpec {
+                        channels: 1,
+                        sample_rate: u32::from(sample.rate),
+                        bits_per_sample: 16,
+                        sample_format: hound::SampleFormat::Int,
+                    },
+                )?;
+                for &pcm in sample.pcm.iter().chain(&sample.loop_pcm) {
+                    wave.write_sample(pcm)?;
+                }
+                wave.finalize()?;
+                let bytes = bytes.into_inner();
+                let path = format!("sample-{id}.wav");
+                samples.insert(
+                    id,
+                    SampleAsset {
+                        path: path.clone(),
+                        sha256: crate::digest(&bytes),
+                        key: sample.key,
+                        rate: sample.rate,
+                        first_frames: sample.pcm.len() as u32,
+                        loop_start: sample.loop_start,
+                        loop_length: sample.loop_length,
+                    },
+                );
+                files.insert(path, bytes);
+            }
+            let mut score = super::super::sound_score(0, Some(notes));
+            score.origin = source.origin();
+            let EventKind::Notes {
+                source: allocation, ..
+            } = &mut score.first_events[0].kind
+            else {
+                unreachable!()
+            };
+            *allocation = source;
+            let package = super::super::sound_library::Resources {
+                version: 1,
+                programs: resources.programs,
+                samples,
+                score: Some(score),
+            }
+            .package(tables, [[0., 0., 1., 0., 0.]; 2])?;
+            files.insert("cue.json".into(), serde_json::to_vec(&package)?);
+            Ok(Arc::new(Package::load_with(
+                "cue.json",
+                &mut |path, limit| {
+                    let bytes = files.get(path).context("missing in-memory cue asset")?;
+                    ensure!(bytes.len() <= limit, "in-memory cue exceeds loader budget");
+                    Ok(bytes.clone())
+                },
+                &mut SampleCache::default(),
+            )?))
+        }
+
+        let coefficients = fs::read(std::env::var_os("RESONANCE_DSP_COEFFICIENTS").context(
+            "set RESONANCE_DSP_COEFFICIENTS to the pinned decoder coefficient resource",
+        )?)?;
+        let executable = fs::read(extracted().join("sys/main.dol"))?;
+        let common_bytes = fs::read(extracted().join("files/S/se.snd"))?;
+        let instrument_bytes = fs::read(extracted().join("files/S/inst.snd"))?;
+        let event_bytes = fs::read(extracted().join("files/S/se_ev06.snd"))?;
+        let instruments = Bank::parse(&instrument_bytes)?;
+        let mut common = Bank::parse(&common_bytes)?;
+        common.inherit_objects(&instruments);
+        common.inherit_samples(&instruments);
+        let mut event = Bank::parse(&event_bytes)?;
+        event.inherit_objects(&common);
+        event.inherit_objects(&instruments);
+        event.inherit_samples(&instruments);
+        event.inherit_samples(&common);
+        let mut loaded = Vec::new();
+        for (bank, id, expected) in [
+            (&common, 416, [485, 487, 488, 486]),
+            (&event, 490, [66, 65, 64, 69]),
+        ] {
+            let sound = bank.sound(id)?;
+            let notes = instrument::resolve(
+                bank,
+                Page {
+                    object: sound.object,
+                    priority: sound.priority,
+                    max_voices: sound.max_voices,
+                },
+                sound.key,
+                sound.volume,
+                sound.pan,
+            )?;
+            assert_eq!(
+                notes.iter().map(|note| note.macro_id).collect::<Vec<_>>(),
+                expected
+            );
+            loaded.push(load(
+                bank,
+                VoiceSource::SoundEffect { id },
+                notes,
+                tables(&executable, &coefficients)?,
+            )?);
+        }
+        // These are the actual layered routes that previously failed admission:
+        // two random roots and callback loops, plus a timer/key-off/sample wait.
+        for (id, upper_ms) in [(487, 3000), (488, 2000)] {
+            let program = &loaded[0].resources.programs[&id];
+            assert!(
+                matches!(program[6], Command::RandomWait { upper_ms: bound, key_off: true } if bound == upper_ms)
+            );
+            assert!(matches!(program[7], Command::RandomNote { .. }));
+            assert!(matches!(
+                program[9],
+                Command::Wait {
+                    milliseconds: None,
+                    key_off: true,
+                    sample_end: true,
+                    ..
+                }
+            ));
+            assert!(matches!(
+                program[11],
+                Command::Loop {
+                    instruction: 4,
+                    key_off: true,
+                    ..
+                }
+            ));
+        }
+        assert!(matches!(
+            loaded[1].resources.programs[&69][7],
+            Command::Wait {
+                milliseconds: Some(1000),
+                key_off: true,
+                sample_end: true,
+                ..
+            }
+        ));
+        // An ordinary title instrument shares allocation and completion ordering.
+        loaded.push(load(
+            &instruments,
+            VoiceSource::Sequence {
+                group: 0,
+                program: 0,
+                drums: false,
+            },
+            vec![Note {
+                macro_id: 379,
+                key: 55,
+                velocity: 104,
+                pan: 64,
+                priority: 64,
+                max_voices: 255,
+            }],
+            tables(&executable, &coefficients)?,
+        )?);
+
+        for hold_ms in [100, 6000] {
+            let mut expected = None;
+            for _ in 0..2 {
+                let synth = Synthesizer::default();
+                let streams = loaded
+                    .iter()
+                    .map(|loaded| Stream::in_synthesizer(loaded.clone(), false, &synth))
+                    .collect::<Result<Vec<_>>>()?;
+                assert!(streams.iter().all(Stream::is_shared));
+                let mut hashes: [Sha256; 3] = Default::default();
+                let mut nonzero = [0; 3];
+                let mut ends = [None; 3];
+                let release_frame = hold_ms * (SYNTHESIS_RATE / 1000);
+                for frame in 0..release_frame + 5 * SYNTHESIS_RATE {
+                    if frame == release_frame {
+                        if hold_ms == 100 {
+                            // Only cue490 has drawn yet; cue416 is in its initial waits.
+                            assert_eq!(synth.random_state().1, 1);
+                        }
+                        for stream in &streams {
+                            stream.set_shared_controls(
+                                [LiveControls {
+                                    release: true,
+                                    ..Default::default()
+                                }; 5],
+                            )?;
+                        }
+                    }
+                    synth.advance()?;
+                    for (i, stream) in streams.iter().enumerate() {
+                        if let Some(pcm) = stream.shared_frame()? {
+                            assert!(ends[i].is_none(), "cue {i} resumed after finishing");
+                            nonzero[i] +=
+                                usize::from(pcm.iter().flatten().any(|&sample| sample != 0));
+                            for sample in pcm.into_iter().flatten() {
+                                hashes[i].update(sample.to_le_bytes());
+                            }
+                        } else {
+                            ends[i].get_or_insert(frame);
+                        }
+                    }
+                    if frame >= release_frame && ends.iter().all(Option::is_some) {
+                        break;
+                    }
+                }
+                assert!(
+                    ends.iter().all(Option::is_some),
+                    "cue release did not complete: {ends:?}"
+                );
+                assert!(ends[..2].iter().all(|end| end.unwrap() > release_frame));
+                assert!(
+                    nonzero.iter().all(|&frames| frames > 100),
+                    "missing cue PCM: {nonzero:?}"
+                );
+                let random = synth.random_state();
+                if hold_ms == 100 {
+                    // Key-off skips both RandomWait draws, but each layer still
+                    // executes RandomNote before its key-off-aware loop exits.
+                    assert_eq!(random.1, 3);
+                } else {
+                    assert!(
+                        random.1 > 3,
+                        "authored loops did not advance the shared RNG"
+                    );
+                }
+                for _ in 0..160 {
+                    synth.advance()?;
+                }
+                assert_eq!(synth.random_state(), random, "finished cues kept drawing");
+                let actual = (
+                    hashes.map(|hash| format!("{:x}", hash.finalize())),
+                    ends,
+                    nonzero,
+                    random,
+                );
+                if let Some(expected) = &expected {
+                    assert_eq!(
+                        &actual, expected,
+                        "shared playback changed between identical runs"
+                    );
+                }
+                expected = Some(actual);
+            }
+        }
+        Ok(())
     }
 }

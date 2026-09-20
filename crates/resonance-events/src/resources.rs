@@ -65,6 +65,8 @@ impl ResourceLibrary {
 #[derive(Default)]
 pub struct ModelResource {
     pub has_eyes: bool,
+    /// Attachment queries observe the scene's last evaluated model pose.
+    pub attachment_pose_delay: u32,
     pub names: Vec<String>,
     pub hidden_nodes: BTreeSet<u16>,
     pub clips: BTreeMap<u16, AnimationClip>,

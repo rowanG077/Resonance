@@ -1,8 +1,25 @@
 //! Two-bit bitmap font atlas and proportional glyph metrics.
 use crate::{digest, dol, write_atomic};
 use anyhow::{Context, Result, ensure};
-use resonance_content::font::{BitmapFont, DialogueArt, Glyph, UiTexture};
+use resonance_content::font::{BitmapFont, Glyph};
+mod layout;
+pub(crate) use layout::system_texture;
 use std::{collections::BTreeMap, fs, path::Path};
+
+/// Resolve a font publication and rebase its image path once for all consumers.
+pub(crate) fn bind(source: &crate::cooked::Source<'_>) -> Result<BitmapFont> {
+    let source = source.published_directory("fonts")?;
+    let (directories, bytes) = source.candidates("dialogue.json")?;
+    let mut font: BitmapFont = serde_json::from_slice(&bytes)?;
+    font.validate()?;
+    let image = font
+        .texture
+        .strip_prefix("fonts/")
+        .context("font image outside its publication")?;
+    source.verify_file(&directories, image)?;
+    font.texture = format!("{}/{image}", directories[0]);
+    Ok(font)
+}
 
 /// System strings store literal palette changes, rather than script expressions.
 pub(crate) fn system_text(bytes: &[u8]) -> Result<Vec<resonance_content::font::TextSpan>> {
@@ -82,30 +99,37 @@ pub(crate) fn cook_repertoire(
     output: &Path,
     required: &std::collections::BTreeSet<char>,
 ) -> Result<()> {
-    let source = fs::read(extracted.join("files/u_f_fontb0.dat"))?;
+    layout::prepare(extracted, output, required)?;
+    crate::menu::cook(extracted, output)
+}
+
+/// Dialogue repertoire, subtitles, windows and selection layout, without field preparation.
+pub(crate) fn cook_embedded(extracted: &Path, output: &Path) -> Result<()> {
+    cook_font(extracted, output)?;
+    write_atomic(
+        &output.join("embedded/dialogue.json"),
+        &serde_json::to_vec_pretty(&layout::Recipe::read(&fs::read(
+            extracted.join("sys/main.dol"),
+        )?)?)?,
+    )
+}
+
+fn cook_font(extracted: &Path, output: &Path) -> Result<()> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
-    // The dialogue font uses this four-color palette.
-    let mapping = dol::slice(&executable, 0x801F8984, 96 * 2)?;
-    let palette = dol::slice(&executable, 0x801F88A0, 8)?;
-    let colors: Vec<_> = palette
-        .chunks_exact(2)
-        .map(|p| rgb5a3(u16::from_be_bytes(p.try_into().unwrap())))
-        .collect();
+    let directory = crate::font_directory::Directory::read(&executable)?;
+    let files = extracted.join("files");
+    let source = fs::read(files.join(crate::field_resources::resolve_path(
+        &files,
+        &directory.startup,
+    )?))?;
+    crate::font_directory::validate_size(source.len() as u64)?;
+    let colors = directory.palette.map(rgb5a3);
     // Cook the font's complete first three Shift-JIS pages, including both
     // quotation marks. A single sampled conversation is not a font inventory.
-    let mut repertoire: Vec<(char, u16)> = (32u8..127)
-        .map(|byte| {
-            let i = usize::from(byte - 32);
-            (
-                char::from(byte),
-                if byte == b'^' {
-                    0x81a7
-                } else {
-                    u16::from_be_bytes(mapping[i * 2..i * 2 + 2].try_into().unwrap())
-                },
-            )
-        })
-        .collect();
+    let mut repertoire = (32u8..127)
+        .map(char::from)
+        .map(|character| Ok((character, directory.metrics.code(character)?)))
+        .collect::<Result<Vec<_>>>()?;
     for code in 0x8140u16..0x8440 {
         if code & 255 < 0x40 {
             continue;
@@ -141,7 +165,7 @@ pub(crate) fn cook_repertoire(
                     .copy_from_slice(&colors[usize::from(pixels[(row * 24 + column) as usize])]);
             }
         }
-        let advance = glyph_advance(&executable, code)?;
+        let advance = directory.metrics.advance(code);
         glyphs.insert(
             character,
             Glyph {
@@ -154,12 +178,6 @@ pub(crate) fn cook_repertoire(
     for character in fallback_characters() {
         glyphs.entry(character).or_insert_with(|| fallback.clone());
     }
-    for character in required {
-        ensure!(
-            matches!(character, '\n' | '\r' | '\u{c}') || glyphs.contains_key(character),
-            "source font cannot represent {character:?}"
-        );
-    }
     for skit in crate::skit::definitions(&executable)? {
         ensure!(
             skit.title.chars().all(|c| glyphs.contains_key(&c)),
@@ -167,9 +185,12 @@ pub(crate) fn cook_repertoire(
             skit.id
         );
     }
+    let intermediate = output.join("intermediate/fonts/dialogue.png");
+    fs::create_dir_all(intermediate.parent().unwrap())?;
+    image::save_buffer(&intermediate, &rgba, width, height, image::ColorType::Rgba8)?;
     fs::create_dir_all(output.join("fonts"))?;
     let texture = "fonts/dialogue.ktx2";
-    crate::texture::cook(width, height, &rgba, &output.join(texture))?;
+    crate::texture::cook_png(&intermediate, &output.join(texture))?;
     let font = BitmapFont {
         version: 1,
         texture: texture.into(),
@@ -186,19 +207,8 @@ pub(crate) fn cook_repertoire(
         &output.join("fonts/dialogue.json"),
         &serde_json::to_vec_pretty(&font)?,
     )?;
-    cook_windows(extracted, output)?;
-    crate::menu::cook(extracted, &executable, output)?;
     Ok(())
 }
-pub(crate) fn glyph_advance(executable: &[u8], code: u16) -> Result<u32> {
-    if !(0x8140..=0x829a).contains(&code) {
-        return Ok(24);
-    }
-    let index = u32::from((code >> 8) - 0x81) * 192 + u32::from((code & 255) - 0x40);
-    let value = dol::slice(executable, 0x801f9680 + index, 1)?[0];
-    Ok(if value == 0 { 24 } else { u32::from(value) })
-}
-
 fn fallback_characters() -> impl Iterator<Item = char> {
     (0x8440u16..=0xfcfc).filter_map(|code| {
         let bytes = code.to_be_bytes();
@@ -263,93 +273,23 @@ fn cook_subtitles(executable: &[u8], output: &Path, font: &BitmapFont) -> Result
     )
 }
 
-/// Compose system.tpl’s nine textures into frames, speaker tabs, and fills.
-fn cook_windows(extracted: &Path, output: &Path) -> Result<()> {
-    let source = fs::read(extracted.join("files/system.tpl"))?;
-    let mut textures = Vec::new();
-    fs::create_dir_all(output.join("ui"))?;
-    for (index, (width, height, pixels)) in crate::tpl::decode(&source)?.into_iter().enumerate() {
-        let path = format!("ui/system-{index}.ktx2");
-        crate::texture::cook(width, height, &pixels, &output.join(&path))?;
-        textures.push(UiTexture {
-            path,
-            width,
-            height,
-        });
-    }
-    // The default selection style chooses an embedded cursor atlas.
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let mode = (dol::slice(&executable, 0x80219cf8, 8)?[7] >> 4) & 3;
-    let (address, size, index) = match mode {
-        0 => (0x80249500, 0x280, 0),
-        1 => (0x80249280, 0x280, 0),
-        2 => (0x80236e80, 0x2500, 13),
-        _ => anyhow::bail!("unsupported default cursor mode"),
-    };
-    let cursor_bank = dol::slice(&executable, address, size)?;
-    let decoded = crate::tpl::decode(cursor_bank)?;
-    let (width, height, pixels) = decoded.get(index).context("default cursor is missing")?;
-    let path = "ui/choice-cursor.ktx2";
-    crate::texture::cook(*width, *height, pixels, &output.join(path))?;
-    let art = DialogueArt {
-        version: 2,
-        font: "fonts/dialogue.json".into(),
-        textures,
-        cursor: UiTexture {
-            path: path.into(),
-            width: *width,
-            height: *height,
-        },
-        selection: resonance_content::font::SelectionArt {
-            mode,
-            color: dol::slice(&executable, 0x8019ad10 + u32::from(mode) * 28 + 24, 4)?
-                .try_into()?,
-            row_offsets: dol::slice(&executable, 0x801ac004, 9)?
-                .iter()
-                .map(|v| *v as i8)
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap(),
-            bob_amplitude: f32::from_be_bytes(
-                dol::slice(
-                    &executable,
-                    if mode == 0 { 0x8035d8b0 } else { 0x8035d8b4 },
-                    4,
-                )?
-                .try_into()?,
-            ),
-            bob_step: f32::from_be_bytes(dol::slice(&executable, 0x8035d8a8, 4)?.try_into()?)
-                * if mode == 0 { 2. } else { 1. }
-                / f32::from_be_bytes(dol::slice(&executable, 0x8035d8ac, 4)?.try_into()?),
-        },
-        source_sha256: digest(&source),
-    };
-    art.validate()?;
-    write_atomic(
-        &output.join("ui/dialogue.json"),
-        &serde_json::to_vec_pretty(&art)?,
-    )?;
-    Ok(())
-}
 /// Decode a menu symbol into the same RGBA pixels as the shared text atlas.
+#[cfg(test)]
 pub(crate) fn glyph_image(
     extracted: &Path,
     executable: &[u8],
     character: u8,
 ) -> Result<(u32, u32, Vec<u8>)> {
     ensure!((32..127).contains(&character), "menu symbol is not ASCII");
-    let code = if character == b'^' {
-        0x81a7
-    } else {
-        u16::from_be_bytes(
-            dol::slice(executable, 0x801f8984 + u32::from(character - 32) * 2, 2)?.try_into()?,
-        )
-    };
-    let colors: Vec<_> = dol::slice(executable, 0x801f88a0, 8)?
-        .chunks_exact(2)
-        .map(|p| rgb5a3(u16::from_be_bytes(p.try_into().unwrap())))
-        .collect();
-    let source = fs::read(extracted.join("files/u_f_fontb0.dat"))?;
+    let directory = crate::font_directory::Directory::read(executable)?;
+    let code = directory.metrics.code(char::from(character))?;
+    let colors = directory.palette.map(rgb5a3);
+    let files = extracted.join("files");
+    let source = fs::read(files.join(crate::field_resources::resolve_path(
+        &files,
+        &directory.startup,
+    )?))?;
+    crate::font_directory::validate_size(source.len() as u64)?;
     Ok((
         24,
         24,
@@ -398,7 +338,7 @@ pub(crate) fn validate_messages(
     }
     Ok(())
 }
-fn rgb5a3(v: u16) -> [u8; 4] {
+pub(crate) fn rgb5a3(v: u16) -> [u8; 4] {
     if v & 0x8000 != 0 {
         let channel = |shift: u32| {
             let c = ((v >> shift) & 31u16) as u8;

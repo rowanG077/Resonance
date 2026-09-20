@@ -103,6 +103,7 @@ fn fixture() -> Fixture {
         "attached_to":null,"additive":false}]});
     let mut menu_texture = ui_texture.clone();
     menu_texture["repeat"] = json!(true);
+    menu_texture["opaque"] = json!(false);
     for (path, value) in [
         (
             "ui/menu.json",
@@ -171,12 +172,12 @@ fn fixture() -> Fixture {
         ),
         (
             "effects/test.json",
-            json!({"version":3,
+            json!({"version":5,
             "sprites":{"0":{"texture":"textures/shared.ktx2","uv":[0.,0.,1.,1.],"additive":false},
                 "10":{"texture":"textures/shared.ktx2","uv":[0.,0.,1.,1.],"additive":true}},
             "refraction":{"sprite":{"texture":"textures/refraction.ktx2","uv":[0.,0.,1.,1.],"additive":false},"displacement":[1.,1.]},
             "emote_texture":"textures/shared.ktx2","status_texture":"textures/shared.ktx2",
-            "paralysis":{"anchor":"head","intro":[],"cycle":vec![vec![json!({
+            "paralysis":{"anchor":"head","missing_anchor_offset":[0.,0.,0.],"rotation":{"clock":"fixed"},"intro":[],"cycle":vec![vec![json!({
                 "offset":[0.,0.,0.],"size":[1.,1.],"uv":[0.,0.,1.,1.],"rotation":0.
             })];2]},"emotes":{},"mouth_cycle":[0]}),
         ),
@@ -190,7 +191,7 @@ fn fixture() -> Fixture {
         "autoplay":false,"texture_animations":[],"bone_names":["root"]});
     let mut actor_part = part.clone();
     actor_part["mesh"] = json!("fields/test/optional.glb");
-    let field = json!({"version":7,"map_id":123,"source_sha256":hash,"doors":[],
+    let field = json!({"version":8,"map_id":123,"source_sha256":hash,"doors":[],"overlays":{},
         "blink":{"frames":[0],"initial_tick":0,"initial_spread":1},
         "script":{"path":"fields/test/events.ssb","sha256":files["fields/test/events.ssb"]},
         "messages":"fields/test/messages.json", "parts":[part],
@@ -256,6 +257,48 @@ fn complete_field_includes_hidden_actors_all_clips_and_deduplicates_files() {
     let mut invalid = roundtrip;
     invalid.total_file_bytes += 1;
     assert!(invalid.validate().is_err());
+
+    // Unselected palette pages must be resident before an overlay can appear.
+    let page = "textures/overlay-unused.ktx2";
+    let page_hash = root.write(page, b"unused palette");
+    let overlay = "fields/test/overlay.json";
+    let overlay_hash = root.json(
+        overlay,
+        &json!({"textures":[{
+        "images":[{"path":"textures/shared.ktx2","width":16,"height":16},
+            {"path":page,"width":16,"height":16}],
+        "sampler":{"wrap":["clamp","clamp"],"min_filter":"linear","mag_filter":"linear",
+            "lod":{"bias":0.,"min":0,"max":0,"edge":false}}}],"caption":null}),
+    );
+    let mut field: Value =
+        serde_json::from_slice(&fs::read(root.0.join("fields/test.json")).unwrap()).unwrap();
+    // Every source image is resident, including images unused by current recipes.
+    let expression = "textures/skit-unused.ktx2";
+    root.write(expression, b"unused portrait expression");
+    let skits = "game/skits.json";
+    let skit_hash = root.json(
+        skits,
+        &json!({"version":2,"skits":[],"portrait_recipes":[],"portraits":{
+            "851968":{"size":[16,16],"images":[
+                {"texture":"textures/shared.ktx2","size":[16,16]},
+                {"texture":expression,"size":[8,8]}
+            ]}
+        }}),
+    );
+    field["overlays"] = json!({"38":overlay});
+    field["files"][overlay] = json!(overlay_hash);
+    field["files"][page] = json!(page_hash);
+    field["files"][skits] = json!(skit_hash);
+    root.json("fields/test.json", &field);
+    let prepared = cook(&root.0, root.inputs()).unwrap();
+    assert_eq!(prepared.files.len(), first.files.len() + 4);
+    assert!(prepared.files[page].roles.contains(&Role::Texture));
+    assert!(prepared.files[expression].roles.contains(&Role::Texture));
+    fs::remove_file(root.0.join(expression)).unwrap();
+    assert!(cook(&root.0, root.inputs()).is_err());
+    root.write(expression, b"unused portrait expression");
+    fs::remove_file(root.0.join(page)).unwrap();
+    assert!(cook(&root.0, root.inputs()).is_err());
 }
 
 #[test]
@@ -268,7 +311,7 @@ fn missing_media_is_explicit_then_closes_when_cooked() {
     assert!(!missing.is_complete());
     assert_eq!(missing.missing_inputs.len(), 2);
     let hash = root.write("movies/test.mkv", b"movie fixture");
-    root.json("movies/test.json", &json!({"version":1,"path":"movies/test.mkv","sha256":hash,
+    root.json("movies/test.json", &json!({"version":2,"audio_track":0,"path":"movies/test.mkv","sha256":hash,
         "width":640,"height":480,"frames":30,"frame_micros":33333,"sample_rate":32000,"channels":2,"audio_frames":32000}));
     root.json(
         "audio/test.json",
@@ -308,6 +351,7 @@ fn audio_package(root: &Fixture) -> String {
         )]
         .into(),
         score: Score {
+            origin: resonance_audio::data::ScoreOrigin::Sequence,
             initial_bpm_1024: 120 * 1024,
             loop_start_tick: 0,
             end_tick: 100,
@@ -325,6 +369,7 @@ fn audio_package(root: &Fixture) -> String {
                 volume_16_scale: 1.,
                 controller_14_scale: 1.,
                 pan_16_scale: 1.,
+                spatial: None,
             },
             pitch: pitch::Tables {
                 up: [1.; 128],
@@ -438,7 +483,7 @@ fn recipe_refresh_backfills_both_fields_after_later_media_cooks() {
     assert!(read("iselia-classroom").is_complete());
     assert!(!read("new-game-setup").is_complete());
     let hash = root.write("movies/story.mkv", b"movie fixture");
-    root.json("story-intro.json", &json!({"version":1,"path":"movies/story.mkv","sha256":hash,
+    root.json("story-intro.json", &json!({"version":2,"audio_track":0,"path":"movies/story.mkv","sha256":hash,
         "width":640,"height":480,"frames":30,"frame_micros":33333,"sample_rate":32000,"channels":2,"audio_frames":32000}));
     crate::field::refresh_preloads(&root.0).unwrap();
     assert!(read("new-game-setup").is_complete());

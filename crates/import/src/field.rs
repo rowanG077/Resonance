@@ -1,4 +1,7 @@
 //! Field archive inspection and conversion. All original-format I/O stays here.
+#[path = "field/collision.rs"]
+pub(crate) mod collision_data;
+
 use crate::read::u32 as word;
 use crate::{digest, write_atomic};
 use anyhow::{Context, Result, ensure};
@@ -13,31 +16,20 @@ use symphonia_script::{Program, message, scenario, semantics::NativeRegistry};
 
 /// Resolve a field's archive through the executable's indexed resource catalog.
 pub fn source_for_id(extracted: &Path, map: u32) -> Result<PathBuf> {
-    const TABLE: u32 = 0x801e4060;
-    const ROW_BYTES: u32 = 24;
-    const ROWS: u32 = 0x3348 / ROW_BYTES;
-    ensure!(
-        fs::read(extracted.join("sys/boot.bin"))?.get(..8) == Some(b"GQSEAF\0\0"),
-        "field catalog requires GQSEAF revision 0 disc 1"
-    );
-    ensure!(map < ROWS, "field {map} is outside the resource catalog");
-    let dol = fs::read(extracted.join("sys/main.dol"))?;
-    let address = word(crate::dol::slice(&dol, TABLE + map * ROW_BYTES, 4)?, 0)?;
-    let bytes = crate::dol::slice(&dol, address, 64)?;
-    let name = std::str::from_utf8(
-        &bytes[..bytes
-            .iter()
-            .position(|b| *b == 0)
-            .context("unterminated field archive name")?],
-    )?;
-    ensure!(
-        name.ends_with(".bin")
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.')),
-        "invalid field archive name"
-    );
-    Ok(extracted.join("files/MAP").join(name))
+    crate::disc_number(extracted)?;
+    let catalogue = crate::field_catalogue::read(&fs::read(extracted.join("sys/main.dol"))?)?;
+    let name = catalogue
+        .records
+        .get(map as usize)
+        .context("field is outside the resource catalogue")?
+        .resource
+        .as_deref()
+        .context("field has no resource declaration")?;
+    let files = extracted.join("files");
+    Ok(files.join(crate::field_resources::resolve_path(
+        &files,
+        &format!("MAP/{name}"),
+    )?))
 }
 
 pub(crate) struct MapArchive {
@@ -51,7 +43,7 @@ impl MapArchive {
         Self::decode(&fs::read(source)?)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self> {
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Self> {
         let mut cabinet = cab::Cabinet::new(Cursor::new(bytes))?;
         // Some payloads retain DOS short names, independent of the outer archive.
         let names: Vec<_> = cabinet
@@ -186,7 +178,6 @@ pub fn inspect(source: &Path, output: &Path) -> Result<()> {
 
 pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
     use crate::media::{Workspace, hash_file};
-    use crate::scene::{PartSource, cook_part};
     use resonance_content::{ScriptAsset, field::FieldAssets};
     let _workspace = Workspace::open(extracted, output)?;
     let source = source_for_id(extracted, map_id)?;
@@ -197,41 +188,44 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
     };
     let prefix = format!("fields/{name}");
     let map = MapArchive::open(&source)?;
+    let setup_source = MapArchive::open(&extracted.join("files/MAP/_custom.bin"))?;
     let mut sources = BTreeMap::new();
     for path in [
         "sys/boot.bin",
         "sys/main.dol",
         "files/MAP/_custom.bin",
-        "files/npc_all.bin",
-        "files/d.d",
-        "files/col_all.bin",
-        "files/llo_all.bin",
-        "files/gen_all.bin",
-        "files/lloyd000.bin",
-        "files/lloyd.bin",
-        "files/lloyd_ex.bin",
-        "files/collet000.bin",
-        "files/collet.bin",
-        "files/collet_ex.bin",
-        "files/genius000.bin",
-        "files/genius.bin",
-        "files/genius_ex.bin",
-        "files/refill000.bin",
-        "files/refill.bin",
-        "files/refill_ex.bin",
         "files/u_f_fontb0.dat",
         "files/system.tpl",
         "files/effect.cab",
         "files/mahou.cab",
-        "files/toon.tpl",
     ] {
         sources.insert(path.to_owned(), hash_file(&extracted.join(path))?);
     }
     let executable = fs::read(extracted.join("sys/main.dol"))?;
-    for resource in crate::field_resources::declarations(map.section(6)?)?.resources {
+    let toon = format!(
+        "files/{}",
+        crate::all_assets::roles::toon_path(extracted, &executable)?
+    );
+    sources.insert(toon.clone(), hash_file(&extracted.join(toon))?);
+    let resources = crate::resource::read(&executable)?;
+    let files = extracted.join("files");
+    let mut paths = std::collections::BTreeSet::new();
+    for character in 1..=resources.party_bodies.len() as u8 {
+        paths.extend([
+            resources.party(crate::resource::PartyResource::Body, character, 0)?,
+            resources.field_motion(character)?,
+            resources.field_service(character)?,
+        ]);
+    }
+    for script in [map.section(6)?, setup_source.section(6)?] {
+        for resource in crate::field_resources::declarations(script)?.resources {
+            paths.insert(resources.source(resource)?);
+        }
+    }
+    for path in paths {
         let path = format!(
             "files/{}",
-            crate::field_resources::source_path(&executable, &extracted.join("files"), resource)?
+            crate::field_resources::resolve_path(&files, path)?
         );
         sources.insert(path.clone(), hash_file(&extracted.join(path))?);
     }
@@ -242,12 +236,7 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
             .into_owned(),
         hash_file(&source)?,
     );
-    let recipe = serde_json::json!({
-        "version": 2,
-        "sources": sources,
-        "texture_recipe": crate::texture::RECIPE,
-        "compiler_sha256": hash_file(&std::env::current_exe()?)?,
-    });
+    let recipe = serde_json::json!({"version":2,"sources":sources,"texture_recipe":crate::texture::RECIPE,"compiler_sha256":hash_file(&std::env::current_exe()?)?});
     let metadata = output.join(format!("{prefix}.json"));
     let cache = output.join(format!("intermediate/{prefix}-recipe.json"));
     if let Ok(bytes) = fs::read(&metadata)
@@ -271,35 +260,18 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
         boot.get(..8) == Some(b"GQSEAF\0\0"),
         "expected GQSEAF revision 0 disc 1"
     );
-    let mut parts = Vec::new();
-    let mut doors = Vec::new();
-    // The optional third layer contains outdoor vegetation and decorations.
-    let layers = [0, 2, 12]
-        .into_iter()
-        .filter(|&index| index != 12 || map.sections.get(index).is_some_and(Option::is_some));
-    for (draw_order, index) in layers.enumerate() {
-        let (part, gltf, _) = cook_part(
-            PartSource {
-                name: &format!("{prefix}/{index:02}"),
-                source: map.section(index)?,
-                resource: index as u16,
-                draw_order: draw_order as u32,
-                depth_write: index != 2,
-                translation: [0.; 3],
-                autoplay: map.optional_section(index + 1),
-                animation_slots: &[],
-                clip_prefix: &name,
-                extra_clips: &[],
-                texture_animations: Vec::new(),
-            },
-            output,
-        )?;
-        if index == 0 {
-            doors = crate::field_doors::cook(&gltf)?;
-        }
-        parts.push(part);
-    }
+    let field_source = source
+        .strip_prefix(extracted.join("files"))?
+        .to_str()
+        .context("non-UTF-8 field source path")?;
+    let physical = crate::scene::binding::Map::open(output, 1, field_source, &map.source_sha256)?;
     let script = map.section(6)?;
+    let declared = crate::field_resources::declarations(script)?;
+    let declared_assets = crate::character::Sources::read(&files, &resources, &declared.resources)?;
+    let mut cooked_resources =
+        crate::field_resources::binding::Resources::open(output, extracted, &resources)?;
+    let shared_clips = declared_assets.scene_clips(&mut cooked_resources)?;
+    let (parts, doors) = physical.layers(&shared_clips)?;
     Program::decode(script)?;
     let header = scenario::parse_header(script)?;
     let messages = message::parse(&script[header.auxiliary_offset()..])?;
@@ -310,10 +282,17 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
         &output.join(&messages_path),
         &serde_json::to_vec(&messages)?,
     )?;
-    let (effects, effect_files) = crate::field_effects::cook(extracted, output)?;
-    let (captions, caption_files) = crate::field_caption::cook(&map, &prefix, output)?;
+    let effects = crate::field_effects::cook(extracted, output)?;
+    let effect_files = effects.files;
+    let (overlays, overlay_files) = crate::field_overlay::cook(
+        extracted,
+        &map,
+        &physical,
+        output,
+        &declared_assets.textures,
+    )?;
     let mut assets = FieldAssets {
-        version: 7,
+        version: 8,
         map_id,
         source_sha256: map.source_sha256.clone(),
         script: ScriptAsset {
@@ -329,13 +308,20 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
             .transpose()?
             .unwrap_or_default(),
         doors,
-        actors: crate::character::cook_field(extracted, output, map_id, &map)?,
-        contact_shadow: crate::field_shadow::cook(extracted, output)?,
+        actors: crate::character::cook_field(
+            extracted,
+            output,
+            map_id,
+            &map,
+            &declared_assets,
+            &shared_clips,
+        )?,
+        contact_shadow: effects.shadow,
         toon_ramp: crate::field_lighting::cook(extracted, output)?,
-        effects,
-        blink: crate::field_effects::blink(extracted)?,
-        particles: crate::field_effects::particles(extracted)?,
-        captions,
+        effects: effects.path,
+        blink: effects.blink,
+        particles: effects.particles,
+        overlays,
         save_point_tutorial: if crate::field_resources::declarations(script)?.save_point {
             let executable = fs::read(extracted.join("sys/main.dol"))?;
             crate::font::system_text(crate::dol::slice(&executable, 0x8017A274, 256)?)?
@@ -344,7 +330,6 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
         },
         files: BTreeMap::new(),
     };
-    let setup_source = MapArchive::open(&extracted.join("files/MAP/_custom.bin"))?;
     let setup_script = setup_source.section(6)?;
     let setup_header = scenario::parse_header(setup_script)?;
     let setup_messages = message::parse(&setup_script[setup_header.auxiliary_offset()..])?;
@@ -391,7 +376,7 @@ pub fn cook_field(extracted: &Path, map_id: u32, output: &Path) -> Result<()> {
     .into();
     files.extend(ui.textures.into_iter().map(|texture| texture.path));
     files.extend(effect_files);
-    files.extend(caption_files);
+    files.extend(overlay_files);
     for part in assets
         .parts
         .iter()
@@ -555,6 +540,7 @@ fn cook_setup(
             animation_slots: &[],
             clip_prefix: "setup",
             extra_clips: &[],
+            shared_clips: &[],
             texture_animations: Vec::new(),
         },
         output,
@@ -578,6 +564,22 @@ fn cook_setup(
         );
     }
     let mut setup = classroom.clone();
+    let physical =
+        crate::scene::binding::Map::open(output, 1, "MAP/_custom.bin", &map.source_sha256)?;
+    let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
+    let declared = crate::field_resources::declarations(script)?;
+    let declared_assets =
+        crate::character::Sources::read(&extracted.join("files"), &catalogue, &declared.resources)?;
+    let (overlays, overlay_files) = crate::field_overlay::cook(
+        extracted,
+        &map,
+        &physical,
+        output,
+        &declared_assets.textures,
+    )?;
+    for path in overlay_files {
+        files.insert(path.clone(), crate::media::hash_file(&output.join(path))?);
+    }
     setup.map_id = 5;
     setup.source_sha256 = map.source_sha256.clone();
     setup.script = resonance_content::ScriptAsset {
@@ -586,6 +588,7 @@ fn cook_setup(
     };
     setup.messages = messages_path.into();
     setup.parts = vec![part];
+    setup.overlays = overlays;
     setup.actors.retain(|actor| actor.resource == 1);
     setup.ground = collision(map.section(4)?)?;
     setup.regions.clear();
@@ -598,57 +601,8 @@ fn cook_setup(
     Ok(files)
 }
 
-fn collision(bytes: &[u8]) -> Result<Vec<resonance_content::field::CollisionGroup>> {
-    use resonance_content::field::CollisionGroup;
-    let half = |at: usize| -> Result<u16> {
-        Ok(u16::from_be_bytes(
-            bytes
-                .get(at..at + 2)
-                .context("truncated collision halfword")?
-                .try_into()?,
-        ))
-    };
-    let count = word(bytes, 4)? as usize;
-    ensure!(
-        (1..=4096).contains(&count) && 8 + count * 20 <= bytes.len(),
-        "invalid collision groups"
-    );
-    (0..count)
-        .map(|i| {
-            let at = 8 + i * 20;
-            let points = usize::from(half(at)?);
-            let triangles = usize::from(half(at + 2)?);
-            let point_offset = word(bytes, at + 4)? as usize;
-            let triangle_offset = word(bytes, at + 8)? as usize;
-            ensure!(
-                point_offset >= 8 + count * 20 && triangle_offset >= 8 + count * 20,
-                "collision payload overlaps its header"
-            );
-            let vertices = (0..points)
-                .map(|i| {
-                    let at = point_offset + i * 12;
-                    Ok([
-                        f32::from_bits(word(bytes, at)?),
-                        f32::from_bits(word(bytes, at + 4)?),
-                        f32::from_bits(word(bytes, at + 8)?),
-                    ])
-                })
-                .collect::<Result<_>>()?;
-            let triangles = (0..triangles)
-                .map(|i| {
-                    let at = triangle_offset + i * 6;
-                    Ok([half(at)?, half(at + 2)?, half(at + 4)?])
-                })
-                .collect::<Result<_>>()?;
-            let group = CollisionGroup {
-                surface: word(bytes, at + 12)?,
-                vertices,
-                triangles,
-            };
-            group.validate()?;
-            Ok(group)
-        })
-        .collect()
+pub(crate) fn collision(bytes: &[u8]) -> Result<Vec<resonance_content::field::CollisionGroup>> {
+    Ok(collision_data::Mesh::read(bytes, collision_data::Format::Detect)?.groups)
 }
 
 #[cfg(test)]

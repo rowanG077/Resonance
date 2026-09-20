@@ -18,7 +18,11 @@ fn resources(scene: &TitleScene) -> ResourceLibrary {
         if part.clips.is_empty() || part.autoplay {
             continue;
         }
-        let mut model = ModelResource::default();
+        let mut model = ModelResource {
+            // The title draws actors before scripts read their bone matrices.
+            attachment_pose_delay: 1,
+            ..Default::default()
+        };
         let local = |p: [f32; 3]| std::array::from_fn(|i| p[i] - part.translation[i]);
         let samples =
             |p: &[[f32; 3]]| AttachmentTrack::Samples(p.iter().copied().map(local).collect());

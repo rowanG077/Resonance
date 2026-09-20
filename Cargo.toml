@@ -22,7 +22,7 @@ symphonia-script-vm = { path = "crates/symphonia-script-vm" }
 resonance-events = { path = "crates/resonance-events" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["png"] }

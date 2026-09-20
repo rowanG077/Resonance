@@ -41,7 +41,7 @@ pub fn cook_title_sounds(extracted: &Path, output: &Path, coefficients: &Path) -
     let mut previews = serde_json::Map::new();
     let mut cues = BTreeMap::new();
     fs::create_dir_all(workspace.output.join("audio/cues"))?;
-    let programs = super::field_audio::cook_sounds(
+    let programs = super::bind_sounds(
         &workspace,
         &executable_bytes,
         &fs::read(coefficients)?,
@@ -59,24 +59,22 @@ pub fn cook_title_sounds(extracted: &Path, output: &Path, coefficients: &Path) -
                 std::sync::Arc::new(package),
                 false,
             )?;
-            let mut studio = resonance_audio::reverb::Studio::new(auxiliary_reverbs)?;
-            let mut samples = Vec::new();
+            let mut buses = [Vec::new(), Vec::new(), Vec::new()];
             while let Some(block) = stream.block(resonance_audio::sequence::LiveControls {
                 pan: Some(64),
                 ..Default::default()
             })? {
                 anyhow::ensure!(
-                    samples.len() / 2 + block.len() <= (SAMPLE_RATE * 10) as usize,
+                    buses[0].len() / 2 + block.len() <= (SAMPLE_RATE * 10) as usize,
                     "menu cue exceeds ten seconds"
                 );
-                for buses in block {
-                    samples.extend(
-                        studio
-                            .process(buses)
-                            .map(|v| v.clamp(i16::MIN as i32, i16::MAX as i32) as i16),
-                    );
+                for frame in block {
+                    for (bus, samples) in buses.iter_mut().zip(frame) {
+                        bus.extend(samples);
+                    }
                 }
             }
+            let samples = resonance_audio::reverb::mix_studio(&buses, auxiliary_reverbs)?;
             let frames = write_pcm(&destination, &samples, 2, true)?;
             cues.insert(
                 name.into(),

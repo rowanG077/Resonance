@@ -1,23 +1,19 @@
-use super::{
-    PLAYBACK_RATE, Workspace, hash_file, json_file, valid_asset, write_json, write_pcm16,
-    write_sample_assets,
-};
+use super::{PLAYBACK_RATE, Workspace, hash_file, json_file, valid_asset, write_json, write_pcm16};
 use anyhow::Result;
 use resonance_audio::{package::Package, sequence, volume};
-use resonance_audio_cook::{bank::Bank, compile, song::Song};
 use serde_json::json;
 use std::{fs, path::Path};
 
-pub fn cook_title_audio(extracted: &Path, output: &Path, coefficients: &Path) -> Result<()> {
+pub fn cook_title_audio(extracted: &Path, output: &Path) -> Result<()> {
     let workspace = Workspace::open(extracted, output)?;
-    let bank_bytes = fs::read(workspace.extracted.join("files/S/inst.snd"))?;
-    let song_bytes = fs::read(workspace.extracted.join("files/S/bgm_etc000.song"))?;
-    let executable = fs::read(workspace.extracted.join("sys/main.dol"))?;
-    let coefficient_bytes = fs::read(coefficients)?;
-    let recipe = json!({"version":5,"compiler":"resonance-audio-cook",
+    let package = super::music_library::Library::open(output, workspace.disc)?.package(
+        "S/bgm_etc000.song",
+        1,
+        None,
+    )?;
+    let recipe = json!({"version":6,"compiler":"resonance-audio-cook",
         "compiler_sha256":hash_file(&std::env::current_exe()?)?,
-        "bank_sha256":crate::digest(&bank_bytes),"song_sha256":crate::digest(&song_bytes),
-        "executable_sha256":crate::digest(&executable),"coefficients_sha256":crate::digest(&coefficient_bytes),
+        "package_sha256":crate::digest(&serde_json::to_vec(&package)?),
         "sample_rate":PLAYBACK_RATE,"setup":1,"package_version":resonance_audio::package::VERSION});
     let metadata = workspace.output.join("title-audio.json");
     if let Some(previous) = json_file(&metadata)
@@ -30,27 +26,8 @@ pub fn cook_title_audio(extracted: &Path, output: &Path, coefficients: &Path) ->
         println!("Title music package is current");
         return Ok(());
     }
-    let bank = Bank::parse(&bank_bytes)?;
-    let song = Song::parse(&song_bytes)?;
-    let setup = bank.music_setup(0, 1)?;
-    let (resources, score) = compile::music(&bank, &song, &setup)?;
-    let tables = super::music_voice::tables(&executable, &coefficient_bytes)?;
-    let reverbs = super::music::title_reverbs(&executable)?;
-    fs::create_dir_all(workspace.output.join("audio/title-instruments"))?;
-    let samples = write_sample_assets(&workspace.output, &resources, |id| {
-        format!("audio/title-instruments/sample-{id}.wav")
-    })?;
-    let package = Package {
-        version: resonance_audio::package::VERSION,
-        programs: resources.programs,
-        samples,
-        score,
-        tables,
-        reverbs,
-    };
     let path = workspace.output.join("audio/title-music.json");
-    write_json(&path, &serde_json::to_value(&package)?)?;
-    Package::load(&workspace.output, "audio/title-music.json")?;
+    super::field_audio::write_package(&workspace, "audio/title-music.json", &package)?;
     write_json(
         &metadata,
         &json!({"version":3,"path":"audio/title-music.json",
@@ -58,7 +35,7 @@ pub fn cook_title_audio(extracted: &Path, output: &Path, coefficients: &Path) ->
         "recipe_sha256":crate::digest(&serde_json::to_vec(&recipe)?),"recipe":recipe}),
     )?;
     println!(
-        "Cooked {} instrument programs and {} decoded samples, without playback",
+        "Bound {} instrument programs and {} shared samples, without playback",
         package.programs.len(),
         package.samples.len()
     );

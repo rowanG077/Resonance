@@ -1,228 +1,267 @@
-//! Lossless parser for relocatable field models.
-//!
-//! A 12-byte wrapper stores the relative blob offset in word two and its size
-//! in word three. Blob fields are big-endian; pointers are relative offsets.
-//!
-//! ```text
-//! BlobHeader { magic, u16 field4, u16 node_count, field8,
-//!              node_offset, optional_offset, field14,
-//!              field18, optional_data_offset }
-//! Node { data, field04, next, field0c, child, object_index,
-//!        field16, field18, field19, field1a }
-//! ```
-//!
-//! Retain unknown words and payloads verbatim; named fields can be edited
-//! without discarding information needed by other consumers.
+//! Relocatable models: a fixed node table, a linked hierarchy and packed labels.
 
-use std::fmt::Write as _;
+use crate::read::{u16 as half, u32 as word, unreferenced_ranges};
+use anyhow::{Context, Result, ensure};
+use serde::Serialize;
+use std::ops::Range;
 
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+const HEADER_SIZE: usize = 0x20;
+const NODE_SIZE: usize = 0x1c;
+const TRANSFORM_WORDS: usize = 13;
 
-const BLOB_HEADER_SIZE: usize = 0x20;
-const NODE_SIZE: usize = 0x1C;
-const NODE_DATA_WORDS: usize = 13;
-
-#[derive(Debug, Error)]
-pub enum ModelError {
-    #[error("model blob is shorter than its 0x20-byte header")]
-    BlobShort,
-    #[error("model blob has unexpected magic 0x{0:08X}")]
-    Magic(u32),
-    #[error("model node table 0x{offset:X}..0x{end:X} exceeds blob size 0x{size:X}")]
-    NodeBounds {
-        offset: usize,
-        end: usize,
-        size: usize,
-    },
-    #[error("model node {node} pointer field {field} points outside blob: 0x{offset:X}")]
-    NodePointer {
-        node: usize,
-        field: &'static str,
-        offset: u32,
-    },
-    #[error("model node {node} data block at 0x{offset:X} is shorter than 13 words")]
-    NodeData { node: usize, offset: u32 },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ModelNodeJson {
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Node {
+    pub source_offset: usize,
     pub data_offset: u32,
-    pub field04: u32,
+    pub previous_offset: u32,
     pub next_offset: u32,
-    pub field0c: u32,
+    pub parent_offset: u32,
     pub child_offset: u32,
     pub object_index: u16,
-    pub field16: u16,
-    pub field18: u8,
-    pub field19: u8,
-    pub field1a: u16,
+    pub node_id: u16,
+    pub transform_kind: u8,
+    pub draw_priority: u8,
+    pub flags: u16,
     pub data_words: Vec<u32>,
+    pub parent: Option<usize>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ModelBlobJson {
-    pub source_offset: usize,
-    pub size: usize,
-    pub magic: u32,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Model {
     pub field4: u16,
-    pub node_count: u16,
     pub field8: u32,
-    pub node_offset: u32,
-    pub optional_offset: u32,
-    pub field14: u32,
-    pub field18: u32,
-    pub optional_data_offset: u32,
-    pub nodes: Vec<ModelNodeJson>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub optional_text: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub optional_data_text: Option<String>,
-    pub raw_hex: String,
+    pub root_offset: u32,
+    pub name_offset: u32,
+    pub root_geometry: u16,
+    pub field16: u16,
+    pub name_table_metadata: u32,
+    pub names_offset: u32,
+    pub name: Option<String>,
+    /// Packed labels and nodes share the native depth-first construction order.
+    pub names: Option<Vec<String>>,
+    pub nodes: Vec<Node>,
+    /// Nonzero storage outside the structures read by the model API, blob-relative.
+    pub unreferenced_ranges: Vec<Range<usize>>,
 }
 
-impl ModelBlobJson {
-    /// Parse one copied model blob.  `source_offset` is metadata only and is
-    /// retained in the JSON for container integration.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any proven pointer or fixed-size table is outside
-    /// the copied blob.
-    ///
-    /// # Panics
-    ///
-    /// This function does not panic for malformed input; indexed reads follow
-    /// checked range calculations.
-    #[allow(clippy::similar_names)]
-    pub fn parse(data: &[u8], source_offset: usize) -> Result<Self, ModelError> {
-        if data.len() < BLOB_HEADER_SIZE {
-            return Err(ModelError::BlobShort);
-        }
-        let magic = be_u32(data, 0).unwrap();
-        if magic != 0x007B_7960_u32 {
-            return Err(ModelError::Magic(magic));
-        }
-        let field4 = be_u16(data, 4).unwrap();
-        let node_count = be_u16(data, 6).unwrap();
-        let field8 = be_u32(data, 8).unwrap();
-        let node_offset = be_u32(data, 12).unwrap();
-        let optional_offset = be_u32(data, 16).unwrap();
-        let field14 = be_u32(data, 20).unwrap();
-        let field18 = be_u32(data, 24).unwrap();
-        let optional_data_offset = be_u32(data, 28).unwrap();
-        let node_start = node_offset as usize;
-        let node_end = node_start
-            .checked_add(usize::from(node_count) * NODE_SIZE)
-            .ok_or(ModelError::NodeBounds {
-                offset: node_start,
-                end: usize::MAX,
-                size: data.len(),
-            })?;
-        if node_start < BLOB_HEADER_SIZE || node_end > data.len() {
-            return Err(ModelError::NodeBounds {
-                offset: node_start,
-                end: node_end,
-                size: data.len(),
-            });
-        }
-        let mut nodes = Vec::with_capacity(usize::from(node_count));
-        for node_index in 0..usize::from(node_count) {
-            let offset = node_start + node_index * NODE_SIZE;
-            let node = ModelNodeJson {
-                data_offset: be_u32(data, offset).unwrap(),
-                field04: be_u32(data, offset + 4).unwrap(),
-                next_offset: be_u32(data, offset + 8).unwrap(),
-                field0c: be_u32(data, offset + 12).unwrap(),
-                child_offset: be_u32(data, offset + 16).unwrap(),
-                object_index: be_u16(data, offset + 20).unwrap(),
-                field16: be_u16(data, offset + 22).unwrap(),
-                field18: data[offset + 24],
-                field19: data[offset + 25],
-                field1a: be_u16(data, offset + 26).unwrap(),
-                data_words: Vec::new(),
-            };
-            for (field, pointer) in [
-                ("data", node.data_offset),
-                ("field04", node.field04),
-                ("next", node.next_offset),
-                ("field0c", node.field0c),
-                ("child", node.child_offset),
-            ] {
-                if pointer != 0 && pointer as usize >= data.len() {
-                    return Err(ModelError::NodePointer {
-                        node: node_index,
-                        field,
-                        offset: pointer,
-                    });
-                }
-            }
-            let mut node = node;
-            if node.data_offset != 0 {
-                let start = node.data_offset as usize;
+impl Model {
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self> {
+        ensure!(word(bytes, 0)? == 0x007b_7960, "invalid model magic");
+        let count = usize::from(half(bytes, 6)?);
+        let end = HEADER_SIZE + count * NODE_SIZE;
+        ensure!(end <= bytes.len(), "model node table exceeds resource");
+        let root_offset = word(bytes, 12)?;
+        let name_offset = word(bytes, 16)?;
+        let name_table_metadata = word(bytes, 24)?;
+        let names_offset = word(bytes, 28)?;
+        ensure!(
+            names_offset == 0 || name_table_metadata != 0,
+            "model names offset has no relocation metadata"
+        );
+        let mut covered = vec![0..end];
+        let node_index = |pointer: u32| -> Result<usize> {
+            let offset = pointer as usize;
+            ensure!(
+                (HEADER_SIZE..end).contains(&offset)
+                    && (offset - HEADER_SIZE).is_multiple_of(NODE_SIZE),
+                "invalid model node pointer {pointer:#x}"
+            );
+            Ok((offset - HEADER_SIZE) / NODE_SIZE)
+        };
+        let mut physical = Vec::with_capacity(count);
+        for offset in (HEADER_SIZE..end).step_by(NODE_SIZE) {
+            let data_offset = word(bytes, offset)?;
+            let data_words = if data_offset == 0 {
+                vec![]
+            } else {
+                let start = data_offset as usize;
                 let end = start
-                    .checked_add(NODE_DATA_WORDS * 4)
-                    .ok_or(ModelError::NodeData {
-                        node: node_index,
-                        offset: node.data_offset,
-                    })?;
-                if end > data.len() {
-                    return Err(ModelError::NodeData {
-                        node: node_index,
-                        offset: node.data_offset,
-                    });
+                    .checked_add(TRANSFORM_WORDS * 4)
+                    .context("model transform extent overflow")?;
+                let data = bytes
+                    .get(start..end)
+                    .context("model transform exceeds resource")?;
+                covered.push(start..end);
+                data.chunks_exact(4)
+                    .map(|word| u32::from_be_bytes(word.try_into().unwrap()))
+                    .collect()
+            };
+            let mut links = [0; 4];
+            for (index, pointer) in links.iter_mut().enumerate() {
+                *pointer = word(bytes, offset + 4 + index * 4)?;
+                if *pointer != 0 {
+                    node_index(*pointer)?;
                 }
-                node.data_words = (0..NODE_DATA_WORDS)
-                    .map(|i| be_u32(data, start + i * 4).unwrap())
-                    .collect();
             }
+            physical.push(Some(Node {
+                source_offset: offset,
+                data_offset,
+                previous_offset: links[0],
+                next_offset: links[1],
+                parent_offset: links[2],
+                child_offset: links[3],
+                object_index: half(bytes, offset + 20)?,
+                node_id: half(bytes, offset + 22)?,
+                transform_kind: bytes[offset + 24],
+                draw_priority: bytes[offset + 25],
+                flags: half(bytes, offset + 26)?,
+                data_words,
+                parent: None,
+            }));
+        }
+        let mut nodes = Vec::with_capacity(count);
+        let mut pending = vec![(root_offset, None)];
+        while let Some((pointer, parent)) = pending.pop() {
+            if pointer == 0 {
+                continue;
+            }
+            let mut node = physical[node_index(pointer)?]
+                .take()
+                .context("cyclic or repeated model node")?;
+            node.parent = parent;
+            pending.push((node.next_offset, parent));
+            pending.push((node.child_offset, Some(nodes.len())));
             nodes.push(node);
         }
+        ensure!(
+            nodes.len() == count,
+            "model hierarchy has unreachable nodes"
+        );
+        let name =
+            names(bytes, name_offset as usize, 1, &mut covered)?.and_then(|mut names| names.pop());
+        let names = names(bytes, names_offset as usize, count, &mut covered)?;
         Ok(Self {
-            source_offset,
-            size: data.len(),
-            magic,
-            field4,
-            node_count,
-            field8,
-            node_offset,
-            optional_offset,
-            field14,
-            field18,
-            optional_data_offset,
+            field4: half(bytes, 4)?,
+            field8: word(bytes, 8)?,
+            root_offset,
+            name_offset,
+            root_geometry: half(bytes, 20)?,
+            field16: half(bytes, 22)?,
+            name_table_metadata,
+            names_offset,
+            name,
+            names,
             nodes,
-            optional_text: read_c_string(data, optional_offset as usize),
-            optional_data_text: read_c_string(data, optional_data_offset as usize),
-            raw_hex: encode_hex(data),
+            unreferenced_ranges: unreferenced_ranges(bytes, covered),
         })
     }
 }
 
-fn read_c_string(data: &[u8], offset: usize) -> Option<String> {
-    if offset == 0 || offset >= data.len() {
-        return None;
+fn names(
+    bytes: &[u8],
+    offset: usize,
+    count: usize,
+    covered: &mut Vec<Range<usize>>,
+) -> Result<Option<Vec<String>>> {
+    if offset == 0 {
+        return Ok(None);
     }
-    let end = data[offset..]
-        .iter()
-        .position(|byte| *byte == 0)
-        .map_or(data.len(), |n| offset + n);
-    std::str::from_utf8(&data[offset..end])
-        .ok()
-        .map(ToOwned::to_owned)
+    let mut remaining = bytes.get(offset..).context("model names exceed resource")?;
+    let names = (0..count)
+        .map(|_| label(&mut remaining))
+        .collect::<Result<_>>()?;
+    covered.push(offset..bytes.len() - remaining.len());
+    Ok(Some(names))
 }
-fn be_u16(data: &[u8], offset: usize) -> Option<u16> {
-    data.get(offset..offset + 2)
-        .map(|v| u16::from_be_bytes(v.try_into().unwrap()))
+
+fn label(remaining: &mut &[u8]) -> Result<String> {
+    let bytes = crate::read::c_string(remaining, 0)?;
+    let name = bytes.escape_ascii().to_string();
+    *remaining = &remaining[bytes.len() + 1..];
+    Ok(name)
 }
-fn be_u32(data: &[u8], offset: usize) -> Option<u32> {
-    data.get(offset..offset + 4)
-        .map(|v| u32::from_be_bytes(v.try_into().unwrap()))
-}
-#[must_use]
-pub fn encode_hex(data: &[u8]) -> String {
-    let mut out = String::with_capacity(data.len() * 2);
-    for byte in data {
-        let _ = write!(out, "{byte:02x}");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hierarchy_root_and_labels_follow_construction_order_not_storage_order() -> Result<()> {
+        let mut bytes = vec![0; HEADER_SIZE + 3 * NODE_SIZE];
+        for (at, value) in [
+            (0, 0x007b_7960u32),
+            (12, 60),
+            (24, 1),
+            (28, 116),
+            (48, 88),
+            (68, 32),
+        ] {
+            bytes[at..at + 4].copy_from_slice(&value.to_be_bytes());
+        }
+        bytes[6..8].copy_from_slice(&3u16.to_be_bytes());
+        for (at, id) in [(54, 1u16), (82, 0), (110, 2)] {
+            bytes[at..at + 2].copy_from_slice(&id.to_be_bytes());
+        }
+        bytes.extend_from_slice(b"first\0\0\xb5\0");
+        let model = Model::parse(&bytes)?;
+        assert_eq!(
+            model
+                .nodes
+                .iter()
+                .map(|n| n.source_offset)
+                .collect::<Vec<_>>(),
+            [60, 32, 88]
+        );
+        assert_eq!(
+            model.nodes.iter().map(|n| n.node_id).collect::<Vec<_>>(),
+            [0, 1, 2]
+        );
+        assert_eq!(
+            model.nodes.iter().map(|n| n.parent).collect::<Vec<_>>(),
+            [None, None, Some(1)]
+        );
+        assert_eq!(model.names.as_ref().unwrap(), &["first", "", r"\xb5"]);
+        assert_eq!(model.name_table_metadata, 1);
+        bytes[24..28].fill(0);
+        assert!(Model::parse(&bytes).is_err());
+        bytes[27] = 1;
+        bytes[96..100].copy_from_slice(&60u32.to_be_bytes());
+        assert!(Model::parse(&bytes).is_err());
+        Ok(())
     }
-    out
+
+    #[test]
+    fn names_keep_empty_entries_and_reject_truncated_present_tables() -> Result<()> {
+        let mut covered = Vec::new();
+        assert_eq!(
+            names(b"x\0\0tail\0", 1, 3, &mut covered)?,
+            Some(vec!["".into(), "".into(), "tail".into()])
+        );
+        assert_eq!(names(b"unused", 0, 3, &mut covered)?, None);
+        assert!(names(b"unused", 6, 3, &mut covered).is_err());
+        assert!(names(b"x\0tail", 1, 2, &mut covered).is_err());
+        assert!(names(b"x\0", 1, 2, &mut covered).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn coverage_keeps_unreferenced_data_and_merges_shared_storage() -> Result<()> {
+        let mut bytes = vec![0; 160];
+        for (at, value) in [
+            (0, 0x007b_7960u32),
+            (12, 32),
+            (16, 148),
+            (24, 1),
+            (28, 148),
+            (32, 96),
+            (40, 60),
+            (60, 96),
+        ] {
+            bytes[at..at + 4].copy_from_slice(&value.to_be_bytes());
+        }
+        bytes[6..8].copy_from_slice(&2u16.to_be_bytes());
+        bytes[90] = 0xa5;
+        bytes[96..148].fill(0x3f);
+        bytes[148..154].copy_from_slice(b"\xb5\\\0ab\0");
+        bytes[158] = 0x82;
+        let model = Model::parse(&bytes)?;
+        assert_eq!(model.name.as_deref(), Some(r"\xb5\\"));
+        assert_eq!(model.names.as_ref().unwrap(), &[r"\xb5\\", "ab"]);
+        assert_eq!(model.nodes[0].data_words, model.nodes[1].data_words);
+        assert_eq!(model.unreferenced_ranges, [88..96, 154..160]);
+        bytes[90] = 0;
+        bytes[158] = 0;
+        assert!(Model::parse(&bytes)?.unreferenced_ranges.is_empty());
+        Ok(())
+    }
 }

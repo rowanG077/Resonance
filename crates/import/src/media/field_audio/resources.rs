@@ -31,13 +31,13 @@ impl Resources {
 
         // The resident common bank is always visible. Event bank zero is loaded
         // initially; scripts select additional banks with a three-bit index.
+        let directory = crate::event_bank_directory::Directory::read(executable)?;
         let mut sources = BTreeSet::from(["S/se.snd".to_owned()]);
         for selector in arguments(script, NativeCall::SelectAudioBank, 1)?
             .into_iter()
             .chain([0])
         {
-            let row = crate::dol::slice(executable, 0x801f_97e0 + (selector as u32 & 7) * 8, 8)?;
-            sources.insert(super::string(executable, crate::read::u32(row, 0)?)?);
+            sources.insert(directory.entry(selector).source_path()?);
         }
         let mut owned = BTreeSet::new();
         let mut banks = Vec::new();
@@ -125,6 +125,70 @@ fn voices(script: &[u8]) -> Result<BTreeSet<u32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires both original discs; inventories source banks without audio playback"]
+    fn original_event_bank_inventory_preserves_every_declared_sound() -> Result<()> {
+        use crate::read::{u16 as half, u32 as word};
+        use std::{collections::BTreeMap, fs};
+
+        const HEADER: &str = ".scenario\n.code_base 4\n.word 4\n.word 0\n.word 0\n.word 0\n";
+        for disc in [1, 2] {
+            let extracted = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../local/extracted/disc{disc}"));
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            let mut sources = vec!["S/se.snd".to_owned()];
+            for row in crate::dol::slice(&executable, 0x801f97e0, 8 * 8)?.chunks_exact(8) {
+                sources.push(crate::source_path(&crate::dol::text(
+                    &executable,
+                    word(row, 0)?,
+                )?)?);
+            }
+            let initial = Resources::read(
+                &extracted,
+                &executable,
+                &scenario::assemble(&format!("{HEADER}end\n"))?,
+            )?;
+            assert_eq!(
+                initial.banks.iter().map(|bank| &bank.0).collect::<Vec<_>>(),
+                [&sources[0], &sources[1]]
+            );
+
+            let mut expected = BTreeMap::new();
+            let mut script = HEADER.to_owned();
+            for selector in -8..0 {
+                script += &format!(
+                    "push.s32 {selector}\ncalc 0\narg\nproc 0x{:02x}\n",
+                    NativeCall::SelectAudioBank as u8
+                );
+            }
+            for source in sources {
+                let bytes = fs::read(extracted.join("files").join(&source))?;
+                let project = word(&bytes, 4)? as usize;
+                let table = project + word(&bytes, project + 28)? as usize;
+                let ids = (0..usize::from(half(&bytes, table)?))
+                    .map(|index| half(&bytes, table + 4 + index * 10))
+                    .collect::<Result<Vec<_>>>()?;
+                for id in &ids {
+                    script += &format!(
+                        "push.s32 {id}\ncalc 0\narg\npush.s8 0\ncalc 0\narg\nproc 0x{:02x}\n",
+                        NativeCall::PlaySoundSimple as u8
+                    );
+                }
+                expected.insert(source, ids);
+            }
+            script += "end\n";
+            let resources =
+                Resources::read(&extracted, &executable, &scenario::assemble(&script)?)?;
+            assert_eq!(resources.sounds.len(), 501);
+            assert_eq!(
+                resources.banks.into_iter().collect::<BTreeMap<_, _>>(),
+                expected
+            );
+            assert!(resources.music.is_empty() && resources.voices.is_empty());
+        }
+        Ok(())
+    }
 
     #[test]
     fn inventories_both_audio_branches_without_guessing_dynamic_ids() {

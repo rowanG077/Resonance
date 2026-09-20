@@ -178,13 +178,15 @@ impl MenuArtwork {
             .collect();
         let mut surfaces: Vec<_> = images
             .iter()
-            .map(|source| {
+            .zip(&spec.textures)
+            .map(|(source, texture)| {
                 materials.add(Surface {
                     source: source.clone(),
                     sampling: source.clone(),
                     frame_mask: source.clone(),
                     color_mask: source.clone(),
                     coverage: Coverage::default(),
+                    opaque: texture.opaque,
                 })
             })
             .collect();

@@ -1,97 +1,68 @@
-//! Compile title light UV motion into ordinary sampled texture animations.
-use anyhow::{Context, Result, ensure};
-use resonance_content::TextureAnimation;
+//! Decode authored UV motion for title lighting and battle arenas.
+mod arena;
+mod settings;
+mod title;
+#[cfg(test)]
+use anyhow::Result;
+#[cfg(test)]
+pub(crate) use arena::{Layer as ArenaUvLayer, read as arena_records};
+#[cfg(test)]
+use resonance_content::battle::visual::ArenaUvChannel;
+pub(crate) use settings::ArenaSettings;
+pub(crate) use title::{bind as bind_title, cook as cook_title};
 
-pub(crate) fn cook(dol: &[u8]) -> Result<Vec<TextureAnimation>> {
-    // Bake two stepped vertical scrolls and one continuous horizontal scroll.
-    let bytes = crate::dol::slice(dol, 0x8035B354, 0x18)?;
-    let value = |at| -> f32 { f32::from_be_bytes(bytes[at..at + 4].try_into().unwrap()) };
-    bake(value(0), value(4), value(12), value(16), value(20))
-}
-
-fn bake(
-    steps: f32,
-    step_size: f32,
-    first: f32,
-    speed: f32,
-    second: f32,
-) -> Result<Vec<TextureAnimation>> {
-    let integer = |value: f32| -> Result<usize> {
-        ensure!(
-            value.is_finite() && (1.0..=1000.0).contains(&value) && value.fract() == 0.,
-            "invalid UV animation step count"
-        );
-        Ok(value as usize)
-    };
-    let steps = integer(steps)?;
-    ensure!(
-        step_size.is_finite() && step_size > 0. && step_size <= 1.,
-        "invalid UV animation step size"
-    );
-    ensure!(
-        speed.is_finite() && (1.0 / 36000.0..=1.0).contains(&speed),
-        "invalid UV animation scroll speed"
-    );
-    let stepped = |texture, interval| -> Result<TextureAnimation> {
-        let interval = integer(interval)?;
-        let period = steps.checked_mul(interval).context("UV period overflow")?;
-        ensure!(period <= 36000, "UV animation period exceeds limit");
-        Ok(TextureAnimation {
-            texture,
-            delay_ticks: 1,
-            loop_start: 0,
-            offsets: (0..period)
-                .map(|tick| [0., (tick / interval) as f32 * step_size])
-                .collect(),
-        })
-    };
-    let mut offsets = vec![[0., 0.]];
-    let mut position = 0f32;
-    loop {
-        // The source accumulates f32 and resets only AFTER uploading the
-        // overshooting value. Multiplying time by speed loses that boundary.
-        position += speed;
-        offsets.push([position, 0.]);
-        ensure!(offsets.len() <= 36000, "UV scroll period exceeds limit");
-        if position > 1. {
-            break;
-        }
-    }
-    Ok(vec![
-        stepped(2, first)?,
-        TextureAnimation {
-            texture: 0,
-            delay_ticks: 1,
-            loop_start: 1,
-            offsets,
-        },
-        stepped(1, second)?,
-    ])
+/// Four fixed arena layers each contain up to four 40-byte UV channels.
+#[cfg(test)]
+pub(crate) fn arena_layer(bytes: &[u8], layer: usize) -> Result<Vec<ArenaUvChannel>> {
+    arena_records(bytes, layer)?.channels()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resonance_content::battle::visual::ArenaUvMode;
 
     #[test]
-    fn sampled_light_motion_preserves_wrap_and_saved_state_phase() {
-        let tracks = bake(32., 1. / 32., 22., 1. / 120., 7.).unwrap();
-        for track in &tracks {
-            track.validate().unwrap();
+    fn arena_rows_preserve_disabled_channels_duplicate_order_and_inactive_parameters() {
+        let mut bytes = [0u8; 800];
+        let start = 44 + 2 * 168;
+        bytes[start + 165] = 3;
+        for (index, mode) in [0, 1, 3].into_iter().enumerate() {
+            let row = &mut bytes[start + index * 40..start + (index + 1) * 40];
+            row[..4].copy_from_slice(&[mode, 3, 2, 4]);
+            row[20..22].copy_from_slice(&[255, 254]);
+            for (at, value) in [(4, 8f32), (8, -2.), (12, 90.), (24, 3.), (32, 270.)] {
+                row[at..at + 4].copy_from_slice(&value.to_be_bytes());
+            }
         }
-        assert_eq!(tracks[0].offset(22), [0., 0.]);
-        assert_eq!(tracks[0].offset(23), [0., 1. / 32.]);
-        assert_eq!(tracks[0].offset(705), [0., 0.]);
-        assert_eq!(tracks[1].offset(0), [0., 0.]);
-        assert_eq!(tracks[1].offset(121)[0], 0.9999994);
-        assert!(tracks[1].offset(122)[0] > 1.);
-        assert_eq!(tracks[1].offset(123), [1. / 120., 0.]);
-        // Independent Dolphin checkpoint, title idle counter 968.
-        assert_eq!(tracks[0].offset(968), [0., 11. / 32.]);
-        assert_eq!(tracks[1].offset(968), [0.9999994, 0.]);
-        assert_eq!(tracks[2].offset(968), [0., 10. / 32.]);
-        assert!(bake(0., 1., 22., 0.1, 7.).is_err());
-        assert!(bake(32., 1., 22., f32::NAN, 7.).is_err());
-        assert!(bake(32., 1., 22.5, 0.1, 7.).is_err());
+        let channels = arena_layer(&bytes, 2).unwrap();
+        assert_eq!(
+            channels.iter().map(|c| c.mode).collect::<Vec<_>>(),
+            [
+                ArenaUvMode::Disabled,
+                ArenaUvMode::Frames,
+                ArenaUvMode::Oscillate
+            ]
+        );
+        for channel in &channels {
+            assert_eq!(channel.texture, 3);
+            assert_eq!(channel.speed, [8., -2.]);
+            assert_eq!(channel.initial_tick, 255);
+            assert_eq!(channel.initial_frame, 254);
+            assert_eq!(channel.initial_offset, [3., 0.]);
+            assert_eq!(channel.initial_angle, [270., 0.]);
+        }
+        assert!(arena_layer(&bytes[..start + 167], 2).is_err());
+        bytes[start + 165] = 5;
+        assert!(arena_layer(&bytes, 2).is_err());
+        bytes[start + 165] = 3;
+        bytes[start] = 4;
+        assert_eq!(
+            arena_layer(&bytes, 2).unwrap()[0].mode,
+            ArenaUvMode::Disabled
+        );
+        bytes[start] = 0;
+        bytes[start + 43] = 0;
+        assert!(arena_layer(&bytes, 2).is_err());
     }
 }

@@ -451,22 +451,63 @@ impl Fade {
 pub struct Overlay {
     pub born: u32,
     pub size: [i32; 2],
-    pub angle: i32,
+    /// Tint and target alpha; `alpha` supplies the displayed alpha.
     pub rgba: [u8; 4],
     pub duration: u32,
     pub kind: OverlayKind,
 }
 #[derive(Debug, Clone)]
 pub enum OverlayKind {
-    Sprite { depth: i32 },
+    Sprite(SpriteOverlay),
     LocationCaption { hold_ticks: u32 },
+}
+#[derive(Debug, Clone)]
+pub struct SpriteOverlay {
+    pub depth: i32,
+    pub image: u8,
+    pub scale: [f32; 3],
+    /// Alpha units per game tick.
+    pub alpha_step: f32,
+    alpha: f32,
+    drawn_alpha: u8,
+}
+impl SpriteOverlay {
+    pub(crate) fn new(depth: i32, alpha: u8, duration: i32) -> Self {
+        let immediate = matches!(duration, 0 | 1);
+        Self {
+            depth,
+            image: 0,
+            scale: [1.; 3],
+            alpha_step: if immediate {
+                0.
+            } else {
+                f32::from(alpha) / duration as f32
+            },
+            alpha: if immediate { f32::from(alpha) } else { 0. },
+            drawn_alpha: if immediate { alpha } else { 0 },
+        }
+    }
+    pub(crate) fn step(&mut self, target: u8) {
+        self.drawn_alpha = self.alpha as u8;
+        self.alpha += self.alpha_step;
+        if self.alpha_step != 0. {
+            if self.alpha >= f32::from(target) {
+                self.alpha = f32::from(target);
+                self.alpha_step = 0.;
+            }
+            if self.alpha < 0. {
+                self.alpha = 0.;
+                self.alpha_step = 0.;
+            }
+        }
+    }
 }
 impl Overlay {
     pub fn alpha(&self, tick: u32) -> u8 {
-        match self.kind {
-            OverlayKind::Sprite { .. } => self.rgba[3],
+        match &self.kind {
+            OverlayKind::Sprite(sprite) => sprite.drawn_alpha,
             OverlayKind::LocationCaption { hold_ticks } => {
-                let fade = tick.saturating_sub(self.born).saturating_sub(hold_ticks);
+                let fade = tick.saturating_sub(self.born).saturating_sub(*hold_ticks);
                 self.rgba[3].saturating_sub(fade.saturating_mul(4).min(255) as u8)
             }
         }

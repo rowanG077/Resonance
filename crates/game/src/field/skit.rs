@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn opening_a_prompt_consumes_only_the_transient_notice() {
         let catalog = Arc::new(SkitCatalog {
-            version: 1,
+            version: 2,
             skits: vec![resonance_content::skit::SkitDefinition {
                 id: 600,
                 title: "Test skit".into(),
@@ -342,6 +342,7 @@ mod tests {
             }],
             resources: BTreeMap::new(),
             portraits: BTreeMap::new(),
+            portrait_recipes: Vec::new(),
             media: BTreeMap::new(),
         });
         let mut skits = Skits::new(Some(catalog));

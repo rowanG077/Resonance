@@ -10,27 +10,39 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Cook every physical asset from the extracted discs, including unused assets.
+    CookAll {
+        /// Parallel asset workers; codecs run within this worker limit.
+        #[arg(long, default_value_t = std::thread::available_parallelism().map_or(1, |n| n.get().min(resonance_import::all_assets::MAX_WORKERS)) as u8, value_parser = clap::value_parser!(u8).range(1..=resonance_import::all_assets::MAX_WORKERS as i64))]
+        jobs: u8,
+        #[arg(long, num_args=1.., default_values=["local/extracted/disc1", "local/extracted/disc2"])]
+        extracted: Vec<PathBuf>,
+        #[arg(long, default_value = "local/all-assets")]
+        output: PathBuf,
+        #[arg(long)]
+        coefficients: PathBuf,
+    },
     /// Cook localized character, item and title names without changing save definitions.
     CookText {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
     },
-    /// Cook figurine catalogue records and shared animated model previews.
+    /// Prepare figurine catalogue records using shared models, textures and clips.
     CookFigurines {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
         #[arg(long, num_args = 1..)]
         figurine: Vec<u16>,
     },
-    /// Cook enemy catalogue records and their animated model previews.
+    /// Prepare enemy catalogue records using shared models, textures and clips.
     CookMonsters {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
         #[arg(long, num_args = 1..)]
         monster: Vec<u8>,
@@ -39,14 +51,14 @@ enum Action {
     CookMenu {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
     },
     /// Compare every cooked shop inventory and price with the original disc data.
     ValidateShops {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         cooked: PathBuf,
         /// Write the full inventory and pricing report to this JSON file.
         #[arg(long)]
@@ -56,19 +68,19 @@ enum Action {
     CookEffects {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
     },
-    /// Cook skit scripts, animated portraits and media without opening audio.
+    /// Prepare skit scripts and bind shared portraits and media without opening audio.
     CookSkits {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
     },
     /// Build a conservative preload manifest from an already cooked field.
     CookFieldPreload {
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
         /// Field metadata path relative to --output.
         #[arg(long)]
@@ -84,7 +96,7 @@ enum Action {
     CookClassroomAudio {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
         #[arg(long)]
         coefficients: PathBuf,
@@ -95,7 +107,7 @@ enum Action {
         map: u32,
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
         #[arg(long)]
         coefficients: PathBuf,
@@ -103,18 +115,18 @@ enum Action {
         #[arg(long)]
         additional_disc: Option<PathBuf>,
     },
-    /// Cook the New Game story movie with the same verified offline pipeline.
+    /// Bind the New Game story movie and selected audio from the shared library.
     CookStoryIntro {
         #[command(flatten)]
         paths: MediaPaths,
-        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
-        audio_stream: u8,
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=256))]
+        audio_stream: u16,
     },
     /// Cook the Iselia classroom environment and original event data in Rust.
     CookClassroom {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
     },
     /// Cook a field's geometry, collision, scenario and model packages by disc ID.
@@ -123,7 +135,7 @@ enum Action {
         map: u32,
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
     },
     /// Inspect a field archive, its original scenario, messages, and native calls.
@@ -220,30 +232,28 @@ enum Action {
         output: PathBuf,
     },
     CookTitle {
-        #[arg(long)]
-        extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
+        disc: u8,
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
     },
     /// Decode the original startup logos in Rust and store KTX2 textures.
     CookBoot {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
     },
-    /// Cook typed score/instrument data and decoded WAV samples in Rust.
+    /// Prepare title music from the complete cooked library.
     CookTitleAudio {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
-        #[arg(long)]
-        coefficients: PathBuf,
     },
     /// Record only cooked music data through the shared renderer; no playback.
     RenderCookedTitleAudio {
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         assets: PathBuf,
         #[arg(long)]
         output: PathBuf,
@@ -256,7 +266,7 @@ enum Action {
     CookTitleSounds {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
         #[arg(long)]
         coefficients: PathBuf,
@@ -272,12 +282,12 @@ enum Action {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Convert the original opening to lossless Matroska for oracle comparison.
+    /// Bind the opening movie and selected audio from the shared library.
     CookIntro {
         #[command(flatten)]
         paths: MediaPaths,
-        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
-        audio_stream: u8,
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u16).range(1..=256))]
+        audio_stream: u16,
     },
 }
 
@@ -285,12 +295,39 @@ enum Action {
 struct MediaPaths {
     #[arg(long, default_value = "local/extracted/disc1")]
     extracted: PathBuf,
-    #[arg(long, default_value = "local/cooked")]
+    #[arg(long, default_value = "local/all-assets")]
     output: PathBuf,
 }
 
 fn main() -> anyhow::Result<()> {
     match Args::parse().command {
+        Action::CookAll {
+            jobs,
+            extracted,
+            output,
+
+            coefficients,
+        } => {
+            let report =
+                resonance_import::all_assets::cook(&resonance_import::all_assets::Options {
+                    jobs: usize::from(jobs),
+                    discs: &extracted,
+                    output: &output,
+                    coefficients: &coefficients,
+                })?;
+            println!(
+                "{} conversion units, {} reused resources, {} failures",
+                report.cooked,
+                report.duplicates,
+                report.failures.len()
+            );
+            anyhow::ensure!(
+                report.failures.is_empty(),
+                "some assets could not be cooked; see {}",
+                output.join("failures.json").display()
+            );
+            Ok(())
+        }
         Action::CookText { extracted, output } => resonance_import::cook_text(&extracted, &output),
         Action::CookFigurines {
             extracted,
@@ -466,14 +503,10 @@ fn main() -> anyhow::Result<()> {
         }
         Action::Extract { disc, output } => resonance_import::extract(&disc, &output),
         Action::CookBoot { extracted, output } => resonance_import::cook_boot(&extracted, &output),
-        Action::CookTitle { extracted, output } => {
-            resonance_import::cook_title(&extracted, &output)
+        Action::CookTitle { disc, output } => resonance_import::cook_title(&output, disc),
+        Action::CookTitleAudio { extracted, output } => {
+            resonance_import::media::cook_title_audio(&extracted, &output)
         }
-        Action::CookTitleAudio {
-            extracted,
-            output,
-            coefficients,
-        } => resonance_import::media::cook_title_audio(&extracted, &output, &coefficients),
         Action::RenderCookedTitleAudio {
             assets,
             output,

@@ -38,12 +38,13 @@ impl Control {
         tables.gains_for(mix::Parameters {
             volume: self.volume,
             controller: self.controller,
-            pan: self.pan,
+            pan: u32::from(self.pan) << 16,
             post: self.post,
             scale: 1.0,
             group_volume,
             aux_a: 127,
             alternate: false,
+            interaural_delay: false,
         })
     }
 }
@@ -51,6 +52,10 @@ impl Control {
 impl Cue {
     pub fn program(package: Arc<crate::package::Loaded>, frames: usize) -> Result<Self> {
         ensure!((1..=320_000).contains(&frames), "invalid cue duration");
+        ensure!(
+            !crate::sequence::shared::requires_shared(&package.resources),
+            "menu cue requires shared synthesizer state"
+        );
         Ok(Self {
             data: Data::Program { package, frames },
         })

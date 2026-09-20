@@ -11,7 +11,7 @@ use std::{
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let root = PathBuf::from(args.next().unwrap_or_else(|| "local/cooked".into()));
+    let root = PathBuf::from(args.next().unwrap_or_else(|| "local/all-assets".into()));
     let seconds: f64 = args.next().unwrap_or_else(|| "640".into()).parse()?;
     let stall: u64 = args.next().unwrap_or_else(|| "200".into()).parse()?;
     let period: u32 = args.next().unwrap_or_else(|| "512".into()).parse()?;

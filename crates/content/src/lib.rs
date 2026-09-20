@@ -1,5 +1,6 @@
 //! Cooked asset contracts shared by the importer and game.
 use serde::{Deserialize, Serialize};
+pub mod battle;
 pub mod effect;
 pub mod field;
 pub mod field_audio;
@@ -14,6 +15,7 @@ pub mod prepared;
 pub mod secondary_motion;
 pub mod session;
 pub mod skit;
+pub mod texture;
 
 pub const CONTENT_VERSION: u32 = 5;
 pub const WIDTH: u32 = 640;
@@ -65,6 +67,8 @@ pub struct MovieAsset {
     pub height: u32,
     pub frames: u32,
     pub frame_micros: u32,
+    /// Zero-based audio stream within the shared movie container.
+    pub audio_track: u16,
     pub sample_rate: u32,
     pub channels: u16,
     pub audio_frames: u64,
@@ -74,11 +78,12 @@ impl MovieAsset {
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_asset_path(&self.path)?;
         anyhow::ensure!(
-            self.version == 1
+            self.version == 2
                 && (1..=1920).contains(&self.width)
                 && (1..=1080).contains(&self.height)
                 && (1..=100_000).contains(&self.frames)
                 && (10_000..=100_000).contains(&self.frame_micros)
+                && self.audio_track < 256
                 && (8_000..=96_000).contains(&self.sample_rate)
                 && self.channels == 2
                 && self.audio_frames > 0
@@ -190,8 +195,11 @@ pub struct ScenePart {
     /// Constant-color inverted hull, when this layer supplies actor outlines.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline_color: Option<[u8; 4]>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub secondary_motion: Vec<secondary_motion::Chain>,
+    #[serde(
+        default,
+        skip_serializing_if = "secondary_motion::Definition::is_empty"
+    )]
+    pub secondary_motion: secondary_motion::Definition,
 }
 
 /// Optional vertical atlas channels supplied by character model metadata.
@@ -210,14 +218,14 @@ pub struct AtlasChannel {
 
 /// Sampled UV translations at the scene's 60 Hz clock, with an optional intro.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextureAnimation {
-    pub texture: usize,
+pub struct TextureAnimation<Texture = usize> {
+    pub texture: Texture,
     pub delay_ticks: u32,
     pub loop_start: usize,
     pub offsets: Vec<[f32; 2]>,
 }
 
-impl TextureAnimation {
+impl<Texture> TextureAnimation<Texture> {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.offsets.is_empty()

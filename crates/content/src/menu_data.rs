@@ -163,10 +163,26 @@ pub struct Title {
     pub description: String,
     /// Same order as the character's seven base growth statistics.
     pub growth: [u8; 7],
+    /// Replaces the story-selected model variant while this title is equipped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub costume: Option<Costume>,
+}
+
+/// Character model variants; numbered title costumes differ between characters.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[repr(u8)]
+#[serde(rename_all = "snake_case")]
+pub enum Costume {
+    #[default]
+    Standard = 0,
+    Variant1 = 1,
+    Variant2 = 2,
+    Story = 3,
+    Variant4 = 4,
 }
 
 impl MenuData {
-    pub const VERSION: u32 = 22;
+    pub const VERSION: u32 = 24;
     pub fn validate(&self) -> Result<()> {
         self.rename.validate()?;
         self.item_group_prompt.validate()?;

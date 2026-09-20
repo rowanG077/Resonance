@@ -39,10 +39,7 @@ pub fn cook(root: &Path, inputs: Inputs) -> Result<Manifest> {
 /// Pure filesystem inspection plus static script analysis; no output writes.
 pub fn build(root: &Path, inputs: Inputs) -> Result<Manifest> {
     inputs.validate()?;
-    let mut inventory = Inventory {
-        root,
-        files: BTreeMap::new(),
-    };
+    let mut inventory = Inventory::new(root);
     let field: FieldAssets = inventory.json(&inputs.field, None, Role::Field)?;
     field.validate()?;
     for (path, hash) in &field.files {
@@ -116,8 +113,12 @@ pub fn build(root: &Path, inputs: Inputs) -> Result<Manifest> {
                 serde_json::from_slice(&fs::read(root.join(&resource.messages))?)?;
             crate::font::validate_messages(&font, &messages)?;
         }
-        for portrait in skits.portraits.values() {
-            inventory.add(&portrait.texture, None, Role::Texture)?;
+        for image in skits
+            .portraits
+            .values()
+            .flat_map(|portrait| &portrait.images)
+        {
+            inventory.add(&image.texture, None, Role::Texture)?;
         }
         for voice in skits.media.values().filter_map(|m| m.voice.as_ref()) {
             inventory.add(&voice.asset.path, Some(&voice.asset.sha256), Role::Voice)?;
@@ -139,12 +140,11 @@ pub fn build(root: &Path, inputs: Inputs) -> Result<Manifest> {
     for recipe in field.particles.values() {
         inventory.add(&recipe.texture, None, Role::Texture)?;
     }
-    for path in field.captions.values() {
-        let caption: resonance_content::effect::LocationCaption =
-            inventory.json(path, None, Role::Data)?;
-        caption.validate()?;
-        for texture in caption.textures {
-            inventory.add(&texture.path, None, Role::Texture)?;
+    for path in field.overlays.values() {
+        let art: resonance_content::effect::OverlayArt = inventory.json(path, None, Role::Data)?;
+        art.validate()?;
+        for image in art.textures.iter().flat_map(|texture| &texture.images) {
+            inventory.add(&image.path, None, Role::Texture)?;
         }
     }
     manifest
@@ -258,13 +258,24 @@ fn input_exists(root: &Path, path: &str) -> Result<bool> {
     }
 }
 
-struct Inventory<'a> {
+pub(crate) struct Inventory<'a> {
     root: &'a Path,
     files: BTreeMap<String, File>,
 }
 
-impl Inventory<'_> {
-    fn json<T: DeserializeOwned>(
+impl<'a> Inventory<'a> {
+    pub(crate) fn new(root: &'a Path) -> Self {
+        Self {
+            root,
+            files: BTreeMap::new(),
+        }
+    }
+
+    pub(crate) fn into_files(self) -> BTreeMap<String, File> {
+        self.files
+    }
+
+    pub(crate) fn json<T: DeserializeOwned>(
         &mut self,
         path: &str,
         expected: Option<&str>,
@@ -279,7 +290,7 @@ impl Inventory<'_> {
         serde_json::from_slice(&bytes).with_context(|| format!("decode {path}"))
     }
 
-    fn add(&mut self, path: &str, expected: Option<&str>, role: Role) -> Result<()> {
+    pub(crate) fn add(&mut self, path: &str, expected: Option<&str>, role: Role) -> Result<()> {
         validate_asset_path(path)?;
         if !self.files.contains_key(path) {
             let absolute = self.root.join(path);
@@ -308,6 +319,10 @@ impl Inventory<'_> {
 
     fn audio(&mut self, path: &str) -> Result<()> {
         let audio: FieldAudio = self.json(path, None, Role::AudioManifest)?;
+        self.audio_assets(&audio)
+    }
+
+    pub(crate) fn audio_assets(&mut self, audio: &FieldAudio) -> Result<()> {
         audio.validate()?;
         for asset in audio.music.values().chain(audio.sounds.values()) {
             let package: resonance_audio::package::Package =

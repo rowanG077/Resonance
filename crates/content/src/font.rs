@@ -96,6 +96,69 @@ pub struct UiTexture {
     pub width: u32,
     pub height: u32,
 }
+impl UiTexture {
+    pub fn validate(&self) -> Result<()> {
+        crate::validate_asset_path(&self.path)?;
+        ensure!(
+            (1..=4096).contains(&self.width) && (1..=4096).contains(&self.height),
+            "invalid UI texture size"
+        );
+        Ok(())
+    }
+}
+
+/// A pixel rectangle in a shared image; no separately cropped texture is needed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiRegion {
+    pub texture: UiTexture,
+    pub rect: [u32; 4],
+}
+impl UiRegion {
+    pub fn size(&self) -> [u32; 2] {
+        [self.rect[2], self.rect[3]]
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        self.texture.validate()?;
+        let [x, y, width, height] = self.rect;
+        ensure!(
+            width > 0
+                && height > 0
+                && x.checked_add(width)
+                    .is_some_and(|end| end <= self.texture.width)
+                && y.checked_add(height)
+                    .is_some_and(|end| end <= self.texture.height),
+            "UI region exceeds its shared texture"
+        );
+        Ok(())
+    }
+}
+
+#[test]
+fn regions_reject_empty_overflowing_and_out_of_image_rectangles() {
+    let mut region = UiRegion {
+        texture: UiTexture {
+            path: "assets/atlas.ktx2".into(),
+            width: 512,
+            height: 512,
+        },
+        rect: [488, 480, 24, 32],
+    };
+    assert!(region.validate().is_ok());
+    for rect in [
+        [0, 0, 0, 24],
+        [0, 0, 24, 0],
+        [489, 480, 24, 32],
+        [488, 481, 24, 32],
+        [u32::MAX, 0, 24, 24],
+    ] {
+        region.rect = rect;
+        assert!(region.validate().is_err());
+    }
+    region.rect = [0, 0, 24, 24];
+    region.texture.path = "../atlas.ktx2".into();
+    assert!(region.validate().is_err());
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectionArt {
     pub mode: u8,
@@ -125,11 +188,7 @@ impl DialogueArt {
             "invalid selection artwork"
         );
         for texture in self.textures.iter().chain([&self.cursor]) {
-            crate::validate_asset_path(&texture.path)?;
-            ensure!(
-                (1..=4096).contains(&texture.width) && (1..=4096).contains(&texture.height),
-                "invalid dialogue texture size"
-            );
+            texture.validate()?;
         }
         ensure!(
             self.source_sha256.len() == 64

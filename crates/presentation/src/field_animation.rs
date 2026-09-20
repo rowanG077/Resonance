@@ -34,20 +34,7 @@ pub(super) fn bind(
             .iter()
             .filter_map(|name| names.get(name).map(|&(entity, rest, _)| (entity, rest)))
             .collect();
-        if bones.is_empty() {
-            continue;
-        }
-        let previous: Vec<_> = bones.iter().map(|(_, t)| *t).collect();
-        commands.entity(root).insert(Rig {
-            sampled: false,
-            bones,
-            from: previous.clone(),
-            presented: previous.clone(),
-            binding_pose: Vec::new(),
-            previous,
-            clip: None,
-            late_binding: false,
-        });
+        commands.entity(root).insert(Rig::new(bones));
     }
 }
 
@@ -72,6 +59,34 @@ fn mix(from: Transform, to: Transform, weight: f32) -> Transform {
 }
 
 impl Rig {
+    pub(super) fn new(bones: Vec<(Entity, Transform)>) -> Self {
+        let previous: Vec<_> = bones.iter().map(|(_, t)| *t).collect();
+        Self {
+            sampled: false,
+            bones,
+            from: previous.clone(),
+            presented: previous.clone(),
+            binding_pose: Vec::new(),
+            previous,
+            clip: None,
+            late_binding: false,
+        }
+    }
+
+    /// Search the authored node order, excluding geometry copies of bone names.
+    pub(super) fn bone(
+        &self,
+        name: &str,
+        names: &Query<&Name>,
+    ) -> Result<Option<Entity>, bevy::ecs::query::QueryEntityError> {
+        for &(entity, _) in &self.bones {
+            if names.get(entity)?.as_str() == name {
+                return Ok(Some(entity));
+            }
+        }
+        Ok(None)
+    }
+
     fn blend_bone(&mut self, index: usize, pose: &mut Transform, weight: f32, hold: bool) {
         if weight < 1. {
             *pose = mix(self.from[index], *pose, weight);

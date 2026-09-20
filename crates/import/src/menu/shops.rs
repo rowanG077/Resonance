@@ -1,6 +1,7 @@
 //! Independent checks of deployed shop stock against the original shop tables.
 use super::*;
-use resonance_content::menu_data::{MenuData, ShopTrade};
+use crate::dol;
+use resonance_content::menu_data::{Item, MenuData, ShopTrade, WorldMapData};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -36,13 +37,19 @@ pub fn validate_shops(extracted: &Path, cooked: &Path) -> Result<ShopInventoryVa
     let executable = fs::read(extracted.join("sys/main.dol"))?;
     let bytes = fs::read(cooked.join("game/menu-data.json"))?;
     let data: MenuData = serde_json::from_slice(&bytes)?;
-    let mut report = validate_catalogue(&executable, &data)?;
+    data.validate()?;
+    let mut report = validate_catalogue(&executable, &data.items, &data.world_map)?;
     report.menu_data_sha256 = crate::digest(&bytes);
     Ok(report)
 }
 
-fn validate_catalogue(executable: &[u8], data: &MenuData) -> Result<ShopInventoryValidation> {
-    data.validate()?;
+fn validate_catalogue(
+    executable: &[u8],
+    catalogue: &[Item],
+    world_map: &WorldMapData,
+) -> Result<ShopInventoryValidation> {
+    ensure!(catalogue.len() == 528, "expected all 528 item definitions");
+    world_map.validate(catalogue.len())?;
     let half = |address| -> Result<u16> {
         Ok(u16::from_be_bytes(
             dol::slice(executable, address, 2)?.try_into()?,
@@ -56,10 +63,10 @@ fn validate_catalogue(executable: &[u8], data: &MenuData) -> Result<ShopInventor
     // Read individual source fields here instead of using the cooking parser.
     // This catches omitted rows, changed ordering and incorrect record strides.
     ensure!(
-        data.world_map.shops.len() == 52,
+        world_map.shops.len() == 52,
         "expected all 52 shop inventories"
     );
-    for (id, item) in data.items.iter().enumerate() {
+    for (id, item) in catalogue.iter().enumerate() {
         ensure!(
             item.price == word(0x801fad9c + id as u32 * 60)?,
             "item {id} sale price differs from source"
@@ -73,11 +80,11 @@ fn validate_catalogue(executable: &[u8], data: &MenuData) -> Result<ShopInventor
         executable_sha256: crate::digest(executable),
         menu_data_sha256: String::new(),
         stock_entries: 0,
-        price_checks: data.items.len(),
+        price_checks: catalogue.len(),
         story_variants: 0,
         shops: Vec::new(),
     };
-    for (id, shop) in data.world_map.shops.iter().enumerate() {
+    for (id, shop) in world_map.shops.iter().enumerate() {
         let address = 0x80230980 + id as u32 * 48;
         ensure!(
             shop.name == dol::text(executable, word(address)?)?,
@@ -94,7 +101,7 @@ fn validate_catalogue(executable: &[u8], data: &MenuData) -> Result<ShopInventor
                 item_id == half(address + 6 + position as u32 * 2)?,
                 "shop {id} stock position {position} differs from source"
             );
-            let item = &data.items[usize::from(item_id)];
+            let item = &catalogue[usize::from(item_id)];
             let sale = word(0x801fad9c + u32::from(item_id) * 60)?;
             ensure!(sale > 0, "shop {id} stocks unsellable item {item_id}");
             let sale = u64::from(sale);
@@ -137,8 +144,7 @@ fn validate_catalogue(executable: &[u8], data: &MenuData) -> Result<ShopInventor
     for world in 0..2u32 {
         for town in 1..=10u32 {
             let id = (world * 256 + town) as u16;
-            let location = data
-                .world_map
+            let location = world_map
                 .locations
                 .get(&id)
                 .with_context(|| format!("missing shop location {id}"))?;
@@ -188,7 +194,7 @@ fn validate_catalogue(executable: &[u8], data: &MenuData) -> Result<ShopInventor
             }
         }
     }
-    for (&id, location) in &data.world_map.locations {
+    for (&id, location) in &world_map.locations {
         if id % 256 > 10 {
             ensure!(
                 location.shops.is_empty() && location.shop_variants.is_empty(),
@@ -204,18 +210,18 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "requires the locally extracted executable and cooked menu data"]
+    #[ignore = "requires the original extracted executable; no cooked assets"]
     fn every_shop_inventory_and_story_variant_matches_source() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
         let executable = fs::read(root.join("extracted/disc1/sys/main.dol")).unwrap();
-        let mut data: MenuData =
-            serde_json::from_slice(&fs::read(root.join("cooked/game/menu-data.json")).unwrap())
-                .unwrap();
-        data.world_map = super::super::data::world_map::cook(&executable, &|row, at| {
-            dol::text(&executable, u32::from_be_bytes(row[at..at + 4].try_into()?))
-        })
+        let mut catalogue = super::super::data::items(&executable).unwrap();
+        let mut world_map = super::super::data::world_map::cook(
+            &crate::all_assets::world_map::read(&executable).unwrap(),
+            &crate::field_catalogue::read(&executable).unwrap(),
+            &crate::all_assets::inventory_ui::read(&executable).unwrap(),
+        )
         .unwrap();
-        let report = validate_catalogue(&executable, &data).unwrap();
+        let report = validate_catalogue(&executable, &catalogue, &world_map).unwrap();
         assert_eq!(
             (
                 report.shops.len(),
@@ -225,60 +231,57 @@ mod tests {
             (52, 608, 3)
         );
         assert_eq!(report.price_checks, 2960);
-        assert_eq!(data.world_map.shops[25].items.len(), 20);
-        assert_eq!(data.world_map.shops[25].items.last(), Some(&121));
+        assert_eq!(world_map.shops[25].items.len(), 20);
+        assert_eq!(world_map.shops[25].items.last(), Some(&121));
         // Its unused twenty-first slot contains Red Satay, which is not for sale.
-        data.world_map.shops[25].items.push(125);
+        world_map.shops[25].items.push(125);
         assert!(
-            validate_catalogue(&executable, &data).is_err(),
+            validate_catalogue(&executable, &catalogue, &world_map).is_err(),
             "stock beyond the declared count passed"
         );
-        data.world_map.shops[25].items.pop();
+        world_map.shops[25].items.pop();
         // Odd base prices catch per-unit truncation; multiplying a basket first
         // would incorrectly give 33 gald for six discounted Magic Lenses.
-        let lens = &data.items[37];
+        let lens = &catalogue[37];
         assert_eq!(lens.shop_price(ShopTrade::Sell, true) * 6, 30);
-        assert_eq!(data.items[127].shop_price(ShopTrade::Sell, true), 27);
+        assert_eq!(catalogue[127].shop_price(ShopTrade::Sell, true), 27);
 
-        data.world_map.shops[51].items.swap(0, 1);
+        world_map.shops[51].items.swap(0, 1);
         assert!(
-            validate_catalogue(&executable, &data).is_err(),
+            validate_catalogue(&executable, &catalogue, &world_map).is_err(),
             "reordered final shop passed"
         );
-        data.world_map.shops[51].items.swap(0, 1);
-        data.items[37].price += 1;
+        world_map.shops[51].items.swap(0, 1);
+        catalogue[37].price += 1;
         assert!(
-            validate_catalogue(&executable, &data).is_err(),
+            validate_catalogue(&executable, &catalogue, &world_map).is_err(),
             "changed price passed"
         );
-        data.items[37].price -= 1;
-        data.world_map
-            .locations
-            .get_mut(&262)
-            .unwrap()
-            .shop_variants[0]
-            .at_least += 1;
+        catalogue[37].price -= 1;
+        world_map.locations.get_mut(&262).unwrap().shop_variants[0].at_least += 1;
         assert!(
-            validate_catalogue(&executable, &data).is_err(),
+            validate_catalogue(&executable, &catalogue, &world_map).is_err(),
             "wrong story threshold passed"
         );
-        data.world_map
-            .locations
-            .get_mut(&262)
-            .unwrap()
-            .shop_variants[0]
-            .at_least -= 1;
-        data.world_map.shops[1].items.push(1);
-        assert!(data.validate().is_err(), "duplicate stock passed");
-        data.world_map.shops[1].items.pop();
-        let final_shop = data.world_map.shops.pop().unwrap();
+        world_map.locations.get_mut(&262).unwrap().shop_variants[0].at_least -= 1;
+        world_map.shops[1].items.push(1);
         assert!(
-            validate_catalogue(&executable, &data).is_err(),
+            world_map.validate(catalogue.len()).is_err(),
+            "duplicate stock passed"
+        );
+        world_map.shops[1].items.pop();
+        let final_shop = world_map.shops.pop().unwrap();
+        assert!(
+            validate_catalogue(&executable, &catalogue, &world_map).is_err(),
             "missing last shop passed"
         );
-        data.world_map.shops.push(final_shop);
+        world_map.shops.push(final_shop);
         assert!(
-            validate_catalogue(&executable[..256], &data).is_err(),
+            validate_catalogue(&executable, &catalogue[..527], &world_map).is_err(),
+            "missing item definition passed"
+        );
+        assert!(
+            validate_catalogue(&executable[..256], &catalogue, &world_map).is_err(),
             "truncated executable passed"
         );
     }

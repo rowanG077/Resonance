@@ -84,7 +84,7 @@ fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
     }
     writer.finish().unwrap();
     let asset = MovieAsset {
-        version: 1,
+        version: 2,
         path: "movies/test.mkv".into(),
         sha256: "0".repeat(64),
         width: 16,
@@ -94,6 +94,7 @@ fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
         sample_rate: 32028,
         channels: 2,
         audio_frames,
+        audio_track: 0,
     };
     let decoder = MovieDecoder::open(&path.0, asset.clone()).unwrap();
     let start = Instant::now();
@@ -144,6 +145,66 @@ fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
             Ok(Some(MovieEvent::End)) => panic!("accepted an early movie end"),
             Ok(None) => thread::sleep(Duration::from_millis(1)),
             _ => {}
+        }
+    }
+}
+
+#[test]
+fn multiple_audio_tracks_select_independent_pcm_and_video_only_movies_survive() {
+    for tracks in [0, 2] {
+        let path = Temporary::new();
+        let formats = vec![(2, 32_000, 32); tracks];
+        let mut writer = MovieWriter::with_audio_tracks(
+            fs::File::create(&path.0).unwrap(),
+            16,
+            16,
+            40_000,
+            &formats,
+        )
+        .unwrap();
+        for track in 0..tracks {
+            writer.audio_track(track, &[17 + track as i16; 64]).unwrap();
+        }
+        writer.video(&pixels(0), Duration::ZERO).unwrap();
+        writer.finish().unwrap();
+        let mut video = VideoReader::open(&path.0).unwrap();
+        assert!(video.next_frame().unwrap().is_some());
+        assert!(video.next_frame().unwrap().is_none());
+        for selected in 0..=tracks {
+            let asset = MovieAsset {
+                version: 2,
+                path: "movies/test.mkv".into(),
+                sha256: "0".repeat(64),
+                width: 16,
+                height: 16,
+                frames: 1,
+                frame_micros: 40_000,
+                sample_rate: 32_000,
+                channels: 2,
+                audio_frames: 32,
+                audio_track: selected as u16,
+            };
+            let decoder = MovieDecoder::open(&path.0, asset).unwrap();
+            let started = Instant::now();
+            let mut audio = Vec::new();
+            loop {
+                assert!(started.elapsed() < Duration::from_secs(5));
+                match decoder.try_next() {
+                    Err(error) => {
+                        assert_eq!(selected, tracks);
+                        assert!(error.to_string().contains("movie has no audio track"));
+                        break;
+                    }
+                    Ok(Some(MovieEvent::Audio(chunk))) => audio.extend(chunk.samples),
+                    Ok(Some(MovieEvent::End)) => {
+                        assert!(selected < tracks);
+                        assert_eq!(audio, vec![(17 + selected) as f32 / 32768.; 64]);
+                        break;
+                    }
+                    Ok(None) => thread::sleep(Duration::from_millis(1)),
+                    _ => {}
+                }
+            }
         }
     }
 }

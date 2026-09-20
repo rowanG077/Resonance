@@ -112,7 +112,8 @@ struct Part {
     root: Option<Entity>,
     materials: Vec<Handle<Surface>>,
     graph: Handle<AnimationGraph>,
-    clip: Option<AnimationNodeIndex>,
+    /// Scene metadata index and its node in this preview's animation graph.
+    clip: Option<(usize, AnimationNodeIndex)>,
     players: Vec<Entity>,
     bones: BTreeMap<String, Entity>,
     ready: bool,
@@ -277,6 +278,7 @@ fn prepare(
                 id: selected.id,
                 preview: Arc::new(selected.model.clone()),
             };
+            record.preview.validate()?;
             for part in &viewer.parts {
                 if part.spec.attached_to.is_none()
                     && let Some(root) = part.root
@@ -496,9 +498,11 @@ impl Part {
                 extension: default(),
             }));
         }
-        let (graph, clips) = AnimationGraph::from_clips(gltf.animations.clone());
-        self.graph = assets.graphs.add(graph);
-        self.clip = clips.first().copied();
+        if let Some((index, _)) = self.spec.selected_clip()? {
+            let (graph, clip) = AnimationGraph::from_clip(gltf.animations[index].clone());
+            self.graph = assets.graphs.add(graph);
+            self.clip = Some((index, clip));
+        }
         self.root = Some(
             commands
                 .spawn((
@@ -543,7 +547,7 @@ impl Part {
             commands
                 .entity(entity)
                 .insert((RenderLayers::layer(LAYER), NoFrustumCulling));
-            if entities.players.contains(entity) {
+            if self.clip.is_some() && entities.players.contains(entity) {
                 commands
                     .entity(entity)
                     .insert(AnimationGraphHandle(self.graph.clone()));
@@ -617,8 +621,8 @@ fn animate(
                     .outline_color
                     .map_or(1., |c| f32::from(c[3]) / 255.);
         }
-        if let Some(clip) = part.clip {
-            let duration = part.spec.scene.clips[0].duration_ticks();
+        if let Some((index, clip)) = part.clip {
+            let duration = part.spec.scene.clips[index].duration_ticks();
             let tick = preview.sample(duration);
             for &entity in &part.players {
                 if let Ok(mut player) = players.get_mut(entity) {

@@ -1,6 +1,6 @@
 //! Native service shims registered by typed call ID. The VM knows neither
 //! actors nor assets; these handlers operate independently of scene/event IDs.
-use crate::world::{Fade, Overlay};
+use crate::world::{Fade, Overlay, OverlayKind, SpriteOverlay};
 use crate::{Actor, Animation, CameraTrack, GameWorld, Particle, ResourceKind, ResourceLibrary};
 use crate::{
     dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, Movie, flags},
@@ -39,6 +39,44 @@ pub(crate) struct NativeHost<'a> {
 }
 fn require(ok: bool, what: &str) -> Result<(), String> {
     if ok { Ok(()) } else { Err(what.into()) }
+}
+fn sprite_property(
+    actor: &mut Actor,
+    overlay: &mut Overlay,
+    selector: i32,
+    value: Option<i32>,
+) -> Option<i32> {
+    let OverlayKind::Sprite(sprite) = &mut overlay.kind else {
+        return None;
+    };
+    let previous = match selector {
+        8 => actor.properties.get(&8).copied().unwrap_or(0),
+        15 => sprite.alpha_step as i32,
+        30..=32 => (sprite.scale[(selector - 30) as usize] * 100.) as i32,
+        4 | 37 => actor.heading as i32,
+        42..=44 => i32::from(overlay.rgba[(selector - 42) as usize]),
+        62 => i32::from(sprite.image),
+        _ => return None,
+    };
+    if let Some(value) = value {
+        match selector {
+            4 => actor.target_heading = value as f32,
+            8 => {
+                overlay.rgba[3] = value as u8;
+                actor.properties.insert(8, i32::from(value as u8));
+            }
+            15 => sprite.alpha_step = value as f32,
+            30..=32 => sprite.scale[(selector - 30) as usize] = value as f32 / 100.,
+            37 => {
+                actor.heading = value as f32;
+                actor.target_heading = actor.heading;
+            }
+            42..=44 => overlay.rgba[(selector - 42) as usize] = value as u8,
+            62 => sprite.image = value as u8,
+            _ => unreachable!(),
+        }
+    }
+    Some(previous)
 }
 impl NativeHost<'_> {
     fn yield_update(&mut self) -> Result<NativeResult, String> {
@@ -82,7 +120,11 @@ impl NativeHost<'_> {
             .model(animation.resource)
             .and_then(|m| m.clips.get(&animation.slot))
             .ok_or("animation is missing")?;
-        let sample = animation.sample(self.world.tick, 0, clip.duration_ticks as f32) as u32;
+        let sample = animation.sample(
+            self.world.tick,
+            model.attachment_pose_delay,
+            clip.duration_ticks as f32,
+        ) as u32;
         let track = clip
             .attachments
             .get(name)
@@ -227,16 +269,27 @@ impl NativeHost<'_> {
             }
             NativeCall::GetActorProperty | NativeCall::SetActorProperty => {
                 // Ordinary property writes return the previous value.
-                require(
-                    matches!(a[1], 1..=4 | 7..=13 | 15..=17 | 46 | 66 | 112)
-                        && (a[1] != 112 || op == NativeCall::GetActorProperty),
-                    "actor property shim is not implemented",
-                )?;
                 let id = if a[0] == crate::CONTROLLED_ACTOR {
                     self.world.controlled_actor
                 } else {
                     a[0]
                 };
+                if let (Some(actor), Some(overlay)) = (
+                    self.world.actors.get_mut(&id),
+                    self.world.overlays.get_mut(&id),
+                ) && let Some(previous) = sprite_property(
+                    actor,
+                    overlay,
+                    a[1],
+                    (op == NativeCall::SetActorProperty).then(|| a[2]),
+                ) {
+                    return Ok(NativeResult::Continue(Some(previous)));
+                }
+                require(
+                    matches!(a[1], 1..=4 | 7..=13 | 15..=17 | 46 | 66 | 112)
+                        && (a[1] != 112 || op == NativeCall::GetActorProperty),
+                    "actor property shim is not implemented",
+                )?;
                 if a[1] == 112 {
                     let luck = if (1..=9).contains(&id) {
                         let party = self
@@ -374,10 +427,11 @@ impl NativeHost<'_> {
                 _ => return Err("render configuration command is not implemented".into()),
             },
             NativeCall::CreateOverlay => {
-                let resource = self.resources.resolve(a[1], ResourceKind::Overlay)?;
+                let resource = self.resolve(a[1], ResourceKind::Overlay)?;
                 self.world.insert_actor(
                     a[0],
                     Actor {
+                        heading: a[6] as f32,
                         cull_outside_view: false,
                         grounded: false,
                         collidable: false,
@@ -390,15 +444,14 @@ impl NativeHost<'_> {
                     Overlay {
                         born: self.world.tick,
                         size: [a[4], a[5]],
-                        angle: a[6],
                         rgba: [a[7] as u8, a[8] as u8, a[9] as u8, a[10] as u8],
                         duration: a[11].max(0) as u32,
                         kind: if a[0] == 999_989 {
-                            crate::world::OverlayKind::LocationCaption {
+                            OverlayKind::LocationCaption {
                                 hold_ticks: a[12].max(0) as u32,
                             }
                         } else {
-                            crate::world::OverlayKind::Sprite { depth: a[12] }
+                            OverlayKind::Sprite(SpriteOverlay::new(a[12], a[10] as u8, a[11]))
                         },
                     },
                 );

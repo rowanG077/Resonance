@@ -16,7 +16,9 @@ fn original_title_program_drives_the_scene_for_ten_thousand_updates() {
     )
     .unwrap();
     assert_eq!(runtime.world.actors.len(), 6);
-    assert!(!runtime.world.actors[&1000].visible);
+    // Overlay property 8 changes target opacity, independently of actor visibility.
+    assert!(runtime.world.actors[&1000].visible);
+    assert_eq!(runtime.world.overlays[&1000].rgba[3], 0);
     assert_eq!(runtime.world.particles.len(), 2);
     // These title actors use strict depth testing with depth writes disabled.
     for (id, depth_write) in [

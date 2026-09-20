@@ -125,6 +125,34 @@ fn rejects_invalid_dimensions_and_lengths_before_compression() {
 }
 
 #[test]
+fn preserves_authored_mips_in_the_player_image_loader() {
+    let pixels = [
+        vec![17; 8 * 4 * 4],
+        vec![29; 4 * 2 * 4],
+        vec![43; 2 * 4],
+        vec![71; 4],
+    ];
+    let levels: Vec<_> = pixels.iter().map(Vec::as_slice).collect();
+    let bytes = encode_levels(8, 4, &levels).unwrap();
+    let reader = Reader::new(&bytes).unwrap();
+    assert_eq!(reader.header().level_count, 4);
+    for (level, pixels) in reader.levels().zip(&pixels) {
+        let mut decoded = Vec::new();
+        ruzstd::decoding::StreamingDecoder::new(level.data)
+            .unwrap()
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(&decoded, pixels);
+    }
+    let image = ktx2_buffer_to_image(&bytes, CompressedImageFormats::NONE, false).unwrap();
+    assert_eq!(image.texture_descriptor.mip_level_count, 4);
+    assert_eq!(image.data.unwrap(), pixels.concat());
+    assert_eq!(encode_levels(1, 1, &levels), Err(EncodeError::LevelCount));
+    assert_eq!(encode_levels(8, 4, &[]), Err(EncodeError::LevelCount));
+    assert!(encode_levels(8, 4, &[&pixels[0], &pixels[2]]).is_err());
+}
+
+#[test]
 fn cache_identity_includes_recipe_dimensions_and_pixels() {
     let pixels = [23; 24];
     let hash = fingerprint(2, 3, &pixels);

@@ -20,12 +20,13 @@ pub struct CollisionGroup {
 
 impl CollisionGroup {
     pub fn validate(&self) -> Result<()> {
+        // Authored empty groups retain their slot and surface classification.
         ensure!(
-            !self.vertices.is_empty() && self.vertices.len() <= 65536,
+            self.vertices.len() <= 65536,
             "invalid collision vertex count"
         );
         ensure!(
-            !self.triangles.is_empty() && self.triangles.len() <= 65536,
+            self.triangles.len() <= 65536,
             "invalid collision triangle count"
         );
         ensure!(
@@ -62,8 +63,7 @@ pub struct FieldAssets {
     pub blink: crate::effect::BlinkCycle,
     #[serde(default)]
     pub particles: BTreeMap<i32, crate::effect::FlutterRecipe>,
-    #[serde(default)]
-    pub captions: BTreeMap<i32, String>,
+    pub overlays: BTreeMap<i32, String>,
     #[serde(default)]
     pub save_point_tutorial: Vec<crate::font::TextSpan>,
     /// Complete cooked dependency inventory, excluding this manifest itself.
@@ -84,13 +84,30 @@ pub struct Door {
 
 /// A soft textured ground quad, positioned from an animated actor joint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContactShadow {
-    pub texture: String,
+pub struct ContactShadow<Image = String> {
+    pub texture: Image,
     pub uv_size: [f32; 2],
     pub half_size: f32,
     pub height_offset: f32,
     pub alpha: u8,
     pub anchor_node: u16,
+}
+
+impl<Image: AsRef<str>> ContactShadow<Image> {
+    pub fn validate(&self) -> Result<()> {
+        validate_asset_path(self.texture.as_ref())?;
+        ensure!(
+            self.uv_size
+                .iter()
+                .all(|v| v.is_finite() && *v > 0. && *v <= 1.)
+                && self.half_size.is_finite()
+                && (0. ..=1024.).contains(&self.half_size)
+                && self.height_offset.is_finite()
+                && (0. ..=32.).contains(&self.height_offset),
+            "invalid contact shadow recipe"
+        );
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,7 +124,7 @@ pub struct ActorAssets {
 impl FieldAssets {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 7 && !self.parts.is_empty() && !self.ground.is_empty(),
+            self.version == 8 && !self.parts.is_empty() && !self.ground.is_empty(),
             "unsupported or incomplete field assets"
         );
         validate_asset_path(&self.script.path)?;
@@ -147,7 +164,6 @@ impl FieldAssets {
         validate_asset_path(&self.toon_ramp)?;
         validate_asset_path(&self.effects)?;
         ensure!(self.particles.len() <= 256, "too many particle recipes");
-        ensure!(self.captions.len() <= 32, "too many location captions");
         ensure!(
             self.save_point_tutorial.len() <= 128,
             "system notice is too long"
@@ -163,11 +179,11 @@ impl FieldAssets {
                 || !self.save_point_tutorial.is_empty(),
             "memory-circle tutorial is missing; recook the field"
         );
-        for caption in self.captions.values() {
-            validate_asset_path(caption)?;
+        for overlay in self.overlays.values() {
+            validate_asset_path(overlay)?;
             ensure!(
-                self.files.contains_key(caption),
-                "caption is missing from dependencies"
+                self.files.contains_key(overlay),
+                "overlay is missing from dependencies"
             );
         }
         for recipe in self.particles.values() {
@@ -185,18 +201,10 @@ impl FieldAssets {
             self.files.contains_key(&self.toon_ramp),
             "toon ramp is missing from field dependencies"
         );
-        validate_asset_path(&shadow.texture)?;
+        shadow.validate()?;
         ensure!(
-            self.files.contains_key(&shadow.texture)
-                && shadow
-                    .uv_size
-                    .iter()
-                    .all(|v| v.is_finite() && *v > 0. && *v <= 1.)
-                && shadow.half_size.is_finite()
-                && (0. ..=1024.).contains(&shadow.half_size)
-                && shadow.height_offset.is_finite()
-                && (0. ..=32.).contains(&shadow.height_offset),
-            "invalid contact shadow recipe"
+            self.files.contains_key(&shadow.texture),
+            "contact shadow texture is missing from dependencies"
         );
         ensure!(
             self.files.get(&self.script.path) == Some(&self.script.sha256)
@@ -218,7 +226,7 @@ impl FieldAssets {
             .iter()
             .chain(self.actors.iter().flat_map(|c| &c.parts))
         {
-            for chain in &part.secondary_motion {
+            for chain in &part.secondary_motion.chains {
                 chain.validate(part.bone_names.len())?;
             }
             ensure!(

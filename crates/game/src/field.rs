@@ -871,6 +871,31 @@ pub fn start(
     start_with_entry(script, messages, assets, FieldEntry::default())
 }
 
+fn bind_clips(
+    resources: &mut ResourceLibrary,
+    owner: u32,
+    clips: &[resonance_content::SceneClip],
+) -> Result<()> {
+    for clip in clips {
+        let resource = clip.animation_resource.unwrap_or(owner);
+        resources
+            .bindings
+            .insert(resource as i32, (ResourceKind::Model, resource));
+        let previous = resources
+            .models
+            .entry(resource)
+            .or_default()
+            .clips
+            .insert(clip.resource_slot, AnimationClip::from(clip));
+        ensure!(
+            previous.is_none_or(|value| value.duration_ticks == clip.duration_ticks()),
+            "animation {resource:#x}/{} has inconsistent durations across models",
+            clip.resource_slot
+        );
+    }
+    Ok(())
+}
+
 fn start_with_entry(
     script: &[u8],
     messages: Vec<symphonia_script::message::Message>,
@@ -909,7 +934,7 @@ fn start_with_entry(
         ..Default::default()
     };
     resources.movies.insert(1);
-    for &resource in assets.captions.keys() {
+    for &resource in assets.overlays.keys() {
         resources
             .bindings
             .insert(resource, (ResourceKind::Overlay, resource as u32));
@@ -930,21 +955,10 @@ fn start_with_entry(
                 has_eyes: model.appearance.as_ref().is_some_and(|a| a.eyes.is_some()),
                 names: model.bone_names.clone(),
                 hidden_nodes: character.hidden_nodes.iter().copied().collect(),
-                clips: BTreeMap::new(),
+                ..Default::default()
             },
         );
-        for clip in &model.clips {
-            let animation = clip.animation_resource.unwrap_or(resource);
-            resources
-                .bindings
-                .insert(animation as i32, (ResourceKind::Model, animation));
-            resources
-                .models
-                .entry(animation)
-                .or_default()
-                .clips
-                .insert(clip.resource_slot, AnimationClip::from(clip));
-        }
+        bind_clips(&mut resources, resource, &model.clips)?;
     }
     let (mut world, memory) = entry.persistent.into_world();
     if let Some((party, menu)) = world.party.as_mut().zip(resources.menu_data.as_ref()) {
@@ -1009,14 +1023,10 @@ fn start_with_entry(
             resource,
             ModelResource {
                 names: part.bone_names.clone(),
-                clips: part
-                    .clips
-                    .iter()
-                    .map(|clip| (clip.resource_slot, AnimationClip::from(clip)))
-                    .collect(),
                 ..Default::default()
             },
         );
+        bind_clips(&mut resources, resource, &part.clips)?;
         let mut instance = Actor::new(resource, [0.; 3]);
         instance.cull_outside_view = false;
         instance.grounded = false;
@@ -1056,6 +1066,48 @@ fn start_with_entry(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scenery_and_actors_share_external_clips_without_replacing_autoplay() {
+        let mut resources = ResourceLibrary::default();
+        let own = resonance_content::SceneClip {
+            resource_slot: 0,
+            duration_seconds: 1.,
+            animation_resource: None,
+            secondary_pose_nodes: Vec::new(),
+        };
+        let mut shared = resonance_content::SceneClip {
+            resource_slot: 12,
+            duration_seconds: 2.,
+            animation_resource: Some(0x10004),
+            secondary_pose_nodes: Vec::new(),
+        };
+        bind_clips(
+            &mut resources,
+            SCENERY_RESOURCE_BASE,
+            &[own, shared.clone()],
+        )
+        .unwrap();
+        bind_clips(&mut resources, 1, &[shared.clone()]).unwrap();
+        assert_eq!(
+            resources.models[&SCENERY_RESOURCE_BASE]
+                .clips
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            [0]
+        );
+        assert_eq!(
+            resources.models[&0x10004].clips[&12].duration_ticks,
+            shared.duration_ticks()
+        );
+        assert_eq!(
+            resources.resolve(0x10004, ResourceKind::Model).unwrap(),
+            0x10004
+        );
+        shared.duration_seconds = 3.;
+        assert!(bind_clips(&mut resources, 2, &[shared]).is_err());
+    }
+
     use super::*;
     use symphonia_script::{
         NativeCall, Width,

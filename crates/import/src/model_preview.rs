@@ -1,7 +1,7 @@
 //! Shared conversion of preview mesh layers, outlines and idle animation.
 use crate::{
     character::texture_palette,
-    scene::{PartSource, cook_part},
+    scene::{PartSource, SourceClip, cook_part},
 };
 use anyhow::{Context, Result};
 use resonance_content::{CullFace, model_preview::PreviewPart};
@@ -15,10 +15,38 @@ pub(crate) struct Layer<'a> {
     pub additive: bool,
 }
 
+#[cfg(test)]
+pub(crate) fn preflight(layer: Layer<'_>) -> Result<()> {
+    let mut errors = Vec::new();
+    for (outline, source) in [(false, Some(layer.model)), (true, layer.outline)] {
+        let Some(source) = source else { continue };
+        let result = texture_palette(layer.model, source)
+            .and_then(|source| crate::geometry::preflight_section(&source).map_err(Into::into));
+        if let Err(error) = result {
+            errors.push(format!(
+                "{} layer: {error:#}",
+                if outline { "outline" } else { "primary" }
+            ));
+        }
+    }
+    anyhow::ensure!(errors.is_empty(), "{}", errors.join("\n"));
+    Ok(())
+}
+
 pub(crate) fn layers(
     layer: Layer<'_>,
     parts: &mut Vec<PreviewPart>,
     name: &str,
+    output: &Path,
+) -> Result<()> {
+    layers_with_clips(layer, parts, name, &[], output)
+}
+
+pub(crate) fn layers_with_clips(
+    layer: Layer<'_>,
+    parts: &mut Vec<PreviewPart>,
+    name: &str,
+    clips: &[SourceClip<'_>],
     output: &Path,
 ) -> Result<()> {
     for (outline, source) in [(false, Some(layer.model)), (true, layer.outline)] {
@@ -35,23 +63,15 @@ pub(crate) fn layers(
                 autoplay: layer.animation,
                 animation_slots: &[],
                 clip_prefix: name,
-                extra_clips: &[],
+                extra_clips: clips,
+                shared_clips: &[],
                 texture_animations: Vec::new(),
             },
             output,
         )
         .with_context(|| format!("preview layer {}", parts.len()))?;
-        let model = &normalized[crate::read::u32(&normalized, 4)? as usize..];
-        let name_offset = crate::read::u32(model, 16)? as usize;
-        let name = model.get(name_offset..).context("preview model name")?;
-        let name = std::str::from_utf8(name.split(|b| *b == 0).next().unwrap())?;
         scene.secondary_motion =
-            crate::secondary_motion::cook(&gltf, &scene.bone_names, name.contains("llo00"))?;
-        if name.contains("col00") {
-            crate::secondary_motion::colette(&mut scene.secondary_motion, &scene.bone_names)?;
-        } else if name.contains("ref00") {
-            crate::secondary_motion::raine(&mut scene.secondary_motion, &scene.bone_names)?;
-        }
+            crate::secondary_motion::cook(&normalized, &gltf, &scene.bone_names)?;
         if let Some(clip) = scene.clips.first_mut() {
             clip.secondary_pose_nodes = serde_json::from_value(
                 gltf["animations"][0]["extras"]["secondary_pose_nodes"].clone(),
@@ -70,6 +90,9 @@ pub(crate) fn layers(
             }
         }
         parts.push(PreviewPart {
+            animation: layer
+                .animation
+                .and(scene.clips.first().map(|clip| clip.resource_slot)),
             scene,
             attached_to: layer.attached_to.clone(),
             additive: layer.additive,

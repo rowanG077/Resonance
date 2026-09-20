@@ -3118,12 +3118,24 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
                 )?;
                 events.world.audio_commands.clear();
                 for portrait in events.world.skit.as_ref().unwrap().portraits.values() {
+                    let asset = &catalog.portraits[&portrait.resource];
+                    let tile_size = resonance_content::skit::TILE_SIZE;
                     anyhow::ensure!(
-                        catalog.portraits[&portrait.resource]
-                            .variants
-                            .iter()
-                            .any(|v| v.images == portrait.images),
-                        "portrait expression was not cooked"
+                        portrait.tiles.len()
+                            == (asset.size[0].div_ceil(tile_size)
+                                * asset.size[1].div_ceil(tile_size))
+                                as usize
+                            && portrait.tiles.iter().all(|tile| {
+                                asset
+                                    .images
+                                    .get(usize::from(tile.image))
+                                    .is_some_and(|image| {
+                                        tile.block
+                                            < image.size[0].div_ceil(tile_size)
+                                                * image.size[1].div_ceil(tile_size)
+                                    })
+                            }),
+                        "portrait references an uncooked image block"
                     );
                 }
             }

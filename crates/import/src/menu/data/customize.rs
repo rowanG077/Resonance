@@ -1,108 +1,130 @@
 use super::*;
-use resonance_content::menu_data::{
-    CUSTOMIZE_OPTIONS, CustomizeData, CustomizeOption, CustomizeSettings, Volumes, WindowColors,
-};
+use crate::all_assets::options_ui::{Catalogue, CopyOnlyDefaults};
+use resonance_content::menu_data::{CustomizeData, CustomizeOption};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub(super) fn cook(
-    executable: &[u8],
-    text: &impl Fn(&[u8], usize) -> Result<String>,
-) -> Result<CustomizeData> {
-    const LABELS: u32 = 0x8019a9a0;
-    let strings = |address, count| -> Result<Vec<String>> {
-        dol::slice(executable, address, count * 4)?
-            .chunks_exact(4)
-            .map(|p| text(p, 0))
-            .collect()
-    };
-    let colors = |row: &[u8]| -> WindowColors {
-        let rgba = |i| row[i..i + 4].try_into().unwrap();
-        WindowColors {
-            menu: rgba(0),
-            dialogue: rgba(4),
-            choice: rgba(8),
-            popup: rgba(12),
-            shade_top: rgba(16),
-            shade_bottom: rgba(20),
-            selection: rgba(24),
-        }
-    };
-    let names = strings(0x80219cc0, CUSTOMIZE_OPTIONS)?;
-    let descriptions = strings(LABELS + 0x2f4, CUSTOMIZE_OPTIONS)?;
-    let defaults = dol::slice(executable, 0x80219cf8, 44)?;
-    let enabled = |mask| defaults[1] & mask != 0;
+#[derive(Serialize, Deserialize)]
+pub(super) struct Source {
+    #[serde(flatten)]
+    data: CustomizeData,
+    default_font_slot: u8,
+    copy_only_defaults: CopyOnlyDefaults,
+}
+
+pub(super) fn cook(ui: &Catalogue) -> Result<Source> {
     let mut labels: BTreeMap<_, _> = [
-        ("cancel_help", 0xa0),
-        ("default_help", 0xa4),
-        ("cancel", 0xa8),
-        ("default", 0xac),
+        ("cancel_help", ui.help.cancel_description),
+        ("default_help", ui.help.default_description),
+        ("cancel", ui.help.cancel),
+        ("default", ui.help.default),
+        ("on", ui.choices.toggle[0]),
+        ("off", ui.choices.toggle[1]),
+        ("stereo", ui.choices.audio_output[0]),
+        ("mono", ui.choices.audio_output[1]),
     ]
     .into_iter()
-    .map(|(key, offset)| {
-        Ok((
-            key.into(),
-            text(dol::slice(executable, LABELS + offset, 4)?, 0)?,
-        ))
-    })
+    .map(|(key, reference)| Ok((key.into(), ui.required(reference)?.to_owned())))
     .collect::<Result<_>>()?;
-    for (key, address) in [
-        ("on", 0x8035ca7c),
-        ("off", 0x8035ca80),
-        ("stereo", 0x8035cad4),
-        ("mono", 0x8035cadc),
-        ("color", 0x8035cbd4),
-        ("volume", 0x8035cbd8),
-        ("position", 0x8035cbdc),
-        ("position_help", LABELS + 0xf70),
+    for (key, reference) in [
+        ("color", ui.symbols.color),
+        ("volume", ui.symbols.volume),
+        ("position", ui.symbols.position),
+        ("position_help", ui.symbols.position_help),
     ] {
-        // ON/OFF are a pointer pair; the remaining symbols contain the strings.
-        let pointer = if matches!(key, "on" | "off") {
-            dol::slice(executable, address, 4)?.try_into()?
-        } else {
-            address.to_be_bytes()
-        };
-        labels.insert(key.into(), text(&pointer, 0)?);
+        labels.insert(key.into(), ui.text(reference).to_owned());
     }
-    Ok(CustomizeData {
-        options: names
-            .into_iter()
-            .zip(descriptions)
-            .map(|(name, description)| CustomizeOption { name, description })
-            .collect(),
-        difficulties: strings(LABELS + 0x78, 3)?.try_into().unwrap(),
-        actions: strings(LABELS + 0x84, 7)?.try_into().unwrap(),
-        control_buttons: dol::slice(executable, 0x8035caec, 7)?.try_into()?,
-        color_groups: strings(LABELS + 0x42c, 7)?.try_into().unwrap(),
-        volume_channels: strings(LABELS + 0x4a8, 6)?.try_into().unwrap(),
-        themes: dol::slice(executable, 0x8019ad10, 3 * 28)?
-            .chunks_exact(28)
-            .map(colors)
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap(),
-        defaults: CustomizeSettings {
-            message_speed: defaults[0],
-            battle_rank: defaults[15],
-            window: (defaults[7] >> 4) & 3,
-            background: defaults[7] & 15,
-            colors: colors(&defaults[16..]),
-            volumes: Volumes {
-                music: defaults[2],
-                effects: defaults[3],
-                voice: defaults[4],
-                battle_effects: defaults[5],
-                battle_voice: defaults[6],
-            },
-            stereo: enabled(2),
-            button_map: defaults[8..15].try_into()?,
-            battle_voiceover: enabled(128),
-            event_voiceover: enabled(64),
-            skit_notifications: enabled(32),
-            movie_subtitles: enabled(16),
-            battle_auto_zoom: enabled(8),
-            rumble: enabled(4),
-            screen_position: [0; 2],
+    Ok(Source {
+        data: CustomizeData {
+            options: ui
+                .options
+                .iter()
+                .map(|option| {
+                    Ok(CustomizeOption {
+                        name: ui.required(option.name)?.to_owned(),
+                        description: ui.required(option.description)?.to_owned(),
+                    })
+                })
+                .collect::<Result<_>>()?,
+            difficulties: ui.strings(&ui.difficulties)?,
+            actions: ui.strings(&ui.actions)?,
+            control_buttons: ui.control_buttons,
+            color_groups: ui.strings(&ui.color_groups)?,
+            volume_channels: ui.strings(&ui.volume_channels)?,
+            themes: ui.themes.clone(),
+            defaults: ui.defaults.clone(),
+            labels,
         },
-        labels,
+        default_font_slot: ui.default_font_slot,
+        copy_only_defaults: ui.copy_only_defaults.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::all_assets::options_ui::{
+        self, DEFAULTS_ADDRESS, DEFAULTS_SIZE, defaults, reconstruct_defaults,
+    };
+    use resonance_content::menu_data::CustomizeSettings;
+
+    #[test]
+    fn defaults_preserve_font_slot_copy_only_storage_and_signed_positions() -> Result<()> {
+        for (flags, positions) in [
+            (0, [i16::MIN, i16::MAX]),
+            (255, [-12, -32]),
+            (85, [32, 32]),
+            (170, [0, -1]),
+        ] {
+            let mut bytes = std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(19));
+            bytes[1] = flags;
+            bytes[7] = flags;
+            bytes[44..46].copy_from_slice(&positions[0].to_be_bytes());
+            bytes[46..48].copy_from_slice(&positions[1].to_be_bytes());
+            let parsed = defaults(&bytes);
+            let (settings, font_slot, copy_only): (CustomizeSettings, u8, CopyOnlyDefaults) =
+                serde_json::from_slice(&serde_json::to_vec(&parsed)?)?;
+            assert_eq!(settings.screen_position, positions);
+            assert_eq!(font_slot, flags >> 6);
+            assert_eq!(
+                reconstruct_defaults(&settings, font_slot, &copy_only),
+                bytes
+            );
+            bytes[1] ^= 1;
+            bytes[48..].fill(0xAD);
+            assert_eq!(defaults(&bytes).0, settings);
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires both extracted executables; no cooking or devices"]
+    fn original_customization_defaults_preserve_complete_records() -> Result<()> {
+        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+        for disc in [1, 2] {
+            let executable = fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
+            let catalogue = options_ui::read(&executable)?;
+            let source = cook(&catalogue)?;
+            let json = serde_json::to_vec(&source)?;
+            let restored: Source = serde_json::from_slice(&json)?;
+            assert_eq!(
+                reconstruct_defaults(
+                    &restored.data.defaults,
+                    restored.default_font_slot,
+                    &restored.copy_only_defaults,
+                )
+                .as_slice(),
+                dol::slice(&executable, DEFAULTS_ADDRESS, DEFAULTS_SIZE)?
+            );
+            assert_eq!(restored.default_font_slot, 0);
+            let runtime: CustomizeData = serde_json::from_slice(&json)?;
+            runtime.validate()?;
+            assert_eq!(runtime.defaults, CustomizeSettings::default());
+            assert_eq!(
+                serde_json::to_value(runtime)?,
+                serde_json::to_value(source.data)?
+            );
+        }
+        Ok(())
+    }
 }

@@ -14,7 +14,7 @@ use std::{
     path::{Component, Path},
 };
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 #[cfg(test)]
 mod tests;
@@ -92,9 +92,20 @@ impl Package {
         let package: Self = serde_json::from_slice(&read(path, 16 * 1024 * 1024)?)?;
         ensure!(
             package.version == VERSION,
-            "unsupported cooked music version; recook title audio"
+            "unsupported cooked music version; recook audio packages"
         );
         package.tables.validate()?;
+        ensure!(
+            package.tables.mix.spatial.is_some()
+                || !package.programs.values().flatten().any(|command| matches!(
+                    command,
+                    Command::VolumeCurve {
+                        interaural_delay: true,
+                        ..
+                    }
+                )),
+            "instrument requires uncooked spatial audio tables"
+        );
         for reverb in package.reverbs {
             crate::reverb::StandardReverb::new(reverb)?;
         }

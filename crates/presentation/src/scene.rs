@@ -218,6 +218,11 @@ pub(super) fn sampled_image(
         // Different materials may sample the same image with different wrap
         // modes. A derived image prevents one loader setting winning globally.
         let mut image = images.get(&handle).expect("loaded texture").clone();
+        // Scene shaders currently sample the base image. Keep that policy when
+        // physical textures also retain their authored mip levels.
+        let view = image.texture_view_descriptor.get_or_insert_default();
+        view.base_mip_level = 0;
+        view.mip_level_count = Some(1);
         let wrap = |mode| match mode {
             TextureWrap::Clamp => ImageAddressMode::ClampToEdge,
             TextureWrap::Repeat => ImageAddressMode::Repeat,

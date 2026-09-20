@@ -40,7 +40,11 @@ impl Rig {
                 ))
             })
             .collect();
-        if spec.secondary_motion.iter().any(|chain| {
+        let chains = spec
+            .secondary_motion
+            .prepare(&spec.bone_names)
+            .unwrap_or_else(|error| panic!("secondary-motion preparation failed: {error:#}"));
+        if chains.iter().any(|chain| {
             chain.joints.iter().any(|j| !bones.contains_key(&j.node))
                 || chain
                     .collision_plane
@@ -51,10 +55,8 @@ impl Rig {
         }
         Some(Self {
             bones,
-            chains: spec
-                .secondary_motion
-                .iter()
-                .cloned()
+            chains: chains
+                .into_iter()
                 .map(|chain| (chain, Simulation::default()))
                 .collect(),
             tick: None,

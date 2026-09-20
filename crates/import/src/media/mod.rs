@@ -2,17 +2,31 @@
 //! pure Rust codecs run without opening an audio output device.
 mod cooked_music;
 mod field_audio;
+pub(crate) mod voice_library;
 pub use field_audio::cook_field_audio;
+mod adx;
 mod movie;
 mod music;
+mod music_library;
 mod music_score;
 mod music_voice;
 mod pitched_sample;
 mod sound_buses;
+pub(crate) mod sound_library;
 mod sounds;
+pub(crate) use music_library::bind_music;
+pub(crate) use sound_library::bind_sounds;
+
+pub(crate) use field_audio::{
+    VoiceFormat, decode_voice_to, music_path, sound_score, voice_gains, voice_pan,
+};
+pub(crate) use music::{song_reverb_change, song_reverbs};
+pub(crate) use music_voice::tables as synthesis_tables;
 
 pub use cooked_music::{cook_title_audio, render_cooked_title_audio};
-pub use movie::{MovieSource, cook_movie};
+pub(crate) use movie::cook_directory as cook_movie_directory;
+pub(crate) use movie::is_movie;
+pub use movie::{CookedMovie, MovieAudioTrack, MovieSource, cook_movie, cook_movie_file};
 pub use music_score::inspect_title_audio;
 pub use music_voice::{MusicVoiceOptions, render_music_voice, render_title_audio_preview};
 pub use pitched_sample::{PitchedSampleOptions, render_pitched_sample};
@@ -21,11 +35,10 @@ pub use sounds::cook_title_sounds;
 
 use crate::read::u32 as be_u32;
 use anyhow::{Context, Result, ensure};
-use resonance_audio::{data::Resources, package::SampleAsset};
+use resonance_audio::package::SampleAsset;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
     fs,
     io::Read,
     path::{Path, PathBuf},
@@ -38,8 +51,9 @@ const SAMPLE_RATE: u32 = 32_000;
 const PLAYBACK_RATE: u32 = 32_028;
 
 pub(crate) struct Workspace {
-    extracted: PathBuf,
-    output: PathBuf,
+    pub(crate) extracted: PathBuf,
+    pub(crate) output: PathBuf,
+    pub(crate) disc: u8,
     lock: PathBuf,
 }
 
@@ -48,11 +62,7 @@ impl Workspace {
         let extracted = extracted
             .canonicalize()
             .context("missing extracted disc directory")?;
-        let boot = fs::read(extracted.join("sys/boot.bin"))?;
-        ensure!(
-            boot.get(..6) == Some(b"GQSEAF") && boot.get(6) == Some(&0) && boot.get(7) == Some(&0),
-            "expected GQSEAF revision 0 disc 1"
-        );
+        let disc = crate::disc_number(&extracted)?;
         fs::create_dir_all(output)?;
         let output = output.canonicalize()?;
         let lock = output.join(".cook-media.lock");
@@ -66,14 +76,9 @@ impl Workspace {
         Ok(Self {
             extracted,
             output,
+            disc,
             lock,
         })
-    }
-
-    fn intermediate(&self, relative: &str) -> Result<PathBuf> {
-        let path = self.output.join("intermediate").join(relative);
-        fs::create_dir_all(&path)?;
-        Ok(path)
     }
 }
 
@@ -108,7 +113,7 @@ fn write_json(path: &Path, value: &Value) -> Result<()> {
 }
 
 /// Write only the supplied path; callers validate temporary files before publishing them.
-fn write_pcm16(
+pub(crate) fn write_pcm16(
     path: &Path,
     channels: u16,
     sample_rate: u32,
@@ -130,39 +135,50 @@ fn write_pcm16(
     Ok(())
 }
 
-fn write_sample_assets(
+/// All-asset cooks share identical PCM across sound, program and music packages.
+/// Each worker writes a private temporary. Only complete immutable WAVs become
+/// visible at the shared content address; no decoded samples are cached here.
+pub(crate) fn write_shared_sample(
     output: &Path,
-    resources: &Resources,
-    name: impl Fn(u16) -> String,
-) -> Result<BTreeMap<u16, SampleAsset>> {
-    resources
-        .samples
-        .iter()
-        .map(|(&id, sample)| {
-            let path = name(id);
-            let target = output.join(&path);
-            let temporary = target.with_extension("partial.wav");
-            write_pcm16(
-                &temporary,
-                1,
-                u32::from(sample.rate),
-                sample.pcm.iter().chain(&sample.loop_pcm).copied(),
-            )?;
-            fs::rename(temporary, &target)?;
-            Ok((
-                id,
-                SampleAsset {
-                    path,
-                    sha256: hash_file(&target)?,
-                    key: sample.key,
-                    rate: sample.rate,
-                    first_frames: sample.pcm.len() as u32,
-                    loop_start: sample.loop_start,
-                    loop_length: sample.loop_length,
-                },
-            ))
-        })
-        .collect()
+    sample: &resonance_audio::sample::Sample,
+) -> Result<SampleAsset> {
+    ensure!(
+        sample.key < 128
+            && sample.rate > 0
+            && !sample.pcm.is_empty()
+            && sample.pcm.len().saturating_add(sample.loop_pcm.len()) <= 32_000_000,
+        "invalid standalone instrument sample"
+    );
+    resonance_audio::resample::SampleCursor::new(sample)?;
+    let directory = output.join("audio/samples");
+    fs::create_dir_all(&directory)?;
+    let temporary = crate::temporary_path(&directory.join("sample.wav"));
+    write_pcm16(
+        &temporary,
+        1,
+        u32::from(sample.rate),
+        sample.pcm.iter().chain(&sample.loop_pcm).copied(),
+    )?;
+    let sha256 = hash_file(&temporary)?;
+    let path = format!("audio/samples/{sha256}.wav");
+    let target = output.join(&path);
+    match fs::hard_link(&temporary, &target) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            ensure!(hash_file(&target)? == sha256, "corrupt shared audio sample");
+        }
+        Err(error) => return Err(error).context("publish shared audio sample"),
+    }
+    fs::remove_file(temporary)?;
+    Ok(SampleAsset {
+        path,
+        sha256,
+        key: sample.key,
+        rate: sample.rate,
+        first_frames: u32::try_from(sample.pcm.len())?,
+        loop_start: sample.loop_start,
+        loop_length: sample.loop_length,
+    })
 }
 
 fn valid_asset(output: &Path, asset: &Value) -> bool {
@@ -207,6 +223,3 @@ fn validate_wave(path: &Path, rate: u32, maximum: u32, allow_float: bool) -> Res
     ensure!(audible, "rendered audio is silent: {}", path.display());
     Ok(frames)
 }
-
-// Bump whenever AHX output semantics change; invalidates voice and skit caches.
-pub(crate) const AHX_DECODER: &str = "ahx-mpg123-neon64-pcm16-v1";

@@ -1,28 +1,81 @@
 //! Parse original databases into validated, editable JSON records.
 //! Resolve pointers and decode packed fields here; runtime schemas use their meaning.
 use super::*;
+use crate::all_assets::{
+    cooking_ui, ex_skills as ex_catalogue, figurine_catalogue as figurine_records, inventory_ui,
+    monster_catalogue as monster_records, options_ui, rename_ui, save_menu, shop_ui, status_ui,
+    strategy_ui, synopsis as synopsis_catalogue, technique_ui, ui_style,
+};
+use crate::dol;
 use resonance_content::menu_data::{
     Item, ItemAttention, ItemUse, ItemView, MenuData, Technique, TechniqueUse, Title,
 };
 mod cooking;
+mod costume;
 mod customize;
 mod ex_skills;
 mod manual;
+mod physical;
+pub(crate) use physical::{BoneRule, FigurineModel, FigurineRow};
+pub(crate) fn figurine_catalogue(output: &Path, disc: u8) -> Result<physical::Figurines> {
+    #[derive(serde::Deserialize)]
+    struct Tables {
+        figurines: physical::Figurines,
+    }
+    let tables: Tables = crate::cooked::Source::open(output, disc, "sys/main.dol")?
+        .document("embedded/menu/tables.json")?;
+    ensure!(
+        tables.figurines.records.len() == 328,
+        "incomplete cooked figurine catalogue"
+    );
+    Ok(tables.figurines)
+}
+pub(crate) fn monster_catalogue(output: &Path, disc: u8) -> Result<physical::Monsters> {
+    #[derive(serde::Deserialize)]
+    struct Tables {
+        monsters: physical::Monsters,
+    }
+    let tables: Tables = crate::cooked::Source::open(output, disc, "sys/main.dol")?
+        .document("embedded/menu/tables.json")?;
+    ensure!(
+        tables.monsters.records.len() == resonance_content::monster::MONSTER_COUNT,
+        "incomplete cooked monster catalogue"
+    );
+    Ok(tables.monsters)
+}
 mod rename;
 mod status;
 mod strategy;
 mod synopsis;
-mod text;
+pub(super) mod text;
 pub(super) mod world_map;
 
-pub(super) fn cook(executable: &[u8], output: &Path) -> Result<()> {
-    let half = |row: &[u8], at| u16::from_be_bytes(row[at..at + 2].try_into().unwrap());
-    let string = |row: &[u8], at| -> Result<String> {
-        let pointer = u32::from_be_bytes(row[at..at + 4].try_into()?);
-        dol::text(executable, pointer)
-    };
-    let items: Vec<Item> = dol::slice(executable, 0x801fad98, 528 * 60)?
-        .chunks_exact(60)
+pub(super) fn cook(output: &Path, disc: u8) -> Result<()> {
+    let mut tables: serde_json::Value = crate::cooked::Source::open(output, disc, "sys/main.dol")?
+        .document("embedded/menu/tables.json")?;
+    tables["figurines"] = serde_json::to_value(crate::figurines::book(output, disc)?)?;
+    tables["monsters"] = serde_json::to_value(crate::monsters::book(output, disc)?)?;
+    // World-map source records include additional authored rows; the runtime
+    // schema selects its already-decoded locations, shops and field mappings.
+    let data: MenuData = serde_json::from_value(tables)?;
+    data.validate()?;
+    write_atomic(
+        &output.join("game/menu-data.json"),
+        &serde_json::to_vec_pretty(&data)?,
+    )
+}
+
+/// Physical source tables do not require prepared model previews or runtime admission.
+pub(super) fn cook_source(executable: &[u8], output: &Path) -> Result<()> {
+    write_atomic(
+        &output.join("embedded/menu/tables.json"),
+        &serde_json::to_vec_pretty(&read(executable)?)?,
+    )
+}
+
+pub(super) fn items(executable: &[u8]) -> Result<Vec<Item>> {
+    crate::item::read(executable)?
+        .into_iter()
         .enumerate()
         .map(|(id, row)| {
             Ok(Item {
@@ -34,7 +87,7 @@ pub(super) fn cook(executable: &[u8], output: &Path) -> Result<()> {
                     11 => Some(ItemAttention::Knockout),
                     _ => None,
                 },
-                field_usable: row[0x17] & 1 != 0,
+                field_usable: row.usage_flags & 1 != 0,
                 view: match id {
                     68 => Some(ItemView::TetheallaMap),
                     69 => Some(ItemView::SylvarantMap),
@@ -44,10 +97,10 @@ pub(super) fn cook(executable: &[u8], output: &Path) -> Result<()> {
                     73 => Some(ItemView::TrainingManual),
                     _ => None,
                 },
-                properties: status::properties(row)?,
-                price: u32::from_be_bytes(row[4..8].try_into()?),
-                transforms_to: half(row, 0x18),
-                field_use: if row[0x17] & 1 == 0 {
+                properties: status::properties(&row)?,
+                price: row.price.try_into().context("negative item price")?,
+                transforms_to: row.transforms_to,
+                field_use: if row.usage_flags & 1 == 0 {
                     None
                 } else {
                     match id {
@@ -89,279 +142,292 @@ pub(super) fn cook(executable: &[u8], output: &Path) -> Result<()> {
                         _ => None,
                     }
                 },
-                name: string(row, 0)?,
-                description: string(row, 0x34)?,
-                details: string(row, 0x38)?,
-                category: row[0x1a],
+                name: row.name.unwrap_or_default(),
+                description: row.description.unwrap_or_default(),
+                details: row.details.unwrap_or_default(),
+                category: row.category,
                 equipment_stats: [
-                    half(row, 8) as i16,
-                    half(row, 10) as i16,
-                    half(row, 12) as i16,
-                    row[14] as i8 as i16,
-                    row[15] as i8 as i16,
-                    row[16] as i8 as i16,
-                    row[17] as i8 as i16,
+                    row.slash,
+                    row.thrust,
+                    row.defense,
+                    i16::from(row.intelligence),
+                    i16::from(row.accuracy),
+                    i16::from(row.evasion),
+                    i16::from(row.luck),
                 ],
             })
         })
-        .collect::<Result<_>>()?;
-    let techniques = dol::slice(
-        executable,
-        0x80202f90,
-        resonance_content::menu_data::TECHNIQUE_COUNT * 0x58,
-    )?
-    .chunks_exact(0x58)
-    .enumerate()
-    .map(|(id, row)| {
-        let (hp, party) = match id {
-            98 | 221 => (30, false),
-            99 | 117 => (45, true),
-            100 => (60, false),
-            118 => (30, true),
-            119 => (100, false),
-            120 => (60, true),
-            122 => (70, true),
-            192 => (25, false),
-            193 => (35, false),
-            194 => (45, false),
-            _ => (0, false),
-        };
-        Ok(Technique {
-            name: string(row, 0x10)?,
-            description: string(row, 0x0c)?,
-            tp: row[8],
-            tp_percent: half(row, 0) == 34,
-            unison_usable: u32::from_be_bytes(row[0x34..0x38].try_into()?) & 0x100 != 0,
-            rank: row[0x14],
-            element: row[0x15],
-            route: row[0x17],
-            level: half(row, 0x3e),
-            prerequisite: half(row, 0x18),
-            alternatives: std::array::from_fn(|i| half(row, 0x1e + i * 2)),
-            field_use: if hp != 0 {
-                Some(TechniqueUse::Recover { hp, party })
-            } else {
-                match id {
-                    101 | 102 => Some(TechniqueUse::Cure { party: id == 102 }),
-                    121 => Some(TechniqueUse::Revive),
-                    _ => None,
-                }
-            },
+        .collect()
+}
+
+fn read(executable: &[u8]) -> Result<serde_json::Value> {
+    let ui = inventory_ui::read(executable)?;
+    let technique_ui = technique_ui::read(executable)?;
+    let status_ui = status_ui::read(executable)?;
+    let strategy_ui = strategy_ui::read(executable)?;
+    let cooking_ui = cooking_ui::read(executable)?;
+    let options_ui = options_ui::read(executable)?;
+    let synopsis_catalogue = synopsis_catalogue::read(executable)?;
+    let font = crate::font_directory::Directory::read(executable)?;
+    let items = items(executable)?;
+    let techniques: Vec<Technique> = crate::arte::read(executable)?
+        .definitions
+        .into_iter()
+        .enumerate()
+        .map(|(id, row)| {
+            let (hp, party) = match id {
+                98 | 221 => (30, false),
+                99 | 117 => (45, true),
+                100 => (60, false),
+                118 => (30, true),
+                119 => (100, false),
+                120 => (60, true),
+                122 => (70, true),
+                192 => (25, false),
+                193 => (35, false),
+                194 => (45, false),
+                _ => (0, false),
+            };
+            Ok(Technique {
+                name: row.name.unwrap_or_default(),
+                description: row.description.unwrap_or_default(),
+                tp: row.tp_cost,
+                tp_percent: row.native_id == 34,
+                unison_usable: row.flags & 0x100 != 0,
+                rank: row.menu_category,
+                element: row.element,
+                route: row.learning_route,
+                level: row.required_level,
+                prerequisite: row
+                    .learning_parent
+                    .try_into()
+                    .context("negative menu prerequisite")?,
+                alternatives: row.mutually_exclusive.map(|id| id as u16),
+                field_use: if hp != 0 {
+                    Some(TechniqueUse::Recover { hp, party })
+                } else {
+                    match id {
+                        101 | 102 => Some(TechniqueUse::Cure { party: id == 102 }),
+                        121 => Some(TechniqueUse::Revive),
+                        _ => None,
+                    }
+                },
+            })
         })
-    })
+        .collect::<Result<_>>()?;
+    let titles = titles(executable)?;
+    let full_names: Vec<String> = status_ui
+        .full_name_formats
+        .iter()
+        .map(|&reference| {
+            status_ui
+                .required_text(reference)
+                .map(|s| s.replace("%s", "{name}"))
+        })
+        .collect::<Result<_>>()?;
+    let status_labels = &status_ui.labels;
+    let mut labels: std::collections::BTreeMap<String, String> = [
+        ("status", status_labels.title),
+        ("next", status_labels.next),
+        ("strength", status_labels.strength),
+        ("defense", status_labels.defense),
+        ("slash", status_labels.slash),
+        ("accuracy", status_labels.accuracy),
+        ("attack", status_labels.attack),
+        ("thrust", status_labels.thrust),
+        ("evasion", status_labels.evasion),
+        ("intelligence", status_labels.intelligence),
+        ("luck", status_labels.luck),
+        ("weapon", status_labels.weapon),
+        ("body", status_labels.body),
+        ("head", status_labels.head),
+        ("arm", status_labels.arm),
+        ("accessory_1", status_labels.accessory_1),
+        ("accessory_2", status_labels.accessory_2),
+        ("element_attack", status_labels.element_attack),
+        ("element_defense", status_labels.element_defense),
+        ("weak", status_labels.weak),
+        ("absorb", status_labels.absorb),
+        ("invalid", status_labels.invalid),
+        ("reduce", status_labels.reduce),
+        ("growth", status_labels.growth),
+        ("growth_hp", status_labels.growth_hp),
+        ("growth_tp", status_labels.growth_tp),
+        ("growth_strength", status_labels.growth_strength),
+        ("growth_defense", status_labels.growth_defense),
+        ("growth_intelligence", status_labels.growth_intelligence),
+        ("growth_evasion", status_labels.growth_evasion),
+        ("growth_accuracy", status_labels.growth_accuracy),
+    ]
+    .into_iter()
+    .map(|(key, reference)| Ok((key.into(), status_ui.required_text(reference)?.to_owned())))
     .collect::<Result<_>>()?;
-    let starts: Vec<_> = dol::slice(executable, 0x80210920, 18)?
-        .chunks_exact(2)
-        .map(|b| half(b, 0))
-        .chain([159])
-        .collect();
-    let titles = starts
-        .windows(2)
-        .map(|range| {
-            (range[0]..range[1])
-                .map(|index| {
-                    let row = dol::slice(executable, 0x80210934 + u32::from(index) * 16, 16)?;
+    let inventory = &ui.inventory;
+    let equipment = &ui.equipment;
+    for (key, reference) in [
+        ("item_slash", inventory.comparison.slash),
+        ("item_thrust", inventory.comparison.thrust),
+        ("item_defense", inventory.comparison.defense),
+        ("item_accuracy", inventory.comparison.accuracy),
+        ("item_evasion", inventory.comparison.evasion),
+        ("item_intelligence", inventory.comparison.intelligence),
+        ("item_luck", inventory.comparison.luck),
+        ("item_attack", inventory.comparison.attack),
+        ("discard", inventory.discard),
+        ("transformed", inventory.transformed),
+        ("discarded", inventory.discarded),
+        ("confirm_discard", inventory.actions.confirm_discard),
+        ("select_item", inventory.actions.select_item),
+        ("select_target", inventory.actions.select_target),
+        ("equip_target", inventory.actions.equip_target),
+        ("transform_full", inventory.actions.transform_full),
+        ("transform_empty", inventory.actions.transform_empty),
+        ("collectors_book", inventory.books.collectors_book),
+        ("holy_aura", inventory.actions.holy_aura),
+        ("dark_aura", inventory.actions.dark_aura),
+        ("optimal", equipment.optimal),
+        ("remove", equipment.remove),
+        ("change_order", equipment.change_order),
+        ("optimal_selection", equipment.optimal_selection),
+        ("optimal_slash", equipment.attack_preference[0]),
+        ("optimal_thrust", equipment.attack_preference[1]),
+        ("alphabetical", equipment.ordering[0]),
+        ("parameter", equipment.ordering[1]),
+        ("stat_arrow", ui.formats.stat_arrow),
+    ] {
+        labels.insert(key.into(), ui.text(reference).to_owned());
+    }
+    labels.insert(
+        "preview_loading".into(),
+        ui.text(ui.preview_loading.text).to_owned(),
+    );
+    let tech = &technique_ui.technique;
+    let party = &technique_ui.party;
+    for (key, reference) in [
+        ("tech_usage", tech.usage),
+        ("tech_remove", tech.remove),
+        ("tech_auto", tech.auto),
+        ("tech_execute", tech.execute),
+        ("tech_forget", tech.forget),
+        ("tech_unison", tech.unison_settings),
+        ("tech_control", tech.control_type),
+        ("tech_manual", tech.manual),
+        ("tech_semi_auto", tech.semi_auto),
+        ("tech_auto_mode", tech.auto_mode),
+        ("tech_select", tech.select),
+        ("tech_shortcut", tech.shortcut),
+        ("tech_unison_title", tech.unison_setting),
+        ("tech_strength", tech.attributes.strength),
+        ("tech_slash", tech.attributes.slash),
+        ("tech_thrust", tech.attributes.thrust),
+        ("tech_defense", tech.attributes.defense),
+        ("tech_luck", tech.attributes.luck),
+        ("tech_accuracy", tech.attributes.accuracy),
+        ("tech_evasion", tech.attributes.evasion),
+        ("tech_intelligence", tech.attributes.intelligence),
+        ("tech_attack", tech.attributes.attack),
+        ("tech_target", tech.target),
+        ("tech_target_all", tech.target_all),
+        ("tech_cannot_forget", tech.cannot_forget),
+        ("tech_related", tech.related),
+        ("tech_forget_warning", tech.forget_warning),
+        ("tech_forget_confirm", tech.forget_confirm),
+        ("unison_title", tech.unison_title),
+        ("unison_player", technique_ui.unison_formats.player),
+        ("party_slash", party.slash),
+        ("party_thrust", party.thrust),
+        ("party_attack", party.attack),
+        ("party_defense", party.defense),
+        ("party_luck", party.luck),
+        ("party_accuracy", party.accuracy),
+        ("party_evasion", party.evasion),
+        ("party_swap_target", party.exchange_target),
+        ("party_leader", party.display_change),
+        ("party_swap", party.exchange),
+    ] {
+        labels.insert(key.into(), technique_ui.text(reference).to_owned());
+    }
+    let categories = |references: &[Option<_>]| -> Result<Vec<String>> {
+        references
+            .iter()
+            .map(|&reference| ui.required_text(reference).map(str::to_owned))
+            .collect()
+    };
+    for (key, reference) in [
+        ("strategy_title", strategy_ui.labels.title),
+        ("strategy_orders", strategy_ui.labels.orders),
+        ("strategy_rename", strategy_ui.labels.rename),
+        ("strategy_default", strategy_ui.labels.default),
+    ] {
+        labels.insert(key.into(), strategy_ui.required_text(reference)?.to_owned());
+    }
+    let world = crate::all_assets::world_map::read(executable)?;
+    Ok(serde_json::json!({
+        "version": MenuData::VERSION,
+        "artwork": super::recipe::read(executable, &technique_ui, &options_ui, &save_menu::read(executable)?, &shop_ui::read(executable)?, &ui_style::read(executable)?)?,
+        "item_group_prompt": text::decode(ui.text(inventory.actions.use_hint), 9)?,
+        "item_bottle_count": text::decode(ui.text(inventory.actions.remaining_format), 8)?,
+        "ex_skills": ex_skills::cook(&ex_catalogue::read(executable)?)?,
+        "figurines": physical::figurines(&figurine_records::read(executable)?)?,
+        "monsters": physical::monsters(&monster_records::read(executable)?, &ui)?,
+        "manual": manual::cook(&synopsis_catalogue)?,
+        "world_map": world_map::cook_source(
+            &world,
+            &crate::field_catalogue::read(executable)?,
+            &ui,
+        )?,
+        "status": status::cook(&status_ui, &items)?,
+        "strategy": strategy::cook(&strategy_ui)?,
+        "synopsis": synopsis::cook(&font.metrics, &synopsis_catalogue, &world)?,
+        "cooking": cooking::cook(&cooking_ui)?,
+        "customize": customize::cook(&options_ui)?,
+        "techniques": techniques,
+        "items": items,
+        "titles": titles,
+        "full_names": full_names,
+        "rename": rename::cook(&rename_ui::read(executable)?, &crate::character_data::read(executable)?)?,
+        "labels": labels,
+        "item_categories": categories(&ui.item_categories)?,
+        "inventory_categories": categories(&ui.inventory_categories)?,
+    }))
+}
+
+/// Shared title records supply menu text and battle costume requirements.
+pub(crate) fn titles(executable: &[u8]) -> Result<Vec<Vec<Title>>> {
+    let catalogue = crate::all_assets::title_catalogue::read(executable)?;
+    let mut titles = (1..=catalogue.character_starts.len())
+        .map(|character| {
+            catalogue
+                .for_character(character as u8)?
+                .iter()
+                .map(|row| {
                     Ok(Title {
-                        name: string(row, 0)?,
-                        description: string(row, 4)?,
-                        growth: row[8..15].try_into()?,
+                        name: catalogue.required_text(row.name)?.to_owned(),
+                        description: catalogue.required_text(row.description)?.to_owned(),
+                        growth: row.growth,
+                        costume: None,
                     })
                 })
                 .collect::<Result<Vec<_>>>()
         })
-        .collect::<Result<_>>()?;
-    let full_names = dol::slice(executable, 0x80211fb8, 36)?
-        .chunks_exact(4)
-        .map(|row| string(row, 0).map(|s| s.replace("%s", "{name}")))
-        .collect::<Result<_>>()?;
-    let mut labels: std::collections::BTreeMap<String, String> = [
-        "status",
-        "next",
-        "strength",
-        "defense",
-        "slash",
-        "accuracy",
-        "attack",
-        "thrust",
-        "evasion",
-        "intelligence",
-        "luck",
-        "weapon",
-        "body",
-        "head",
-        "arm",
-        "accessory_1",
-        "accessory_2",
-        "element_attack",
-        "element_defense",
-        "weak",
-        "absorb",
-        "invalid",
-        "reduce",
-        "growth",
-        "growth_hp",
-        "growth_tp",
-        "growth_strength",
-        "growth_defense",
-        "growth_intelligence",
-        "growth_evasion",
-        "growth_accuracy",
-    ]
-    .into_iter()
-    .zip(dol::slice(executable, 0x80199398, 31 * 4)?.chunks_exact(4))
-    .map(|(key, row)| Ok((key.into(), string(row, 0)?)))
-    .collect::<Result<_>>()?;
-    for (key, index) in [
-        ("item_slash", 4),
-        ("item_thrust", 5),
-        ("item_defense", 6),
-        ("item_accuracy", 7),
-        ("item_evasion", 8),
-        ("item_intelligence", 9),
-        ("item_luck", 10),
-        ("item_attack", 11),
-        ("discard", 1),
-        ("transformed", 2),
-        ("discarded", 3),
-        ("confirm_discard", 26),
-        ("select_item", 29),
-        ("select_target", 31),
-        ("equip_target", 33),
-        ("transform_full", 34),
-        ("transform_empty", 35),
-        ("collectors_book", 73),
-        ("holy_aura", 36),
-        ("dark_aura", 37),
-    ] {
-        labels.insert(
-            key.into(),
-            string(dol::slice(executable, 0x8019d650 + index * 4, 4)?, 0)?,
+        .collect::<Result<Vec<_>>>()?;
+    costume::cook(&catalogue.costumes, &mut titles)?;
+    Ok(titles)
+}
+
+#[test]
+#[ignore = "requires both extracted executables and cook-all"]
+fn original_menu_tables_match_shared_publications() -> Result<()> {
+    let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
+    for disc in [1, 2] {
+        let executable = fs::read(local.join(format!("extracted/disc{disc}/sys/main.dol")))?;
+        let published: serde_json::Value =
+            crate::cooked::Source::open(&local.join("all-assets"), disc, "sys/main.dol")?
+                .document("embedded/menu/tables.json")?;
+        ensure!(
+            read(&executable)? == published,
+            "disc {disc} menu tables differ from the original definitions"
         );
     }
-    for (key, index) in [
-        ("optimal", 7),
-        ("remove", 8),
-        ("change_order", 9),
-        ("optimal_selection", 10),
-        ("optimal_slash", 11),
-        ("optimal_thrust", 12),
-        ("alphabetical", 21),
-        ("parameter", 22),
-    ] {
-        labels.insert(
-            key.into(),
-            string(dol::slice(executable, 0x8019d370 + index * 4, 4)?, 0)?,
-        );
-    }
-    labels.insert(
-        "stat_arrow".into(),
-        string(&0x8035cee4u32.to_be_bytes(), 0)?,
-    );
-    labels.insert("preview_loading".into(), dol::text(executable, 0x801aa9f8)?);
-    for (key, index) in [
-        ("tech_usage", 2),
-        ("tech_remove", 3),
-        ("tech_auto", 4),
-        ("tech_execute", 5),
-        ("tech_forget", 6),
-        ("tech_unison", 7),
-        ("tech_control", 8),
-        ("tech_manual", 9),
-        ("tech_semi_auto", 10),
-        ("tech_auto_mode", 11),
-        ("tech_select", 12),
-        ("tech_shortcut", 13),
-        ("tech_unison_title", 14),
-        ("tech_strength", 15),
-        ("tech_slash", 16),
-        ("tech_thrust", 17),
-        ("tech_defense", 18),
-        ("tech_luck", 19),
-        ("tech_accuracy", 20),
-        ("tech_evasion", 21),
-        ("tech_intelligence", 22),
-        ("tech_attack", 23),
-        ("tech_target", 24),
-        ("tech_target_all", 25),
-        ("tech_cannot_forget", 26),
-        ("tech_related", 27),
-        ("tech_forget_warning", 28),
-        ("tech_forget_confirm", 29),
-    ] {
-        labels.insert(
-            key.into(),
-            string(dol::slice(executable, 0x801aaf34 + index * 4, 4)?, 0)?,
-        );
-    }
-    let item_categories = dol::slice(executable, 0x801ab2e0, 48 * 4)?
-        .chunks_exact(4)
-        .map(|row| string(row, 0))
-        .collect::<Result<_>>()?;
-    for (key, address) in [
-        ("strategy_title", 0x801ab0d0u32),
-        ("strategy_orders", 0x8035d680u32),
-        ("strategy_rename", 0x8035d670),
-        ("strategy_default", 0x8035d678),
-        ("unison_title", 0x801aaf28),
-        ("unison_player", 0x8035d5e0),
-    ] {
-        labels.insert(key.into(), string(&address.to_be_bytes(), 0)?);
-    }
-    for (key, offset) in [
-        ("party_slash", 0x5c),
-        ("party_thrust", 0x60),
-        ("party_attack", 0x64),
-        ("party_defense", 0x68),
-        ("party_luck", 0x6c),
-        ("party_accuracy", 0x70),
-        ("party_evasion", 0x74),
-        ("party_swap_target", 0x78),
-        ("party_leader", 0x7c),
-        ("party_swap", 0x80),
-    ] {
-        labels.insert(
-            key.into(),
-            string(dol::slice(executable, 0x801aaa28 + offset, 4)?, 0)?,
-        );
-    }
-    let data = MenuData {
-        version: MenuData::VERSION,
-        item_group_prompt: text::paragraph(
-            executable,
-            u32::from_be_bytes(dol::slice(executable, 0x8019d6d0, 4)?.try_into()?),
-        )?
-        .0,
-        item_bottle_count: text::paragraph_color(
-            executable,
-            u32::from_be_bytes(dol::slice(executable, 0x8019d6c8, 4)?.try_into()?),
-            8,
-        )?
-        .0,
-        ex_skills: ex_skills::cook(executable)?,
-        figurines: crate::figurines::book(executable, output)?,
-        monsters: crate::monsters::book(executable, output)?,
-        manual: manual::cook(executable, &string)?,
-        world_map: world_map::cook(executable, &string)?,
-        status: status::cook(executable, &items, &string)?,
-        strategy: strategy::cook(executable, &string)?,
-        synopsis: synopsis::cook(executable, &string)?,
-        cooking: cooking::cook(executable, &string)?,
-        customize: customize::cook(executable, &string)?,
-        techniques,
-        items,
-        titles,
-        full_names,
-        rename: rename::cook(executable)?,
-        labels,
-        item_categories,
-        inventory_categories: dol::slice(executable, 0x801ab22c + 9 * 4, 9 * 4)?
-            .chunks_exact(4)
-            .map(|row| string(row, 0))
-            .collect::<Result<_>>()?,
-    };
-    data.validate()?;
-    write_atomic(
-        &output.join("game/menu-data.json"),
-        &serde_json::to_vec_pretty(&data)?,
-    )
+    Ok(())
 }

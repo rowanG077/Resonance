@@ -43,7 +43,7 @@ The shared dialogue atlas has a fixed repertoire. Unsupported source-font
 characters share its original fallback bitmap, declared explicitly in the font
 metadata, so cooking one field cannot change another field's glyph coordinates.
 
-Paths are relative to `--output`, default `local/cooked`. Supply the complete
+Paths are relative to `--output`, default `local/all-assets`. Supply the complete
 `--audio` and `--movie` lists each time. New recipes call
 `field_preload::cook(root, Inputs { field, audio, movies })` after writing metadata.
 

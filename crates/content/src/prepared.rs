@@ -1,4 +1,4 @@
-//! Verified immutable field bytes. Movie payloads are verified but stay streamable.
+//! Verified immutable asset bytes. Movie payloads are verified but stay streamable.
 use crate::field_preload::{Manifest, Role};
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
@@ -20,6 +20,19 @@ pub struct Files {
 #[derive(Default)]
 pub struct Cache(BTreeMap<String, Weak<[u8]>>);
 impl Files {
+    /// Combine already verified resource leases before publishing a scene.
+    pub fn include(&mut self, other: &Self) -> Result<()> {
+        for (path, bytes) in &other.bytes {
+            if let Some(previous) = self.bytes.get(path) {
+                ensure!(previous == bytes, "conflicting prepared resource {path}");
+            }
+        }
+        self.bytes
+            .extend(other.bytes.iter().map(|(p, b)| (p.clone(), b.clone())));
+        self.disk_bytes += other.disk_bytes;
+        self.reused_bytes += other.reused_bytes;
+        Ok(())
+    }
     pub fn read(&self, path: &str) -> Result<Arc<[u8]>> {
         self.bytes
             .get(path)
@@ -35,11 +48,12 @@ impl Files {
         cache: &mut Cache,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
-        let mut result = Self::default();
+        let mut manifests = BTreeMap::new();
         let mut inventory = BTreeMap::new();
         for path in paths {
             crate::validate_asset_path(path)?;
-            let manifest: Manifest = serde_json::from_reader(File::open(root.join(path))?)?;
+            let manifest: Manifest =
+                serde_json::from_reader(std::io::BufReader::new(File::open(root.join(path))?))?;
             manifest.validate()?;
             ensure!(
                 manifest.is_complete(),
@@ -58,32 +72,49 @@ impl Files {
                     inventory.insert(path.clone(), file.clone());
                 }
             }
-            result.manifests.insert(manifest.map_id, manifest);
+            manifests.insert(manifest.map_id, manifest);
         }
+        let mut result = Self::load_inventory(root, &inventory, cache, cancelled)?;
+        result.manifests = manifests;
+        Ok(result)
+    }
+
+    /// Shared dependency verification for fields, battles and their resource leases.
+    pub fn load_inventory(
+        root: &Path,
+        inventory: &BTreeMap<String, crate::field_preload::File>,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self> {
+        let mut result = Self::default();
         cache.0.retain(|_, bytes| bytes.strong_count() > 0);
         for (path, entry) in inventory {
-            ensure!(!cancelled(), "field preparation cancelled");
-            let mut file = File::open(root.join(&path))
-                .with_context(|| format!("read field dependency {path}"))?;
+            crate::validate_asset_path(path)?;
+            ensure!(
+                entry.sha256.len() == 64
+                    && entry.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+                    && !entry.roles.is_empty(),
+                "invalid dependency {path}"
+            );
+            ensure!(!cancelled(), "asset preparation cancelled");
+            let mut file =
+                File::open(root.join(path)).with_context(|| format!("read dependency {path}"))?;
             ensure!(
                 file.metadata()?.len() == entry.bytes,
-                "field dependency size differs: {path}"
+                "dependency size differs: {path}"
             );
             let mut hash = Sha256::new();
             let mut bytes = Vec::new();
             let mut buffer = [0; 64 * 1024];
             let mut read = 0u64;
             loop {
-                ensure!(!cancelled(), "field preparation cancelled");
+                ensure!(!cancelled(), "asset preparation cancelled");
                 let count = file.read(&mut buffer)?;
                 if count == 0 {
                     break;
                 }
                 read += count as u64;
-                ensure!(
-                    read <= entry.bytes,
-                    "field dependency grew while reading: {path}"
-                );
+                ensure!(read <= entry.bytes, "dependency grew while reading: {path}");
                 hash.update(&buffer[..count]);
                 if !entry.roles.contains(&Role::Movie) {
                     bytes.extend_from_slice(&buffer[..count]);
@@ -92,11 +123,11 @@ impl Files {
             }
             ensure!(
                 read == entry.bytes,
-                "field dependency shrank while reading: {path}"
+                "dependency shrank while reading: {path}"
             );
             ensure!(
                 format!("{:x}", hash.finalize()) == entry.sha256,
-                "field dependency digest differs: {path}"
+                "dependency digest differs: {path}"
             );
             if !entry.roles.contains(&Role::Movie) {
                 // Verify aliases too: a matching declared digest must not hide
@@ -108,8 +139,8 @@ impl Files {
                     } else {
                         bytes.into()
                     };
-                cache.0.insert(entry.sha256, Arc::downgrade(&bytes));
-                result.bytes.insert(path, bytes);
+                cache.0.insert(entry.sha256.clone(), Arc::downgrade(&bytes));
+                result.bytes.insert(path.clone(), bytes);
             }
         }
         Ok(result)

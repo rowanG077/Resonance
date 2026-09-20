@@ -1,14 +1,26 @@
 //! One-time disc extraction and asset conversion.
+// Asset readers collect byte spans, including single ranges, rather than integers.
+#![allow(clippy::single_range_in_vec_init)]
+
+pub mod all_assets;
 mod animation;
+mod arte;
 mod boot;
 mod character;
+mod character_data;
 mod compression;
+mod cooked;
 pub use boot::cook as cook_boot;
+pub mod battle;
 mod dol;
+mod embedded;
+mod event_bank_directory;
 pub mod field;
-mod field_caption;
+mod field_catalogue;
 mod field_doors;
 mod field_effects;
+mod field_overlay;
+mod font_directory;
 pub use field_effects::cook_all as cook_effects;
 mod field_lighting;
 pub mod field_preload;
@@ -17,6 +29,7 @@ mod field_shadow;
 pub mod figurines;
 mod font;
 mod geometry;
+mod item;
 pub mod menu;
 mod model_preview;
 pub mod monsters;
@@ -25,14 +38,19 @@ mod afs;
 mod glow;
 pub mod media;
 mod model;
+mod music_directory;
 mod read;
+mod rel;
+mod resource;
 mod scene;
 mod secondary_motion;
 mod session;
 pub mod skit;
+mod stream_mixer;
 mod texture;
 mod texture_animation;
 pub mod tpl;
+mod voice_directory;
 
 use anyhow::{Context, Result, ensure};
 use nod::{
@@ -44,11 +62,39 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Write},
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+/// Disc tables use lowercase directories; extraction retains uppercase names.
+fn source_path(source: &str) -> Result<String> {
+    let path = match source.split_once('/') {
+        Some((directory, file)) => format!("{}/{file}", directory.to_ascii_uppercase()),
+        None => source.to_owned(),
+    };
+    resonance_content::validate_asset_path(&path)?;
+    Ok(path)
+}
+
+/// Unique sibling that preserves the extension expected by external codecs.
+pub(crate) fn temporary_path(path: &Path) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let mut name = std::ffi::OsString::from(".");
+    name.push(path.file_stem().unwrap_or_default());
+    name.push(format!(
+        "-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    if let Some(extension) = path.extension() {
+        name.push(".");
+        name.push(extension);
+    }
+    path.with_file_name(name)
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -56,7 +102,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     if fs::read(path).is_ok_and(|existing| existing == bytes) {
         return Ok(());
     }
-    let temp = path.with_extension("partial");
+    let temp = temporary_path(path);
     let mut file = fs::File::create(&temp)?;
     file.write_all(bytes)?;
     file.sync_all()?;
@@ -68,6 +114,20 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 pub fn cook_text(extracted: &Path, output: &Path) -> Result<()> {
     let path = session::cook_text(extracted, output)?;
     field::refresh_shared(output, &[path])
+}
+
+/// The source header, rather than its directory or argument order, identifies a disc.
+pub(crate) fn disc_number(extracted: &Path) -> Result<u8> {
+    let mut boot = [0; 8];
+    fs::File::open(extracted.join("sys/boot.bin"))
+        .and_then(|mut file| file.read_exact(&mut boot))
+        .with_context(|| format!("read extracted disc identity: {}", extracted.display()))?;
+    ensure!(
+        &boot[..6] == b"GQSEAF" && boot[6] <= 1 && boot[7] == 0,
+        "expected GQSEAF revision 0 disc 1 or 2: {}",
+        extracted.display()
+    );
+    Ok(boot[6] + 1)
 }
 
 /// Extract a disc once. All subsequent conversion uses this filesystem tree.
@@ -121,40 +181,31 @@ pub fn extract(disc_path: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Convert title art into lossless runtime textures.
-pub fn cook_title(extracted: &Path, output: &Path) -> Result<()> {
-    let boot = fs::read(extracted.join("sys/boot.bin"))
-        .context("missing extracted sys/boot.bin; run extract first")?;
-    ensure!(
-        boot.get(..6) == Some(b"GQSEAF") && boot.get(7) == Some(&0),
-        "expected GQSEAF revision 0"
-    );
-    let source = fs::read(extracted.join("files/title.tpl"))?;
-    let hash = format!("{:x}", Sha256::digest(&source));
-    let decoded = tpl::decode(&source)?;
-    let texture_dir = output.join("title");
-    fs::create_dir_all(&texture_dir)?;
-    let mut textures = Vec::new();
-    for (index, (width, height, pixels)) in decoded.into_iter().enumerate() {
-        let path = format!("title/{index:02}.ktx2");
-        crate::texture::cook(width, height, &pixels, &output.join(&path))?;
-        textures.push(TitleTexture {
-            index,
-            path,
-            width,
-            height,
-        });
-    }
-    let scene = Some(scene::cook(
-        &extracted.join("files/MAP/tit_t00.bin"),
-        &extracted.join("sys/main.dol"),
-        output,
-    )?);
+/// Bind shared title images and prepare the title scene.
+pub fn cook_title(output: &Path, disc: u8) -> Result<()> {
+    let recipe = scene::title::Recipe::bind(output, disc)?;
+    let textures = recipe
+        .images
+        .bind(output, disc)?
+        .standalone_textures()?
+        .into_iter()
+        .enumerate()
+        .map(|(index, texture)| {
+            let image = texture.image(0)?;
+            Ok(TitleTexture {
+                index,
+                path: image.path,
+                width: image.width,
+                height: image.height,
+            })
+        })
+        .collect::<Result<_>>()?;
+    let scene = Some(scene::bind_title(output, disc, &recipe)?);
     let manifest = TitleAssets {
         version: CONTENT_VERSION,
-        game_id: "GQSEAF".into(),
-        revision: 0,
-        source_sha256: hash,
+        game_id: recipe.game_id,
+        revision: recipe.revision,
+        source_sha256: recipe.images.sha256,
         textures,
         scene,
     };
@@ -164,7 +215,7 @@ pub fn cook_title(extracted: &Path, output: &Path) -> Result<()> {
         &serde_json::to_vec_pretty(&manifest)?,
     )?;
     println!(
-        "Converted {} title textures into {}",
+        "Bound {} shared title textures in {}",
         manifest.textures.len(),
         output.display()
     );

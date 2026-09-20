@@ -486,6 +486,9 @@ impl EventRuntime {
         let actor_order = self.world.actor_order.clone();
         let conversation_active = self.interaction.is_some();
         for id in &actor_order {
+            if self.world.overlays.contains_key(id) {
+                continue;
+            }
             let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
             let ambient = actor.step_autonomy(
@@ -612,6 +615,10 @@ impl EventRuntime {
         services(self)?;
         self.world.particles.retain(|p| p.alive(self.world.tick));
         self.world.overlays.retain(|id, overlay| {
+            if let crate::world::OverlayKind::Sprite(sprite) = &mut overlay.kind {
+                // Sprite drawing samples alpha before advancing its controller.
+                sprite.step(overlay.rgba[3]);
+            }
             let expired = matches!(
                 overlay.kind,
                 crate::world::OverlayKind::LocationCaption { .. }

@@ -20,3 +20,5 @@ resonance-audio-device.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 hound = "3.5"
+
+h4m = "=0.4.0"

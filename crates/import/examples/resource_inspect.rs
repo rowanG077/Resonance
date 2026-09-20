@@ -1,6 +1,10 @@
 //! Read-only inspection of grouped source resources; no game or audio device.
 #[path = "../src/dol.rs"]
+#[allow(dead_code)]
 mod dol;
+#[path = "../src/read.rs"]
+#[allow(dead_code)]
+mod read;
 use anyhow::{Context, Result};
 use std::{fs, path::Path};
 fn word(data: &[u8], at: usize) -> Result<u32> {
