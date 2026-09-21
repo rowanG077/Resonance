@@ -8,7 +8,7 @@ fn main() -> anyhow::Result<()> {
         .context("SAVE REPLAY.json OUTPUT [COOKED_ROOT] [WIDTHxHEIGHT]")?;
     let spec = args.next().context("REPLAY.json")?;
     let output = args.next().context("OUTPUT")?;
-    let root = args.next().unwrap_or_else(|| "local/cooked".into());
+    let root = args.next().unwrap_or_else(|| "local/all-assets".into());
     let resolution = args
         .next()
         .map(|s| s.parse())

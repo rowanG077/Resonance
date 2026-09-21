@@ -5,8 +5,11 @@ use std::path::PathBuf;
 #[command(about = "Resonance — Tales of Symphonia reimplementation")]
 #[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame", "load"]).multiple(false)))]
 struct Args {
-    #[arg(long, default_value = "local/cooked")]
+    #[arg(long, default_value = "local/all-assets")]
     assets: PathBuf,
+    /// Editable SymphoniaScript project with fields.json entry bindings.
+    #[arg(long)]
+    scripts: Option<PathBuf>,
     /// Directory for normal saves and development quicksave slots.
     #[arg(long)]
     save_directory: Option<PathBuf>,
@@ -88,6 +91,7 @@ fn main() -> anyhow::Result<()> {
                 load: args.load,
             },
             assets: args.assets,
+            script_root: args.scripts,
             tick: args.tick,
             presentation_start: args.presentation_start,
             capture: args.capture,

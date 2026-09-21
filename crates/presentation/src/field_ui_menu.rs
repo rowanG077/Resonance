@@ -97,7 +97,7 @@ fn texture_layer(index: usize) -> usize {
 fn glyph_advance(character: char, advance: u32, width: f32) -> f32 {
     // Menus space full-width characters by one cell; Latin and half-width kana
     // retain the font's proportional advances.
-    if character.is_ascii() || ('\u{ff61}'..='\u{ff9f}').contains(&character) {
+    if resonance_content::font::is_single_byte(character) {
         (advance as f32 * width / 24.).trunc()
     } else {
         width
@@ -178,13 +178,15 @@ impl MenuArtwork {
             .collect();
         let mut surfaces: Vec<_> = images
             .iter()
-            .map(|source| {
+            .zip(&spec.textures)
+            .map(|(source, texture)| {
                 materials.add(Surface {
                     source: source.clone(),
                     sampling: source.clone(),
                     frame_mask: source.clone(),
                     color_mask: source.clone(),
                     coverage: Coverage::default(),
+                    opaque: texture.opaque,
                 })
             })
             .collect();

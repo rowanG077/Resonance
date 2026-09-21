@@ -37,5 +37,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
     }
-    return textureSample(source, source_sampler, in.uv) * in.color;
+    var sampled = textureSample(source, source_sampler, in.uv);
+#ifdef OPAQUE_IMAGE
+    sampled.a = 1.0;
+#endif
+    return sampled * in.color;
 }

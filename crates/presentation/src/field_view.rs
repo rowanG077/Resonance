@@ -25,8 +25,8 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 use resonance_content::{
-    ANIMATION_HZ, HEIGHT, SCENE_HEIGHT, ScenePart, TextureBinding, WIDTH,
-    field::{FieldAssets, SCENERY_RESOURCE_BASE},
+    HEIGHT, SCENE_HEIGHT, ScenePart, TextureBinding, WIDTH,
+    field::{DrawStage, FieldAssets, MODEL_DRAW_SPAN, SCENERY_RESOURCE_BASE},
 };
 use resonance_events::{Face, effect::LightPosition};
 use resonance_game::field::{FieldInput, FieldSession};
@@ -95,6 +95,8 @@ impl Plugin for FieldPlugin {
 struct FieldRendering;
 impl Plugin for FieldRendering {
     fn build(&self, app: &mut App) {
+        super::materials::install(app);
+        super::sparse_animation::install(app);
         super::field_refraction::install(app);
         super::menu_backdrop::install(app);
         super::model_preview::install(app);
@@ -108,9 +110,10 @@ impl Plugin for FieldRendering {
                     super::field_pose::restore,
                     super::secondary_motion::restore,
                     super::field_animation::restore,
+                    super::field_animation::sample.run_if(resource_exists::<Art>),
                 )
                     .chain()
-                    .before(bevy::app::AnimationSystems),
+                    .before(super::field_animation::blend),
             )
             .add_systems(
                 PostUpdate,
@@ -124,7 +127,7 @@ impl Plugin for FieldRendering {
                     ui,
                 )
                     .chain()
-                    .after(bevy::app::AnimationSystems)
+                    .after(super::field_animation::sample)
                     // Publish rewritten effect/shadow meshes before render
                     // extraction sees their newly visible entities.
                     .before(bevy::asset::AssetEventSystems)
@@ -189,6 +192,7 @@ struct RetainedFields(
 pub(super) struct Art {
     pub(super) map: u32,
     pub(super) models: BTreeMap<u32, Vec<Part>>,
+    pub(super) behavior_sources: BTreeMap<String, String>,
     instances: BTreeMap<i32, Vec<Entity>>,
     pub(super) ready: bool,
     loads: super::loading::LoadTasks,
@@ -203,13 +207,10 @@ pub(super) struct Part {
     gltf: Handle<bevy::gltf::Gltf>,
     resolved: bool,
     pub(super) scene: Handle<WorldAsset>,
-    graph: Handle<AnimationGraph>,
-    clips: Vec<Handle<AnimationClip>>,
-    nodes: Vec<AnimationNodeIndex>,
+    pub(super) clips: Vec<Handle<super::sparse_animation::Clip>>,
     pub(super) materials: Vec<Surface>,
 }
 pub(super) struct Surface {
-    pub(super) template: Handle<StandardMaterial>,
     pub(super) color: Option<(Handle<Image>, TextureBinding)>,
     pub(super) multiply: Option<(Handle<Image>, TextureBinding)>,
 }
@@ -224,7 +225,6 @@ pub(super) struct ActorPart {
     materials: Vec<Handle<TitleSurface>>,
     pub(super) prepared: bool,
     instantiated: bool,
-    animation_players: Vec<Entity>,
     geometry: Vec<(usize, Entity)>,
     pub(super) active_clip: Option<usize>,
     shadow_anchor: Option<Entity>,
@@ -237,42 +237,40 @@ impl Art {
         index: usize,
         images: &'a mut Assets<Image>,
         sampled: &'a mut super::scene::SampledImages,
-    ) -> impl Iterator<Item = (AssetId<StandardMaterial>, TitleSurface)> + 'a {
+    ) -> impl Iterator<Item = TitleSurface> + 'a {
         let part = &self.models[&resource][index];
         part.materials
             .iter()
             .zip(&part.spec.materials)
             .map(move |(material, spec)| {
-                (
-                    material.template.id(),
-                    TitleSurface {
-                        multiply: super::scene::sampled_image(
-                            material.multiply.clone(),
-                            images,
-                            sampled,
-                        ),
-                        toon_ramp: (resource < SCENERY_RESOURCE_BASE
-                            && index == 0
-                            && part.spec.bone_names.len() > 1
-                            && spec.color.is_some())
-                        .then(|| self.toon_ramp.clone()),
-                        constant_color: part.spec.outline_color.is_some(),
-                        blend: spec.blend,
-                        additive: resource == resonance_content::field::SAVE_POINT_RESOURCE,
-                        depth_write: spec.depth_write,
-                        // The circle's translucent shell is visible from both sides.
-                        cull: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
-                            resonance_content::CullFace::None
-                        } else {
-                            spec.cull
-                        },
-                        ..TitleSurface::textured(super::scene::sampled_image(
-                            material.color.clone(),
-                            images,
-                            sampled,
-                        ))
+                TitleSurface {
+                    vertex_color: spec.vertex_color,
+                    multiply: super::scene::sampled_image(
+                        material.multiply.clone(),
+                        images,
+                        sampled,
+                    ),
+                    toon_ramp: (resource < SCENERY_RESOURCE_BASE
+                        && index == 0
+                        && part.spec.bone_names.len() > 1
+                        && spec.color.is_some())
+                    .then(|| self.toon_ramp.clone()),
+                    constant_color: part.spec.outline_color.is_some(),
+                    blend: spec.blend,
+                    additive: resource == resonance_content::field::SAVE_POINT_RESOURCE,
+                    depth_write: spec.depth_write,
+                    // The circle's translucent shell is visible from both sides.
+                    cull: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
+                        resonance_content::CullFace::None
+                    } else {
+                        spec.cull
                     },
-                )
+                    ..TitleSurface::textured(super::scene::sampled_image(
+                        material.color.clone(),
+                        images,
+                        sampled,
+                    ))
+                }
             })
     }
 
@@ -316,7 +314,10 @@ struct Checkpoint {
 #[derive(Resource)]
 struct Manifest(FieldAssets);
 #[derive(Resource)]
-struct Root(PathBuf);
+struct Root {
+    assets: PathBuf,
+    behavior_sources: BTreeMap<String, String>,
+}
 
 pub(super) fn has_live_shadows(world: &mut World) -> bool {
     world
@@ -397,6 +398,7 @@ fn load_live(
     root: Res<super::RunOptions>,
     server: Res<AssetServer>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
+    mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
     resident: Res<super::loading::Resident>,
@@ -420,11 +422,24 @@ fn load_live(
         return;
     }
     let files = resident.files.read().unwrap().clone();
+    let behavior_sources = match files
+        .as_deref()
+        .context("missing verified field files")
+        .and_then(resonance_content::prepared::Files::script_sources)
+    {
+        Ok(sources) => sources,
+        Err(error) => {
+            error!("Could not prepare model behaviors: {error:#}");
+            exit.write(AppExit::error());
+            return;
+        }
+    };
     let mut ui = match super::field_ui::Artwork::load_with(
         &root.assets,
         &session.assets,
         &server,
         &mut materials,
+        &mut images,
         files.as_deref(),
     ) {
         Ok(ui) => ui,
@@ -451,7 +466,7 @@ fn load_live(
     effects.prepare(&mut commands, &mut meshes, &mut surfaces);
     commands.insert_resource(effects);
     commands.insert_resource(ui);
-    commands.insert_resource(load_art(&session.assets, &server));
+    commands.insert_resource(load_art(&session.assets, &server, behavior_sources));
     controls.input.interact = false;
     controls.input.cancel = false;
 }
@@ -644,14 +659,18 @@ fn ui(
     state: State,
     mut art: ResMut<super::field_ui::Artwork>,
     display: Option<Res<super::display::Display>>,
-    images: Res<Assets<Image>>,
+    mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<super::field_ui::Surface>>,
-    roots: Query<(Entity, &ActorPart, &super::field_animation::Rig)>,
+    roots: Query<(
+        Entity,
+        &ActorPart,
+        &super::field_animation::Rig,
+        Option<&super::secondary_motion::Rig>,
+    )>,
     children: Query<&Children>,
     names: Query<&Name>,
-    transforms: bevy::transform::helper::TransformHelper,
-    locals: Query<(&Transform, Option<&ChildOf>)>,
+    transforms: super::sparse_animation::affine::Helper,
     mut exit: MessageWriter<AppExit>,
     mut applied: ResMut<Applied>,
     clock: Option<Res<super::Clock>>,
@@ -674,8 +693,8 @@ fn ui(
         .iter()
         // A streamed actor's bind pose is not the dialogue attachment pose.
         // Sample this tick's animation before retaining the attachment height.
-        .filter(|(_, part, rig)| part.part == 0 && rig.sampled)
-        .filter_map(|(root, part, rig)| {
+        .filter(|(_, part, rig, _)| part.part == 0 && rig.sampled)
+        .filter_map(|(root, part, rig, secondary)| {
             children
                 .iter_descendants(root)
                 .find(|&entity| {
@@ -684,17 +703,22 @@ fn ui(
                         .is_ok_and(|name| name.as_str().starts_with("Bone_atama"))
                 })
                 .and_then(|entity| {
-                    rig.binding_attachment(entity, &locals).or_else(|| {
-                        transforms
-                            .compute_global_transform(entity)
-                            .ok()
-                            .map(|transform| transform.translation())
-                    })
+                    secondary
+                        .and_then(|secondary| {
+                            secondary.binding_attachment(entity, state.get().events.tick())
+                        })
+                        .or_else(|| rig.binding_attachment(entity, &transforms))
+                        .or_else(|| {
+                            transforms
+                                .compute_global_transform(entity)
+                                .ok()
+                                .map(|transform| transform.translation())
+                        })
                 })
                 .map(|position| (part.actor, position))
         })
         .collect();
-    match art.render_captions(&state.get().events.world, &mut commands, &mut meshes) {
+    match art.render_overlays(&state.get().events.world, &mut commands, &mut meshes) {
         Ok(handled) => {
             for id in handled {
                 applied.ack(Request::Overlay(id));
@@ -722,6 +746,7 @@ fn ui(
         &mut commands,
         &mut meshes,
         &mut materials,
+        &mut images,
     ) {
         error!("Field dialogue rendering failed: {error:#}");
         exit.write(AppExit::error());
@@ -852,11 +877,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         let entry = super::new_game::Session::load(&root)?;
         (entry.assets, entry.field)
     } else {
-        let path = match checkpoint.map(|c| c.map_id) {
-            None | Some(340) => "fields/iselia-classroom.json".to_owned(),
-            Some(id @ 330..=339) => format!("fields/map-{id}.json"),
-            Some(id) => anyhow::bail!("field {id} is outside the oracle route"),
-        };
+        let path = resonance_content::field::metadata_path(checkpoint.map_or(340, |c| c.map_id));
         let assets: FieldAssets = serde_json::from_slice(&fs::read(root.join(path))?)?;
         let messages = serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?;
         let entry = if let Some(checkpoint) = checkpoint {
@@ -864,7 +885,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
             checkpoint.clone().entry(
                 &assets,
                 std::sync::Arc::new(data),
-                super::new_game::PLAYABLE_FIELDS.into(),
+                super::new_game::available_fields(&root)?,
             )?
         } else {
             Default::default()
@@ -880,7 +901,8 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         }
         (assets, session)
     };
-    session.voice_durations = super::field_audio::Assets::load(&root)?.voice_durations();
+    session.voice_durations =
+        super::field_audio::Assets::load(&root, assets.map_id)?.voice_durations();
     let target_dialogue = |player: &resonance_game::dialogue::DialoguePlayer| {
         dialogue_prefix.is_some_and(|prefix| {
             !player.closed
@@ -983,10 +1005,21 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
             )?);
         party.settings.preferences = preferences.clone();
     }
+    let behavior_sources = resonance_content::prepared::Files::load(
+        &root,
+        &[&resonance_content::field::preload_path(assets.map_id)],
+        &mut Default::default(),
+        || false,
+    )?
+    .script_sources()?;
     let mut app = App::new();
     super::model_preview::register(&mut app, &root);
     app.add_plugins(
         DefaultPlugins
+            .set(bevy::pbr::PbrPlugin {
+                gltf_enable_standard_materials: false,
+                ..default()
+            })
             .set(AssetPlugin {
                 file_path: root.to_string_lossy().into_owned(),
                 ..default()
@@ -1009,7 +1042,10 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     .init_resource::<super::scene::SampledImages>()
     .insert_resource(Session(session))
     .insert_resource(Manifest(assets))
-    .insert_resource(Root(root))
+    .insert_resource(Root {
+        assets: root,
+        behavior_sources,
+    })
     .insert_resource(super::display::OutputStage::Framebuffer)
     .insert_resource(Checkpoint {
         output: output.into(),
@@ -1070,12 +1106,18 @@ fn setup(
     mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
 ) {
-    let mut effects = super::field_effects::Artwork::load(&root.0, &manifest.0, &server)
+    let mut effects = super::field_effects::Artwork::load(&root.assets, &manifest.0, &server)
         .expect("validated cooked field effects");
     effects.prepare(&mut commands, &mut meshes, &mut surfaces);
     commands.insert_resource(effects);
-    let mut ui = super::field_ui::Artwork::load(&root.0, &manifest.0, &server, &mut ui_materials)
-        .expect("validated cooked dialogue artwork");
+    let mut ui = super::field_ui::Artwork::load(
+        &root.assets,
+        &manifest.0,
+        &server,
+        &mut ui_materials,
+        &mut images,
+    )
+    .expect("validated cooked dialogue artwork");
     ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
     commands.insert_resource(ui);
     let mut final_image =
@@ -1162,10 +1204,18 @@ fn setup(
             ..default()
         })),
     ));
-    commands.insert_resource(load_art(&manifest.0, &server));
+    commands.insert_resource(load_art(
+        &manifest.0,
+        &server,
+        root.behavior_sources.clone(),
+    ));
 }
 
-fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
+fn load_art(
+    manifest: &FieldAssets,
+    server: &AssetServer,
+    behavior_sources: BTreeMap<String, String>,
+) -> Art {
     let loads = super::loading::LoadTasks::default();
     let mut models = BTreeMap::new();
     for (resource, parts) in manifest
@@ -1200,20 +1250,26 @@ fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
                     .materials
                     .iter()
                     .map(|m| Surface {
-                        template: Handle::default(),
                         color: m.color.as_ref().map(load),
                         multiply: m.multiply.as_ref().map(load),
                     })
                     .collect();
                 Part {
-                    spec,
                     gltf,
                     resolved: false,
                     scene: Handle::default(),
-                    graph: Handle::default(),
-                    clips: Vec::new(),
-                    nodes: Vec::new(),
+                    clips: spec
+                        .clips
+                        .iter()
+                        .map(|clip| {
+                            server
+                                .load_builder()
+                                .with_guard(loads.ticket())
+                                .load(clip.motion.clone())
+                        })
+                        .collect(),
                     materials,
+                    spec,
                 }
             })
             .collect();
@@ -1222,6 +1278,7 @@ fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
     Art {
         map: manifest.map_id,
         models,
+        behavior_sources,
         instances: BTreeMap::new(),
         ready: false,
         loading_since: Instant::now(),
@@ -1237,12 +1294,22 @@ fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
         loads,
     }
 }
+
+#[cfg(test)]
+pub(super) fn prepared_test_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
+    let mut manifest = manifest.clone();
+    manifest.actors.clear();
+    manifest.parts.clear();
+    let mut art = load_art(&manifest, server, Default::default());
+    art.ready = true;
+    art
+}
+
 fn prepare(
     mut art: ResMut<Art>,
     server: Res<AssetServer>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
-    templates: Res<Assets<StandardMaterial>>,
+    clips: Res<Assets<super::sparse_animation::Clip>>,
     images: Res<Assets<Image>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -1253,8 +1320,7 @@ fn prepare(
         return;
     }
     if art.loads.complete() {
-        let Art { models, loads, .. } = &mut *art;
-        for part in models.values_mut().flatten().filter(|p| !p.resolved) {
+        for part in art.models.values_mut().flatten().filter(|p| !p.resolved) {
             let Some(gltf) = gltfs.get(&part.gltf) else {
                 continue;
             };
@@ -1266,26 +1332,29 @@ fn prepare(
                 exit.write(AppExit::error());
                 return;
             };
-            if gltf.animations.len() != part.spec.clips.len() {
+            if !part.clips.iter().all(|handle| clips.contains(handle)) {
+                continue;
+            }
+            for handle in &part.clips {
+                if let Err(error) = clips
+                    .get(handle)
+                    .unwrap()
+                    .0
+                    .validate_bones(part.spec.bone_names.len())
+                {
+                    error!("Field animation binding failed: {error:#}");
+                    exit.write(AppExit::error());
+                    return;
+                }
+            }
+            part.scene = scene.clone();
+            if gltf.meshes.len() != part.materials.len() {
                 error!(
-                    "Field model animation inventory mismatch: {}",
+                    "Field material count differs from its recipe: {}",
                     part.spec.mesh
                 );
                 exit.write(AppExit::error());
                 return;
-            }
-            part.scene = scene.clone();
-            part.clips = gltf.animations.clone();
-            let (graph, nodes) = AnimationGraph::from_clips(part.clips.iter().cloned());
-            part.graph = graphs.add(graph);
-            part.nodes = nodes;
-            for (index, material) in part.materials.iter_mut().enumerate() {
-                // Usually already held by the scene. An unused material may
-                // require its own load; that job must finish before warmup too.
-                material.template = server
-                    .load_builder()
-                    .with_guard(loads.ticket())
-                    .load(format!("{}#Material{index}/std", part.spec.mesh));
             }
             part.resolved = true;
         }
@@ -1302,11 +1371,10 @@ fn prepare(
                     .iter()
                     .all(|clip| server.is_loaded_with_dependencies(clip.id()))
                 && part.materials.iter().all(|m| {
-                    templates.contains(m.template.id())
-                        && m.color
-                            .iter()
-                            .chain(&m.multiply)
-                            .all(|(h, _)| images.contains(h.id()))
+                    m.color
+                        .iter()
+                        .chain(&m.multiply)
+                        .all(|(h, _)| images.contains(h.id()))
                 })
         });
     if !art.ready {
@@ -1319,12 +1387,10 @@ fn prepare(
                     .into_iter()
                     .chain(p.clips.iter().map(|c| c.id().untyped()))
                     .chain(p.materials.iter().flat_map(|m| {
-                        std::iter::once(m.template.id().untyped()).chain(
-                            m.color
-                                .iter()
-                                .chain(&m.multiply)
-                                .map(|(h, _)| h.id().untyped()),
-                        )
+                        m.color
+                            .iter()
+                            .chain(&m.multiply)
+                            .map(|(h, _)| h.id().untyped())
                     }))
             })
             .chain([
@@ -1405,7 +1471,7 @@ fn instances(
             .map(|(index, part, pass)| {
                 let materials = art
                     .surfaces(actor.resource, index, &mut images, &mut sampled)
-                    .map(|(_, surface)| surfaces.add(surface))
+                    .map(|surface| surfaces.add(surface))
                     .collect();
                 commands
                     .spawn((
@@ -1423,7 +1489,6 @@ fn instances(
                             materials,
                             prepared: false,
                             instantiated: false,
-                            animation_players: Vec::new(),
                             geometry: Vec::new(),
                             active_clip: None,
                             shadow_anchor: None,
@@ -1446,7 +1511,6 @@ fn instances(
                                 // secondary-motion request. Keep the same
                                 // bounded allowance used by initial loading.
                                 applied.loading(Request::SecondaryMotion(actor.actor, actor.part));
-                                actor.animation_players.clear();
                                 actor.geometry.clear();
                                 actor.active_clip = None;
                                 actor.shadow_anchor = None;
@@ -1481,9 +1545,8 @@ fn pose(
     art: Res<Art>,
     children: Query<&Children>,
     mut roots: Query<(Entity, &mut ActorPart, &mut Transform, &mut Visibility)>,
-    meshes: Query<&MeshMaterial3d<StandardMaterial>>,
+    meshes: Query<&super::materials::MaterialSlot>,
     names: Query<&Name>,
-    mut players: Query<(&mut AnimationPlayer, Option<&AnimationGraphHandle>)>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
     mut node_visibility: Query<&mut Visibility, Without<ActorPart>>,
     mut draw_orders: Query<&mut DrawOrder>,
@@ -1646,10 +1709,7 @@ fn pose(
             part.spec
                 .clips
                 .iter()
-                .position(|c| {
-                    c.resource_slot == a.slot
-                        && c.animation_resource.unwrap_or(actor.resource) == a.resource
-                })
+                .position(|c| a.matches(c, actor.resource))
                 .map(|index| (a, index))
         });
         if !instance.prepared {
@@ -1668,39 +1728,31 @@ fn pose(
                 {
                     instance.shadow_anchor = Some(entity);
                 }
-                if let Ok(template) = meshes.get(entity)
-                    && let Some(index) = part
-                        .materials
-                        .iter()
-                        .position(|m| m.template.id() == template.id())
-                {
+                if let Ok(slot) = meshes.get(entity) {
+                    let index = slot
+                        .index(instance.materials.len())
+                        .expect("field mesh must have a declared material slot");
                     instance.geometry.push((index, entity));
-                    commands
-                        .entity(entity)
-                        .remove::<MeshMaterial3d<StandardMaterial>>()
-                        .insert((
-                            MeshMaterial3d(instance.materials[index].clone()),
-                            // Translucent circle passes follow scenery and actors;
-                            // drawing them among opaque model parts clips the glow.
-                            DrawOrder(
-                                part.spec.materials[index].draw_order
-                                    + u32::from(instance.pass) * (1 << 16)
-                                    + if save_point.is_some() {
-                                        super::draw_order::FIELD_TRANSLUCENCY
-                                    } else {
-                                        0
-                                    },
-                                actor_order,
-                            ),
-                        ));
-                }
-                if let Ok((_, graph)) = players.get_mut(entity) {
-                    if graph.is_none() {
-                        commands
-                            .entity(entity)
-                            .insert(AnimationGraphHandle(part.graph.clone()));
-                    }
-                    instance.animation_players.push(entity);
+                    commands.entity(entity).insert((
+                        MeshMaterial3d(instance.materials[index].clone()),
+                        // Translucent circle passes follow scenery and actors;
+                        // drawing them among opaque model parts clips the glow.
+                        DrawOrder(
+                            part.spec.materials[index].draw_order
+                                + u32::from(instance.pass) * MODEL_DRAW_SPAN
+                                + if save_point.is_some() {
+                                    super::draw_order::FIELD_TRANSLUCENCY
+                                } else if (SCENERY_RESOURCE_BASE
+                                    ..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
+                                    .contains(&actor.resource)
+                                {
+                                    0
+                                } else {
+                                    DrawStage::Actors.offset()
+                                },
+                            actor_order,
+                        ),
+                    ));
                 }
             }
             instance.prepared = descendants > 0;
@@ -1729,28 +1781,7 @@ fn pose(
                 *current = visibility;
             }
         }
-        if let Some((a, index)) = animation {
-            for &entity in &instance.animation_players {
-                let Ok((mut player, _)) = players.get_mut(entity) else {
-                    continue;
-                };
-                if instance.active_clip != Some(index) {
-                    player.stop_all();
-                }
-                let duration = part.spec.clips[index].duration_seconds * ANIMATION_HZ;
-                player
-                    .play(part.nodes[index])
-                    .pause()
-                    .set_seek_time(a.sample(tick, 0, duration) / ANIMATION_HZ);
-                applied.ack(Request::Animation {
-                    actor: instance.actor,
-                    part: instance.part,
-                    resource: a.resource,
-                    slot: a.slot,
-                });
-            }
-            instance.active_clip = Some(index);
-        }
+        instance.active_clip = animation.map(|(_, index)| index);
         if instance.prepared
             && (0..part.spec.materials.len()).all(|index| {
                 instance

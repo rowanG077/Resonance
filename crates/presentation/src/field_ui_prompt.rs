@@ -116,7 +116,8 @@ impl Artwork {
                         [u, v, u + w * 255. / 256., v + h * 255. / 256.],
                         [1., 1., 1., f32::from(prompt.text_opacity) / 255.],
                     );
-                    x = (x + glyph.advance as f32 * (5. / 6.)).trunc() + f32::from(c.is_ascii());
+                    x = (x + glyph.advance as f32 * (5. / 6.)).trunc()
+                        + f32::from(resonance_content::font::is_single_byte(c));
                 }
             }
         }

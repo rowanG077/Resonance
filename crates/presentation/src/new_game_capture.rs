@@ -116,6 +116,7 @@ fn record(
     fs::create_dir_all(output)?;
     let (mut app, _) = build_app_with_display(
         RunOptions {
+            script_root: None,
             saves: crate::SaveOptions {
                 directory: Some(output.join("slots")),
                 ..Default::default()
@@ -404,6 +405,9 @@ fn record(
         playthrough::attach::<field_audio::FieldSource>(app.world_mut(), &mixer)?;
         let end = (step + 1) * 32028 * resonance_game::clock::UPDATE_RATE_DENOMINATOR
             / resonance_game::clock::UPDATE_RATE_NUMERATOR;
+        app.world()
+            .resource::<movie::Playback>()
+            .wait_for_audio(end - frames)?;
         for _ in frames..end {
             for _ in 0..2 {
                 let sample = audio.next().unwrap_or(0.);
@@ -748,11 +752,11 @@ fn record(
         "title.json",
         "title-audio.json",
         "title-sounds.json",
-        "story-intro.json",
-        "fields/iselia-classroom.json",
-        "fields/new-game-setup.json",
+        "movies/1.json",
+        "fields/map-340.json",
+        "fields/map-5.json",
         "game/session-data.json",
-        "fields/iselia-classroom-audio.json",
+        "fields/map-340-audio.json",
         "ui/dialogue.json",
         "ui/story-subtitles.json",
         "effects/field.json",
@@ -862,7 +866,7 @@ fn record(
         resonance_game::clock::UPDATE_STEP,
     ));
     let restart_began = Instant::now();
-    for _ in 0..1800 {
+    loop {
         app.update();
         playthrough::check_exit(&app)?;
         playthrough::attach::<field_audio::FieldSource>(app.world_mut(), &mixer)?;

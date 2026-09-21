@@ -33,11 +33,7 @@ const EVENT_LIMIT: u32 = (600 * UPDATE_RATE_NUMERATOR / UPDATE_RATE_DENOMINATOR)
 const STALL_LIMIT: u32 = (30 * UPDATE_RATE_NUMERATOR / UPDATE_RATE_DENOMINATOR) as u32;
 
 pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> Result<()> {
-    let manifest = if map == 340 {
-        "fields/iselia-classroom.preload.json".into()
-    } else {
-        format!("fields/map-{map}.preload.json")
-    };
+    let manifest = resonance_content::field::preload_path(map);
     let files = Arc::new(Files::load(
         root,
         &[&manifest],
@@ -50,9 +46,7 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
     let data: Arc<SessionData> = Arc::new(files.json("game/session-data.json")?);
     let art: DialogueArt = files.json("ui/dialogue.json")?;
     let font: BitmapFont = files.json(&art.font)?;
-    let available_fields = (330..=340)
-        .filter(|&map| new_game::manifest_path(map).is_ok_and(|path| root.join(path).is_file()))
-        .collect::<BTreeSet<_>>();
+    let available_fields = new_game::available_fields(root)?;
     // Registry probes need a valid floor point even for rooms whose authored
     // entrances have not yet been captured by a navigation replay.
     let floor = package

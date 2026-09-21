@@ -15,7 +15,7 @@ pub use record::record_field_audio;
 use resonance_audio::{
     package::{Loaded, Package},
     reverb::Studio,
-    sequence::{BusFrame, LiveControls, stream::Stream},
+    sequence::{BusFrame, LiveControls, shared::Synthesizer, stream::Stream},
     volume::Fade,
 };
 use resonance_content::field_audio::{Asset as Reference, FieldAudio};
@@ -45,6 +45,47 @@ struct Clip {
     pcm: Vec<i16>,
     rate: u32,
     channels: usize,
+}
+impl Clip {
+    fn decode(bytes: Vec<u8>, voice: &resonance_content::field_audio::Voice) -> Result<Self> {
+        let mut wave = hound::WavReader::new(Cursor::new(bytes))?;
+        let spec = wave.spec();
+        ensure!(
+            spec.channels == voice.channels
+                && spec.sample_rate == voice.source_sample_rate
+                && spec.bits_per_sample == 16
+                && spec.sample_format == hound::SampleFormat::Int
+                && wave.duration() == voice.frames,
+            "spoken line format differs from metadata"
+        );
+        let pcm = wave
+            .samples::<i16>()
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        ensure!(
+            pcm.len() == voice.frames as usize * usize::from(voice.channels),
+            "truncated spoken line"
+        );
+        Ok(Self {
+            pcm,
+            rate: voice.sample_rate,
+            channels: usize::from(voice.channels),
+        })
+    }
+
+    fn sample(&self, position: u64, denominator: u32, pan: [f32; 2]) -> Option<[f32; 2]> {
+        let index = (position / u64::from(denominator)) as usize;
+        let count = self.pcm.len() / self.channels;
+        if index >= count {
+            return None;
+        }
+        let fraction = (position % u64::from(denominator)) as f32 / denominator as f32;
+        Some(std::array::from_fn(|channel| {
+            let source = channel.min(self.channels - 1);
+            let a = f32::from(self.pcm[index * self.channels + source]);
+            let b = f32::from(self.pcm[(index + 1).min(count - 1) * self.channels + source]);
+            (a + (b - a) * fraction) / 32768.0 * pan[channel]
+        }))
+    }
 }
 #[derive(Clone)]
 pub(super) struct Assets {
@@ -122,18 +163,11 @@ impl Assets {
                 .collect(),
         )
     }
-    pub fn load(root: &Path) -> Result<Self> {
-        Self::load_with(root, None)
-    }
-
-    pub fn load_with(
-        root: &Path,
-        files: Option<&resonance_content::prepared::Files>,
-    ) -> Result<Self> {
+    pub fn load(root: &Path, map: u32) -> Result<Self> {
         Self::load_manifest(
             root,
-            "fields/iselia-classroom-audio.json",
-            files,
+            &resonance_content::field::audio_path(map),
+            None,
             &mut Default::default(),
         )
     }
@@ -195,28 +229,7 @@ impl Assets {
                 "field voice bank exceeds decoded budget"
             );
             let bytes = read(root, &voice.asset, count * 2 + 1024 * 1024, files)?;
-            let mut wave = hound::WavReader::new(Cursor::new(bytes))?;
-            let spec = wave.spec();
-            ensure!(
-                spec.channels == voice.channels
-                    && spec.sample_rate == voice.sample_rate
-                    && spec.bits_per_sample == 16
-                    && spec.sample_format == hound::SampleFormat::Int
-                    && wave.duration() == voice.frames,
-                "spoken line format differs from metadata"
-            );
-            let pcm = wave
-                .samples::<i16>()
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            ensure!(pcm.len() == count, "truncated spoken line");
-            voices.insert(
-                id,
-                Arc::new(Clip {
-                    pcm,
-                    rate: spec.sample_rate,
-                    channels: usize::from(spec.channels),
-                }),
-            );
+            voices.insert(id, Arc::new(Clip::decode(bytes, &voice)?));
         }
         let music = packages(manifest.music)?;
         let sounds = packages(manifest.sounds)?;
@@ -416,11 +429,11 @@ struct ScorePlayer {
     volume: f32,
 }
 impl ScorePlayer {
-    fn new(package: Arc<Loaded>, looping: bool) -> Result<Self> {
+    fn new(package: Arc<Loaded>, looping: bool, synth: &Synthesizer) -> Result<Self> {
         // One-shot music has no repeat traversal, just like a sound cue.
         let looping = looping && !package.score.loop_events.is_empty();
         Ok(Self {
-            stream: Stream::new(package, looping)?,
+            stream: Stream::in_synthesizer(package, looping, synth)?,
             looping,
             controls: LiveControls::default(),
             samples: [[[0; 2]; 3]; 160],
@@ -430,7 +443,24 @@ impl ScorePlayer {
             volume: 1.,
         })
     }
+    fn prepare_shared(&self, gains: impl FnOnce() -> [f32; 5]) -> Result<()> {
+        if self.stream.is_shared() {
+            self.stream
+                .set_shared_controls(gains().map(|gain| LiveControls {
+                    volume: self.volume * gain,
+                    ..self.controls
+                }))?;
+        }
+        Ok(())
+    }
     fn frame(&mut self, gains: impl FnOnce() -> [f32; 5]) -> Result<Option<BusFrame>> {
+        if self.stream.is_shared() {
+            let frame = self.stream.shared_frame()?;
+            if self.stream.shared_control_boundary() {
+                self.controls.release = false;
+            }
+            return Ok(frame);
+        }
         if self.cursor == self.length {
             let controls = gains().map(|gain| LiveControls {
                 volume: self.volume * gain,
@@ -455,30 +485,19 @@ struct Spoken {
 impl Spoken {
     fn next(&mut self) -> Option<[f32; 2]> {
         let position = self.frame * u64::from(self.clip.rate);
-        let index = (position / u64::from(RATE)) as usize;
-        let count = self.clip.pcm.len() / self.clip.channels;
-        if index >= count {
-            return None;
-        }
-        let fraction = (position % u64::from(RATE)) as f32 / RATE as f32;
         self.frame += 1;
-        Some(std::array::from_fn(|channel| {
-            let channel = channel.min(self.clip.channels - 1);
-            let a = f32::from(self.clip.pcm[index * self.clip.channels + channel]);
-            let b =
-                f32::from(self.clip.pcm[(index + 1).min(count - 1) * self.clip.channels + channel]);
-            // A centered mono stream uses equal-power stereo gain. Independent
-            // Dolphin voice prefixes measure approximately 0.706 per channel.
-            let pan = if self.clip.channels == 1 {
-                std::f32::consts::FRAC_1_SQRT_2
-            } else {
-                1.
-            };
-            (a + (b - a) * fraction) / 32768.0 * pan
-        }))
+        // A centered mono stream uses equal-power stereo gain. Independent
+        // Dolphin voice prefixes measure approximately 0.706 per channel.
+        let gain = if self.clip.channels == 1 {
+            std::f32::consts::FRAC_1_SQRT_2
+        } else {
+            1.
+        };
+        self.clip.sample(position, RATE, [gain; 2])
     }
 }
 pub(super) struct Frames {
+    synth: Synthesizer,
     completions: Completions,
     assets: Arc<Assets>,
     receive: Option<Receiver<Message>>,
@@ -514,7 +533,7 @@ impl Frames {
                     return Ok(());
                 }
                 self.music = package
-                    .map(|package| ScorePlayer::new(package.clone(), true))
+                    .map(|package| ScorePlayer::new(package.clone(), true, &self.synth))
                     .transpose()?;
                 self.music_id = (id >= 0).then_some(id);
                 // New scores fade from silence to the user’s volume over 100 ms,
@@ -553,6 +572,7 @@ impl Frames {
                         .with_context(|| format!("uncooked field sound {id}"))?
                         .clone(),
                     false,
+                    &self.synth,
                 )?;
                 sound.volume = f32::from(volume) / 127.0;
                 sound.controls = LiveControls {
@@ -658,6 +678,19 @@ impl Frames {
         let source_frame = self.frame;
         let [music_level, effects_level, _] = self.levels.map(|v| f32::from(v) * (1. / 127.));
         let voice_level = self.assets.voice_gains[usize::from(self.levels[2])];
+        if let Some(music) = &mut self.music {
+            music.controls.mono = !self.stereo;
+            music.prepare_shared(|| {
+                block_gains(source_frame, master, Some(fade)).map(|v| v * music_level)
+            })?;
+        }
+        for sound in &mut self.sounds {
+            sound.controls.mono = !self.stereo;
+            sound.prepare_shared(|| {
+                block_gains(source_frame, master, None).map(|v| v * effects_level)
+            })?;
+        }
+        self.synth.advance()?;
         if let Some(music) = &mut self.music {
             music.controls.mono = !self.stereo;
             if let Some(frame) = music
@@ -782,6 +815,7 @@ impl Decodable for FieldSource {
     type Decoder = Frames;
     fn decoder(&self) -> Frames {
         Frames {
+            synth: Synthesizer::default(),
             completions: self.completions.clone(),
             assets: self.assets.clone(),
             receive: self
@@ -995,7 +1029,7 @@ mod tests {
         let mut banks = [
             "fields/map-332-audio.json",
             "fields/map-330-audio.json",
-            "fields/iselia-classroom-audio.json",
+            "fields/map-340-audio.json",
         ]
         .into_iter()
         .map(|manifest| Assets::load_manifest(&root, manifest, None, &mut samples).unwrap())
@@ -1077,7 +1111,11 @@ mod tests {
             || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
             Into::into,
         );
-        let music = Arc::new(Package::load(&root, "audio/field-music-77.json").unwrap());
+        let manifest: FieldAudio = serde_json::from_slice(
+            &std::fs::read(root.join(resonance_content::field::audio_path(332))).unwrap(),
+        )
+        .unwrap();
+        let music = Arc::new(Package::load(&root, &manifest.music[&77].path).unwrap());
         assert!(music.score.loop_events.is_empty());
         let assets = Assets {
             reverbs: music.reverbs,
