@@ -25,50 +25,48 @@ nix develop
 cargo build --workspace
 target/debug/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
 target/debug/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
-target/debug/resonance-import cook-title --extracted local/extracted/disc1
-target/debug/resonance-import cook-boot
-target/debug/resonance-import cook-title-audio --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
-target/debug/resonance-import cook-title-sounds --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
-target/debug/resonance-import cook-intro
-target/debug/resonance-import cook-story-intro
-target/debug/resonance-import cook-classroom
-target/debug/resonance-import cook-classroom-audio --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
-for map in 330 331 332 333 334 335 336 337 338 339; do
-  target/debug/resonance-import cook-field --map "$map"
-  target/debug/resonance-import cook-field-audio --map "$map" \
-    --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin \
-    --additional-disc local/extracted/disc2
-done
-target/debug/resonance-import validate-shops --json local/shop-inventories.json
+target/debug/resonance-import cook-all --jobs 6 --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
 ```
 
 The current import profile supports North American GQSEAF revision 0.
-Disc 2 supplies later-story voices referenced by Colette's house; the importer
-checks the primary disc first and uses `--additional-disc` for missing archives.
-Extraction is a one-time step. Cooks reuse valid outputs and default to
-`local/extracted/disc1` and `local/cooked`; inspect each command's `--help` for
-other paths. Keep discs, extracted files, cooked assets and recordings in the
-ignored `local/` directory. All cooking is Rust, with established native codec
-helpers supplied by the [development flake](flake.nix).
-The importer parses original databases into validated, editable JSON, including
+Extraction is a one-time step. `cook-all` converts general assets from both discs
+into one shared `local/all-assets` library, including unused resources in supported
+formats. It also prepares startup, menus, skits and every field in the source
+catalogue through shared conversion paths. Field resources and media follow their
+source declarations; no list of Iselia fields or separate route-cooking commands
+is needed. Battle preparation is separate; the coverage report identifies deferred
+battle resources. Identical resources are reused across discs; disc names remain
+provenance only. Cooking does not establish runtime support for every recovered
+scene or native function. Cooks reuse valid outputs; inspect `--help` for
+other paths and worker limits. Keep discs, extracted files, cooked assets and
+recordings in the ignored `local/` directory. Cooking uses in-process Rust codecs,
+with no FFmpeg, vgmstream or KTX command-line tools. The
+[development flake](flake.nix) supplies the build and oracle tools.
+The importer parses original databases into validated JSON, including
 recipes, ingredients, item statistics, EX skill definitions and menu settings in
 `game/menu-data.json`.
 Executable addresses and packed table layouts stay inside the importer; the
 player reads the converted records.
 
+SymphoniaScript also supports readable `.sym` source through separate compiler,
+VM and tooling crates. Check the included examples with
+`cargo run -p resonance-script -- check scripts field::welcome math::vec3`.
+Use `--scripts scripts` when playing to enable authored field bindings in
+`scripts/fields.json`; its empty default preserves the original events. Script
+edits are compiled on field entry without recooking unchanged assets. See the
+[language guide](docs/symphonia-script.md) for syntax, native APIs and bindings.
+
 Field cooking includes skit scripts, animated portraits and media timing. The
-English disc's skit tracks are silent; cooking verifies that and retains their
-duration without storing silent audio files. Shared content can be refreshed with
-`cook-skits`, `cook-menu`, `cook-text` and `cook-effects`; dependent field manifests
-refresh with them. After a separate `cook-monsters` run, use `cook-menu` to refresh
-embedded catalogue records. Field audio includes every declared script
-branch and shared menu sounds. Repeat the cooking commands after importer changes.
+English disc's skit tracks are silent; preparation verifies that and uses their
+duration without playing them. The shared library retains the decoded audio.
+Field audio includes every declared script branch and shared menu sounds. Rerun
+`cook-all` after changes to source assets, cooked formats or the importer.
 
 ## Play
 
 ```sh
-cargo run -p resonance -- --silent
-cargo run --release -p resonance -- --silent --resolution 1920x1080
+cargo run -p resonance -- --silent --assets local/all-assets
+cargo run --release -p resonance -- --silent --assets local/all-assets --resolution 1920x1080
 ```
 
 `--silent` permanently mutes speaker output, including after device recovery.
@@ -153,6 +151,16 @@ The supported route has been exercised on ARM Linux; Windows, Steam Deck and
 Apple Silicon macOS hardware validation remains pending. Intel macOS is out
 of scope.
 
+Maintained SymphoniaScript sources are embedded in the cooker and published under
+the cooked asset directory's `scripts/`. These are immutable cooked assets,
+verified and loaded with the field. Change the checked-in sources, rebuild and
+recook to update them. Mod overlays are future work.
+The checked-in [standard library](scripts/std/README.md) supplies ordinary string
+and integer constants. Cooking copies it unchanged. Check source with
+`resonance-script check scripts preview::sword_dancer`; add `--assets ASSETS` to
+check against the cooked library instead.
+
+- [Generic asset cooking](docs/cooking.md)
 - [SymphoniaScript and native registration](docs/symphonia-script.md)
 - [Audio/video ownership and clocks](docs/audio-video-architecture.md)
 - [Field preparation](docs/field-preloading.md)

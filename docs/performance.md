@@ -42,7 +42,7 @@ cargo run --release -p resonance-presentation --example window_probe -- local/ch
 # Five-minute classroom throughput run at a fixed physical window size.
 cargo run --release -p resonance-presentation --example frame_benchmark -- local/checks/benchmark 1920x1080 300
 # Both movies for over ten minutes, with 200 ms consumer stalls.
-cargo run -p resonance-media --example playback_probe -- local/cooked 640 200 512
+cargo run -p resonance-media --example playback_probe -- local/all-assets 640 200 512
 # Device-rate quality reference written to WAV.
 cargo run -p resonance-media --example resample_probe -- local/checks/resampler
 # Real movie window; optional final argument "stalls" injects 200 ms hitches.

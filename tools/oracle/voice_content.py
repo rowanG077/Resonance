@@ -84,7 +84,7 @@ def main():
     parser.add_argument("--full-profile", action="store_true",
                         help="Also measure each quarter-second of the full line at a fixed alignment")
     args = parser.parse_args()
-    manifest = args.assets / "fields/iselia-classroom-audio.json"
+    manifest = args.assets / "fields/map-340-audio.json"
     spec = json.loads(manifest.read_text())
     templates = {}
     for voice in (map(int, spec["voices"]) if args.all else args.voice):
