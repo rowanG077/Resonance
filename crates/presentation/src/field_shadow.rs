@@ -1,12 +1,12 @@
 //! Ordinary textured quads attached to animated joints and the field floor.
 use super::{ActorPart, Art, State};
 use crate::field_audit::{Applied, Request};
+use crate::sparse_animation::affine::Helper as TransformHelper;
 use crate::{draw_order::DrawOrder, materials::TitleSurface};
 use bevy::{
     image::{ImageLoaderSettings, ImageSampler},
     mesh::VertexAttributeValues,
     prelude::*,
-    transform::helper::TransformHelper,
 };
 use resonance_content::field::ContactShadow;
 use std::collections::BTreeMap;
@@ -151,7 +151,7 @@ pub(super) fn pose(
     actors: Query<&ActorPart>,
     mut transforms: ParamSet<(
         TransformHelper,
-        Query<(&mut Shadow, &mut Transform, &mut Visibility)>,
+        Query<(&mut Shadow, &mut Transform, &mut Visibility, &mut DrawOrder)>,
     )>,
     mut applied: ResMut<Applied>,
 ) {
@@ -177,10 +177,20 @@ pub(super) fn pose(
             ))
         })
         .collect();
-    for (mut shadow, mut transform, mut visibility) in &mut transforms.p1() {
+    for (mut shadow, mut transform, mut visibility, mut order) in &mut transforms.p1() {
         let Some(actor) = state.get().events.world.actors.get(&shadow.0) else {
             continue;
         };
+        // Overlapping black-alpha quads still round differently when reordered.
+        let actor_order = state
+            .get()
+            .events
+            .world
+            .actor_order()
+            .iter()
+            .position(|id| *id == shadow.0)
+            .expect("shadow actor has a submission order");
+        order.set_if_neq(DrawOrder(crate::draw_order::CONTACT_SHADOWS, actor_order));
         let surface = state.get().ground_surface(actor.position);
         let anchor = anchors.get(&shadow.0);
         *visibility = Visibility::Hidden;

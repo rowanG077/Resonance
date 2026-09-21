@@ -12,9 +12,10 @@ pub(super) type Bytes = BTreeMap<String, Arc<[u8]>>;
 
 #[derive(Resource, Clone)]
 pub(super) struct Source {
-    pub root: PathBuf,
+    root: PathBuf,
     pub bytes: Arc<RwLock<Bytes>>,
 }
+
 pub fn register(app: &mut App, root: &Path) {
     let source = Source {
         root: root.into(),
@@ -35,7 +36,11 @@ impl Source {
         let paths: std::collections::BTreeSet<_> = record
             .parts
             .iter()
-            .flat_map(|p| std::iter::once(&p.scene.mesh).chain(&p.scene.textures))
+            .flat_map(|p| {
+                std::iter::once(&p.scene.mesh)
+                    .chain(&p.scene.textures)
+                    .chain(p.scene.clips.iter().map(|clip| &clip.motion))
+            })
             .cloned()
             .collect();
         super::Pending::spawn(move |cancelled| {
@@ -75,5 +80,32 @@ impl AssetReader for Source {
     }
     async fn is_directory<'a>(&'a self, _: &'a Path) -> Result<bool, AssetReaderError> {
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn script_snapshot_uses_only_prepared_utf8_sources() {
+        let mut files = resonance_content::prepared::Files::default();
+        files.bytes.insert(
+            "scripts/model/appearance.sym".into(),
+            Arc::from(&b"verified"[..]),
+        );
+        files
+            .bytes
+            .insert("scripts/field.ssb".into(), Arc::from(&b"\xff"[..]));
+        let sources = files.script_sources().unwrap();
+        files.bytes.clear();
+        assert_eq!(
+            sources,
+            BTreeMap::from([("model::appearance".into(), "verified".into())])
+        );
+        files
+            .bytes
+            .insert("scripts/model/broken.sym".into(), Arc::from(&b"\xff"[..]));
+        assert!(files.script_sources().is_err());
     }
 }

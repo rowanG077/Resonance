@@ -1,17 +1,23 @@
 //! Blend authored skeletal poses before script adjustments and secondary motion.
+mod frame;
 use super::field_view::{ActorPart, Art, State};
+use super::sparse_animation::affine::{Helper, Locals, Pose};
 use bevy::prelude::*;
+use frame::Frame;
+use std::collections::BTreeMap;
 
 #[derive(Component)]
 pub(super) struct Rig {
     /// At least one animated pose has been evaluated.
     pub(super) sampled: bool,
     bones: Vec<(Entity, Transform)>,
-    previous: Vec<Transform>,
-    from: Vec<Transform>,
-    presented: Vec<Transform>,
-    binding_pose: Vec<Transform>,
-    clip: Option<(u32, u16, u32)>,
+    previous: Vec<Frame>,
+    from: Vec<Frame>,
+    presented: Vec<Frame>,
+    binding_pose: Vec<Frame>,
+    bind_channels: Vec<u8>,
+    authored_channels: Vec<u8>,
+    clip: Option<(resonance_events::animation::AnimationSource, u32, u16, u32)>,
     late_binding: bool,
 }
 
@@ -20,39 +26,35 @@ pub(super) fn bind(
     art: Res<Art>,
     roots: Query<(Entity, &ActorPart), Without<Rig>>,
     children: Query<&Children>,
-    nodes: Query<(&Name, &Transform, &ChildOf)>,
-    meshes: Query<(), With<Mesh3d>>,
+    nodes: Query<(&Transform, &bevy::gltf::GltfExtras)>,
+    clips: Res<Assets<super::sparse_animation::Clip>>,
 ) {
     for (root, part) in &roots {
         if !part.prepared {
             continue;
         }
-        let names = super::field_pose::named_bones(root, &children, &nodes, &meshes);
         let spec = &art.models[&part.resource][part.part].spec;
-        let bones: Vec<_> = spec
-            .bone_names
-            .iter()
-            .filter_map(|name| names.get(name).map(|&(entity, rest, _)| (entity, rest)))
-            .collect();
-        if bones.is_empty() {
-            continue;
+        let bones =
+            super::sparse_animation::Binding::new(root, spec.bone_names.len(), &children, &nodes)
+                .expect("prepared animation skeleton must contain every bone")
+                .0;
+        let mut rig = Rig::new(bones);
+        for clip in &art.models[&part.resource][part.part].clips {
+            for track in &clips.get(clip).expect("prepared sparse clip").0.tracks {
+                rig.bind_channels[usize::from(track.bone)] = track.bind_channels.0;
+            }
         }
-        let previous: Vec<_> = bones.iter().map(|(_, t)| *t).collect();
-        commands.entity(root).insert(Rig {
-            sampled: false,
-            bones,
-            from: previous.clone(),
-            presented: previous.clone(),
-            binding_pose: Vec::new(),
-            previous,
-            clip: None,
-            late_binding: false,
-        });
+        for (i, &(_, rest)) in rig.bones.iter().enumerate() {
+            let frame = Frame::sample(rest.into(), 0, rig.bind_channels[i]);
+            rig.previous[i] = frame;
+            rig.from[i] = frame;
+            rig.presented[i] = frame;
+        }
+        commands.entity(root).insert(rig);
     }
 }
 
-/// A new clip can omit channels animated by the previous clip. Bevy writes
-/// only its own channels, so reset every bone to the authored rest transform.
+/// Sparse clips omit unchanged channels, so restore every bone before sampling.
 pub(super) fn restore(rigs: Query<&Rig>, mut nodes: Query<&mut Transform>) {
     for rig in &rigs {
         for &(entity, rest) in &rig.bones {
@@ -63,18 +65,98 @@ pub(super) fn restore(rigs: Query<&Rig>, mut nodes: Query<&mut Transform>) {
     }
 }
 
-fn mix(from: Transform, to: Transform, weight: f32) -> Transform {
-    Transform {
-        translation: from.translation.lerp(to.translation, weight),
-        rotation: from.rotation.slerp(to.rotation, weight),
-        scale: from.scale.lerp(to.scale, weight),
+/// Evaluate the original sparse curves before blending and native adjustments.
+pub(super) fn sample(
+    state: State,
+    art: Res<Art>,
+    clips: Res<Assets<super::sparse_animation::Clip>>,
+    mut rigs: Query<(&ActorPart, &mut Rig)>,
+    mut nodes: Query<&mut Transform>,
+    mut affine: ResMut<Locals>,
+    mut applied: ResMut<super::field_audit::Applied>,
+) {
+    let world = &state.get().events.world;
+    for (part, mut rig) in &mut rigs {
+        rig.authored_channels.fill(0);
+        let Some(index) = part.active_clip else {
+            continue;
+        };
+        let animation = world.actors[&part.actor].animation.as_ref().unwrap();
+        let model = &art.models[&part.resource][part.part];
+        let clip = &clips
+            .get(&model.clips[index])
+            .expect("prepared sparse clip")
+            .0;
+        let time = animation.sample(
+            world.tick,
+            0,
+            model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ,
+        );
+        for track in &clip.tracks {
+            rig.authored_channels[usize::from(track.bone)] = track.channels().0;
+        }
+        super::sparse_animation::sample(
+            &rig.bones,
+            clip,
+            time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
+            &mut nodes,
+            &mut affine,
+        )
+        .expect("validated sparse animation must evaluate");
+        applied.ack(super::field_audit::Request::Animation {
+            actor: part.actor,
+            part: part.part,
+            resource: animation.resource,
+            slot: animation.slot,
+        });
     }
 }
 
 impl Rig {
-    fn blend_bone(&mut self, index: usize, pose: &mut Transform, weight: f32, hold: bool) {
+    pub(super) fn bone_at(&self, index: u16) -> Option<Entity> {
+        self.bones
+            .get(usize::from(index))
+            .map(|&(entity, _)| entity)
+    }
+
+    pub(super) fn new(bones: Vec<(Entity, Transform)>) -> Self {
+        let previous: Vec<_> = bones.iter().map(|(_, t)| Frame::from(*t)).collect();
+        Self {
+            sampled: false,
+            bind_channels: vec![frame::TRS; bones.len()],
+            authored_channels: vec![0; bones.len()],
+            bones,
+            from: previous.clone(),
+            presented: previous.clone(),
+            binding_pose: Vec::new(),
+            previous,
+            clip: None,
+            late_binding: false,
+        }
+    }
+
+    /// Search the authored node order, excluding geometry copies of bone names.
+    pub(super) fn bone(
+        &self,
+        name: &str,
+        names: &Query<&Name>,
+    ) -> Result<Option<Entity>, bevy::ecs::query::QueryEntityError> {
+        for &(entity, _) in &self.bones {
+            if names.get(entity)?.as_str() == name {
+                return Ok(Some(entity));
+            }
+        }
+        Ok(None)
+    }
+
+    fn blend_bone(&mut self, index: usize, pose: &mut Frame, weight: f32, hold: bool) {
         if weight < 1. {
-            *pose = mix(self.from[index], *pose, weight);
+            *pose = self.from[index].mix(
+                *pose,
+                self.bones[index].1,
+                self.bind_channels[index],
+                weight,
+            );
         }
         if hold {
             if self.binding_pose.is_empty() {
@@ -93,38 +175,34 @@ impl Rig {
     }
 
     /// Event attachments can observe a binding before its first model draw.
-    pub(super) fn binding_attachment(
-        &self,
-        mut entity: Entity,
-        transforms: &Query<(&Transform, Option<&ChildOf>)>,
-    ) -> Option<Vec3> {
+    pub(super) fn binding_locals(&self, transforms: &Helper) -> Option<BTreeMap<Entity, Pose>> {
         if self.binding_pose.is_empty() {
             return None;
         }
-        let mut result = GlobalTransform::IDENTITY;
-        loop {
-            let (&current, parent) = transforms.get(entity).ok()?;
-            let local = self
-                .bones
-                .iter()
-                .position(|&(bone, _)| bone == entity)
-                .map_or(current, |index| {
-                    let base = self.presented[index];
-                    let binding = self.binding_pose[index];
-                    // Preserve the script/secondary adjustments applied after
-                    // blending, while replacing the held animation underneath.
-                    Transform {
-                        translation: binding.translation + (current.translation - base.translation),
-                        rotation: binding.rotation * (base.rotation.inverse() * current.rotation),
-                        scale: binding.scale * (current.scale / base.scale),
-                    }
-                });
-            result = GlobalTransform::from(local) * result;
-            let Some(parent) = parent else {
-                return Some(result.translation());
-            };
-            entity = parent.parent();
-        }
+        self.bones
+            .iter()
+            .enumerate()
+            .map(|(index, &(entity, _))| {
+                Some((
+                    entity,
+                    transforms.adjusted(
+                        entity,
+                        self.binding_pose[index].pose,
+                        self.presented[index].pose,
+                        transforms.local(entity).ok()?,
+                    ),
+                ))
+            })
+            .collect()
+    }
+
+    /// Without dynamics, native adjustments can be replayed directly. Dynamics
+    /// instead evaluate these binding locals before changing the drawn skeleton.
+    pub(super) fn binding_attachment(&self, entity: Entity, transforms: &Helper) -> Option<Vec3> {
+        transforms
+            .global_with(entity, &self.binding_locals(transforms)?)
+            .ok()
+            .map(|world| world.translation())
     }
 }
 
@@ -132,12 +210,13 @@ pub(super) fn blend(
     state: State,
     mut rigs: Query<(&ActorPart, &mut Rig)>,
     mut nodes: Query<&mut Transform>,
+    mut affine: ResMut<Locals>,
 ) {
     let world = &state.get().events.world;
     for (part, mut rig) in &mut rigs {
         let actor = world.actors.get(&part.actor);
         let animation = actor.and_then(|a| a.animation.as_ref());
-        let key = animation.map(|a| (a.resource, a.slot, a.start_tick));
+        let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
         if key != rig.clip {
             // Event bindings occur after the actor's draw. Preserve that pose
             // for the binding frame, including repeated captures of this tick.
@@ -156,7 +235,14 @@ pub(super) fn blend(
         let weight = animation.map_or(1., |a| a.blend_weight(world.tick));
         for i in 0..rig.bones.len() {
             if let Ok(mut transform) = nodes.get_mut(rig.bones[i].0) {
-                rig.blend_bone(i, &mut transform, weight, hold);
+                let entity = rig.bones[i].0;
+                let mut pose = Frame::sample(
+                    affine.get(entity, *transform),
+                    rig.authored_channels[i],
+                    rig.bind_channels[i],
+                );
+                rig.blend_bone(i, &mut pose, weight, hold);
+                affine.set(entity, &mut transform, pose.pose);
             }
         }
         rig.sampled = true;
@@ -167,6 +253,32 @@ pub(super) fn blend(
 mod tests {
     use super::*;
     #[test]
+    fn matrix_transitions_snap_but_binding_holds_keep_the_complete_pose() {
+        let entity = Entity::PLACEHOLDER;
+        let mut rig = Rig::new(vec![(entity, Transform::IDENTITY)]);
+        let from = Pose::Affine(bevy::math::Affine3A::from_cols(
+            Vec3::X.into(),
+            Vec3::new(0.5, 1., 0.).into(),
+            Vec3::Z.into(),
+            Vec3::Y.into(),
+        ));
+        let to = Pose::Affine(bevy::math::Affine3A::from_translation(Vec3::X));
+        let from = Frame::sample(from, 16, 0);
+        let to = Frame::sample(to, 16, 0);
+        rig.previous[0] = from;
+        rig.from[0] = from;
+        rig.presented[0] = from;
+        let mut pose = to;
+        rig.blend_bone(0, &mut pose, 0.25, true);
+        assert_eq!(pose, from);
+        assert_eq!(rig.binding_pose, [to]);
+        assert_eq!(rig.previous, [from]);
+        pose = to;
+        rig.blend_bone(0, &mut pose, 0.25, false);
+        assert_eq!(pose, to);
+    }
+
+    #[test]
     fn omitted_channels_return_to_rest_without_retaining_the_old_clip() {
         let old = Transform::from_xyz(12., 4., 0.).with_rotation(Quat::from_rotation_z(1.));
         let rest = Transform::IDENTITY;
@@ -176,10 +288,12 @@ mod tests {
             .spawn(Rig {
                 sampled: false,
                 bones: vec![(bone, rest)],
-                previous: vec![old],
-                from: vec![old],
-                presented: vec![old],
+                previous: vec![old.into()],
+                from: vec![old.into()],
+                presented: vec![old.into()],
                 binding_pose: Vec::new(),
+                bind_channels: vec![frame::TRS],
+                authored_channels: vec![0],
                 clip: None,
                 late_binding: false,
             })
@@ -194,30 +308,37 @@ mod tests {
             world.get::<Transform>(bone).unwrap().translation,
             Vec3::ZERO
         );
-        let middle = mix(old, rest, 0.5);
+        let Pose::Trs(middle) = Pose::from(old).mix(rest.into(), 0.5) else {
+            panic!()
+        };
         assert_eq!(middle.translation, Vec3::new(6., 2., 0.));
         assert!(middle.rotation.angle_between(Quat::from_rotation_z(0.5)) < 0.001);
-        let end = mix(old, rest, 1.);
+        let Pose::Trs(end) = Pose::from(old).mix(rest.into(), 1.) else {
+            panic!()
+        };
         assert_eq!(end.translation, Vec3::ZERO);
         assert!(end.rotation.angle_between(Quat::IDENTITY) < 0.001);
 
         // A binding during this unfinished blend holds the actual visible
         // midpoint, but its later cross-fade still starts at the completed pose.
         let mut rig = world.get_mut::<Rig>(rig).unwrap();
-        let mut pose = rest;
+        let mut pose = Frame::from(rest);
         rig.blend_bone(0, &mut pose, 0.5, false);
-        assert_eq!(pose, middle);
+        assert_eq!(pose, middle.into());
         let next = Transform::from_xyz(-8., 2., 6.);
         rig.from = rig.previous.clone();
         for _ in 0..2 {
-            pose = next;
+            pose = next.into();
             rig.blend_bone(0, &mut pose, 0.25, true);
-            assert_eq!(pose, middle);
+            assert_eq!(pose, middle.into());
         }
-        assert_eq!(rig.previous, vec![old]);
-        pose = next;
+        assert_eq!(rig.previous, vec![old.into()]);
+        pose = next.into();
         rig.blend_bone(0, &mut pose, 0.25, false);
-        assert_eq!(pose, mix(old, next, 0.25));
+        assert_eq!(
+            pose,
+            Frame::from(old).mix(next.into(), rest, frame::TRS, 0.25)
+        );
     }
 
     #[test]
@@ -230,25 +351,25 @@ mod tests {
         let neck = world.spawn((adjusted, ChildOf(root))).id();
         let held_head = Transform::from_xyz(0., 10., 20.);
         let head = world.spawn((held_head, ChildOf(neck))).id();
-        let held = vec![Transform::IDENTITY, held_head];
+        let held = vec![Frame::from(Transform::IDENTITY), held_head.into()];
         let rig = world
             .spawn(Rig {
                 sampled: true,
-                bones: vec![(neck, held[0]), (head, held_head)],
+                bones: vec![(neck, Transform::IDENTITY), (head, held_head)],
                 previous: held.clone(),
                 from: held.clone(),
                 presented: held,
-                binding_pose: vec![adjusted, Transform::from_xyz(0., 10., 19.)],
+                binding_pose: vec![adjusted.into(), Transform::from_xyz(0., 10., 19.).into()],
+                bind_channels: vec![frame::TRS; 2],
+                authored_channels: vec![0; 2],
                 clip: None,
                 late_binding: true,
             })
             .id();
         let position = world
-            .run_system_once(
-                move |rigs: Query<&Rig>, transforms: Query<(&Transform, Option<&ChildOf>)>| {
-                    rigs.get(rig).unwrap().binding_attachment(head, &transforms)
-                },
-            )
+            .run_system_once(move |rigs: Query<&Rig>, transforms: Helper| {
+                rigs.get(rig).unwrap().binding_attachment(head, &transforms)
+            })
             .unwrap()
             .unwrap();
         // The new animation adds a quarter turn; the script's existing quarter
@@ -293,10 +414,12 @@ mod tests {
         world.spawn(Rig {
             sampled: false,
             bones: vec![(entity, authored)],
-            previous: vec![authored],
-            from: vec![authored],
-            presented: vec![authored],
+            previous: vec![authored.into()],
+            from: vec![authored.into()],
+            presented: vec![authored.into()],
             binding_pose: Vec::new(),
+            bind_channels: vec![frame::TRS],
+            authored_channels: vec![0],
             clip: None,
             late_binding: false,
         });

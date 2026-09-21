@@ -24,12 +24,14 @@ use bevy::{
 use material::{Composite, Surface};
 use resonance_content::model_preview::{ModelPreview, PreviewPart};
 use resonance_game::menu::preview::PreviewId;
+use resonance_model_behavior::{PoseOverrides, PreparedBehavior};
 pub(super) use source::register;
 use std::{
     collections::BTreeMap,
     sync::{Arc, atomic::Ordering},
     time::Instant,
 };
+use symphonia_script_tools::PreparationCache;
 type Pending = crate::loading::Task<source::Bytes>;
 const LAYER: usize = 29;
 
@@ -44,17 +46,12 @@ pub(super) fn install(app: &mut App) {
             ExtractResourcePlugin::<gpu::Capture>::default(),
         ))
         .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (prepare, animate)
-                .chain()
-                .after(crate::field_view::FieldPreparation),
-        )
+        .add_systems(Update, prepare.after(crate::field_view::FieldPreparation))
         .add_systems(
             PostUpdate,
-            (pose, motion::apply)
+            (animate, pose, motion::apply)
                 .chain()
-                .after(bevy::app::AnimationSystems)
+                .after(crate::secondary_motion::restore)
                 .before(bevy::transform::TransformSystems::Propagate),
         );
     app.get_sub_app_mut(bevy::render::RenderApp)
@@ -108,12 +105,11 @@ struct Part {
     spec: PreviewPart,
     gltf: Handle<Gltf>,
     textures: Vec<Handle<Image>>,
-    templates: Vec<Handle<StandardMaterial>>,
     root: Option<Entity>,
     materials: Vec<Handle<Surface>>,
-    graph: Handle<AnimationGraph>,
-    clip: Option<AnimationNodeIndex>,
-    players: Vec<Entity>,
+    clips: Vec<Handle<crate::sparse_animation::Clip>>,
+    clip: Option<usize>,
+    binding: crate::sparse_animation::Binding,
     bones: BTreeMap<String, Entity>,
     ready: bool,
 }
@@ -130,6 +126,10 @@ struct Viewer {
     sampled: crate::scene::SampledImages,
     started: Instant,
     ready: bool,
+    behaviors: PreparationCache,
+    behavior: Option<PreparedBehavior>,
+    behavior_tick: Option<u32>,
+    overrides: PoseOverrides,
 }
 #[derive(Clone)]
 struct Record {
@@ -155,7 +155,7 @@ struct AssetsForPreview<'w> {
     images: ResMut<'w, Assets<Image>>,
     surfaces: ResMut<'w, Assets<Surface>>,
     composites: ResMut<'w, Assets<Composite>>,
-    graphs: ResMut<'w, Assets<AnimationGraph>>,
+    clips: Res<'w, Assets<crate::sparse_animation::Clip>>,
     gltfs: Res<'w, Assets<Gltf>>,
 }
 #[derive(SystemParam)]
@@ -169,9 +169,9 @@ struct PreviewContext<'w> {
 struct PreviewEntities<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     nodes: Query<'w, 's, (&'static Name, &'static Transform, &'static ChildOf)>,
+    pose_nodes: Query<'w, 's, (&'static Transform, &'static bevy::gltf::GltfExtras)>,
     meshes: Query<'w, 's, (), With<Mesh3d>>,
-    standard: Query<'w, 's, &'static MeshMaterial3d<StandardMaterial>>,
-    players: Query<'w, 's, (), With<AnimationPlayer>>,
+    slots: Query<'w, 's, &'static crate::materials::MaterialSlot>,
     instantiated: Query<'w, 's, (), With<Instantiated>>,
 }
 
@@ -237,6 +237,10 @@ fn setup(
         sampled: Default::default(),
         started: Instant::now(),
         ready: false,
+        behaviors: PreparationCache::default(),
+        behavior: None,
+        behavior_tick: None,
+        overrides: PoseOverrides::default(),
     });
 }
 
@@ -256,6 +260,7 @@ fn prepare(
     let nodes = &entities.nodes;
     let result = (|| -> Result<()> {
         let Some(menu) = state.menu().filter(|m| m.preview().is_some()) else {
+            viewer.behavior_tick = None;
             commands.entity(viewer.quad).insert(Visibility::Hidden);
             commands
                 .entity(viewer.camera)
@@ -277,6 +282,28 @@ fn prepare(
                 id: selected.id,
                 preview: Arc::new(selected.model.clone()),
             };
+            menu.busy = true;
+            record.preview.validate()?;
+            let behavior = record
+                .preview
+                .behavior
+                .as_ref()
+                .map(|binding| {
+                    let art = context
+                        .art
+                        .as_ref()
+                        .context("missing prepared field artwork")?;
+                    PreparedBehavior::prepare(
+                        &mut viewer.behaviors,
+                        &art.behavior_sources,
+                        binding,
+                        &record.preview,
+                    )
+                })
+                .transpose()?;
+            viewer.overrides = evaluate_behavior(behavior.as_ref(), menu)?;
+            viewer.behavior = behavior;
+            viewer.behavior_tick = Some(menu.tick);
             for part in &viewer.parts {
                 if part.spec.attached_to.is_none()
                     && let Some(root) = part.root
@@ -295,7 +322,6 @@ fn prepare(
                 .get_mut(&viewer.composite)
                 .unwrap()
                 .opacity = 0.;
-            menu.busy = true;
         }
         let record = viewer.record.clone().unwrap();
         if let Some(job) = &viewer.job
@@ -324,12 +350,16 @@ fn prepare(
                         })
                         .collect(),
                     spec: spec.clone(),
-                    templates: Vec::new(),
                     root: None,
                     materials: Vec::new(),
-                    graph: Handle::default(),
+                    clips: spec
+                        .scene
+                        .clips
+                        .iter()
+                        .map(|clip| server.load(format!("preview://{}", clip.motion)))
+                        .collect(),
                     clip: None,
-                    players: Vec::new(),
+                    binding: Default::default(),
                     bones: BTreeMap::new(),
                     ready: false,
                 })
@@ -339,6 +369,7 @@ fn prepare(
         for part in &mut viewer.parts {
             for id in std::iter::once(part.gltf.id().untyped())
                 .chain(part.textures.iter().map(|h| h.id().untyped()))
+                .chain(part.clips.iter().map(|h| h.id().untyped()))
             {
                 if let Some(bevy::asset::LoadState::Failed(error)) = server.get_load_state(id) {
                     anyhow::bail!("preview asset failed: {error}");
@@ -350,7 +381,9 @@ fn prepare(
             if !server.is_loaded_with_dependencies(part.gltf.id()) {
                 continue;
             }
-            if !part.textures.iter().all(|h| assets.images.contains(h.id())) {
+            if !part.clips.iter().all(|h| assets.clips.contains(h))
+                || !part.textures.iter().all(|h| assets.images.contains(h.id()))
+            {
                 continue;
             }
             if part.root.is_none() {
@@ -426,9 +459,7 @@ fn prepare(
         Ok(())
     })();
     if let Err(error) = result {
-        error!("Model preview failed: {error:#}");
-        debug_assert!(false, "Model preview failed: {error:#}");
-        exit.write(AppExit::error());
+        fail(error, &mut exit);
     }
 }
 
@@ -443,26 +474,24 @@ impl Part {
     ) -> Result<()> {
         let gltf = assets.gltfs.get(&self.gltf).unwrap();
         let scene = &self.spec.scene;
-        self.templates = (0..scene.materials.len())
-            .map(|i| {
-                context
-                    .server
-                    .load(format!("preview://{}#Material{i}/std", scene.mesh))
-            })
-            .collect();
         ensure!(
-            gltf.materials.len() == scene.materials.len(),
+            gltf.meshes.len() == scene.materials.len(),
             "preview material count differs from its recipe"
         );
-        ensure!(
-            gltf.animations.len() == scene.clips.len(),
-            "preview animation count differs from its recipe"
-        );
+        for handle in &self.clips {
+            assets
+                .clips
+                .get(handle)
+                .unwrap()
+                .0
+                .validate_bones(scene.bone_names.len())?;
+        }
         for (index, spec) in scene.materials.iter().enumerate() {
             let binding = |binding: &resonance_content::TextureBinding| {
                 (self.textures[binding.texture].clone(), binding.clone())
             };
             let base = crate::materials::TitleSurface {
+                vertex_color: spec.vertex_color,
                 uv_offsets: Vec4::from_array(
                     self.spec.uv_offsets.get(index).copied().unwrap_or([0.; 4]),
                 ),
@@ -477,7 +506,7 @@ impl Part {
                 }),
                 toon_ramp: (scene.outline_color.is_none() && spec.color.is_some())
                     .then(|| context.art.as_ref().unwrap().toon_ramp.clone()),
-                field_light: Vec4::new(-600., -600., record.preview.elevation + 1400., 192.),
+                field_light: preview_light(Vec3::new(0., 0., record.preview.elevation)),
                 shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
                 // Fade each surface so overlapping triangles remain visible.
                 // The same prepared pipeline also handles full opacity.
@@ -496,9 +525,9 @@ impl Part {
                 extension: default(),
             }));
         }
-        let (graph, clips) = AnimationGraph::from_clips(gltf.animations.clone());
-        self.graph = assets.graphs.add(graph);
-        self.clip = clips.first().copied();
+        if let Some((index, _)) = self.spec.selected_clip()? {
+            self.clip = Some(index);
+        }
         self.root = Some(
             commands
                 .spawn((
@@ -531,10 +560,16 @@ impl Part {
             &entities.meshes,
         );
         if !scene.secondary_motion.is_empty() {
-            let rig = crate::secondary_motion::Rig::new(scene, &names)
+            let rig = crate::secondary_motion::Rig::new(root, scene, &names)
                 .context("preview secondary-motion rig is incomplete")?;
             commands.entity(root).insert(rig);
         }
+        self.binding = crate::sparse_animation::Binding::new(
+            root,
+            scene.bone_names.len(),
+            &entities.children,
+            &entities.pose_nodes,
+        )?;
         self.bones = names
             .into_iter()
             .map(|(name, (entity, _, _))| (name, entity))
@@ -543,18 +578,8 @@ impl Part {
             commands
                 .entity(entity)
                 .insert((RenderLayers::layer(LAYER), NoFrustumCulling));
-            if entities.players.contains(entity) {
-                commands
-                    .entity(entity)
-                    .insert(AnimationGraphHandle(self.graph.clone()));
-                self.players.push(entity);
-            }
-            if let Ok(material) = entities.standard.get(entity) {
-                let i = self
-                    .templates
-                    .iter()
-                    .position(|h| h.id() == material.id())
-                    .context("undeclared preview material")?;
+            if let Ok(slot) = entities.slots.get(entity) {
+                let i = slot.index(self.materials.len())?;
                 let hidden = self.spec.attached_to.is_none()
                     && scene.material_nodes.get(i).is_some_and(|indices| {
                         indices.iter().any(|&n| {
@@ -564,18 +589,15 @@ impl Part {
                                 .contains(&scene.bone_names[usize::from(n)])
                         })
                     });
-                commands
-                    .entity(entity)
-                    .remove::<MeshMaterial3d<StandardMaterial>>()
-                    .insert((
-                        MeshMaterial3d(self.materials[i].clone()),
-                        crate::draw_order::DrawOrder(scene.materials[i].draw_order, 0),
-                        if hidden {
-                            Visibility::Hidden
-                        } else {
-                            Visibility::Inherited
-                        },
-                    ));
+                commands.entity(entity).insert((
+                    MeshMaterial3d(self.materials[i].clone()),
+                    crate::draw_order::DrawOrder(scene.materials[i].draw_order, 0),
+                    if hidden {
+                        Visibility::Hidden
+                    } else {
+                        Visibility::Inherited
+                    },
+                ));
                 if !hidden {
                     shared
                         .0
@@ -586,10 +608,7 @@ impl Part {
                 }
             }
         }
-        ensure!(
-            self.clip.is_none() || !self.players.is_empty(),
-            "animated preview has no animation player"
-        );
+
         self.ready = true;
         commands.entity(root).insert(Visibility::Inherited);
         Ok(())
@@ -598,92 +617,279 @@ impl Part {
 
 fn animate(
     mut state: State,
-    viewer: Res<Viewer>,
-    mut players: Query<&mut AnimationPlayer>,
+    mut viewer: ResMut<Viewer>,
+    clips: Res<Assets<crate::sparse_animation::Clip>>,
+    mut transforms: Query<&mut Transform>,
+    mut affine: ResMut<crate::sparse_animation::affine::Locals>,
     mut surfaces: ResMut<Assets<Surface>>,
+    mut exit: MessageWriter<AppExit>,
 ) {
-    let Some(preview) = state.menu().and_then(|m| m.preview()) else {
+    let Some(menu) = state.menu() else {
         return;
     };
-    for part in &viewer.parts {
-        if !part.ready {
-            continue;
+    let Some(preview) = menu.preview() else {
+        return;
+    };
+    if viewer.parts.is_empty() {
+        return;
+    }
+    let result = (|| -> Result<()> {
+        if viewer.behavior_tick != Some(menu.tick) {
+            viewer.overrides = evaluate_behavior(viewer.behavior.as_ref(), menu)?;
+            viewer.behavior_tick = Some(menu.tick);
         }
-        for handle in &part.materials {
-            surfaces.get_mut(handle).unwrap().base.tint.w = f32::from(preview.opacity) / 255.
-                * part
-                    .spec
-                    .scene
-                    .outline_color
-                    .map_or(1., |c| f32::from(c[3]) / 255.);
-        }
-        if let Some(clip) = part.clip {
-            let duration = part.spec.scene.clips[0].duration_ticks();
-            let tick = preview.sample(duration);
-            for &entity in &part.players {
-                if let Ok(mut player) = players.get_mut(entity) {
-                    player
-                        .play(clip)
-                        .pause()
-                        .set_seek_time(tick as f32 / resonance_content::ANIMATION_HZ);
-                }
+        let translation = preview_translation(&viewer.overrides, preview.model.elevation);
+        // Each ready part must be sampled before dynamics initialize, even while
+        // another part is still loading.
+        for part in viewer.parts.iter().filter(|part| part.ready) {
+            for handle in &part.materials {
+                let surface = &mut surfaces
+                    .get_mut(handle)
+                    .context("prepared preview material is missing")?
+                    .base;
+                surface.field_light = preview_light(translation);
+                surface.tint.w = f32::from(preview.opacity) / 255.
+                    * part
+                        .spec
+                        .scene
+                        .outline_color
+                        .map_or(1., |c| f32::from(c[3]) / 255.);
+            }
+            if let Some(index) = part.clip {
+                let duration = part.spec.scene.clips[index].duration_ticks();
+                let tick = preview.sample(duration);
+                let clip = &clips
+                    .get(&part.clips[index])
+                    .expect("prepared preview clip")
+                    .0;
+                part.binding.sample(
+                    clip,
+                    tick as f32 / resonance_content::ANIMATION_HZ,
+                    &mut transforms,
+                    &mut affine,
+                )?;
+            } else {
+                restore_pose(&part.binding, &mut transforms, &mut affine)?;
             }
         }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        fail(error, &mut exit);
     }
 }
 
-fn pose(mut state: State, viewer: Res<Viewer>, mut transforms: Query<&mut Transform>) {
+fn pose(
+    mut state: State,
+    viewer: Res<Viewer>,
+    mut transforms: Query<&mut Transform>,
+    mut affine: ResMut<crate::sparse_animation::affine::Locals>,
+    mut exit: MessageWriter<AppExit>,
+) {
     let Some(menu) = state.menu().filter(|m| m.preview().is_some()) else {
         return;
     };
     let Some(record) = &viewer.record else { return };
-    let preview = menu.preview().unwrap();
-    let distance = preview.distance;
-    let slide = 16 - i32::from(preview.page_fade) * 316 / 256;
-    let target = Vec3::new(
-        -distance * 4.8_f32.to_radians().sin() + (slide / 4 - 16) as f32,
-        0.,
-        distance * 6.4_f32.to_radians().sin(),
-    );
-    let eye = target
-        + Vec3::new(
+    if viewer.parts.is_empty() {
+        return;
+    }
+    let result = (|| -> Result<()> {
+        let preview = menu.preview().unwrap();
+        let distance = preview.distance;
+        let slide = 16 - i32::from(preview.page_fade) * 316 / 256;
+        let target = Vec3::new(
+            -distance * 4.8_f32.to_radians().sin() + (slide / 4 - 16) as f32,
             0.,
-            -distance * 15_f32.to_radians().cos(),
-            distance * 15_f32.to_radians().sin(),
+            distance * 6.4_f32.to_radians().sin(),
         );
-    *transforms.get_mut(viewer.camera).unwrap() =
-        Transform::from_translation(eye).looking_at(target, Vec3::Z);
-    for part in &viewer.parts {
-        if !part.ready {
-            continue;
-        }
-        if let Ok(mut transform) = transforms.get_mut(part.root.unwrap()) {
-            *transform = if part.spec.attached_to.is_some() {
-                Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
-            } else {
-                Transform::from_xyz(0., 0., record.preview.elevation)
+        let eye = target
+            + Vec3::new(
+                0.,
+                -distance * 15_f32.to_radians().cos(),
+                distance * 15_f32.to_radians().sin(),
+            );
+        *transforms.get_mut(viewer.camera).unwrap() =
+            Transform::from_translation(eye).looking_at(target, Vec3::Z);
+        ensure!(
+            viewer
+                .overrides
+                .scales
+                .keys()
+                .all(|node| usize::from(node.part) < viewer.parts.len()),
+            "behavior references a missing preview part"
+        );
+        for (index, part) in viewer.parts.iter().enumerate() {
+            if !part.ready {
+                continue;
+            }
+            {
+                let mut transform =
+                    transforms.get_mut(part.root.context("prepared preview root missing")?)?;
+                *transform = if part.spec.attached_to.is_some() {
+                    Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
+                } else {
+                    Transform::from_translation(preview_translation(
+                        &viewer.overrides,
+                        record.preview.elevation,
+                    ))
                     .with_rotation(Quat::from_rotation_z(preview.yaw.to_radians()))
                     .with_scale(Vec3::splat(record.preview.scale))
-            };
+                };
+            }
+            scale_nodes(
+                &part.binding,
+                viewer.overrides.scales.iter().filter_map(|(node, scale)| {
+                    (usize::from(node.part) == index).then_some((node.bone, *scale))
+                }),
+                &mut transforms,
+                &mut affine,
+            )?;
         }
-        if part.spec.attached_to.is_none() {
-            for node in &record.preview.node_scales {
-                if node.unless_flag.is_some_and(|flag| {
-                    menu.checkpoint
-                        .as_ref()
-                        .unwrap()
-                        .progress
-                        .event_flags
-                        .contains(&flag)
-                }) {
-                    continue;
-                }
-                if let Some(&entity) = part.bones.get(&node.bone)
-                    && let Ok(mut transform) = transforms.get_mut(entity)
-                {
-                    transform.scale = Vec3::from_array(node.scale);
-                }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        fail(error, &mut exit);
+    }
+}
+
+fn evaluate_behavior(
+    behavior: Option<&PreparedBehavior>,
+    menu: &resonance_game::menu::Menu,
+) -> Result<PoseOverrides> {
+    let Some(behavior) = behavior else {
+        return Ok(PoseOverrides::default());
+    };
+    let checkpoint = menu
+        .checkpoint
+        .as_ref()
+        .context("preview behavior has no checkpoint flags")?;
+    behavior.evaluate(|flag| checkpoint.progress.event_flags.contains(&flag))
+}
+
+fn preview_translation(pose: &PoseOverrides, elevation: f32) -> Vec3 {
+    pose.translation
+        .map_or(Vec3::new(0., 0., elevation), Vec3::from_array)
+}
+
+fn preview_light(translation: Vec3) -> Vec4 {
+    (translation + Vec3::new(-600., -600., 1400.)).extend(192.)
+}
+
+fn restore_pose(
+    binding: &crate::sparse_animation::Binding,
+    transforms: &mut Query<&mut Transform>,
+    affine: &mut crate::sparse_animation::affine::Locals,
+) -> Result<()> {
+    for &(entity, rest) in &binding.0 {
+        affine.set(entity, &mut *transforms.get_mut(entity)?, rest.into());
+    }
+    Ok(())
+}
+
+fn scale_nodes(
+    binding: &crate::sparse_animation::Binding,
+    scales: impl Iterator<Item = (u16, [f32; 3])>,
+    transforms: &mut Query<&mut Transform>,
+    affine: &mut crate::sparse_animation::affine::Locals,
+) -> Result<()> {
+    for (bone, scale) in scales {
+        let &(entity, _) = binding
+            .0
+            .get(usize::from(bone))
+            .context("behavior references a missing bound node")?;
+        affine.scale(
+            entity,
+            &mut *transforms.get_mut(entity)?,
+            Vec3::from_array(scale),
+        );
+    }
+    Ok(())
+}
+
+fn fail(error: anyhow::Error, exit: &mut MessageWriter<AppExit>) {
+    error!("Model preview failed: {error:#}");
+    debug_assert!(false, "Model preview failed: {error:#}");
+    exit.write(AppExit::error());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sparse_animation::{
+        Binding,
+        affine::{Locals, Pose},
+    };
+    use bevy::{ecs::system::RunSystemOnce, math::Affine3A};
+
+    #[test]
+    fn indexed_behavior_scales_reset_body_and_outline_without_an_animation() {
+        let mut world = World::new();
+        world.init_resource::<Locals>();
+        let rest = Transform::from_xyz(1., 2., 3.);
+        let entities: [[Entity; 2]; 2] = std::array::from_fn(|_| {
+            std::array::from_fn(|_| world.spawn((Name::new("repeated"), rest)).id())
+        });
+        for hidden in [true, false, true] {
+            world
+                .run_system_once(
+                    move |mut transforms: Query<&mut Transform>, mut affine: ResMut<Locals>| {
+                        for nodes in entities {
+                            let binding = Binding(nodes.map(|entity| (entity, rest)).into());
+                            restore_pose(&binding, &mut transforms, &mut affine).unwrap();
+                            if hidden {
+                                // A native scale setter replaces matrix mode, including
+                                // its translation/shear; it must not decompose the matrix.
+                                affine.set(
+                                    nodes[0],
+                                    &mut transforms.get_mut(nodes[0]).unwrap(),
+                                    Pose::Affine(Affine3A::from_translation(Vec3::splat(20.))),
+                                );
+                            }
+                            scale_nodes(
+                                &binding,
+                                hidden.then_some((0, [0.; 3])).into_iter(),
+                                &mut transforms,
+                                &mut affine,
+                            )
+                            .unwrap();
+                            assert!(
+                                scale_nodes(
+                                    &binding,
+                                    [(2, [1.; 3])].into_iter(),
+                                    &mut transforms,
+                                    &mut affine
+                                )
+                                .is_err()
+                            );
+                        }
+                    },
+                )
+                .unwrap();
+            for nodes in entities {
+                assert_eq!(
+                    *world.get::<Transform>(nodes[0]).unwrap(),
+                    if hidden {
+                        Transform::from_scale(Vec3::ZERO)
+                    } else {
+                        rest
+                    }
+                );
+                assert_eq!(*world.get::<Transform>(nodes[1]).unwrap(), rest);
             }
         }
+        let translated = PoseOverrides {
+            translation: Some([10., 20., -80.]),
+            ..Default::default()
+        };
+        let translation = preview_translation(&translated, 0.);
+        assert_eq!(translation, Vec3::new(10., 20., -80.));
+        assert_eq!(
+            preview_light(translation).truncate() - translation,
+            Vec3::new(-600., -600., 1400.)
+        );
+        assert_eq!(
+            preview_translation(&PoseOverrides::default(), 0.),
+            Vec3::ZERO
+        );
     }
 }

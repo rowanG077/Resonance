@@ -10,7 +10,8 @@ fn subtitles_follow_media_time_when_video_is_held() {
         active: true,
         presented_frame: Some(5),
         asset: Some(MovieAsset {
-            version: 1,
+            audio_track: 0,
+            version: 2,
             path: "movies/test.mkv".into(),
             sha256: "0".repeat(64),
             width: 640,
@@ -42,6 +43,7 @@ fn fixture() -> App {
         PathBuf::from,
     );
     let options = RunOptions {
+        script_root: None,
         saves: Default::default(),
         assets: root.clone(),
         tick: None,
@@ -57,7 +59,7 @@ fn fixture() -> App {
         record_playthrough: None,
         record_title_ticks: 1000,
     };
-    let mut movie = Playback::load(&root, &options).expect("cook-intro first");
+    let mut movie = Playback::load(&root, &options).expect("cook-all first");
     let asset = movie.asset.as_ref().unwrap();
     let mut images = Assets::<Image>::default();
     movie.texture = images.add(Image::new(
@@ -480,7 +482,7 @@ fn new_game_confirm_opens_script_movie_and_preserves_the_field_session() {
         .clone();
     let movie = app.world().resource::<Playback>();
     assert!(movie.active);
-    assert_eq!(movie.asset.as_ref().unwrap().path, "movies/story-intro.mkv");
+    assert_eq!(movie.resource, Some(1));
     assert!(app.world().resource::<crate::PendingAudio>().0.is_none());
 
     // The same Enter that confirmed New Game must not immediately skip it.

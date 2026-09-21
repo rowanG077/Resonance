@@ -161,6 +161,10 @@ fn start(world: &mut World, command: Command) -> Result<()> {
             let bytes = store.read(Kind::Save, &slot)?;
             let pending = loading::Pending::start(
                 world.resource::<super::super::RunOptions>().assets.clone(),
+                world
+                    .resource::<super::super::RunOptions>()
+                    .script_root
+                    .clone(),
                 Some(bytes),
                 world.resource::<loading::Resident>(),
             )?;

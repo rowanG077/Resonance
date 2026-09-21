@@ -57,7 +57,7 @@ struct PreparedMaterials {
 }
 #[derive(Component)]
 struct Scene {
-    materials: HashMap<AssetId<StandardMaterial>, Handle<TitleSurface>>,
+    materials: Vec<Handle<TitleSurface>>,
     loaded: bool,
     converted: bool,
     draws: Vec<MainEntity>,
@@ -212,11 +212,11 @@ fn begin(
             for depth_write in [false, true] {
                 let materials = art
                     .surfaces(resource, index, &mut images, &mut sampled)
-                    .map(|(template, mut surface)| {
+                    .map(|mut surface| {
                         surface.depth_write = depth_write;
                         let handle = surfaces.add(surface);
                         retained.push(handle.clone());
-                        (template, handle)
+                        handle
                     })
                     .collect();
                 let root = commands
@@ -284,7 +284,7 @@ fn convert(
     shared: Res<Shared>,
     mut scenes: Query<(Entity, &mut Scene)>,
     children: Query<&Children>,
-    meshes: Query<&MeshMaterial3d<StandardMaterial>>,
+    meshes: Query<&super::materials::MaterialSlot>,
 ) {
     let Some(mut preparation) = preparation else {
         return;
@@ -300,19 +300,17 @@ fn convert(
                 Visibility::Inherited,
                 NoFrustumCulling,
             ));
-            if let Ok(material) = meshes.get(child) {
-                let Some(prepared) = scene.materials.get(&material.id()) else {
-                    report.failure = Some(format!(
-                        "field {} has an undeclared warmup material {:?}",
-                        preparation.map,
-                        material.id()
-                    ));
-                    continue;
+            if let Ok(slot) = meshes.get(child) {
+                let index = match slot.index(scene.materials.len()) {
+                    Ok(index) => index,
+                    Err(error) => {
+                        report.failure = Some(format!("field {}: {error}", preparation.map));
+                        continue;
+                    }
                 };
                 commands
                     .entity(child)
-                    .remove::<MeshMaterial3d<StandardMaterial>>()
-                    .insert(MeshMaterial3d(prepared.clone()));
+                    .insert(MeshMaterial3d(scene.materials[index].clone()));
                 report.expected.insert(child.into());
                 scene.draws.push(child.into());
             }

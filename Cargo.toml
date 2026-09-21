@@ -31,7 +31,7 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 sha2 = "0.10"
 image = { version = "0.25", default-features = false, features = ["png"] }
-bevy = { version = "=0.19.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "gltf_animation", "png", "ktx2", "zstd_rust", "x11", "wayland"] }
+bevy = { version = "=0.19.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "png", "ktx2", "zstd_rust", "x11", "wayland"] }
 resonance-content = { path = "crates/content" }
 resonance-game = { path = "crates/game" }
 resonance-import = { path = "crates/import" }

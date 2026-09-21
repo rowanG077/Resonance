@@ -28,14 +28,14 @@ impl PlaybackAssets {
         let path = root.join("title-sounds.json");
         let cues = if path.is_file() {
             let metadata: resonance_content::TitleSounds = serde_json::from_slice(&fs::read(path)?)
-                .context("invalid title sound manifest; run resonance-import cook-title-sounds")?;
+                .context("invalid title sound manifest; run resonance-import cook-all")?;
             metadata.validate()?;
             let cues = Manifest::load(root, &metadata.path, &metadata.sha256)?;
             anyhow::ensure!(
                 ["navigate", "confirm", "back", "error"]
                     .iter()
                     .all(|key| cues.cues.contains_key(*key)),
-                "missing required menu cues; run resonance-import cook-title-sounds"
+                "missing required menu cues; run resonance-import cook-all"
             );
             Some(Arc::new(cues))
         } else {

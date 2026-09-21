@@ -67,6 +67,7 @@ pub(super) fn app_with_saves(
     fs::create_dir_all(output)?;
     let (mut app, _) = crate::build_app_with_display(
         crate::RunOptions {
+            script_root: None,
             assets: root.into(),
             reveal: saves.load.is_none(),
             saves,

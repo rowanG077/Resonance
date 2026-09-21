@@ -1,6 +1,6 @@
 use super::Events;
 use super::draw_order::DrawOrder;
-use super::materials::TitleSurface;
+use super::materials::{MaterialSlot, TitleSurface};
 use bevy::{
     image::{
         ImageAddressMode, ImageFilterMode, ImageLoaderSettings, ImageSampler,
@@ -16,16 +16,26 @@ use std::sync::Arc;
 pub(super) struct AnimatedPart {
     resource: u16,
     autoplay: bool,
-    graph: Handle<AnimationGraph>,
-    nodes: Vec<AnimationNodeIndex>,
+    clips: Vec<Handle<super::sparse_animation::Clip>>,
+    bone_names: Vec<String>,
+    binding: Option<super::sparse_animation::Binding>,
     schedule: Vec<SceneClip>,
 }
 
+#[derive(Component)]
+pub(super) struct Instantiated;
+
+/// Every title scene instance, including static parts sharing the same GLB.
+#[derive(Component)]
+pub(super) struct PartRoot;
+
 struct PendingSurface {
+    root: Entity,
     resource: u16,
-    template: Handle<StandardMaterial>,
+    slot: usize,
     color: Option<(Handle<Image>, TextureBinding)>,
     multiply: Option<(Handle<Image>, TextureBinding)>,
+    vertex_color: bool,
     blend: bool,
     depth_write: bool,
     draw_order: u32,
@@ -33,8 +43,9 @@ struct PendingSurface {
 }
 
 struct SurfaceBinding {
+    root: Entity,
     resource: u16,
-    template: AssetId<StandardMaterial>,
+    slot: usize,
     surface: Handle<TitleSurface>,
     depth_write: bool,
     draw_order: u32,
@@ -50,31 +61,34 @@ pub(super) struct FieldAssets {
 }
 
 impl FieldAssets {
-    pub fn load(
-        &mut self,
-        scene: &TitleScene,
-        server: &AssetServer,
-        commands: &mut Commands,
-        graphs: &mut Assets<AnimationGraph>,
-    ) {
+    pub fn load(&mut self, scene: &TitleScene, server: &AssetServer, commands: &mut Commands) {
         for part in &scene.parts {
             let handle = server.load(GltfAssetLabel::Scene(0).from_asset(part.mesh.clone()));
             self.scenes.push(handle.clone());
             let mut root = commands.spawn((
+                PartRoot,
                 WorldAssetRoot(handle),
                 Transform::from_translation(Vec3::from_array(part.translation)),
             ));
             if !part.clips.is_empty() {
-                let (graph, nodes) = AnimationGraph::from_clips((0..part.clips.len()).map(|i| {
-                    server.load(GltfAssetLabel::Animation(i).from_asset(part.mesh.clone()))
-                }));
                 root.insert(AnimatedPart {
                     resource: part.resource,
                     autoplay: part.autoplay,
-                    graph: graphs.add(graph),
-                    nodes,
+                    clips: part
+                        .clips
+                        .iter()
+                        .map(|clip| server.load(clip.motion.clone()))
+                        .collect(),
+                    bone_names: part.bone_names.clone(),
+                    binding: None,
                     schedule: part.clips.clone(),
-                });
+                })
+                .observe(
+                    |event: On<bevy::world_serialization::WorldInstanceReady>,
+                     mut commands: Commands| {
+                        commands.entity(event.entity).insert(Instantiated);
+                    },
+                );
             }
             let load = |binding: &TextureBinding| {
                 let image = server
@@ -91,10 +105,12 @@ impl FieldAssets {
                 .collect();
             for (index, material) in part.materials.iter().enumerate() {
                 self.pending.push(PendingSurface {
+                    root: root.id(),
                     resource: part.resource,
-                    template: server.load(format!("{}#Material{index}/std", part.mesh)),
+                    slot: index,
                     color: material.color.as_ref().map(load),
                     multiply: material.multiply.as_ref().map(load),
+                    vertex_color: material.vertex_color,
                     blend: material.blend,
                     depth_write: material.depth_write,
                     draw_order: material.draw_order,
@@ -112,17 +128,54 @@ impl FieldAssets {
     }
 }
 
+pub(super) fn bind_animated(
+    mut roots: Query<(Entity, &mut AnimatedPart), With<Instantiated>>,
+    children: Query<&Children>,
+    nodes: Query<(&Transform, &bevy::gltf::GltfExtras)>,
+    clips: Res<Assets<super::sparse_animation::Clip>>,
+) {
+    for (root, mut part) in &mut roots {
+        if part.binding.is_none() {
+            if !part.clips.iter().all(|clip| clips.contains(clip)) {
+                continue;
+            }
+            for clip in &part.clips {
+                clips
+                    .get(clip)
+                    .unwrap()
+                    .0
+                    .validate_bones(part.bone_names.len())
+                    .expect("title animation must match its prepared skeleton");
+            }
+            part.binding = Some(
+                super::sparse_animation::Binding::new(
+                    root,
+                    part.bone_names.len(),
+                    &children,
+                    &nodes,
+                )
+                .expect("instantiated title skeleton must contain every bone"),
+            );
+        }
+    }
+}
+
 pub(super) fn animate_field(
     events: Option<Res<Events>>,
-    mut roots: Query<(Entity, &AnimatedPart, &mut Transform, &mut Visibility)>,
-    children: Query<&Children>,
-    mut players: Query<(&mut AnimationPlayer, Option<&AnimationGraphHandle>)>,
-    mut commands: Commands,
+    roots: Query<(Entity, &AnimatedPart)>,
+    mut transforms: Query<&mut Transform>,
+    mut affine: ResMut<super::sparse_animation::affine::Locals>,
+    mut visibility: Query<&mut Visibility>,
+    clips: Res<Assets<super::sparse_animation::Clip>>,
 ) {
     let Some(events) = events else {
         return;
     };
-    for (root, part, mut transform, mut visibility) in &mut roots {
+    for (root, part) in &roots {
+        let Some(binding) = &part.binding else {
+            continue;
+        };
+        let mut visibility = visibility.get_mut(root).unwrap();
         let (clip, elapsed, repeat) = if part.autoplay {
             (0, events.0.tick() as f32 / ANIMATION_HZ, true)
         } else {
@@ -135,7 +188,7 @@ pub(super) fn animate_field(
             } else {
                 Visibility::Hidden
             };
-            transform.translation = Vec3::from_array(actor.position);
+            transforms.get_mut(root).unwrap().translation = Vec3::from_array(actor.position);
             let Some(animation) = &actor.animation else {
                 continue;
             };
@@ -165,22 +218,12 @@ pub(super) fn animate_field(
         } else {
             elapsed.min(spec.duration_seconds)
         };
-        for entity in children.iter_descendants(root) {
-            let Ok((mut player, graph)) = players.get_mut(entity) else {
-                continue;
-            };
-            if graph.is_none() {
-                commands
-                    .entity(entity)
-                    .insert(AnimationGraphHandle(part.graph.clone()));
-            }
-            for node in &part.nodes {
-                if *node != part.nodes[clip] {
-                    player.stop(*node);
-                }
-            }
-            player.play(part.nodes[clip]).pause().set_seek_time(time);
-        }
+        let Some(clip) = clips.get(&part.clips[clip]) else {
+            continue;
+        };
+        binding
+            .sample(&clip.0, time, &mut transforms, &mut affine)
+            .expect("validated title animation must evaluate");
     }
 }
 
@@ -218,6 +261,11 @@ pub(super) fn sampled_image(
         // Different materials may sample the same image with different wrap
         // modes. A derived image prevents one loader setting winning globally.
         let mut image = images.get(&handle).expect("loaded texture").clone();
+        // Scene shaders currently sample the base image. Keep that policy when
+        // physical textures also retain their authored mip levels.
+        let view = image.texture_view_descriptor.get_or_insert_default();
+        view.base_mip_level = 0;
+        view.mip_level_count = Some(1);
         let wrap = |mode| match mode {
             TextureWrap::Clamp => ImageAddressMode::ClampToEdge,
             TextureWrap::Repeat => ImageAddressMode::Repeat,
@@ -251,22 +299,38 @@ pub(super) fn prepare_field(
     server: Res<AssetServer>,
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    templates: Res<Assets<StandardMaterial>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
     mut sampled: ResMut<SampledImages>,
-    meshes: Query<(Entity, &MeshMaterial3d<StandardMaterial>)>,
+    meshes: Query<(Entity, &MaterialSlot), Without<MeshMaterial3d<TitleSurface>>>,
+    parents: Query<&ChildOf>,
+    roots: Query<(), With<PartRoot>>,
+    animated: Query<&AnimatedPart>,
+    clips: Res<Assets<super::sparse_animation::Clip>>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if !field.ready {
-        if !field
+        for part in &animated {
+            for clip in &part.clips {
+                if let Some(bevy::asset::LoadState::Failed(error)) =
+                    server.get_load_state(clip.id())
+                {
+                    error!("Title animation failed to load: {error}");
+                    exit.write(AppExit::error());
+                    return;
+                }
+            }
+        }
+        if !animated.iter().all(|part| {
+            part.binding.is_some() && part.clips.iter().all(|clip| clips.contains(clip))
+        }) || !field
             .scenes
             .iter()
             .all(|h| server.is_loaded_with_dependencies(h.id()))
             || !field.pending.iter().all(|p| {
-                templates.contains(p.template.id())
-                    && p.color
-                        .iter()
-                        .chain(&p.multiply)
-                        .all(|(h, _)| images.contains(h.id()))
+                p.color
+                    .iter()
+                    .chain(&p.multiply)
+                    .all(|(h, _)| images.contains(h.id()))
             })
         {
             return;
@@ -275,13 +339,15 @@ pub(super) fn prepare_field(
         for p in pending {
             let surface = surfaces.add(TitleSurface {
                 multiply: sampled_image(p.multiply, &mut images, &mut sampled),
+                vertex_color: p.vertex_color,
                 blend: p.blend,
                 depth_write: p.depth_write,
                 ..TitleSurface::textured(sampled_image(p.color, &mut images, &mut sampled))
             });
             field.materials.push(SurfaceBinding {
+                root: p.root,
                 resource: p.resource,
-                template: p.template.id(),
+                slot: p.slot,
                 surface,
                 depth_write: p.depth_write,
                 draw_order: p.draw_order,
@@ -291,16 +357,32 @@ pub(super) fn prepare_field(
         field.ready = true;
     }
     // World assets can instantiate after their dependencies finish loading.
-    for (entity, material) in &meshes {
-        if let Some(binding) = field.materials.iter().find(|b| b.template == material.id()) {
-            commands
-                .entity(entity)
-                .remove::<MeshMaterial3d<StandardMaterial>>()
-                .insert((
-                    MeshMaterial3d(binding.surface.clone()),
-                    DrawOrder(binding.draw_order, 0),
-                ));
-        }
+    bind_materials(&field, &mut commands, &meshes, &parents, &roots);
+}
+
+fn bind_materials(
+    field: &FieldAssets,
+    commands: &mut Commands,
+    meshes: &Query<(Entity, &MaterialSlot), Without<MeshMaterial3d<TitleSurface>>>,
+    parents: &Query<&ChildOf>,
+    roots: &Query<(), With<PartRoot>>,
+) {
+    for (entity, material) in meshes {
+        let Some(root) = parents
+            .iter_ancestors(entity)
+            .find(|&root| roots.contains(root))
+        else {
+            continue;
+        };
+        let binding = field
+            .materials
+            .iter()
+            .find(|b| b.root == root && b.slot == material.0)
+            .expect("title mesh must have a declared material slot");
+        commands.entity(entity).insert((
+            MeshMaterial3d(binding.surface.clone()),
+            DrawOrder(binding.draw_order, 0),
+        ));
     }
 }
 
@@ -330,5 +412,69 @@ pub(super) fn update_materials(
             surface.depth_write = depth_write;
             surface.uv_offsets = uv_offsets;
         }
+    }
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn shared_mesh_materials_keep_each_static_instance_settings() {
+        let mut world = World::new();
+        let mut surfaces = Assets::<TitleSurface>::default();
+        let slot = MaterialSlot(0);
+        let mut field = FieldAssets::default();
+        let mut instances = Vec::new();
+        for order in [7, 31] {
+            let root = world.spawn(PartRoot).id();
+            let group = world.spawn(ChildOf(root)).id();
+            let mesh = world.spawn((ChildOf(group), slot)).id();
+            let surface = surfaces.add(TitleSurface {
+                depth_write: order == 7,
+                ..TitleSurface::textured(None)
+            });
+            instances.push((mesh, surface.clone(), order));
+            field.materials.push(SurfaceBinding {
+                root,
+                resource: 0,
+                slot: 0,
+                surface,
+                depth_write: order == 7,
+                draw_order: order,
+                uv_animations: [None, None],
+            });
+        }
+        let unrelated = world.spawn(slot).id();
+        world.insert_resource(field);
+        world
+            .run_system_once(
+                |field: Res<FieldAssets>,
+                 mut commands: Commands,
+                 meshes: Query<(Entity, &MaterialSlot), Without<MeshMaterial3d<TitleSurface>>>,
+                 parents: Query<&ChildOf>,
+                 roots: Query<(), With<PartRoot>>| {
+                    bind_materials(&field, &mut commands, &meshes, &parents, &roots);
+                },
+            )
+            .unwrap();
+        for (mesh, surface, order) in instances {
+            assert_eq!(
+                world
+                    .get::<MeshMaterial3d<TitleSurface>>(mesh)
+                    .unwrap()
+                    .id(),
+                surface.id()
+            );
+            assert_eq!(world.get::<DrawOrder>(mesh).unwrap().0, order);
+            assert_eq!(world.get::<MaterialSlot>(mesh), Some(&slot));
+        }
+        assert_eq!(world.get::<MaterialSlot>(unrelated), Some(&slot));
+        assert!(
+            world
+                .get::<MeshMaterial3d<TitleSurface>>(unrelated)
+                .is_none()
+        );
     }
 }

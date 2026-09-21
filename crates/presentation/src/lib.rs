@@ -36,6 +36,7 @@ mod choice_cursor;
 mod draw_order;
 mod field_animation;
 mod field_audio;
+mod sparse_animation;
 pub use field_audio::record_field_audio;
 mod field_audit;
 mod field_events;
@@ -86,6 +87,8 @@ use materials::{TitleOutput, TitleText};
 pub struct RunOptions {
     pub saves: SaveOptions,
     pub assets: PathBuf,
+    /// Optional editable source project containing explicit fields.json bindings.
+    pub script_root: Option<PathBuf>,
     pub tick: Option<u32>,
     pub presentation_start: Option<u32>,
     pub capture: Option<PathBuf>,
@@ -214,8 +217,17 @@ fn build_app_with_display(
         "presentation-start requires a title checkpoint or a title-only playthrough"
     );
     let assets = fs::canonicalize(&options.assets)
-        .context("missing cooked assets; run resonance-import cook-title first")?;
-    let manifest: TitleAssets = serde_json::from_slice(&fs::read(assets.join("title.json"))?)?;
+        .context("missing cooked assets; run resonance-import cook-all first")?;
+    let title_path = assets.join("title.json");
+    let manifest: TitleAssets = serde_json::from_slice(
+        &fs::read(&title_path).with_context(|| format!("reading {}", title_path.display()))?,
+    )
+    .with_context(|| {
+        format!(
+            "incompatible cooked title assets at {}; rerun resonance-import cook-all for this asset directory",
+            title_path.display()
+        )
+    })?;
     manifest.validate()?;
     for texture in &manifest.textures {
         anyhow::ensure!(
@@ -238,6 +250,7 @@ fn build_app_with_display(
             }
         }
     }
+    let mut prepared_clips = sparse_animation::Prepared::default();
     let mut events = if let Some(scene) = &manifest.scene {
         use sha2::{Digest, Sha256};
         let bytes = fs::read(assets.join(&scene.script.path))
@@ -246,7 +259,11 @@ fn build_app_with_display(
             format!("{:x}", Sha256::digest(&bytes)) == scene.script.sha256,
             "title script digest mismatch"
         );
-        Some(resonance_game::title_events::start(&bytes, scene)?)
+        Some(resonance_game::title_events::start(
+            &bytes,
+            scene,
+            |path| prepared_clips.load(&assets, path),
+        )?)
     } else {
         None
     };
@@ -286,6 +303,7 @@ fn build_app_with_display(
     let movie = movie::Playback::load(&assets, &options)?;
     let boot = boot::Playback::load(&assets, &options)?;
     let mut app = App::new();
+    app.insert_resource(prepared_clips);
     saves::install(&mut app, &options.saves)?;
     loading::install(&mut app, &assets);
     let recording = options.record_playthrough.clone();
@@ -295,6 +313,10 @@ fn build_app_with_display(
         app.init_resource::<playthrough::Recording>();
     }
     let mut plugins = DefaultPlugins
+        .set(bevy::pbr::PbrPlugin {
+            gltf_enable_standard_materials: false,
+            ..default()
+        })
         .set(AssetPlugin {
             file_path: assets.to_string_lossy().into_owned(),
             ..default()
@@ -389,6 +411,7 @@ fn build_app_with_display(
                 saves::update,
                 new_game::enter,
                 new_game::transition,
+                scene::bind_animated,
                 prepare_field,
                 update_materials,
                 animate_field,
@@ -456,7 +479,6 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
     mut text: ResMut<Assets<TitleText>>,
-    mut graphs: ResMut<Assets<AnimationGraph>>,
     mut movie: ResMut<movie::Playback>,
     mut boot: ResMut<boot::Playback>,
     options: Res<RunOptions>,
@@ -603,7 +625,7 @@ fn setup(
             })),
             FieldCamera,
         ));
-        field.load(scene, &server, &mut commands, &mut graphs);
+        field.load(scene, &server, &mut commands);
     }
     let quad = meshes.add(Rectangle::new(1., 1.));
     for (index, row, top) in [

@@ -146,13 +146,7 @@ pub(super) fn checkpoint(world: &mut World) -> Result<FieldCheckpoint> {
         "quicksave unavailable while the game is paused"
     );
     ensure!(
-        !world.contains_resource::<loading::Pending>()
-            && !world.contains_resource::<loading::FieldPending>()
-            && world
-                .resource::<loading::Resident>()
-                .active
-                .load(std::sync::atomic::Ordering::Acquire)
-            && field_view::ready(world),
+        field_prepared(world),
         "quicksave unavailable while preparing the field"
     );
     ensure!(
@@ -167,6 +161,16 @@ pub(super) fn checkpoint(world: &mut World) -> Result<FieldCheckpoint> {
         "quicksave unavailable during a scene presentation"
     );
     session.field.checkpoint()
+}
+
+fn field_prepared(world: &mut World) -> bool {
+    !world.contains_resource::<loading::Pending>()
+        && !world.contains_resource::<loading::FieldPending>()
+        && world
+            .resource::<loading::Resident>()
+            .active
+            .load(std::sync::atomic::Ordering::Acquire)
+        && field_view::ready(world)
 }
 
 fn save(world: &mut World) -> Result<String> {
@@ -208,6 +212,15 @@ fn load(world: &mut World) -> Result<String> {
         resonance_persistence::decode(&bytes, &world.resource::<new_game::Session>().identity)?;
     let changing_field = checkpoint.map_id != world.resource::<new_game::Session>().assets.map_id;
     let started = Instant::now();
+    let scripts = world.resource::<super::RunOptions>().script_root.clone();
+    if scripts.is_some() {
+        let resident = world.resource::<loading::Resident>().clone();
+        world.resource_mut::<new_game::Session>().refresh_scripts(
+            checkpoint.map_id,
+            scripts,
+            &resident,
+        )?;
+    }
     world
         .resource_mut::<new_game::Session>()
         .restore(checkpoint)?;
@@ -243,7 +256,12 @@ fn restored(world: &mut World, changing_field: bool) {
 }
 
 pub(super) fn release_frame(world: &mut World) {
-    if !world.contains_resource::<RetainedFrame>() || checkpoint(world).is_err() {
+    if !world.contains_resource::<RetainedFrame>()
+        || !field_prepared(world)
+        || world
+            .get_resource::<new_game::Session>()
+            .is_none_or(|session| !session.ready_for_field || session.audio.is_some())
+    {
         return;
     }
     for (entity, active) in world.remove_resource::<RetainedFrame>().unwrap().0 {
@@ -284,5 +302,120 @@ fn report(world: &mut World, result: Result<String>) {
     };
     for mut window in world.query::<&mut Window>().iter_mut(world) {
         window.title = format!("Resonance — {message}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires cooked fields and the captured slope quicksave; no window or audio device"]
+    fn restored_frame_releases_during_authored_notice_without_enabling_saves() {
+        use std::{fs, path::Path, sync::atomic::Ordering};
+        struct Directory(PathBuf);
+        impl Drop for Directory {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let scripts = Directory(
+            std::env::temp_dir().join(format!("resonance-retained-frame-{}", std::process::id())),
+        );
+        fs::create_dir(&scripts.0).unwrap();
+        fs::write(
+            scripts.0.join("fields.json"),
+            r#"{"332":{"module":"entry","task":"run","on":"entry"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            scripts.0.join("entry.sym"),
+            "use game::field; pub task run() { await field::notice(\"Ready.\"); }",
+        )
+        .unwrap();
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
+            PathBuf::from,
+        );
+        let identity = new_game::Session::identity(&root).unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../local/milestone-3/slope-quicksave.json");
+        let (_, saved): (_, FieldCheckpoint) =
+            resonance_persistence::decode(&fs::read(fixture).unwrap(), &identity).unwrap();
+        let mut cache = loading::Cache {
+            scripts: Some(resonance_game::authored::FieldScripts::new(
+                scripts.0.clone(),
+            )),
+            ..default()
+        };
+        let package =
+            new_game::FieldPackage::prepare(&root, saved.map_id, &mut cache, || false).unwrap();
+        let mut session =
+            new_game::Session::load_prepared(&root, package.files, Some(saved), &mut cache)
+                .unwrap();
+        session.audio = None;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_resource::<loading::Resident>()
+            .init_resource::<super::super::movie::Playback>();
+        let art =
+            field_view::prepared_test_art(&session.assets, app.world().resource::<AssetServer>());
+        app.insert_resource(art).insert_resource(session);
+        let world = app.world_mut();
+        let visible = world
+            .spawn(Camera {
+                is_active: false,
+                ..default()
+            })
+            .id();
+        let hidden = world
+            .spawn(Camera {
+                is_active: false,
+                ..default()
+            })
+            .id();
+        world.insert_resource(RetainedFrame(vec![(visible, true), (hidden, false)]));
+
+        release_frame(world);
+        assert!(world.contains_resource::<RetainedFrame>());
+        world
+            .resource::<loading::Resident>()
+            .active
+            .store(true, Ordering::Release);
+        world.resource_mut::<field_view::Art>().ready = false;
+        release_frame(world);
+        assert!(world.contains_resource::<RetainedFrame>());
+        world.resource_mut::<field_view::Art>().ready = true;
+        assert!(checkpoint(world).is_err(), "queued entry must block saving");
+        release_frame(world);
+        assert!(!world.contains_resource::<RetainedFrame>());
+        assert!(world.get::<Camera>(visible).unwrap().is_active);
+        assert!(!world.get::<Camera>(hidden).unwrap().is_active);
+        assert!(checkpoint(world).is_err());
+
+        world
+            .resource_mut::<new_game::Session>()
+            .field
+            .step(default())
+            .unwrap();
+        assert!(
+            !world
+                .resource::<new_game::Session>()
+                .field
+                .events
+                .world
+                .dialogue
+                .is_empty()
+        );
+        world.get_mut::<Camera>(visible).unwrap().is_active = false;
+        world.insert_resource(RetainedFrame(vec![(visible, true)]));
+        release_frame(world);
+        assert!(!world.contains_resource::<RetainedFrame>());
+        assert!(world.get::<Camera>(visible).unwrap().is_active);
+        assert!(
+            checkpoint(world).is_err(),
+            "active notice must block saving"
+        );
     }
 }
