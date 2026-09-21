@@ -67,17 +67,23 @@ pub(crate) struct OperationScope {
     active: Vec<Weak<Mutex<Progress>>>,
 }
 impl OperationScope {
-    pub fn begin(&mut self) -> Result<Operation, String> {
+    /// Also retain cancellation ownership for an operation published by a game service.
+    pub fn track(&mut self, operation: &Operation) -> Result<(), String> {
         self.active.retain(|task| task.strong_count() != 0);
         if self.active.len() >= 4096 {
             return Err("too many retained game operations".into());
         }
+        self.active.push(Arc::downgrade(&operation.state));
+        Ok(())
+    }
+    pub fn begin(&mut self) -> Result<Operation, String> {
         let id = NEXT_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| "operation ID exhausted")?;
         let state = Arc::new(Mutex::new(Progress::default()));
-        self.active.push(Arc::downgrade(&state));
-        Ok(Operation { id, state })
+        let operation = Operation { id, state };
+        self.track(&operation)?;
+        Ok(operation)
     }
     pub fn cancel(&mut self) {
         for state in self.active.drain(..).filter_map(|w| w.upgrade()) {

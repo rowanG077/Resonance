@@ -1,16 +1,13 @@
 [package]
-name = "resonance-game"
+name = "resonance-script"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
 [dependencies]
-serde.workspace = true
 anyhow.workspace = true
-sha2.workspace = true
+clap.workspace = true
 resonance-events.workspace = true
-resonance-content.workspace = true
-symphonia-script.workspace = true
-symphonia-script-vm.workspace = true
+resonance-model-behavior.workspace = true
 symphonia-script-compiler.workspace = true
 symphonia-script-tools.workspace = true
-serde_json.workspace = true

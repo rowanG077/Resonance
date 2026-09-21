@@ -13,7 +13,7 @@ fn classroom(mut entry: FieldEntry) -> FieldSession {
     let root = asset_root();
     entry.menu_data = Some(Arc::new(cooked("game/menu-data.json")));
     entry.text = Arc::new(cooked("game/text.json"));
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     FieldSession::enter(
         &fs::read(root.join(&assets.script.path)).unwrap(),
         cooked(&assets.messages),
@@ -777,7 +777,7 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
         (record.level, record.recorded_at, record.tick),
         (Some(level), Some(1_700_000_000), 101)
     );
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     let restored = classroom(saved.entry(&assets, data, [340].into()).unwrap());
     assert_eq!(
         restored.events.world.event_records[&4].recorded_at,
@@ -994,7 +994,7 @@ fn strategy_presets_rename_and_current_orders_survive_reload() {
     assert!(session.player_has_control());
     let saved = session.checkpoint().unwrap();
     let saved = roundtrip::<FieldCheckpoint>(&saved);
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let party = loaded.events.world.party.as_ref().unwrap();
     party.validate(&data).unwrap();
@@ -1234,7 +1234,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     assert!(session.player_has_control());
     let saved = session.checkpoint().unwrap();
     let saved = roundtrip::<FieldCheckpoint>(&saved);
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let party = loaded.events.world.party.as_ref().unwrap();
     party.validate(&data).unwrap();
@@ -1522,7 +1522,7 @@ fn equipment_preview_optimization_and_menu_transfers_survive_reload() {
     assert!(session.player_has_control());
     let saved = session.checkpoint().unwrap();
     let saved = roundtrip::<FieldCheckpoint>(&saved);
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let party = loaded.events.world.party.as_ref().unwrap();
     party.validate(&data).unwrap();
@@ -1704,7 +1704,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     settle_menu_motion(&mut session);
     assert!(session.player_has_control());
     let checkpoint: FieldCheckpoint = roundtrip(&session.checkpoint().unwrap());
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     let loaded = classroom(
         checkpoint
             .clone()
@@ -2692,7 +2692,7 @@ fn status_title_changes_survive_menu_close_and_save_reload_and_change_growth() {
     settle_menu_motion(&mut session);
     assert!(session.player_has_control());
     let saved: FieldCheckpoint = roundtrip(&session.checkpoint().unwrap());
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     let loaded = classroom(saved.entry(&assets, data.clone(), [340].into()).unwrap());
     let mut party = loaded.events.world.party.clone().unwrap();
     assert_eq!(party.members[0].title, 2);
@@ -2809,7 +2809,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
         "required party member is absent"
     );
 
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     let mut entry = checkpoint
         .entry(&assets, data.clone(), [340].into())
         .unwrap();
@@ -2838,7 +2838,7 @@ fn skit_playback_suspends_field_and_persists_viewed_state() {
     );
     let files = resonance_content::prepared::Files::load(
         &asset_root(),
-        &["fields/iselia-classroom.preload.json"],
+        &["fields/map-340.preload.json"],
         &mut Default::default(),
         || false,
     )
@@ -3046,7 +3046,7 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
         );
         assert_eq!(session.events.world.party.as_ref().unwrap().items[&37], 1);
         let checkpoint = session.checkpoint().unwrap();
-        let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+        let assets: FieldAssets = cooked("fields/map-340.json");
         let mut restored = classroom(
             checkpoint
                 .entry(&assets, data.clone(), [340].into())
@@ -3118,12 +3118,24 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
                 )?;
                 events.world.audio_commands.clear();
                 for portrait in events.world.skit.as_ref().unwrap().portraits.values() {
+                    let asset = &catalog.portraits[&portrait.resource];
+                    let tile_size = resonance_content::skit::TILE_SIZE;
                     anyhow::ensure!(
-                        catalog.portraits[&portrait.resource]
-                            .variants
-                            .iter()
-                            .any(|v| v.images == portrait.images),
-                        "portrait expression was not cooked"
+                        portrait.tiles.len()
+                            == (asset.size[0].div_ceil(tile_size)
+                                * asset.size[1].div_ceil(tile_size))
+                                as usize
+                            && portrait.tiles.iter().all(|tile| {
+                                asset
+                                    .images
+                                    .get(usize::from(tile.image))
+                                    .is_some_and(|image| {
+                                        tile.block
+                                            < image.size[0].div_ceil(tile_size)
+                                                * image.size[1].div_ceil(tile_size)
+                                    })
+                            }),
+                        "portrait references an uncooked image block"
                     );
                 }
             }
@@ -3483,7 +3495,7 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
 fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
-    let assets: FieldAssets = cooked("fields/iselia-classroom.json");
+    let assets: FieldAssets = cooked("fields/map-340.json");
     let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
     let effects: resonance_content::effect::FieldEffects = cooked(&assets.effects);
     for stay in [false, true] {
@@ -3576,14 +3588,19 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
             }
             for (&id, actor) in &session.events.world.actors {
                 if let Some(animation) = &actor.animation
-                    && checked_clips.insert((actor.resource, animation.resource, animation.slot))
+                    && checked_clips.insert((
+                        actor.resource,
+                        animation.source,
+                        animation.resource,
+                        animation.slot,
+                    ))
                     && let Some(model) = assets.actors.iter().find(|m| m.resource == actor.resource)
                 {
                     for (part, spec) in model.parts.iter().enumerate() {
                         assert!(
-                            spec.clips.iter().any(|c| c.resource_slot == animation.slot
-                                && c.animation_resource.unwrap_or(actor.resource)
-                                    == animation.resource),
+                            spec.clips
+                                .iter()
+                                .any(|c| animation.matches(c, actor.resource)),
                             "actor {id}, part {part}: uncooked binding {:#x}/{}",
                             animation.resource,
                             animation.slot
@@ -3653,8 +3670,7 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets"]
 fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
-    let audio: resonance_content::field_audio::FieldAudio =
-        cooked("fields/iselia-classroom-audio.json");
+    let audio: resonance_content::field_audio::FieldAudio = cooked("fields/map-340-audio.json");
     let mut session = classroom(Default::default());
     session.voice_durations = Arc::new(
         audio
@@ -3809,7 +3825,7 @@ fn original_classroom_reaches_control_walks_and_runs_every_child_conversation() 
         operation.is_pending(),
         "an early press must not dismiss text"
     );
-    assert!(session.dialogue[&0].fully_revealed());
+    assert!(!session.dialogue[&0].fully_revealed());
     assert!(!session.dialogue[&0].closed);
     // Let each page reveal and fade normally before issuing its advance edge.
     advance_to(

@@ -14,7 +14,7 @@ use symphonia_script_vm::Memory;
 #[ignore = "requires locally cooked GQSEAF setup scenario/session data; no devices"]
 fn original_setup_initializes_party_and_both_settings_routes_reach_classroom() {
     let root = asset_root();
-    let assets: FieldAssets = cooked("fields/new-game-setup.json");
+    let assets: FieldAssets = cooked("fields/map-5.json");
     assets.validate().unwrap();
     let data: SessionData = cooked("game/session-data.json");
     let data = Arc::new(data);

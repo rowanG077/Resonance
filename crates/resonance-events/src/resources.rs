@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceKind {
     Model,
+    Animation,
+    UnboundGeometry,
     Camera,
     Overlay,
 }
@@ -13,6 +15,7 @@ pub struct ResourceLibrary {
     pub skits: Option<std::sync::Arc<resonance_content::skit::SkitCatalog>>,
     pub bindings: BTreeMap<i32, (ResourceKind, u32)>,
     pub models: BTreeMap<u32, ModelResource>,
+    pub animations: BTreeMap<u32, BTreeMap<u16, AnimationClip>>,
     pub particles: BTreeMap<i32, ParticleKind>,
     pub messages: Vec<symphonia_script::message::Message>,
     pub actor_names: BTreeMap<i32, String>,
@@ -52,32 +55,66 @@ impl ResourceLibrary {
         .collect()
     }
     pub fn resolve(&self, script_id: i32, kind: ResourceKind) -> Result<u32, String> {
+        if matches!(
+            self.bindings.get(&script_id),
+            Some((ResourceKind::UnboundGeometry, _))
+        ) {
+            return Err(format!(
+                "geometry resource {script_id:#x} requires caller-supplied textures"
+            ));
+        }
         self.bindings
             .get(&script_id)
             .filter(|(k, _)| *k == kind)
             .map(|(_, id)| *id)
             .ok_or_else(|| format!("unmapped {kind:?} resource {script_id}"))
     }
+    pub fn binding(&self, script_id: i32) -> Option<(ResourceKind, u32)> {
+        self.animations
+            .contains_key(&(script_id as u32))
+            .then_some((ResourceKind::Animation, script_id as u32))
+            .or_else(|| self.bindings.get(&script_id).copied())
+    }
     pub fn model(&self, asset: u32) -> Option<&ModelResource> {
         self.models.get(&asset)
+    }
+
+    pub fn clips(
+        &self,
+        resource: u32,
+        source: crate::animation::AnimationSource,
+    ) -> Option<&BTreeMap<u16, AnimationClip>> {
+        match source {
+            crate::animation::AnimationSource::Model => {
+                self.models.get(&resource).map(|model| &model.clips)
+            }
+            crate::animation::AnimationSource::Resource => self.animations.get(&resource),
+        }
+    }
+
+    pub fn animation(&self, animation: &crate::Animation) -> Option<&AnimationClip> {
+        self.clips(animation.resource, animation.source)?
+            .get(&animation.slot)
     }
 }
 #[derive(Default)]
 pub struct ModelResource {
     pub has_eyes: bool,
+    /// Attachment queries observe the scene's last evaluated model pose.
+    pub attachment_pose_delay: u32,
     pub names: Vec<String>,
     pub hidden_nodes: BTreeSet<u16>,
     pub clips: BTreeMap<u16, AnimationClip>,
 }
 pub struct AnimationClip {
     pub duration_ticks: u32,
-    pub attachments: BTreeMap<String, AttachmentTrack>,
+    pub attachments: Option<AttachmentPose>,
 }
 impl From<&resonance_content::SceneClip> for AnimationClip {
     fn from(clip: &resonance_content::SceneClip) -> Self {
         Self {
             duration_ticks: clip.duration_ticks(),
-            attachments: BTreeMap::new(),
+            attachments: None,
         }
     }
 }
@@ -95,15 +132,30 @@ impl AnimationClip {
         }
     }
 }
-pub enum AttachmentTrack {
-    Constant([f32; 3]),
-    Samples(Vec<[f32; 3]>),
+pub struct AttachmentPose {
+    skeleton: std::sync::Arc<resonance_content::animation::Skeleton>,
+    motion: std::sync::Arc<resonance_content::animation::Motion>,
 }
-impl AttachmentTrack {
-    pub fn sample(&self, tick: u32) -> Option<[f32; 3]> {
-        match self {
-            Self::Constant(p) => Some(*p),
-            Self::Samples(p) => p.get(tick as usize).copied(),
-        }
+impl AttachmentPose {
+    pub fn new(
+        skeleton: std::sync::Arc<resonance_content::animation::Skeleton>,
+        motion: std::sync::Arc<resonance_content::animation::Motion>,
+    ) -> anyhow::Result<Self> {
+        skeleton.validate()?;
+        motion.validate(&skeleton)?;
+        Ok(Self { skeleton, motion })
+    }
+
+    pub fn sample(&self, name: &str, tick: f32) -> anyhow::Result<[f32; 3]> {
+        anyhow::ensure!(tick.is_finite() && tick >= 0., "invalid attachment time");
+        let bone = self
+            .skeleton
+            .bone(name)
+            .ok_or_else(|| anyhow::anyhow!("missing attachment bone {name}"))?;
+        let frame = (tick * resonance_content::animation::FRAME_HZ
+            / resonance_content::ANIMATION_HZ)
+            .min(self.motion.duration_frames);
+        self.skeleton
+            .sample_point(&self.motion, frame, bone, [0.; 3])
     }
 }

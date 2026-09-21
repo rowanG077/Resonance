@@ -1,60 +1,54 @@
 //! Title asset setup. Native opcode handlers live in resonance-events and
 //! operate on resource IDs, independently of this scene's packed resource map.
-use resonance_content::TitleScene;
+use anyhow::Context;
+use resonance_content::{TitleScene, animation::Motion};
 use resonance_events::{
-    AnimationClip, AttachmentTrack, EventRuntime, ModelResource, ResourceKind, ResourceLibrary,
+    AnimationClip, AttachmentPose, EventRuntime, ModelResource, ResourceKind, ResourceLibrary,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 use symphonia_script::Program;
 
-pub fn start(bytes: &[u8], scene: &TitleScene) -> anyhow::Result<EventRuntime> {
+pub fn start(
+    bytes: &[u8],
+    scene: &TitleScene,
+    load: impl FnMut(&str) -> anyhow::Result<Arc<Motion>>,
+) -> anyhow::Result<EventRuntime> {
     let program = Arc::new(Program::decode(bytes)?);
-    EventRuntime::new(program, Arc::new(resources(scene)))
+    EventRuntime::new(program, Arc::new(resources(scene, load)?))
 }
 
-fn resources(scene: &TitleScene) -> ResourceLibrary {
+fn resources(
+    scene: &TitleScene,
+    mut load: impl FnMut(&str) -> anyhow::Result<Arc<Motion>>,
+) -> anyhow::Result<ResourceLibrary> {
     let mut library = ResourceLibrary::default();
     for part in &scene.parts {
         if part.clips.is_empty() || part.autoplay {
             continue;
         }
-        let mut model = ModelResource::default();
-        let local = |p: [f32; 3]| std::array::from_fn(|i| p[i] - part.translation[i]);
-        let samples =
-            |p: &[[f32; 3]]| AttachmentTrack::Samples(p.iter().copied().map(local).collect());
+        let mut model = ModelResource {
+            // The title draws actors before scripts read their bone matrices.
+            attachment_pose_delay: 1,
+            names: part.bone_names.clone(),
+            ..Default::default()
+        };
+        let skeleton = Arc::new(
+            scene
+                .glow
+                .skeletons
+                .get(&part.resource)
+                .context("missing title attachment skeleton")?
+                .clone(),
+        );
         for spec in &part.clips {
-            let mut attachments = BTreeMap::new();
-            match (part.resource, spec.resource_slot) {
-                (17, 12) => {
-                    attachments.insert("Fz_Bone01".into(), samples(&scene.glow.feather));
-                    attachments.insert(
-                        "Dummy".into(),
-                        AttachmentTrack::Constant(local(scene.glow.landing)),
-                    );
-                }
-                (17, 36) => {
-                    attachments.insert("Dummy".into(), samples(&scene.glow.landing_loop));
-                }
-                (18, 12) => {
-                    attachments.insert("Rf_Fez_Ref_120".into(), samples(&scene.glow.reflection));
-                }
-                _ => {}
-            }
             model.clips.insert(
                 spec.resource_slot,
                 AnimationClip {
                     duration_ticks: spec.duration_ticks(),
-                    attachments,
+                    attachments: Some(AttachmentPose::new(skeleton.clone(), load(&spec.motion)?)?),
                 },
             );
         }
-        model.names = model
-            .clips
-            .values()
-            .flat_map(|c| c.attachments.keys().cloned())
-            .collect();
-        model.names.sort();
-        model.names.dedup();
         library.models.insert(u32::from(part.resource), model);
         library.bindings.insert(
             -1179648 + i32::from(part.resource) - 16,
@@ -69,5 +63,5 @@ fn resources(scene: &TitleScene) -> ResourceLibrary {
     library
         .particles
         .insert(10, resonance_events::ParticleKind::Glow);
-    library
+    Ok(library)
 }

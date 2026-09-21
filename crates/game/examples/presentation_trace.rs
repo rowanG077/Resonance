@@ -30,13 +30,10 @@ fn main() -> Result<()> {
             )?)
         })
         .transpose()?;
-    let field_path = |map| match map {
-        340 => "fields/iselia-classroom.json".to_owned(),
-        _ => format!("fields/map-{map}.json"),
-    };
-    let assets: resonance_content::field::FieldAssets = serde_json::from_slice(&fs::read(
-        root.join(field_path(checkpoint.as_ref().map_or(340, |c| c.map_id))),
-    )?)?;
+    let assets: resonance_content::field::FieldAssets =
+        serde_json::from_slice(&fs::read(root.join(
+            resonance_content::field::metadata_path(checkpoint.as_ref().map_or(340, |c| c.map_id)),
+        ))?)?;
     let messages = serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?;
     let data: std::sync::Arc<resonance_content::session::SessionData> = std::sync::Arc::new(
         serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?,
@@ -242,8 +239,9 @@ fn main() -> Result<()> {
                 follow,
                 "transition requested; use --follow to enter the next field"
             );
-            let assets: resonance_content::field::FieldAssets =
-                serde_json::from_slice(&fs::read(root.join(field_path(transition.map)))?)?;
+            let assets: resonance_content::field::FieldAssets = serde_json::from_slice(&fs::read(
+                root.join(resonance_content::field::metadata_path(transition.map)),
+            )?)?;
             let next = FieldSession::enter(
                 &fs::read(root.join(&assets.script.path))?,
                 serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?,

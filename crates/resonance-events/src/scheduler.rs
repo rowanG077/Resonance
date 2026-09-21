@@ -11,7 +11,10 @@ struct Instance {
     handle: i32,
     key: Option<u32>,
     vm: Vm,
+    program: Arc<Program>,
+    operations: crate::operation::OperationScope,
     wait: Option<Wait>,
+    join: Option<i32>,
     registers: [i32; 6],
     background: Option<Background>,
     resource_resume: Option<ResourceWaitObservation>,
@@ -19,15 +22,34 @@ struct Instance {
 
 impl Instance {
     fn new(program: &Arc<Program>, pc: u32, handle: i32, key: Option<u32>) -> Result<Self> {
+        Self::with_arguments(program, pc, handle, key, &[])
+    }
+    fn with_arguments(
+        program: &Arc<Program>,
+        pc: u32,
+        handle: i32,
+        key: Option<u32>,
+        arguments: &[i32],
+    ) -> Result<Self> {
         Ok(Self {
             handle,
             key,
-            vm: Vm::new(program.clone(), pc)?,
+            vm: Vm::with_arguments(program.clone(), pc, arguments)?,
+            program: program.clone(),
+            operations: Default::default(),
             wait: None,
+            join: None,
             registers: [0; 6],
             background: None,
             resource_resume: None,
         })
+    }
+}
+
+impl Drop for Instance {
+    fn drop(&mut self) {
+        self.operations.cancel();
+        self.vm.cancel();
     }
 }
 
@@ -71,6 +93,7 @@ pub struct EventRuntime {
     failed: bool,
     interaction: Option<i32>,
     resource_waits: Option<VecDeque<ResourceWaitObservation>>,
+    tasks: crate::authored::Tasks,
 }
 impl EventRuntime {
     pub fn restore_field_leader(&mut self) -> Result<()> {
@@ -106,6 +129,7 @@ impl EventRuntime {
             failed: false,
             interaction: None,
             resource_waits: None,
+            tasks: Default::default(),
         };
         events.execute(true)?;
         Ok(events)
@@ -125,7 +149,7 @@ impl EventRuntime {
             observations.iter().all(|o| {
                 o.request_tick > self.world.tick
                     && o.resume_tick > o.request_tick
-                    && self.resources.bindings.contains_key(&o.resource)
+                    && self.resources.binding(o.resource).is_some()
                     && o.pc
                         .checked_sub(1)
                         .and_then(|pc| self.program.instruction(pc))
@@ -277,6 +301,12 @@ impl EventRuntime {
             .iter()
             .flatten()
             .filter_map(|instance| {
+                if let Some(handle) = instance.join {
+                    return Some(format!(
+                        "event handle {}: joining task {handle}",
+                        instance.handle
+                    ));
+                }
                 instance.wait.as_ref().map(|wait| {
                     format!(
                         "event {:?}, handle {}: {wait:?}",
@@ -398,9 +428,102 @@ impl EventRuntime {
         }
         Ok(true)
     }
+    /// Queue a prepared source program in the same foreground pool as legacy events.
+    /// Compilation and asset preparation belong to the caller before this boundary.
+    pub fn start_authored(
+        &mut self,
+        program: Arc<Program>,
+        entry: &str,
+        arguments: &[i32],
+    ) -> Result<i32> {
+        ensure!(!self.failed, "event runtime stopped after a script failure");
+        ensure!(
+            self.world.input_enabled && self.interaction.is_none(),
+            "another event owns field control"
+        );
+        Vm::validate_bindings::<crate::authored::FieldHost>(&program)?;
+        let pc = program
+            .authored()
+            .context("expected a compiled source program")?
+            .functions
+            .iter()
+            .find(|function| function.name == entry)
+            .context("authored event entry is missing")?
+            .entry;
+        let slot = self
+            .instances
+            .iter()
+            .position(Option::is_none)
+            .context("event pool exhausted (32 instances)")?;
+        let handle = self.next_handle;
+        let instance = Instance::with_arguments(&program, pc, handle, None, arguments)?;
+        self.next_handle = handle.checked_add(1).context("event handle overflow")?;
+        self.instances[slot] = Some(instance);
+        self.interaction = Some(handle);
+        self.world.input_enabled = false;
+        if let Some(actor) = self.world.actors.get_mut(&self.world.controlled_actor) {
+            actor.motion = None;
+        }
+        Ok(handle)
+    }
+    /// Cancel an authored task and its descendants without retiring the field.
+    pub fn cancel_authored(&mut self, handle: i32) -> Result<()> {
+        let active = self.instances.iter().any(|instance| {
+            instance.as_ref().is_some_and(|instance| {
+                instance.handle == handle && instance.program.authored().is_some()
+            })
+        });
+        ensure!(
+            active || self.tasks.contains(handle),
+            "authored event handle is not active"
+        );
+        self.cancel_task_tree(handle);
+        self.remove_cancelled_dialogue();
+        if self.interaction == Some(handle) {
+            self.interaction = None;
+            self.world.input_enabled = true;
+        }
+        Ok(())
+    }
+    fn cancel_task_tree(&mut self, handle: i32) {
+        for child in self.tasks.children(handle) {
+            self.cancel_task_tree(child);
+        }
+        for instance in &mut self.instances {
+            if instance
+                .as_ref()
+                .is_some_and(|instance| instance.handle == handle)
+            {
+                *instance = None;
+            }
+        }
+        self.tasks.remove(handle);
+    }
+    fn finish_task(&mut self, handle: i32, result: Vec<i32>) {
+        for child in self.tasks.children(handle) {
+            self.cancel_task_tree(child);
+        }
+        self.tasks.finish(handle, result);
+        self.remove_cancelled_dialogue();
+    }
+    fn remove_cancelled_dialogue(&mut self) {
+        self.world.dialogue.retain(|_, dialogue| {
+            dialogue.operation.progress().outcome != Some(crate::Outcome::Cancelled)
+        });
+    }
+    fn task_error(&mut self, instance: &mut Instance, error: anyhow::Error) -> anyhow::Error {
+        if instance.program.authored().is_some() {
+            let root = self.tasks.root(instance.handle);
+            self.cancel_task_tree(root);
+            instance.operations.cancel();
+            self.remove_cancelled_dialogue();
+        }
+        error
+    }
     /// Scene exit stops the callers and invalidates outstanding callbacks.
     pub fn cancel(&mut self) {
         self.instances.iter_mut().for_each(|i| *i = None);
+        self.tasks.clear();
         self.world.operations.cancel();
         self.world.dialogue.clear();
         self.world.choices.clear();
@@ -486,6 +609,9 @@ impl EventRuntime {
         let actor_order = self.world.actor_order.clone();
         let conversation_active = self.interaction.is_some();
         for id in &actor_order {
+            if self.world.overlays.contains_key(id) {
+                continue;
+            }
             let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
             let ambient = actor.step_autonomy(
@@ -612,6 +738,10 @@ impl EventRuntime {
         services(self)?;
         self.world.particles.retain(|p| p.alive(self.world.tick));
         self.world.overlays.retain(|id, overlay| {
+            if let crate::world::OverlayKind::Sprite(sprite) = &mut overlay.kind {
+                // Sprite drawing samples alpha before advancing its controller.
+                sprite.step(overlay.rgba[3]);
+            }
             let expired = matches!(
                 overlay.kind,
                 crate::world::OverlayKind::LocationCaption { .. }
@@ -663,16 +793,35 @@ impl EventRuntime {
                 self.instances[slot] = Some(instance);
                 continue;
             }
-            if instance
+            if let Some(handle) = instance.join {
+                let result = self
+                    .tasks
+                    .join(instance.handle, handle)
+                    .map_err(anyhow::Error::msg);
+                let result = result.map_err(|error| self.task_error(&mut instance, error))?;
+                let Some(result) = result else {
+                    self.instances[slot] = Some(instance);
+                    continue;
+                };
+                instance
+                    .vm
+                    .complete_task(&result)
+                    .map_err(anyhow::Error::new)
+                    .map_err(|error| self.task_error(&mut instance, error))?;
+                instance.join = None;
+            }
+            let ready = instance
                 .wait
                 .as_mut()
-                .is_some_and(|wait| matches!(wait.poll(&self.world), Ok(false)))
-            {
+                .map(|wait| wait.poll(&self.world))
+                .transpose()
+                .map_err(anyhow::Error::msg)
+                .map_err(|error| self.task_error(&mut instance, error))?;
+            if ready == Some(false) {
                 self.instances[slot] = Some(instance);
                 continue;
             }
-            if let Some(mut wait) = instance.wait.take() {
-                wait.poll(&self.world).map_err(anyhow::Error::msg)?;
+            if let Some(wait) = instance.wait.take() {
                 if let Some(observation) = instance.resource_resume.take() {
                     ensure!(
                         self.world.tick == observation.resume_tick,
@@ -715,28 +864,56 @@ impl EventRuntime {
                 instance.vm.complete(result, &mut self.memory)?;
             }
             let mut commands = Vec::new();
+            let mut spawns = Vec::new();
             let mut wait = None;
             let mut resource_wait = None;
-            let mut host = NativeHost {
-                world: &mut self.world,
-                resources: &self.resources,
-                program: &self.program,
-                registers: &mut instance.registers,
-                events: &mut commands,
-                next_handle: &mut self.next_handle,
-                wait: &mut wait,
-                resource_waits: self.resource_waits.as_ref(),
-                resource_wait: &mut resource_wait,
+            let result = if instance.program.authored().is_some() {
+                let mut host = crate::authored::FieldHost {
+                    world: &mut self.world,
+                    resources: &self.resources,
+                    program: &instance.program,
+                    wait: &mut wait,
+                    operations: &mut instance.operations,
+                    handle: instance.handle,
+                    tasks: &mut self.tasks,
+                    spawns: &mut spawns,
+                    next_handle: &mut self.next_handle,
+                    free_slots: self
+                        .instances
+                        .iter()
+                        .filter(|instance| instance.is_none())
+                        .count()
+                        .saturating_sub(1),
+                };
+                instance
+                    .vm
+                    .run(&mut host, &mut self.memory, update_budget.min(8192))
+            } else {
+                let mut host = NativeHost {
+                    world: &mut self.world,
+                    resources: &self.resources,
+                    program: &instance.program,
+                    registers: &mut instance.registers,
+                    events: &mut commands,
+                    next_handle: &mut self.next_handle,
+                    wait: &mut wait,
+                    resource_waits: self.resource_waits.as_ref(),
+                    resource_wait: &mut resource_wait,
+                };
+                instance
+                    .vm
+                    .run(&mut host, &mut self.memory, update_budget.min(8192))
             };
-            let result = instance
-                .vm
-                .run(&mut host, &mut self.memory, update_budget.min(8192))
-                .with_context(|| {
-                    format!(
-                        "event {:?}, handle {}, update {}",
-                        instance.key, instance.handle, self.world.tick
-                    )
-                })?;
+            let result = result.map_err(|error| {
+                let context = format!(
+                    "event {:?}, handle {}, update {}, source {:?}",
+                    instance.key,
+                    instance.handle,
+                    self.world.tick,
+                    instance.vm.source_trace(error.pc)
+                );
+                self.task_error(&mut instance, anyhow::Error::new(error).context(context))
+            })?;
             if let Some(observation) = resource_wait {
                 ensure!(
                     instance.vm.pc() == observation.pc,
@@ -748,14 +925,45 @@ impl EventRuntime {
                 instance.resource_resume = Some(observation);
             }
             update_budget -= result.steps;
-            if let RunEvent::Suspended { opcode } = result.event {
-                instance.wait = Some(wait.with_context(|| {
-                    format!("native {opcode:#04x} suspended without a completion condition")
-                })?);
-                self.instances[slot] = Some(instance);
-            } else if self.interaction == Some(instance.handle) {
-                self.interaction = None;
-                self.world.input_enabled = true;
+            let program = instance.program.clone();
+            match result.event {
+                RunEvent::Suspended { opcode } => {
+                    instance.wait = Some(wait.with_context(|| {
+                        format!("native {opcode:#04x} suspended without a completion condition")
+                    })?);
+                    self.instances[slot] = Some(instance);
+                }
+                RunEvent::SuspendedTask { handle } => {
+                    instance.join = Some(handle);
+                    self.instances[slot] = Some(instance);
+                }
+                RunEvent::Halted => {
+                    if let Some(result) = instance.vm.result() {
+                        self.finish_task(instance.handle, result);
+                    }
+                    if self.interaction == Some(instance.handle) {
+                        self.interaction = None;
+                        self.world.input_enabled = true;
+                    }
+                }
+            }
+            for child in spawns {
+                // A parent that returned without joining has already cancelled this request.
+                if !self.tasks.contains(child.handle) {
+                    continue;
+                }
+                let entry = self
+                    .instances
+                    .iter_mut()
+                    .find(|instance| instance.is_none())
+                    .context("event pool exhausted (32 instances)")?;
+                *entry = Some(Instance::with_arguments(
+                    &program,
+                    child.entry,
+                    child.handle,
+                    None,
+                    &child.arguments,
+                )?);
             }
             for EventCommand { handle, action } in commands {
                 let EventAction::Spawn(key) = action else {
@@ -908,16 +1116,21 @@ impl EventRuntime {
                 !actor.scripted_animation
                     || binding.is_some_and(|animation| {
                         (animation.slot == slot
-                            || ambient_binding && animation.resource == actor.resource)
+                            || ambient_binding
+                                && animation.source == crate::animation::AnimationSource::Model
+                                && animation.resource == actor.resource)
                             && animation.repeat == origin.animation_repeat
                     }),
                 "ambient origin changes actor {id}'s scripted binding"
             );
             let resource = binding.map_or(actor.resource, |animation| animation.resource);
+            let source = binding.map_or(crate::animation::AnimationSource::Model, |animation| {
+                animation.source
+            });
             let clip = self
                 .resources
-                .model(resource)
-                .and_then(|m| m.clips.get(&slot))
+                .clips(resource, source)
+                .and_then(|clips| clips.get(&slot))
                 .context("ambient animation is not cooked")?;
             ensure!(
                 (0. ..=clip.duration_ticks as f32).contains(&origin.animation_sample)
@@ -927,6 +1140,7 @@ impl EventRuntime {
                 "ambient animation sample is outside its clip"
             );
             Some(Animation {
+                source,
                 start_frame: origin.animation_sample,
                 rate: binding.map_or(1., |animation| animation.rate),
                 loop_start: binding.map_or(0., |animation| animation.loop_start),
