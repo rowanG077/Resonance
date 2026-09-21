@@ -21,6 +21,7 @@ pub enum BindingTiming {
 #[derive(Debug, Clone)]
 pub struct Animation {
     pub resource: u32,
+    pub source: AnimationSource,
     /// Position and rate use nominal 60-Hz cooked animation ticks.
     pub start_frame: f32,
     pub rate: f32,
@@ -39,10 +40,18 @@ pub struct Animation {
     pub paused_at: Option<u32>,
     pub paused_ticks: u32,
 }
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AnimationSource {
+    #[default]
+    Model,
+    Resource,
+}
 impl Animation {
     pub fn new(resource: u32, slot: u16, duration_ticks: u32, tick: u32) -> Self {
         Self {
             resource,
+            source: AnimationSource::Model,
             slot,
             duration_ticks,
             start_tick: tick,
@@ -57,6 +66,15 @@ impl Animation {
             paused_at: None,
             paused_ticks: 0,
         }
+    }
+
+    pub fn matches(&self, clip: &resonance_content::SceneClip, owner: u32) -> bool {
+        clip.resource_slot == self.slot
+            && match (self.source, clip.animation_resource) {
+                (AnimationSource::Model, None) => owner == self.resource,
+                (AnimationSource::Resource, Some(resource)) => resource == self.resource,
+                _ => false,
+            }
     }
 
     pub fn elapsed(&self, tick: u32, presentation_delay: u32) -> f32 {

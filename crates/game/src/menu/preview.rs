@@ -126,10 +126,8 @@ impl Menu {
         if !self.preview().is_some_and(|p| {
             p.id == id
                 && p.model.parts.iter().any(|part| {
-                    part.scene
-                        .clips
-                        .first()
-                        .is_some_and(|c| tick <= c.duration_ticks())
+                    part.selected_clip()
+                        .is_ok_and(|clip| clip.is_some_and(|(_, c)| tick <= c.duration_ticks()))
                 })
         }) {
             return false;

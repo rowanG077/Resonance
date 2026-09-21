@@ -1,5 +1,6 @@
 use super::*;
 use crate::skit::{Media, Portrait, Request};
+use resonance_content::skit::MAX_PORTRAITS;
 
 impl NativeHost<'_> {
     pub(super) fn request_skit(
@@ -56,8 +57,8 @@ impl NativeHost<'_> {
         // Draw random phases before borrowing the portrait scene.
         let random = if op == NativeCall::CreatePortrait {
             [
-                self.world.random() as u16 % 100,
-                self.world.random() as u16 % 100,
+                (self.world.random() as u16 % 100) as i16,
+                (self.world.random() as u16 % 100) as i16,
                 0,
             ]
         } else {
@@ -82,15 +83,12 @@ impl NativeHost<'_> {
                     .portraits
                     .get(&resource)
                     .ok_or("portrait handle is not loaded")?;
-                let timeline = catalog
-                    .portraits
-                    .get(&(a[12] as u32))
-                    .ok_or("portrait timeline is not cooked")?;
+                let timeline = ((a[12] as u32) >> 16 == 13).then_some((a[12] & 0xffff) as usize);
                 require(
-                    asset.layout_sha256 == timeline.layout_sha256,
-                    "portrait timeline layout differs from cooked atlas",
+                    timeline.is_none_or(|index| index < catalog.portrait_recipes.len()),
+                    "portrait timeline is not cooked",
                 )?;
-                let slot = (0..32)
+                let slot = (0..MAX_PORTRAITS as u8)
                     .find(|slot| !scene.portraits.contains_key(slot))
                     .ok_or("too many portraits")?;
                 let color = std::array::from_fn(|i| a[7 + i] as u8 as f32 / 255.);
@@ -117,9 +115,8 @@ impl NativeHost<'_> {
                         scale_target: 1.,
                         scale_step: 0.,
                         talking: false,
-                        images: std::array::from_fn(|i| {
-                            asset.tracks[i].first().map_or(0, |f| f.image)
-                        }),
+                        timeline,
+                        tiles: Portrait::initial_tiles(asset),
                         cursors: [0; 3],
                         forced: [None; 2],
                         counters: random,
@@ -131,7 +128,7 @@ impl NativeHost<'_> {
             }
             NativeCall::SetActorProperty | NativeCall::GetActorProperty => {
                 require(
-                    matches!(a[1], 1 | 2 | 35..=37 | 64 | 65),
+                    matches!(a[1], 1 | 2 | 35..=37 | 63..=65),
                     "unsupported portrait property",
                 )?;
                 if let Some(portrait) = scene.portraits.values_mut().find(|p| p.id == a[0]) {
@@ -148,17 +145,31 @@ impl NativeHost<'_> {
                         }
                         return Ok(NativeResult::Continue(Some(old)));
                     }
+                    if a[1] == 63 {
+                        if op == NativeCall::SetActorProperty {
+                            let timeline =
+                                ((a[2] as u32) >> 16 == 13).then_some((a[2] & 0xffff) as usize);
+                            require(
+                                timeline.is_none_or(|index| index < catalog.portrait_recipes.len()),
+                                "portrait timeline is not cooked",
+                            )?;
+                            portrait.timeline = timeline;
+                        }
+                        return Ok(NativeResult::Continue(Some(0)));
+                    }
                     let channel = (a[1] - 64) as usize;
                     if op == NativeCall::SetActorProperty {
-                        let track = &catalog.portraits[&portrait.resource].tracks[channel];
-                        if track.is_empty() {
-                            return Ok(NativeResult::Continue(Some(0)));
+                        let cursor = a[2] as u8;
+                        let forced = (cursor != u8::MAX).then_some(usize::from(cursor));
+                        if let Some(index) = portrait.timeline {
+                            let track = &catalog.portrait_recipes[index].tracks[channel];
+                            require(
+                                track.is_empty()
+                                    || forced.is_none_or(|cursor| cursor < track.len()),
+                                "portrait expression index out of range",
+                            )?;
                         }
-                        require(
-                            a[2] == -1 || (0..track.len() as i32).contains(&a[2]),
-                            "portrait expression index out of range",
-                        )?;
-                        portrait.forced[channel] = (a[2] >= 0).then_some(a[2] as usize);
+                        portrait.forced[channel] = forced;
                     }
                 }
                 return Ok(NativeResult::Continue(Some(0)));

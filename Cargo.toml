@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/resonance", "apps/resonance-import", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content"]
+members = ["apps/resonance", "apps/resonance-import", "apps/resonance-script", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content"]
 
 [workspace.package]
 version = "0.1.0"
