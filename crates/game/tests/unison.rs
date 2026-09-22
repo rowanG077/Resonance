@@ -34,6 +34,7 @@ fn unison_unlock_navigation_and_shared_shortcuts_survive_save() {
         camera: None,
         played_ticks: None,
         progress: SavedProgress {
+            script_state: Default::default(),
             script_globals: globals,
             party,
             event_flags: Default::default(),
