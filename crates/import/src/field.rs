@@ -65,11 +65,15 @@ impl MapArchive {
 
 pub(crate) fn sections(bytes: &[u8]) -> Result<Vec<Option<Range<usize>>>> {
     let count = word(bytes, 0)? as usize;
-    ensure!((1..=256).contains(&count), "invalid map section count");
-    let end = 4 + count * 4;
-    ensure!(end <= bytes.len(), "truncated map section table");
-    let offsets: Vec<_> = (0..count)
-        .map(|i| word(bytes, 4 + i * 4).map(|v| v as usize))
+    ensure!(count > 0, "empty section table");
+    let table = bytes
+        .get(4..)
+        .and_then(|bytes| bytes.get(..count.checked_mul(4)?))
+        .context("truncated section table")?;
+    let end = 4 + table.len();
+    let offsets: Vec<_> = table
+        .chunks_exact(4)
+        .map(|row| word(row, 0).map(|v| v as usize))
         .collect::<Result<_>>()?;
     for &start in &offsets {
         ensure!(
@@ -77,18 +81,16 @@ pub(crate) fn sections(bytes: &[u8]) -> Result<Vec<Option<Range<usize>>>> {
             "invalid map section offset {start:#x}"
         );
     }
-    // Some sections alias an earlier resource. Their range ends at the next
-    // greater offset, not necessarily the next entry in table order.
+    let mut boundaries = offsets.clone();
+    boundaries.push(bytes.len());
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    // Aliased and unordered entries end at the next greater offset.
     Ok(offsets
         .iter()
         .map(|&start| {
             (start != 0).then(|| {
-                let end = offsets
-                    .iter()
-                    .copied()
-                    .filter(|&s| s > start)
-                    .min()
-                    .unwrap_or(bytes.len());
+                let end = boundaries[boundaries.partition_point(|&offset| offset <= start)];
                 start..end
             })
         })
@@ -391,5 +393,19 @@ mod tests {
         );
         map[4..8].copy_from_slice(&4u32.to_be_bytes());
         assert!(sections(&map).is_err());
+
+        let count = 4097u32;
+        let start = 4 + count * 4;
+        let mut large = count.to_be_bytes().to_vec();
+        large.extend((0..count).flat_map(|_| start.to_be_bytes()));
+        large.push(42);
+        assert_eq!(sections(&large).unwrap().len(), count as usize);
+        assert_eq!(
+            crate::source_assets::section(&large, count as usize - 1).unwrap(),
+            [42]
+        );
+        assert!(crate::source_assets::section(&large, count as usize).is_err());
+        large[..4].copy_from_slice(&u32::MAX.to_be_bytes());
+        assert!(sections(&large).is_err());
     }
 }

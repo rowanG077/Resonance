@@ -96,11 +96,8 @@ Quoted literals produce immutable `string` values unless the expected type is
 execution. They are separate from dialogue messages and do not require glyph
 preparation. Existing payload enums keep their tagged, fixed-layout representation.
 
-`math::vec3` provides a public `Vec3` record and `add`, `sub`, `scale`, `dot`,
-`cross` and `lerp` helpers from `scripts/math/vec3.sym`. These use ordinary
-imports, fields, functions and checked arithmetic; vectors need no special VM
-representation. `!` performs Boolean negation or integer bitwise complement,
-according to its operand type.
+`!` performs Boolean negation or integer bitwise complement, according to its
+operand type.
 
 Duration conversions and arithmetic reject negative results immediately, before
 the value can reach a comparison, return or native call. Integer overflow and
@@ -249,14 +246,13 @@ recooking geometry, textures, parameters or other unchanged assets.
 ### Authoring tools
 
 ```sh
-cargo run -p resonance-script -- check scripts field::welcome math::vec3
-cargo run -p resonance-script -- api
+cargo run -p resonance-script -- check scripts preview::sword_dancer
+cargo run -p resonance-script -- api model
 cargo run -p resonance-script -- fmt --check scripts
-cargo run -p resonance-script -- fmt scripts field::welcome
 ```
 
-The game command uses the actual field host declarations. `api` prints that
-declaration table.
+The game command selects the native API from the script's mode. `api field` and
+`api model` print the corresponding host declarations.
 The engine-independent `symphonia-script-tools` binary can also check pure modules
 with an empty native API. Formatting validates syntax first, preserves comments
 and UTF-8 text, and is idempotent. Diagnostics include module, line and column;
@@ -270,29 +266,27 @@ includes the module, task and arguments.
 
 Start the game with `--scripts ROOT` to enable editable field bindings. The
 directory contains `.sym` modules and a `fields.json` mapping field IDs to entry
-tasks. The checked-in `scripts/fields.json` is empty, so existing scenes retain
-their original behavior until a binding is added. For example:
+tasks. For example, place the field script above in
+`local/events/field/start.sym` and create `local/events/fields.json`:
 
 ```json
 {
   "330": {
-    "module": "field::welcome",
-    "task": "run",
-    "arguments": [1],
+    "module": "field::start",
+    "task": "start",
     "on": "arrival"
   }
 }
 ```
 
 ```sh
-cargo run -p resonance -- --scripts scripts --silent
+cargo run -p resonance -- --scripts local/events --silent
 ```
 
 `arrival` (the default) runs once after arriving from another field; `entry` also
 runs after restoring a save. Both wait for the first player-controlled update
 after presentation is ready. The event owns foreground control while it runs,
-and saves are unavailable while it is queued or active. The example module
-`field::welcome` displays a normal notice when its Boolean argument is true.
+and saves are unavailable while it is queued or active.
 
 Field preparation rereads bindings and sources, including cached field revisits
 and quickloads. Unchanged programs reuse the compiler cache; active tasks retain

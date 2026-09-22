@@ -1,5 +1,5 @@
 //! Defeat screen text and its independently declared title-image binding.
-use super::text::{FixedText, TextPool, TextSource};
+use super::text::{TextPool, TextRef};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -15,27 +15,26 @@ const TEXT_SLOTS: [(u32, usize); 4] = [
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Catalogue {
     texts: Vec<String>,
-    background_declaration: FixedText,
     pub(crate) background_source: String,
     pub(crate) background_image: usize,
-    caption: FixedText,
-    choices: [FixedText; 2],
+    caption: TextRef,
+    choices: [TextRef; 2],
 }
 
 #[cfg(test)]
 impl Catalogue {
     pub(crate) fn caption(&self) -> &str {
-        &self.texts[self.caption.text.0]
+        &self.texts[self.caption.0]
     }
 
     pub(crate) fn choices(&self) -> [&str; 2] {
         self.choices
             .each_ref()
-            .map(|text| self.texts[text.text.0].as_str())
+            .map(|text| self.texts[text.0].as_str())
     }
 }
 
-fn read(extracted: &Path, executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+fn read(extracted: &Path, executable: &[u8]) -> Result<Catalogue> {
     let mut texts = TextPool::default();
     let mut slot = |index: usize| {
         let (address, size) = TEXT_SLOTS[index];
@@ -46,24 +45,20 @@ fn read(extracted: &Path, executable: &[u8]) -> Result<(Catalogue, Vec<TextSourc
     let choices = [slot(2)?, slot(3)?];
     let background_source = crate::all_assets::roles::declared_path(
         &extracted.join("files"),
-        &texts.values[background_declaration.text.0],
+        &texts.values[background_declaration.0],
     )?;
-    Ok((
-        Catalogue {
-            texts: texts.values,
-            background_declaration,
-            background_source,
-            // The defeat entry point selects this image before drawing its full-screen quad.
-            background_image: 14,
-            caption,
-            choices,
-        },
-        texts.sources,
-    ))
+    Ok(Catalogue {
+        texts: texts.values,
+        background_source,
+        // The defeat entry point selects this image before drawing its full-screen quad.
+        background_image: 14,
+        caption,
+        choices,
+    })
 }
 
 pub(crate) fn cook(extracted: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
-    let (catalogue, _) = read(extracted, executable)?;
+    let catalogue = read(extracted, executable)?;
     crate::embedded::write(&extracted.join("sys/main.dol"), output, FAMILY, &catalogue)
 }
 
@@ -73,31 +68,9 @@ mod tests {
     use crate::dol;
     use std::fs;
 
-    fn reconstruct(catalogue: &Catalogue, executable: &[u8]) -> Result<()> {
-        for ((address, size), slot) in TEXT_SLOTS.into_iter().zip([
-            &catalogue.background_declaration,
-            &catalogue.caption,
-            &catalogue.choices[0],
-            &catalogue.choices[1],
-        ]) {
-            let (encoded, _, invalid) =
-                encoding_rs::SHIFT_JIS.encode(&catalogue.texts[slot.text.0]);
-            assert!(!invalid);
-            let bytes: Vec<_> = encoded
-                .iter()
-                .copied()
-                .chain([0])
-                .chain(slot.storage.iter().copied())
-                .collect();
-            assert_eq!(bytes, dol::slice(executable, address, size)?);
-        }
-        Ok(())
-    }
-
     #[test]
     #[ignore = "requires both extracted discs; publishes only defeat JSON"]
-    fn original_defeat_ui_preserves_text_storage_and_independent_background_declaration()
-    -> Result<()> {
+    fn original_defeat_ui_preserves_labels_and_background_binding() -> Result<()> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let output = crate::temporary_path(&std::env::temp_dir().join("defeat-ui"));
         let result = (|| -> Result<()> {
@@ -107,7 +80,6 @@ mod tests {
                 let data = output.join(disc);
                 cook(&extracted, &executable, &data)?;
                 let original = crate::embedded::read::<Catalogue>(&data, FAMILY, "main.dol")?;
-                reconstruct(&original, &executable)?;
                 assert_eq!(original.background_source, "title.tpl");
                 assert_eq!(original.background_image, 14);
                 assert_eq!(original.caption(), dol::text(&executable, TEXT_SLOTS[1].0)?);
@@ -136,12 +108,9 @@ mod tests {
                 fs::write(changed_root.join("sys/main.dol"), &changed)?;
                 cook(&changed_root, &changed, &data)?;
                 let restored = crate::embedded::read::<Catalogue>(&data, FAMILY, "main.dol")?;
-                reconstruct(&restored, &changed)?;
                 assert_eq!(restored.background_source, "ALT.TPL");
                 assert!(restored.caption().is_empty());
-                assert_eq!(restored.caption.storage.len(), 34);
                 assert_eq!(restored.choices()[1], "N");
-                assert_eq!(restored.choices[1].storage.len(), 8);
             }
             Ok(())
         })();

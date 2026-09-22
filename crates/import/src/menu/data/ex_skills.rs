@@ -151,9 +151,9 @@ pub(super) fn cook(catalogue: &Catalogue) -> Result<ExSkillData> {
         .map(|(key, label)| Ok((key.into(), catalogue.label(label)?.to_owned())))
         .chain(
             [
-                ("gem_max", catalogue.formats.gem_max.text),
-                ("gem_level", catalogue.formats.gem_level.text),
-                ("gem_empty", catalogue.formats.gem_empty.text),
+                ("gem_max", catalogue.formats.gem_max),
+                ("gem_level", catalogue.formats.gem_level),
+                ("gem_empty", catalogue.formats.gem_empty),
             ]
             .into_iter()
             .map(|(key, reference)| Ok((key.into(), catalogue.text(reference).to_owned()))),

@@ -1,5 +1,5 @@
 //! Name-editor labels, character defaults and the shared input/render keyboard binding.
-use super::text::{FixedText, TextPool, TextRef, TextSource};
+use super::text::{TextPool, TextRef};
 use crate::{dol, read::u32 as word};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -26,11 +26,9 @@ super::text::record! {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Keyboard {
-    pub authored: FixedText,
+    pub authored: TextRef,
     /// Input and rendering both follow this pointer; it can alias the authored grid.
     pub bound_cells: Option<TextRef>,
-    /// Unconsumed word after the pointer in its eight-byte declaration.
-    pub binding_storage: u32,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -52,82 +50,32 @@ impl Catalogue {
     }
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut texts = TextPool::default();
     let labels: [_; 15] = texts.array(executable, LABELS)?;
-    let binding = dol::slice(executable, BINDING, 8)?;
+    let binding = dol::slice(executable, BINDING, 4)?;
     let keyboard = Keyboard {
         authored: texts.fixed(executable, KEYBOARD, KEYBOARD_SIZE)?,
         bound_cells: texts.reference(executable, word(binding, 0)?)?,
-        binding_storage: word(binding, 4)?,
     };
-    Ok((
-        Catalogue {
-            texts: texts.values,
-            labels: Labels::from_refs(&labels),
-            defaults: labels[6..].try_into()?,
-            keyboard,
-        },
-        texts.sources,
-    ))
-}
-
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
-    Ok(parse(executable)?.0)
+    Ok(Catalogue {
+        texts: texts.values,
+        labels: Labels::from_refs(&labels),
+        defaults: labels[6..].try_into()?,
+        keyboard,
+    })
 }
 
 #[cfg(test)]
 pub(crate) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
-    let (catalogue, _) = parse(executable)?;
+    let catalogue = read(executable)?;
     crate::embedded::write(file, output, FAMILY, &catalogue)
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use anyhow::ensure;
     use std::fs;
-
-    fn reconstruct(c: &Catalogue, sources: &[TextSource]) -> Result<Vec<(u32, Vec<u8>)>> {
-        let pointer = |reference: Option<TextRef>| reference.map_or(0, |id| sources[id.0].address);
-        let text = |reference: TextRef| -> Result<Vec<u8>> {
-            let (bytes, _, invalid) = encoding_rs::SHIFT_JIS.encode(c.text(reference));
-            ensure!(!invalid, "rename text cannot reconstruct source encoding");
-            Ok([bytes.as_ref(), &[0]].concat())
-        };
-        let l = &c.labels;
-        let labels = [
-            l.heading, l.delete, l.default, l.decision, l.restore, l.cancel,
-        ]
-        .into_iter()
-        .chain(c.defaults)
-        .flat_map(|id| pointer(id).to_be_bytes())
-        .collect();
-        let mut keyboard = text(c.keyboard.authored.text)?;
-        keyboard.extend(&c.keyboard.authored.storage);
-        let binding = [pointer(c.keyboard.bound_cells), c.keyboard.binding_storage]
-            .into_iter()
-            .flat_map(u32::to_be_bytes)
-            .collect();
-        let mut spans = vec![(LABELS, labels), (KEYBOARD, keyboard), (BINDING, binding)];
-        for (index, source) in sources.iter().enumerate() {
-            let bytes = text(TextRef(index))?;
-            assert_eq!(bytes.len() as u32, source.source_size);
-            spans.push((source.address, bytes));
-        }
-        Ok(spans)
-    }
-
-    fn check_bytes(executable: &[u8], catalogue: &Catalogue, sources: &[TextSource]) -> Result<()> {
-        for (address, bytes) in reconstruct(catalogue, sources)? {
-            assert_eq!(
-                bytes,
-                dol::slice(executable, address, bytes.len())?,
-                "span {address:#x}"
-            );
-        }
-        Ok(())
-    }
 
     /// Shared by the single integration test with the menu projection.
     pub(crate) fn recover(
@@ -135,17 +83,15 @@ pub(crate) mod tests {
         executable: &[u8],
         output: &Path,
     ) -> Result<(Catalogue, String)> {
-        let (catalogue, sources) = parse(executable)?;
+        let catalogue = read(executable)?;
         let paths = cook(file, executable, output)?;
         let restored: Catalogue = crate::embedded::read(output, FAMILY, "main.dol")?;
         assert_eq!(restored, catalogue);
-        check_bytes(executable, &restored, &sources)?;
         assert_eq!(
             restored.keyboard.bound_cells,
-            Some(restored.keyboard.authored.text)
+            Some(restored.keyboard.authored)
         );
-        assert_eq!(restored.text(restored.keyboard.authored.text).len(), 13 * 8);
-        assert_eq!(restored.keyboard.authored.storage, [0; 3]);
+        assert_eq!(restored.text(restored.keyboard.authored).len(), 13 * 8);
         assert_eq!(restored.required_text(restored.defaults[1])?, "Collet");
         assert_eq!(restored.required_text(restored.defaults[2])?, "Genius");
         let provenance: serde_json::Value =
@@ -161,25 +107,25 @@ pub(crate) mod tests {
                     .to_be_bytes()
                     .to_vec(),
             ),
-            (KEYBOARD + 105, vec![0x80, 0xff, 0x11]),
-            (
-                BINDING,
-                [0u32.to_be_bytes(), 0xdeadbeefu32.to_be_bytes()].concat(),
-            ),
+            (BINDING, 0u32.to_be_bytes().to_vec()),
         ] {
             let at = dol::slice(&changed, address, bytes.len())?.as_ptr() as usize
                 - changed.as_ptr() as usize;
             changed[at..at + bytes.len()].copy_from_slice(&bytes);
         }
-        let (altered, sources) = parse(&changed)?;
+        let altered = read(&changed)?;
         let roundtrip: Catalogue = serde_json::from_slice(&serde_json::to_vec(&altered)?)?;
         assert_eq!(roundtrip, altered);
         assert_eq!(altered.labels.heading, None);
         assert_eq!(altered.labels.delete, altered.labels.default);
         assert_eq!(altered.keyboard.bound_cells, None);
-        assert_eq!(altered.keyboard.binding_storage, 0xdeadbeef);
-        assert_eq!(altered.keyboard.authored.storage, [0x80, 0xff, 0x11]);
-        check_bytes(&changed, &roundtrip, &sources)?;
+        let at = dol::slice(&changed, KEYBOARD, KEYBOARD_SIZE)?.as_ptr() as usize
+            - changed.as_ptr() as usize;
+        changed[at..at + KEYBOARD_SIZE].fill(b'A');
+        assert!(
+            read(&changed).is_err(),
+            "keyboard must fit its fixed source slot"
+        );
         Ok((restored, paths[0].clone()))
     }
 }

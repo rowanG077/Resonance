@@ -583,7 +583,10 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                     }
                     cache.invalidate(key)?;
                 }
-                let capture = reuse_key.as_ref().map(|_| reuse::Capture::start());
+                let capture = reuse_key
+                    .as_ref()
+                    .map(|_| crate::publication::Capture::start())
+                    .transpose()?;
                 let count = started.fetch_add(1, Ordering::Relaxed) + 1;
                 if count == 1 || count.is_multiple_of(100) {
                     eprintln!("Starting job {count}/{}", job_count);

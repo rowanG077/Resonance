@@ -41,7 +41,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both original executables; publishes only rename JSON"]
-    fn original_rename_ui_reconstructs_and_preserves_menu_projection() -> Result<()> {
+    fn original_rename_ui_preserves_menu_projection() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let output = crate::temporary_path(&std::env::temp_dir().join("rename-ui"));
         let result = (|| -> Result<()> {

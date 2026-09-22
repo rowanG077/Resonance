@@ -1,6 +1,5 @@
 use super::*;
-use crate::figurines::tests::compare_scene;
-use serde_json::Value;
+use crate::figurines::tests::compare_scene_assets;
 
 #[test]
 #[ignore = "requires locally cooked monster assets"]
@@ -58,8 +57,9 @@ fn shared_monster_preparation_preserves_every_catalogue_record_and_preview() -> 
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
     let baseline = std::env::var_os("RESONANCE_COOKED")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| local.join("worktrees/generic-cooking/local/all-assets"));
-    let expected: Value = serde_json::from_slice(&fs::read(baseline.join("game/menu-data.json"))?)?;
+        .unwrap_or_else(|| local.join("all-assets"));
+    let expected: resonance_content::menu_data::MenuData =
+        serde_json::from_slice(&fs::read(baseline.join("game/menu-data.json"))?)?;
     for disc in [1, 2] {
         let output = tempfile::tempdir()?;
         let extracted = local.join(format!("extracted/disc{disc}"));
@@ -68,37 +68,16 @@ fn shared_monster_preparation_preserves_every_catalogue_record_and_preview() -> 
             output.path(),
             &fs::read(extracted.join("sys/main.dol"))?,
         )?;
-        let mut expected = expected["monsters"].clone();
-        let mut behavior_cache = symphonia_script_tools::PreparationCache::default();
-        let records = expected["records"]
-            .as_array_mut()
-            .context("frozen monster records")?;
-        ensure!(records.len() == actual.records.len(), "monster count");
-        for (monster, expected) in actual.records.iter().zip(records) {
-            crate::model_behavior::tests::compare_baseline(
-                &monster.preview,
-                &mut expected["preview"],
-                &mut behavior_cache,
-            )?;
-            expected["version"] = monster.version.into();
-            let parts = expected["preview"]["parts"]
-                .as_array_mut()
-                .context("frozen preview parts")?;
-            ensure!(
-                parts.len() == monster.preview.parts.len(),
-                "monster {} layer count",
-                monster.id
-            );
-            for (index, (part, expected)) in monster.preview.parts.iter().zip(parts).enumerate() {
-                compare_scene(&part.scene, &expected["scene"], output.path(), &baseline)
+        ensure!(
+            serde_json::to_value(&actual)? == serde_json::to_value(&expected.monsters)?,
+            "disc {disc} monsters metadata differs from the prepared baseline"
+        );
+        for monster in &actual.records {
+            for (index, part) in monster.preview.parts.iter().enumerate() {
+                compare_scene_assets(&part.scene, output.path(), &baseline)
                     .with_context(|| format!("disc {disc} monster {} layer {index}", monster.id))?;
             }
         }
-        let expected: MonsterBook = serde_json::from_value(expected)?;
-        ensure!(
-            serde_json::to_value(&actual)? == serde_json::to_value(expected)?,
-            "disc {disc} monsters metadata differs from the prepared baseline"
-        );
         for legacy in ["assets", "data", "sources.json"] {
             ensure!(
                 !output.path().join(legacy).exists(),

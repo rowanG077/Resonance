@@ -1,5 +1,5 @@
 //! Monster book identities, location bindings and display text; combat data is separate.
-use super::text::{FixedText, TextPool, TextRef, TextSource};
+use super::text::{TextPool, TextRef};
 use crate::{dol, read::u32 as word};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -44,7 +44,6 @@ pub(crate) struct Record {
     /// Groups the "count undiscovered monsters" script query, independently of species.
     pub unseen_count_group: u8,
     pub location: u8,
-    pub storage: [u8; 2],
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -60,7 +59,7 @@ pub(crate) struct Catalogue {
     texts: Vec<String>,
     pub records: Vec<Record>,
     pub locations: Vec<Option<TextRef>>,
-    pub direct: BTreeMap<TextKind, FixedText>,
+    pub direct: BTreeMap<TextKind, TextRef>,
     pub stat_labels: StatLabels,
 }
 
@@ -72,7 +71,7 @@ impl Catalogue {
         Ok(self.text(reference.context("null required monster catalogue text")?))
     }
     pub(crate) fn direct_text(&self, kind: TextKind) -> &str {
-        self.text(self.direct[&kind].text)
+        self.text(self.direct[&kind])
     }
     pub(crate) fn location(&self, selector: u8) -> Result<&str> {
         self.required_text(
@@ -84,7 +83,7 @@ impl Catalogue {
     }
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut text = TextPool::default();
     let records = dol::slice(executable, RECORDS, RECORD_COUNT * 12)?
         .chunks_exact(12)
@@ -94,7 +93,6 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
                 description: text.reference(executable, word(row, 4)?)?,
                 unseen_count_group: row[8],
                 location: row[9],
-                storage: row[10..12].try_into()?,
             })
         })
         .collect::<Result<_>>()?;
@@ -104,28 +102,17 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
         .map(|(kind, address, size)| Ok((kind, text.fixed(executable, address, size)?)))
         .collect::<Result<_>>()?;
     let [unavailable, unknown] = STAT_LABELS
-        .map(|address| text.reference(executable, word(dol::slice(executable, address, 4)?, 0)?))
-        .into_iter()
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .unwrap();
-    Ok((
-        Catalogue {
-            texts: text.values,
-            records,
-            locations,
-            direct,
-            stat_labels: StatLabels {
-                unavailable,
-                unknown,
-            },
+        .map(|address| text.reference(executable, word(dol::slice(executable, address, 4)?, 0)?));
+    Ok(Catalogue {
+        texts: text.values,
+        records,
+        locations,
+        direct,
+        stat_labels: StatLabels {
+            unavailable: unavailable?,
+            unknown: unknown?,
         },
-        text.sources,
-    ))
-}
-
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
-    parse(executable).map(|(catalogue, _)| catalogue)
+    })
 }
 
 pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
@@ -135,47 +122,7 @@ pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::ensure;
     use std::fs;
-
-    fn reconstruct(c: &Catalogue, sources: &[TextSource]) -> Result<Vec<(u32, Vec<u8>)>> {
-        let pointer = |reference: Option<TextRef>| {
-            reference
-                .map_or(0, |id| sources[id.0].address)
-                .to_be_bytes()
-        };
-        let mut records = Vec::new();
-        for row in &c.records {
-            records.extend(pointer(row.name));
-            records.extend(pointer(row.description));
-            records.extend([row.unseen_count_group, row.location]);
-            records.extend(row.storage);
-        }
-        let mut spans = vec![
-            (RECORDS, records),
-            (
-                LOCATIONS,
-                c.locations.iter().copied().flat_map(pointer).collect(),
-            ),
-            (STAT_LABELS[0], pointer(c.stat_labels.unavailable).to_vec()),
-            (STAT_LABELS[1], pointer(c.stat_labels.unknown).to_vec()),
-        ];
-        for (index, source) in sources.iter().enumerate() {
-            let (encoded, _, invalid) = encoding_rs::SHIFT_JIS.encode(c.text(TextRef(index)));
-            ensure!(!invalid, "monster text cannot reconstruct source encoding");
-            let mut bytes = [encoded.as_ref(), &[0]].concat();
-            assert_eq!(bytes.len() as u32, source.source_size);
-            if let Some(&(kind, _, size)) = DIRECT
-                .iter()
-                .find(|(_, address, _)| *address == source.address)
-            {
-                bytes.extend(&c.direct[&kind].storage);
-                assert_eq!(bytes.len(), size);
-            }
-            spans.push((source.address, bytes));
-        }
-        Ok(spans)
-    }
 
     fn patch(executable: &mut [u8], address: u32, bytes: &[u8]) -> Result<()> {
         let offset = dol::slice(executable, address, bytes.len())?.as_ptr() as usize
@@ -186,8 +133,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both original executables; no codecs or devices"]
-    fn original_monster_catalogue_reconstructs_complete_tables_and_publishes_shared_data()
-    -> Result<()> {
+    fn original_monster_catalogue_preserves_records_and_publishes_shared_data() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let output = crate::temporary_path(&std::env::temp_dir().join("monster-catalogue"));
         fs::create_dir(&output)?;
@@ -196,16 +142,7 @@ mod tests {
             for disc in [1, 2] {
                 let file = local.join(format!("disc{disc}/sys/main.dol"));
                 let mut executable = fs::read(&file)?;
-                let (c, sources) = parse(&executable)?;
-                let restored: Catalogue = serde_json::from_slice(&serde_json::to_vec(&c)?)?;
-                assert_eq!(c, restored);
-                for (address, bytes) in reconstruct(&restored, &sources)? {
-                    assert_eq!(
-                        bytes,
-                        dol::slice(&executable, address, bytes.len())?,
-                        "span {address:#x}"
-                    );
-                }
+                let c = read(&executable)?;
                 assert_eq!(c.records.len(), 251);
                 assert_eq!(c.locations.len(), 51);
                 assert!(
@@ -239,35 +176,27 @@ mod tests {
                     serde_json::from_slice(&fs::read(output.join(&paths[1]))?)?;
                 assert_eq!(source["source_sha256"], crate::digest(&executable));
 
-                let second_name =
-                    sources[c.records[1].name.context("second monster name")?.0].address;
-                let first_location = sources[c.locations[0].context("first location")?.0].address;
-                let missing_stats =
-                    sources[c.stat_labels.unavailable.context("missing-stat text")?.0].address;
+                let second_name = word(dol::slice(&executable, RECORDS + 12, 4)?, 0)?;
+                let first_location = word(dol::slice(&executable, LOCATIONS, 4)?, 0)?;
+                let missing_stats = word(dol::slice(&executable, STAT_LABELS[0], 4)?, 0)?;
                 for (address, bytes) in [
                     (RECORDS, second_name.to_be_bytes().to_vec()),
                     (RECORDS + 4, vec![0; 4]),
-                    (RECORDS + 8, vec![0xfe, 0xff, 0x5a, 0xa5]),
-                    (
-                        RECORDS + (RECORD_COUNT as u32 - 1) * 12 + 10,
-                        vec![0x12, 0x34],
-                    ),
+                    (RECORDS + 8, vec![0xfe, 0xff]),
                     (LOCATIONS + 4, first_location.to_be_bytes().to_vec()),
                     (LOCATIONS + 50 * 4, vec![0; 4]),
                     (STAT_LABELS[0], vec![0; 4]),
                     (STAT_LABELS[1], missing_stats.to_be_bytes().to_vec()),
                     (0x8035d320, b"\x0b\0X\0".to_vec()),
-                    (0x8035d327, vec![0xac]),
-                    (0x8035d377, vec![0xbd]),
                 ] {
                     patch(&mut executable, address, &bytes)?;
                 }
-                let (changed, sources) = parse(&executable)?;
+                let changed = read(&executable)?;
                 let restored: Catalogue = serde_json::from_slice(&serde_json::to_vec(&changed)?)?;
                 assert_eq!(changed, restored);
                 assert_eq!(changed.records[0].name, changed.records[1].name);
                 assert!(changed.records[0].description.is_none());
-                assert_eq!(changed.records[0].storage, [0x5a, 0xa5]);
+                assert_eq!(changed.records[0].unseen_count_group, 0xfe);
                 assert_eq!(changed.locations[0], changed.locations[1]);
                 assert!(changed.locations[50].is_none());
                 assert!(changed.stat_labels.unavailable.is_none());
@@ -278,15 +207,8 @@ mod tests {
                 assert_eq!(changed.direct_text(TextKind::ListPosition), "\x0b\0X");
                 assert!(changed.location(changed.records[0].location).is_err());
                 assert!(changed.location(50).is_err());
-                for (address, bytes) in reconstruct(&restored, &sources)? {
-                    assert_eq!(
-                        bytes,
-                        dol::slice(&executable, address, bytes.len())?,
-                        "changed span {address:#x}"
-                    );
-                }
                 patch(&mut executable, RECORDS, &u32::MAX.to_be_bytes())?;
-                assert!(parse(&executable).is_err());
+                assert!(read(&executable).is_err());
             }
             Ok(())
         })();

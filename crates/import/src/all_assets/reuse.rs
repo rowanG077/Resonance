@@ -1,75 +1,12 @@
 //! Verified final publications only; decoded intermediates never enter this index.
+use crate::publication::{Capture, Session};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fs,
-    marker::PhantomData,
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, Sender},
 };
-
-thread_local! {
-    static PUBLICATIONS: RefCell<Option<Sender<PathBuf>>> = const { RefCell::new(None) };
-}
-
-pub(crate) fn current() -> Option<Sender<PathBuf>> {
-    PUBLICATIONS.with_borrow(Clone::clone)
-}
-
-/// Every scheduler worker inherits the enclosing package's publication channel.
-pub(crate) fn inherit(sender: Option<Sender<PathBuf>>) -> Scope {
-    Scope(PUBLICATIONS.replace(sender), PhantomData)
-}
-
-pub(crate) struct Scope(Option<Sender<PathBuf>>, PhantomData<*mut ()>);
-impl Drop for Scope {
-    fn drop(&mut self) {
-        PUBLICATIONS.replace(self.0.take());
-    }
-}
-
-/// Call only after a final write succeeds, including byte-identical early returns.
-pub(crate) fn published(path: &Path) {
-    PUBLICATIONS.with_borrow(|sender| {
-        if let Some(sender) = sender {
-            let _ = sender.send(path.to_owned());
-        }
-    });
-}
-
-pub(crate) struct Capture {
-    scope: Scope,
-    events: Receiver<PathBuf>,
-}
-
-impl Capture {
-    pub(crate) fn start() -> Self {
-        let (sender, events) = mpsc::channel();
-        Self {
-            scope: inherit(Some(sender)),
-            events,
-        }
-    }
-
-    pub(crate) fn finish(self) -> Result<BTreeSet<PathBuf>> {
-        drop(self.scope);
-        // Package schedulers join their workers before returning to this owner.
-        let mut files = BTreeSet::new();
-        loop {
-            match self.events.try_recv() {
-                Ok(path) => {
-                    files.insert(path);
-                }
-                Err(mpsc::TryRecvError::Disconnected) => return Ok(files),
-                Err(mpsc::TryRecvError::Empty) => {
-                    anyhow::bail!("publication worker outlived its package")
-                }
-            }
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct Receipt {
@@ -156,23 +93,24 @@ impl Cache {
         key: &str,
         paths: &[String],
         units: usize,
-        files: BTreeSet<PathBuf>,
+        files: BTreeMap<PathBuf, String>,
     ) -> Result<()> {
         ensure!(
             !paths.is_empty() && !files.is_empty(),
             "successful asset has no final publications"
         );
         let mut fingerprints = BTreeMap::new();
-        for path in files {
+        for (path, hash) in files {
             let path = path.canonicalize()?;
             let relative = path
                 .strip_prefix(&self.root)?
                 .to_str()
                 .context("non-UTF8 publication path")?;
             resonance_content::validate_asset_path(relative)?;
-            fingerprints.insert(relative.to_owned(), crate::media::hash_file(&path)?);
+            fingerprints.insert(relative.to_owned(), hash);
         }
         self.verify_paths(paths, &fingerprints)?;
+        let _capture = crate::publication::without_capture();
         crate::write_atomic(
             &self.path(key),
             &serde_json::to_vec(&Receipt {
@@ -214,7 +152,7 @@ pub(crate) fn cook(
     paths: &[&str],
     prepare: impl FnOnce() -> Result<()>,
 ) -> Result<bool> {
-    let _publications = crate::publication::Session::start_if_needed(output)?;
+    let _publications = Session::start_if_needed(output)?;
     let cache = Cache::open(output)?;
     let key = cache.key(inputs)?;
     if let Some(receipt) = cache.restore(&key) {
@@ -222,25 +160,18 @@ pub(crate) fn cook(
         return Ok(true);
     }
     cache.invalidate(&key)?;
-    let capture = Capture::start();
+    let capture = Capture::start()?;
     prepare()?;
     let files = capture.finish()?;
-    {
-        // Receipts describe final content; an enclosing receipt must not capture this index.
-        let _capture = inherit(None);
-        cache.publish(
-            &key,
-            &paths
-                .iter()
-                .map(|path| (*path).to_owned())
-                .collect::<Vec<_>>(),
-            1,
-            files.clone(),
-        )?;
-    }
-    for path in files {
-        published(&path);
-    }
+    cache.publish(
+        &key,
+        &paths
+            .iter()
+            .map(|path| (*path).to_owned())
+            .collect::<Vec<_>>(),
+        1,
+        files,
+    )?;
     Ok(false)
 }
 
@@ -255,7 +186,8 @@ mod tests {
         let cache = Cache::open(root)?;
         let key = cache.key(&("source", "dependencies", "options"))?;
         crate::write_atomic(&root.join("unchanged"), b"same")?;
-        let capture = Capture::start();
+        let session = Session::start(root)?;
+        let capture = Capture::start()?;
         let mut dag = super::super::pool::Dag::new();
         for index in [0, 1] {
             dag.add(index.to_string(), [], move |_, _| {
@@ -269,11 +201,18 @@ mod tests {
         }
         let files = capture.finish()?;
         assert_eq!(files.len(), 3);
-        assert!(current().is_none());
+        assert_eq!(
+            files[&root.join("unchanged").canonicalize()?],
+            crate::digest(b"same")
+        );
+        let outer = Capture::start()?;
         cache.publish(&key, &["mesh-0".into()], 3, files)?;
+        assert!(outer.finish()?.is_empty());
+        drop(session);
+        assert!(crate::publication::current().is_none());
         assert_eq!(cache.restore(&key).unwrap().units, 3);
         {
-            let _publications = crate::publication::Session::start(root)?;
+            let _publications = Session::start(root)?;
             cache.restore(&key).unwrap().register(root)?;
             assert!(crate::write_atomic(&root.join("unchanged"), b"conflict").is_err());
         }
@@ -315,10 +254,12 @@ mod tests {
         fs::write(root.join("mesh-1"), b"corrupt")?;
         assert!(cache.restore(&key).is_none());
         cache.invalidate(&key)?;
-        let capture = Capture::start();
+        let session = Session::start(root)?;
+        let capture = Capture::start()?;
         crate::write_atomic(&root.join("mesh-1"), b"partially repaired")?;
         drop(capture); // Failed computations never publish a receipt.
-        assert!(current().is_none() && !cache.path(&key).exists());
+        drop(session);
+        assert!(crate::publication::current().is_none() && !cache.path(&key).exists());
         Ok(())
     }
 
@@ -329,11 +270,12 @@ mod tests {
         let executable = fs::read(extracted.join("sys/main.dol"))?;
         let source = crate::scene::title_source(&extracted, &executable)?;
         let output = tempfile::tempdir()?;
+        let _session = Session::start(output.path())?;
         let cache = Cache::open(output.path())?;
         let key = cache.key(&crate::media::hash_file(
             &extracted.join("files").join(&source),
         )?)?;
-        let capture = Capture::start();
+        let capture = Capture::start()?;
         let paths = super::super::cook_source(
             &extracted,
             output.path(),
@@ -362,30 +304,35 @@ mod tests {
     fn original_menu_receipt_skips_preparation_and_repairs_missing_shared_curves() -> Result<()> {
         let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
         let output = tempfile::tempdir()?;
-        let root = output.path();
-        let outer = Capture::start();
+        let root = output.path().canonicalize()?;
+        let root = root.as_path();
+        let session = Session::start(root)?;
+        let outer = Capture::start()?;
         assert!(!crate::menu::cook(&extracted, root)?);
         let cold = outer.finish()?;
+        drop(session);
         for family in ["meshes", "textures", "clips", "monsters", "figurines"] {
             ensure!(
-                cold.iter().any(|path| path.starts_with(root.join(family))),
+                cold.keys().any(|path| path.starts_with(root.join(family))),
                 "receipt omitted {family}"
             );
         }
         ensure!(
             !cold
-                .iter()
+                .keys()
                 .any(|path| path.starts_with(root.join(".cook-receipts"))),
             "parent receipt captured a cache index"
         );
         let motion = cold
-            .iter()
+            .keys()
             .find(|path| path.extension().is_some_and(|ext| ext == "motion"))
             .context("menu emitted no shared animation")?;
         let expected = crate::media::hash_file(motion)?;
-        let outer = Capture::start();
+        let session = Session::start(root)?;
+        let outer = Capture::start()?;
         assert!(crate::menu::cook(&extracted, root)?);
         assert_eq!(outer.finish()?, cold);
+        drop(session);
         fs::remove_file(motion)?;
         assert!(
             !crate::menu::cook(&extracted, root)?,

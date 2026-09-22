@@ -30,7 +30,7 @@ pub struct SourceTree {
 }
 
 impl SourceTree {
-    /// A logical `field::welcome` lives at `field/welcome.sym` below root.
+    /// A logical `field::start` lives at `field/start.sym` below root.
     /// Symlinks are rejected, so source discovery cannot escape the given root.
     pub fn load(root: impl AsRef<Path>) -> Result<Self, Error> {
         Self::read(root.as_ref(), false)

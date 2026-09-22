@@ -1,6 +1,6 @@
-//! Text aliases are identities of source pointers, not equal strings.
+//! Shared text decoding with stable references inside each catalogue.
 use crate::{dol, read::u32 as word};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -8,58 +8,43 @@ use std::collections::BTreeMap;
 #[serde(transparent)]
 pub(crate) struct TextRef(pub(crate) usize);
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct FixedText {
-    pub text: TextRef,
-    /// Bytes after the terminator within the declared source slot.
-    pub storage: Vec<u8>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct TextSource {
-    pub address: u32,
-    pub source_size: u32,
-}
-
 #[derive(Default)]
 pub(crate) struct TextPool {
-    ids: BTreeMap<u32, TextRef>,
+    ids: BTreeMap<u32, (TextRef, u32)>,
     pub values: Vec<String>,
-    pub sources: Vec<TextSource>,
 }
 
 impl TextPool {
-    pub fn fixed(&mut self, executable: &[u8], address: u32, size: usize) -> Result<FixedText> {
-        let text = self.required(executable, address)?;
-        let used = self.sources[text.0].source_size as usize;
-        let storage = dol::slice(executable, address, size)?
-            .get(used..)
-            .context("text exceeds its fixed source slot")?
-            .to_vec();
-        Ok(FixedText { text, storage })
+    pub fn fixed(&mut self, executable: &[u8], address: u32, size: usize) -> Result<TextRef> {
+        dol::slice(executable, address, size)?;
+        let (reference, end) = self.read(executable, address)?;
+        ensure!(
+            (end - address) as usize <= size,
+            "text exceeds its fixed source slot"
+        );
+        Ok(reference)
     }
 
     pub fn reference(&mut self, executable: &[u8], address: u32) -> Result<Option<TextRef>> {
-        if address == 0 {
-            return Ok(None);
-        }
+        (address != 0)
+            .then(|| self.required(executable, address))
+            .transpose()
+    }
+
+    pub fn read(&mut self, executable: &[u8], address: u32) -> Result<(TextRef, u32)> {
         if let Some(reference) = self.ids.get(&address) {
-            return Ok(Some(*reference));
+            return Ok(*reference);
         }
         let (text, next) = crate::menu::source_text(executable, address)?;
         let reference = TextRef(self.values.len());
         self.values.push(text);
-        self.sources.push(TextSource {
-            address,
-            source_size: next - address,
-        });
-        self.ids.insert(address, reference);
-        Ok(Some(reference))
+        self.ids.insert(address, (reference, next));
+        Ok((reference, next))
     }
 
     pub fn required(&mut self, executable: &[u8], address: u32) -> Result<TextRef> {
-        self.reference(executable, address)?
-            .context("null required UI text")
+        ensure!(address != 0, "null required UI text");
+        Ok(self.read(executable, address)?.0)
     }
 
     pub fn table(

@@ -326,7 +326,7 @@ pub(crate) fn assemble(source: &Source, inputs: Inputs<'_>) -> Result<Tables> {
     }
     labels.insert(
         "preview_loading".into(),
-        ui.text(ui.preview_loading.text).to_owned(),
+        ui.text(ui.preview_loading).to_owned(),
     );
     let tech = &technique_ui.technique;
     let party = &technique_ui.party;

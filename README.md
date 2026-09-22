@@ -48,12 +48,9 @@ recipes, ingredients, item statistics, EX skill definitions and menu settings in
 Executable addresses and packed table layouts stay inside the importer; the
 player reads the converted records.
 
-SymphoniaScript also supports readable `.sym` source through separate compiler,
-VM and tooling crates. Check the included examples with
-`cargo run -p resonance-script -- check scripts field::welcome math::vec3`.
-Use `--scripts scripts` when playing to enable authored field bindings in
-`scripts/fields.json`; its empty default preserves the original events. Script
-edits are compiled on field entry without recooking unchanged assets. See the
+SymphoniaScript supports readable `.sym` source through separate compiler,
+VM and tooling crates. Check the maintained model scripts with
+`cargo run -p resonance-script -- check scripts preview::sword_dancer`. See the
 [language guide](docs/symphonia-script.md) for syntax, native APIs and bindings.
 
 Field cooking includes skit scripts, animated portraits and media timing. The

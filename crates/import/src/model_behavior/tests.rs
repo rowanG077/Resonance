@@ -1,15 +1,11 @@
 use super::*;
-use anyhow::{Context, bail};
 use resonance_content::{
     model_behavior::Node,
     model_preview::{ModelPreview, PreviewPart},
 };
-use resonance_model_behavior::{PoseOverrides, PreparedBehavior};
+use resonance_model_behavior::PreparedBehavior;
 use serde_json::{Value, json};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-};
+use std::{collections::BTreeMap, fs};
 use symphonia_script_tools::PreparationCache;
 
 fn part(names: &[String], attached: bool) -> PreviewPart {
@@ -162,105 +158,5 @@ fn recooking_restores_only_shipped_sources_and_receipts_track_their_bytes() -> R
         assert_eq!(fs::read_to_string(root.path().join(path))?, *source);
     }
     assert_eq!(fs::read_to_string(custom)?, "user content");
-    Ok(())
-}
-
-/// Compare against the frozen argument-based scripts before normalizing their schema.
-pub(crate) fn compare_baseline(
-    actual: &ModelPreview,
-    expected: &mut Value,
-    cache: &mut PreparationCache,
-) -> Result<()> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "snake_case")]
-    enum Argument {
-        Float(f32),
-        Node(Vec<Node>),
-        Flag(u16),
-    }
-    #[derive(Deserialize)]
-    struct Binding {
-        function: String,
-        arguments: Vec<Argument>,
-    }
-    let baseline: Option<Binding> = serde_json::from_value(expected["behavior"].clone())?;
-    ensure!(
-        baseline.is_some() == actual.behavior.is_some(),
-        "preview behavior presence changed"
-    );
-    let behavior = actual
-        .behavior
-        .as_ref()
-        .map(|entry| PreparedBehavior::prepare(cache, &Sources, entry, actual))
-        .transpose()?;
-    let flags: Vec<_> = baseline
-        .iter()
-        .flat_map(|b| &b.arguments)
-        .filter_map(|arg| match arg {
-            Argument::Flag(flag) => Some(*flag),
-            _ => None,
-        })
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    ensure!(flags.len() <= 8, "unexpected preview condition count");
-    for combination in 0..1usize << flags.len() {
-        let enabled = |flag| {
-            flags
-                .iter()
-                .position(|f| *f == flag)
-                .is_some_and(|i| combination & (1 << i) != 0)
-        };
-        let pose = behavior
-            .as_ref()
-            .map(|b| b.evaluate(enabled))
-            .transpose()?
-            .unwrap_or_default();
-        let mut expected_pose = PoseOverrides::default();
-        let mut scale = |nodes: &[Node], value| {
-            expected_pose
-                .scales
-                .extend(nodes.iter().map(|&node| (node, [value; 3])));
-        };
-        if let Some(binding) = &baseline {
-            use Argument::*;
-            match (binding.function.as_str(), binding.arguments.as_slice()) {
-                ("lower_origin", [Float(elevation)]) => {
-                    expected_pose.translation = Some([0., 0., *elevation])
-                }
-                ("hide_attachment", [Node(nodes)]) => scale(nodes, 0.),
-                ("smaller_wings", [Node(nodes)]) => scale(nodes, 0.5),
-                (
-                    "sword_dancer",
-                    [
-                        Node(tail),
-                        Node(left),
-                        Node(right),
-                        Flag(tail_flag),
-                        Flag(wing_flag),
-                    ],
-                ) => {
-                    if !enabled(*tail_flag) {
-                        scale(tail, 0.);
-                    }
-                    if !enabled(*wing_flag) {
-                        scale(left, 0.);
-                        scale(right, 0.);
-                    }
-                }
-                _ => bail!("unexpected frozen preview behavior"),
-            }
-        }
-        ensure!(
-            pose.translation == expected_pose.translation,
-            "script changes preview elevation"
-        );
-        ensure!(
-            pose.scales == expected_pose.scales,
-            "script changes preview node scales for flags {combination}"
-        );
-    }
-    let expected = expected.as_object_mut().context("frozen preview")?;
-    expected.insert("behavior".into(), serde_json::to_value(&actual.behavior)?);
     Ok(())
 }

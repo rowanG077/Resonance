@@ -1,5 +1,5 @@
 //! Shop actions, comparison labels and help bindings in their complete native order.
-use super::text::{TextPool, TextRef, TextSource};
+use super::text::{TextPool, TextRef};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -63,28 +63,21 @@ impl Catalogue {
     }
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut texts = TextPool::default();
     let labels = Label::ALL
         .into_iter()
         .zip(texts.array::<26>(executable, TABLE)?)
         .collect();
-    Ok((
-        Catalogue {
-            texts: texts.values,
-            labels,
-        },
-        texts.sources,
-    ))
-}
-
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
-    Ok(parse(executable)?.0)
+    Ok(Catalogue {
+        texts: texts.values,
+        labels,
+    })
 }
 
 #[cfg(test)]
 pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
-    let (catalogue, _) = parse(executable)?;
+    let catalogue = read(executable)?;
     crate::embedded::write(file, output, FAMILY, &catalogue)
 }
 
@@ -93,17 +86,6 @@ mod tests {
     use super::*;
     use crate::dol;
     use std::{collections::BTreeSet, fs};
-
-    fn reconstruct(catalogue: &Catalogue, sources: &[TextSource]) -> Vec<u8> {
-        Label::ALL
-            .into_iter()
-            .flat_map(|label| {
-                catalogue.labels[&label]
-                    .map_or(0, |r| sources[r.0].address)
-                    .to_be_bytes()
-            })
-            .collect()
-    }
 
     #[test]
     #[ignore = "requires both extracted discs; publishes shop JSON without media conversion"]
@@ -116,49 +98,32 @@ mod tests {
                 let file = extracted.join(format!("disc{disc}/sys/main.dol"));
                 let mut executable = fs::read(&file)?;
                 let destination = output.join(format!("disc{disc}"));
-                let (catalogue, sources) = parse(&executable)?;
+                let catalogue = read(&executable)?;
                 let paths = cook(&file, &executable, &destination)?;
                 let restored: Catalogue = crate::embedded::read(&destination, FAMILY, "main.dol")?;
                 assert_eq!(restored, catalogue);
                 assert_eq!(restored.labels.len(), 26);
-                assert_eq!(sources.len(), 25);
                 assert_eq!(
                     restored.labels[&Label::Status],
                     restored.labels[&Label::StatusHelp]
                 );
                 assert_eq!(restored.label(Label::CannotEquip)?, "Cannot equip");
-                assert_eq!(
-                    reconstruct(&restored, &sources),
-                    dol::slice(&executable, TABLE, 104)?
-                );
                 payloads.insert(paths[0].clone());
                 let provenance: serde_json::Value =
                     serde_json::from_slice(&fs::read(destination.join(&paths[1]))?)?;
                 assert_eq!(provenance["source_sha256"], crate::digest(&executable));
-                for (source, text) in sources.iter().zip(&restored.texts) {
-                    let (encoded, _, invalid) = encoding_rs::SHIFT_JIS.encode(text);
-                    assert!(!invalid);
-                    let bytes = [encoded.as_ref(), &[0]].concat();
-                    assert_eq!(bytes.len() as u32, source.source_size);
-                    assert_eq!(bytes, dol::slice(&executable, source.address, bytes.len())?);
-                }
-                // Physical recovery retains null and changed aliases independently of menu admission.
-                let alias = sources[restored.labels[&Label::Status]
-                    .context("null status label")?
-                    .0]
-                    .address;
+                let alias = crate::read::u32(
+                    dol::slice(&executable, TABLE + Label::Status as u32 * 4, 4)?,
+                    0,
+                )?;
                 for (index, pointer) in [(0, 0u32), (1, alias)] {
                     let bytes = dol::slice(&executable, TABLE + index * 4, 4)?;
                     let at = bytes.as_ptr() as usize - executable.as_ptr() as usize;
                     executable[at..at + 4].copy_from_slice(&pointer.to_be_bytes());
                 }
-                let (changed, sources) = parse(&executable)?;
+                let changed = read(&executable)?;
                 assert!(changed.label(Label::Buy).is_err());
                 assert_eq!(changed.labels[&Label::Sell], changed.labels[&Label::Status]);
-                assert_eq!(
-                    reconstruct(&changed, &sources),
-                    dol::slice(&executable, TABLE, 104)?
-                );
                 let modified = destination.join("modified.dol");
                 fs::write(&modified, &executable)?;
                 cook(&modified, &executable, &destination)?;

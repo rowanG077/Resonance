@@ -1,5 +1,5 @@
 //! Physical skit tables and portrait recipes, independent of runtime availability.
-use super::embedded::text::{TextPool, TextRef, TextSource};
+use super::embedded::text::{TextPool, TextRef};
 use crate::{
     dol,
     read::{u16 as half, u32 as word},
@@ -76,14 +76,14 @@ pub(crate) struct Catalog {
     pub(crate) portrait_archive: String,
     pub(crate) portraits: Vec<Portrait>,
     pub(crate) portrait_recipes: Vec<Recipe>,
-    preview_order: PreviewOrder,
+    preview_order: Vec<u16>,
 }
 
 impl Catalog {
     pub(crate) fn read(extracted: &Path, executable: &[u8]) -> Result<Self> {
         let portrait_archive = crate::skit::portrait_path(extracted, executable)?;
         Ok(Self {
-            physical: physical(executable)?.0,
+            physical: physical(executable)?,
             portraits: portraits(&fs::read(extracted.join("files").join(&portrait_archive))?)?,
             portrait_recipes: recipe::read(executable)?,
             preview_order: preview_order(executable)?,
@@ -177,35 +177,23 @@ impl Physical {
 }
 
 pub(crate) fn definitions_from_source(executable: &[u8]) -> Result<Vec<SkitDefinition>> {
-    physical(executable)?.0.prepared()
+    physical(executable)?.prepared()
 }
 
-fn physical(executable: &[u8]) -> Result<(Physical, Vec<TextSource>)> {
+fn physical(executable: &[u8]) -> Result<Physical> {
     let mut texts = TextPool::default();
-    Ok((
-        Physical {
-            definitions: definitions(executable, &mut texts)?,
-            scripts: scripts(executable, &mut texts)?,
-            texts: texts.values,
-        },
-        texts.sources,
-    ))
+    Ok(Physical {
+        definitions: definitions(executable, &mut texts)?,
+        scripts: scripts(executable, &mut texts)?,
+        texts: texts.values,
+    })
 }
 
 const PREVIEW_ORDER: u32 = 0x8020fffc;
 const PREVIEW_ORDER_SIZE: usize = 0x2fc;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct PreviewOrder {
-    /// Skit IDs returned by the preview-list native call retain authored order.
-    ids: Vec<u16>,
-    terminator: u16,
-    /// Physical halfwords following the first terminator are not preview entries.
-    storage: Vec<u16>,
-}
-
-fn preview_order(executable: &[u8]) -> Result<PreviewOrder> {
-    let values: Vec<_> = dol::slice(executable, PREVIEW_ORDER, PREVIEW_ORDER_SIZE)?
+fn preview_order(executable: &[u8]) -> Result<Vec<u16>> {
+    let mut values: Vec<_> = dol::slice(executable, PREVIEW_ORDER, PREVIEW_ORDER_SIZE)?
         .chunks_exact(2)
         .map(|value| u16::from_be_bytes(value.try_into().unwrap()))
         .collect();
@@ -213,11 +201,8 @@ fn preview_order(executable: &[u8]) -> Result<PreviewOrder> {
         .iter()
         .position(|&id| id == u16::MAX)
         .context("unterminated skit preview order")?;
-    Ok(PreviewOrder {
-        ids: values[..end].to_vec(),
-        terminator: values[end],
-        storage: values[end + 1..].to_vec(),
-    })
+    values.truncate(end);
+    Ok(values)
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -427,7 +412,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both locally extracted original discs; only publishes JSON"]
-    fn original_skit_records_preserve_complete_fields_pointers_and_publication() -> Result<()> {
+    fn original_skit_records_preserve_complete_fields_and_publication() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let output = crate::temporary_path(&std::env::temp_dir().join("skit-records"));
         let result = (|| -> Result<()> {
@@ -435,7 +420,7 @@ mod tests {
             for disc in [1, 2] {
                 let extracted = local.join(format!("disc{disc}"));
                 let mut executable = fs::read(extracted.join("sys/main.dol"))?;
-                let (original, sources) = physical(&executable)?;
+                let original = physical(&executable)?;
                 let destination = output.join(format!("disc{disc}"));
                 let paths = cook(&extracted, &destination)?;
                 let published: serde_json::Value =
@@ -449,50 +434,26 @@ mod tests {
                 assert_eq!(provenance["source_sha256"], crate::digest(&executable));
                 assert_eq!(restored.definitions.len(), 529);
                 assert_eq!(restored.scripts.len(), 493);
-                let pointer =
-                    |reference: Option<TextRef>| reference.map_or(0, |r| sources[r.0].address);
                 let mut definition_at = 0;
                 let mut script_at = 0;
                 for table in TABLES.iter() {
-                    let rows = &restored.definitions
-                        [definition_at..definition_at + table.definition_count];
-                    let mut bytes = Vec::new();
-                    for (index, row) in rows.iter().enumerate() {
+                    for (index, row) in restored.definitions
+                        [definition_at..definition_at + table.definition_count]
+                        .iter()
+                        .enumerate()
+                    {
                         assert_eq!(row.group, table.group);
                         assert_eq!(row.script.index, index);
                         assert_eq!(
                             row.script.binding,
                             script_reference(table.filenames + index as u32 * 4)
                         );
-                        bytes.extend(row.id.to_be_bytes());
-                        bytes.extend(row.storage.halfword.to_be_bytes());
-                        let bounds = match row.story {
-                            Story::Disabled => [-1; 2],
-                            Story::Any => [-999_999_999; 2],
-                            Story::Range { first, last } => [first, last],
-                        };
-                        bytes.extend(bounds.into_iter().flat_map(i32::to_be_bytes));
-                        bytes.extend(row.party_mask.to_be_bytes());
-                        let location: i16 = match row.location {
-                            Location::Any => -9999,
-                            Location::Overworld => -1,
-                            Location::Sylvarant => -2,
-                            Location::TetheAlla => -3,
-                            Location::Field => -4,
-                            Location::Map { id } => id as i16,
-                            Location::Unknown { value } => value,
-                        };
-                        bytes.extend(location.to_be_bytes());
-                        bytes.push(row.availability.selector);
-                        bytes.extend(row.storage.bytes);
-                        bytes.extend(pointer(row.title).to_be_bytes());
                     }
-                    assert_eq!(
-                        bytes,
-                        dol::slice(&executable, table.definitions, table.definition_count * 24)?
-                    );
-                    let scripts = &restored.scripts[script_at..script_at + table.filename_count];
-                    for (index, script) in scripts.iter().enumerate() {
+                    for (index, script) in restored.scripts
+                        [script_at..script_at + table.filename_count]
+                        .iter()
+                        .enumerate()
+                    {
                         assert_eq!(
                             script.binding,
                             ScriptReference {
@@ -501,24 +462,8 @@ mod tests {
                             }
                         );
                     }
-                    let bytes: Vec<_> = scripts
-                        .iter()
-                        .flat_map(|s| pointer(s.file).to_be_bytes())
-                        .collect();
-                    assert_eq!(
-                        bytes,
-                        dol::slice(&executable, table.filenames, table.filename_count * 4)?
-                    );
                     definition_at += table.definition_count;
                     script_at += table.filename_count;
-                }
-                for (source, text) in sources.iter().zip(&restored.texts) {
-                    let (bytes, _, invalid) = encoding_rs::SHIFT_JIS.encode(text);
-                    assert!(!invalid);
-                    assert_eq!(
-                        [bytes.as_ref(), &[0]].concat(),
-                        dol::slice(&executable, source.address, source.source_size as usize)?
-                    );
                 }
                 let tech: Vec<_> = restored
                     .definitions
@@ -569,7 +514,7 @@ mod tests {
                     let offset = source.as_ptr() as usize - executable.as_ptr() as usize;
                     executable[offset..offset + bytes.len()].copy_from_slice(&bytes);
                 }
-                let (changed, _) = physical(&executable)?;
+                let changed = physical(&executable)?;
                 let row = &changed.definitions[0];
                 assert_eq!(row.id, 9000);
                 assert_eq!(row.id, changed.definitions[1].id);
@@ -610,7 +555,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both locally extracted original discs; only publishes JSON"]
-    fn original_skit_preview_order_preserves_ids_terminator_and_storage() -> Result<()> {
+    fn original_skit_preview_order_preserves_ids_and_checks_termination() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let output = crate::temporary_path(&std::env::temp_dir().join("skit-preview-order"));
         let result = (|| -> Result<()> {
@@ -622,32 +567,17 @@ mod tests {
                 let paths = cook(&extracted, &output)?;
                 let published: serde_json::Value =
                     serde_json::from_slice(&fs::read(output.join(&paths[0]))?)?;
-                let restored: PreviewOrder =
+                let restored: Vec<u16> =
                     serde_json::from_value(published["preview_order"].clone())?;
                 assert_eq!(restored, order);
-                let bytes: Vec<_> = restored
-                    .ids
-                    .iter()
-                    .copied()
-                    .chain([restored.terminator])
-                    .chain(restored.storage.iter().copied())
-                    .flat_map(u16::to_be_bytes)
-                    .collect();
-                assert_eq!(
-                    bytes,
-                    dol::slice(&executable, PREVIEW_ORDER, PREVIEW_ORDER_SIZE)?
-                );
-                assert_eq!(restored.ids.len(), 380);
-                assert_eq!(restored.terminator, u16::MAX);
-                assert_eq!(restored.storage, [0]);
+                assert_eq!(restored.len(), 380);
                 if let Some(first) = &first {
                     assert_eq!(&order, first);
                 } else {
                     first = Some(order);
                 }
 
-                // Recover aliases and arbitrary IDs verbatim; the first terminator
-                // ends the list, while later halfwords remain physical storage.
+                // The first terminator ends the list; aliases and arbitrary IDs remain.
                 let original = dol::slice(&executable, PREVIEW_ORDER, PREVIEW_ORDER_SIZE)?;
                 let offset = original.as_ptr() as usize - executable.as_ptr() as usize;
                 let replacement: Vec<_> = [9000u16, 9000, u16::MAX, 4711]
@@ -656,10 +586,7 @@ mod tests {
                     .collect();
                 executable[offset..offset + replacement.len()].copy_from_slice(&replacement);
                 let changed = preview_order(&executable)?;
-                assert_eq!(changed.ids, [9000, 9000]);
-                assert_eq!(changed.terminator, u16::MAX);
-                assert_eq!(changed.storage[0], 4711);
-                assert_eq!(changed.storage.len(), PREVIEW_ORDER_SIZE / 2 - 3);
+                assert_eq!(changed, [9000, 9000]);
                 executable[offset..offset + PREVIEW_ORDER_SIZE].fill(0);
                 assert!(preview_order(&executable).is_err());
             }

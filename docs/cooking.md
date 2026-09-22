@@ -58,7 +58,9 @@ File and voice jobs retain final-output receipts in `.cook-receipts/`. Reuse
 verifies the published files, including shared resources outside a package. Keys
 include original inputs, relevant dependencies, options and the reader executable.
 Changed or missing outputs force conversion. This cache contains final-file
-receipts, not decoder intermediates. Embedded database passes still run; movies
+receipts, not decoder intermediates. Publication supplies each receipt's paths
+and hashes directly; completed nested jobs forward their outputs to the enclosing
+receipt. Embedded database passes still run; movies
 run serially to bound temporary disk use and verify their own final publications.
 
 ## Library and field preparation
@@ -100,6 +102,13 @@ replaced with silence. Enemy archives and their embedded sound banks remain unde
 the battle exclusion. Native executable code, build metadata and disc headers are
 accounted for separately from assets; known embedded tables and artwork are
 recovered without publishing executable slices.
+
+Table readers produce semantic records directly, including inactive entries and
+meaningful unresolved fields. Fixed-size text slots use the same text references
+as pointer tables, with their source bounds checked during parsing. Source
+alignment padding and list terminators serve parsing rather than becoming cooked
+fields. Validation compares semantic catalogues and prepared menu data with the
+original sources and existing baseline.
 
 After a format change, rerun `cook-all`. There is no
 compatibility layer for obsolete cooked formats: version mismatches request a

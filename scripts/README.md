@@ -5,23 +5,10 @@
 that declaration; static assets and message glyphs are validated before events start.
 
 ```sh
-cargo run -p resonance-script -- check scripts field::welcome math::vec3
-cargo run -p resonance-script -- api field
+cargo run -p resonance-script -- check scripts preview::sword_dancer
+cargo run -p resonance-script -- api model
 cargo run -p resonance-script -- fmt --check scripts
 ```
-
-`field/welcome.sym` is an optional field-entry example. Enable authored field
-entries with `--scripts scripts`, then add a binding to `fields.json`. Its
-checked-in empty mapping keeps the original field events unchanged. Bindings
-name a module, task, flattened arguments, and arrival or entry trigger; see the
-[language documentation](../docs/symphonia-script.md#running-authored-field-entries).
-
-`math/vec3.sym` provides ordinary fixed-layout vector arithmetic that other
-modules can import. It requires no native services.
-
-The compiler, VM and tools are independent of the game engine. Pure modules can
-also be checked with `cargo run -p symphonia-script-tools -- check scripts math::vec3`.
-Missing native implementations and unresolved resources reject preparation.
 
 `preview/*.sym` supplies instance-local model behavior. Its checked-in
 binding manifest selects named catalogue records and parameterless entry functions.
@@ -35,14 +22,15 @@ with no embedded fallback. Change the checked-in sources, rebuild and recook to
 update them; do not edit cooked resources. Mod overlays are future work.
 
 ```sh
-cargo run -p resonance-script -- check scripts preview::sword_dancer
 cargo run -p resonance-script -- check --assets local/cooked scripts preview::sword_dancer
-cargo run -p resonance-script -- api model
 ```
 
 Model sources load through the field's normal integrity checks before any preview
-opens. The development `--scripts` field-entry tool does not override cooked
-model scripts. Shared meshes and motion clips remain unchanged by model behavior.
+opens. Development field-entry scripts live in a separate source project passed
+with `--scripts ROOT`; see the
+[language documentation](../docs/symphonia-script.md#running-authored-field-entries).
+They do not override cooked model scripts. Shared meshes and motion clips remain
+unchanged by model behavior.
 
 The entire standard library lives in `std/`, including readable model node
 constants and an index linking monster and figurine records to shared node modules.
