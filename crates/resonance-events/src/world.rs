@@ -245,6 +245,7 @@ pub struct GameWorld {
     pub input_enabled: bool,
     pub controlled_actor: i32,
     pub event_flags: std::collections::BTreeSet<u16>,
+    pub script_state: symphonia_script::authored::ScriptState,
     pub event_records: BTreeMap<u8, EventRecord>,
     /// Optional Unix time supplied by a replay; live events use the system clock.
     pub calendar_time: Option<i64>,

@@ -33,7 +33,7 @@ mod persistent;
 pub use gameplay_random::GameplayRandom;
 pub mod menu;
 pub mod skit;
-pub use persistent::{PersistentState, SavedProgress};
+pub use persistent::{PersistentState, SavedProgress, script_global};
 
 /// Script operand meaning “the currently controlled party member”.
 pub const CONTROLLED_ACTOR: i32 = 999_999;

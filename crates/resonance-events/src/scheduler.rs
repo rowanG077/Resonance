@@ -357,6 +357,7 @@ impl EventRuntime {
                 .clone()
                 .context("party has not been initialized")?,
             event_flags: self.world.event_flags.clone(),
+            script_state: self.world.script_state.clone(),
             event_records: self.world.event_records.clone(),
             random_state: self.world.random_state,
             gameplay_random: self.world.gameplay_random.clone(),
@@ -377,6 +378,7 @@ impl EventRuntime {
             gameplay_random: self.world.gameplay_random.clone(),
             party: self.world.party.clone(),
             event_flags: self.world.event_flags.clone(),
+            script_state: self.world.script_state.clone(),
             event_records: self.world.event_records.clone(),
             random_state: self.world.random_state,
             tick: self.world.tick,

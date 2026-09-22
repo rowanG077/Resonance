@@ -171,6 +171,13 @@ pub(crate) struct FieldHost<'a> {
 }
 
 impl Host for FieldHost<'_> {
+    fn load_state(&self, name: &str) -> Result<Option<i32>, String> {
+        Ok(self.world.script_state.get(name).copied())
+    }
+    fn store_state(&mut self, name: &str, value: i32) -> Result<(), String> {
+        self.world.script_state.insert(name.into(), value);
+        Ok(())
+    }
     const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::<Self>::new()
         .register_typed(WAIT_TICKS, |host, args, _| host.wait_ticks(args[0] as u32))
         .register_typed(NEXT_UPDATE, |host, _, _| host.wait_ticks(1))
