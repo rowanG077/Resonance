@@ -1,6 +1,8 @@
 use crate::{
     AssetReference, Compilation, Diagnostic, Location, ScriptKind, SourceResolver,
-    syntax::{self, Expr, Expression as E, Pattern, Statement, StatementKind as S, TypeRef},
+    syntax::{
+        self, BindingKind, Expr, Expression as E, Pattern, Statement, StatementKind as S, TypeRef,
+    },
 };
 use std::collections::{BTreeMap, BTreeSet};
 use symphonia_script::{
@@ -37,11 +39,18 @@ const FLOAT: Ty = Ty::Scalar(Scalar::F32);
 fn native_ty(ty: Scalar) -> Ty {
     match ty {
         Scalar::Record { name, .. } => Ty::Record(name.into()),
+        Scalar::Enum { name, .. } => Ty::Enum(name.into()),
         Scalar::Array { element, len } => Ty::Array(Box::new(native_ty(*element)), len),
         _ => Ty::Scalar(ty),
     }
 }
 
+#[derive(Clone)]
+struct Variant {
+    name: String,
+    tag: i32,
+    payload: Vec<Ty>,
+}
 #[derive(Clone)]
 struct Record {
     fields: Vec<(String, Ty)>,
@@ -71,8 +80,10 @@ struct Compiler {
     natives: Vec<NativeDeclaration>,
     native_types: BTreeMap<String, Scalar>,
     records: BTreeMap<String, Record>,
-    enums: BTreeMap<String, Vec<(String, Vec<Ty>)>>,
+    enums: BTreeMap<String, Vec<Variant>>,
     constants: BTreeMap<String, Constant>,
+    states: BTreeMap<String, (u16, Ty)>,
+    state_declarations: Vec<authored::State>,
     resolving_constants: BTreeSet<String>,
     functions: BTreeMap<String, Function>,
     code: Vec<Op>,
@@ -118,6 +129,8 @@ pub(super) fn compile(
         records: BTreeMap::new(),
         enums: BTreeMap::new(),
         constants: BTreeMap::new(),
+        states: BTreeMap::new(),
+        state_declarations: Vec::new(),
         resolving_constants: BTreeSet::new(),
         functions: BTreeMap::new(),
         code: Vec::new(),
@@ -196,6 +209,7 @@ pub(super) fn compile(
         code: compiler.code,
         functions,
         natives: compiler.natives,
+        states: compiler.state_declarations,
         texts: compiler.texts,
         strings: compiler.strings,
         templates: compiler.templates,
@@ -277,6 +291,9 @@ fn native_import(natives: &[NativeDeclaration], import: &str) -> bool {
                 Scalar::Record { fields, .. } => fields
                     .iter()
                     .any(|field| contains(field.ty, import, prefix)),
+                Scalar::Enum { variants, .. } => variants
+                    .iter()
+                    .any(|v| v.payload.iter().any(|ty| contains(*ty, import, prefix))),
                 Scalar::Array { element, .. } | Scalar::Collection { element, .. } => {
                     contains(*element, import, prefix)
                 }
@@ -301,6 +318,24 @@ impl Compiler {
             self.native_types.insert(name.into(), ty);
         }
         match ty {
+            Scalar::Enum { name, variants } => {
+                for variant in variants {
+                    for ty in variant.payload {
+                        self.native_type(*ty);
+                    }
+                }
+                self.enums.insert(
+                    name.into(),
+                    variants
+                        .iter()
+                        .map(|v| Variant {
+                            name: v.name.into(),
+                            tag: v.tag,
+                            payload: v.payload.iter().copied().map(native_ty).collect(),
+                        })
+                        .collect(),
+                );
+            }
             Scalar::Record { name, fields } => {
                 for field in fields {
                     self.native_type(field.ty);
@@ -450,8 +485,8 @@ impl Compiler {
                         return None;
                     }
                     let mut largest = 0;
-                    for (_, parameters) in compiler.enums.get(name)? {
-                        let size = parameters.iter().try_fold(0u16, |sum, ty| {
+                    for variant in compiler.enums.get(name)? {
+                        let size = variant.payload.iter().try_fold(0u16, |sum, ty| {
                             sum.checked_add(width(compiler, ty, visiting)?)
                         })?;
                         largest = largest.max(size);
@@ -482,15 +517,20 @@ impl Compiler {
             Ty::Enum(name) => ValueLayout::Variants(
                 self.enums[name]
                     .iter()
-                    .map(|(_, types)| {
-                        ValueLayout::Sequence(types.iter().map(|ty| self.layout(ty)).collect())
+                    .map(|variant| {
+                        (
+                            variant.tag,
+                            ValueLayout::Sequence(
+                                variant.payload.iter().map(|ty| self.layout(ty)).collect(),
+                            ),
+                        )
                     })
                     .collect(),
             ),
-            Ty::Option(element) => ValueLayout::Variants(vec![
-                ValueLayout::Sequence(Vec::new()),
-                self.layout(element),
-            ]),
+            Ty::Option(element) => ValueLayout::Variants(BTreeMap::from([
+                (0, ValueLayout::Sequence(Vec::new())),
+                (1, self.layout(element)),
+            ])),
             Ty::Task(_) => unreachable!("task handles cannot cross function parameters"),
         }
     }
@@ -580,30 +620,45 @@ impl Compiler {
                     .insert(format!("{module}::{}", record.name), Record { fields });
             }
             for enumeration in &ast.enums {
-                let variants: BTreeSet<_> =
-                    enumeration.variants.iter().map(|(name, _)| name).collect();
+                let variants: BTreeSet<_> = enumeration
+                    .variants
+                    .iter()
+                    .map(|(name, _, _)| name)
+                    .collect();
                 if variants.len() != enumeration.variants.len() || variants.is_empty() {
                     return Err(enumeration
                         .at
                         .error("enum variants must be unique and nonempty"));
                 }
-                let variants = enumeration
-                    .variants
-                    .iter()
-                    .map(|(name, parameters)| {
-                        Ok((
-                            name.clone(),
-                            parameters
-                                .iter()
-                                .map(|ty| {
-                                    let ty = self.ty(module, ty, &enumeration.at)?;
-                                    value_type(&ty, &enumeration.at)?;
-                                    Ok(ty)
-                                })
-                                .collect::<Result<_, Diagnostic>>()?,
-                        ))
-                    })
-                    .collect::<Result<_, Diagnostic>>()?;
+                let mut variants = Vec::new();
+                let mut tags = BTreeSet::new();
+                let mut next = Some(0i32);
+                for (name, parameters, explicit) in &enumeration.variants {
+                    let tag = if let Some(literal) = explicit {
+                        let (ty, value) = number_value(literal, &enumeration.at)?;
+                        same(&INT, &ty, &enumeration.at)?;
+                        value
+                    } else {
+                        next.ok_or_else(|| enumeration.at.error("enum discriminant overflows i32"))?
+                    };
+                    if !tags.insert(tag) {
+                        return Err(enumeration.at.error("duplicate enum discriminant"));
+                    }
+                    next = tag.checked_add(1);
+                    let payload = parameters
+                        .iter()
+                        .map(|ty| {
+                            let ty = self.ty(module, ty, &enumeration.at)?;
+                            value_type(&ty, &enumeration.at)?;
+                            Ok(ty)
+                        })
+                        .collect::<Result<_, Diagnostic>>()?;
+                    variants.push(Variant {
+                        name: name.clone(),
+                        tag,
+                        payload,
+                    });
+                }
                 self.enums
                     .insert(format!("{module}::{}", enumeration.name), variants);
             }
@@ -700,7 +755,31 @@ impl Compiler {
         }
         for (module, ast) in &modules {
             for binding in &ast.bindings {
-                self.constant(&format!("{module}::{}", binding.name), &binding.value.at)?;
+                if binding.kind == BindingKind::State {
+                    let at = &binding.value.at;
+                    let ty = self.ty(module, binding.ty.as_ref().unwrap(), at)?;
+                    let value = self.constant_expr(module, &binding.value, Some(&ty))?;
+                    let name = format!("{module}::{}", binding.name);
+                    let declaration = authored::State {
+                        name: name.clone(),
+                        layout: self.layout(&ty),
+                        initial: *value
+                            .words
+                            .first()
+                            .ok_or_else(|| at.error("state needs a scalar default"))?,
+                    };
+                    if value.words.len() != 1 || !declaration.accepts(declaration.initial) {
+                        return Err(
+                            at.error("state requires i32, f32, bool, Ticks or a fieldless enum")
+                        );
+                    }
+                    let index = u16::try_from(self.state_declarations.len())
+                        .map_err(|_| at.error("too many state declarations"))?;
+                    self.states.insert(name, (index, ty));
+                    self.state_declarations.push(declaration);
+                } else {
+                    self.constant(&format!("{module}::{}", binding.name), &binding.value.at)?;
+                }
             }
         }
         Ok(())
@@ -743,7 +822,7 @@ impl Compiler {
             .as_ref()
             .map(|ty| self.ty(module, ty, at))
             .transpose()?;
-        let value = if binding.asset {
+        let value = if binding.kind == BindingKind::Asset {
             let Some(Ty::Scalar(Scalar::Asset(kind))) = declared else {
                 return Err(at.error("asset declaration needs a native asset type"));
             };
@@ -776,9 +855,6 @@ impl Compiler {
         } else {
             self.constant_expr(module, &binding.value, declared.as_ref())?
         };
-        if let Some(declared) = declared {
-            same(&declared, &value.ty, at)?;
-        }
         self.resolving_constants.remove(name);
         self.constants.insert(name.into(), value.clone());
         Ok(value)
@@ -801,7 +877,10 @@ impl Compiler {
                 (Ty::Scalar(Scalar::Message), words)
             }
             E::Text(value) => (Ty::Scalar(Scalar::String), vec![self.string(value)]),
-            E::Name(name) => return self.named_constant(module, name, &expr.at),
+            E::Name(name) => {
+                let value = self.named_constant(module, name, &expr.at)?;
+                (value.ty, value.words)
+            }
             E::Unary(op, value) if op == "-" => {
                 if let E::Number(number) = &value.kind {
                     let (ty, value) = number_value(&format!("-{number}"), &expr.at)?;
@@ -821,11 +900,7 @@ impl Compiler {
                 let mut words = Vec::new();
                 for item in items {
                     let value = self.constant_expr(module, item, ty.as_ref())?;
-                    if let Some(ty) = &ty {
-                        same(ty, &value.ty, &item.at)?;
-                    } else {
-                        ty = Some(value.ty.clone());
-                    }
+                    ty.get_or_insert(value.ty);
                     words.extend(value.words);
                 }
                 (
@@ -849,6 +924,26 @@ impl Compiler {
         }
         Ok(Constant { ty, words })
     }
+    fn state(
+        &self,
+        module: &str,
+        name: &str,
+        at: &Location,
+    ) -> Result<Option<(u16, Ty)>, Diagnostic> {
+        for qualified in self.candidates(module, name) {
+            if let Some(state) = self.states.get(&qualified) {
+                let (owner, short) = qualified.rsplit_once("::").unwrap();
+                let binding = self.modules[owner]
+                    .bindings
+                    .iter()
+                    .find(|b| b.name == short)
+                    .unwrap();
+                self.visible(module, &qualified, binding.public, at)?;
+                return Ok(Some(state.clone()));
+            }
+        }
+        Ok(None)
+    }
     fn named_constant(
         &mut self,
         module: &str,
@@ -863,17 +958,20 @@ impl Compiler {
                     .and_then(|ast| ast.bindings.iter().find(|binding| binding.name == short))
                 {
                     self.visible(module, &qualified, binding.public, at)?;
+                    if binding.kind == BindingKind::State {
+                        return Err(at.error("state is not a compile-time constant"));
+                    }
                     return self.constant(&qualified, at);
                 }
                 if let Some(variants) = self.enums.get(owner)
-                    && let Some(index) = variants.iter().position(|(variant, _)| variant == short)
+                    && let Some(variant) = variants.iter().find(|variant| variant.name == short)
                 {
-                    if !variants[index].1.is_empty() {
+                    if !variant.payload.is_empty() {
                         return Err(at.error("enum variant requires payload arguments"));
                     }
                     let ty = self.ty(module, &TypeRef::Named(owner.into()), at)?;
                     let mut words = vec![0; self.width(&ty, at)? as usize];
-                    words[0] = index as i32;
+                    words[0] = variant.tag;
                     return Ok(Constant { ty, words });
                 }
             }
@@ -1055,6 +1153,21 @@ impl Body<'_> {
                 self.store(local.base, &local.ty, at)?;
             }
             S::Assign(target, op, value) => {
+                if let E::Name(name) = &target.kind
+                    && self.find_local(name).is_none()
+                    && let Some((index, ty)) =
+                        self.compiler.state(&self.function.module, name, at)?
+                {
+                    if op != "=" {
+                        self.emit(Op::LoadState(index), at);
+                    }
+                    self.expr(value, Some(&ty))?;
+                    if op != "=" {
+                        self.binary(&op[..1], &ty, at)?;
+                    }
+                    self.emit(Op::StoreState(index), at);
+                    return Ok(());
+                }
                 let (local, index) = self.place(target)?;
                 if !local.mutable {
                     return Err(at.error("assignment requires a mutable local"));
@@ -1175,10 +1288,29 @@ impl Body<'_> {
         let variants = match &ty {
             Ty::Enum(name) => Some(self.compiler.enums[name].clone()),
             Ty::Option(inner) => Some(vec![
-                ("None".into(), vec![]),
-                ("Some".into(), vec![inner.as_ref().clone()]),
+                Variant {
+                    name: "None".into(),
+                    tag: 0,
+                    payload: vec![],
+                },
+                Variant {
+                    name: "Some".into(),
+                    tag: 1,
+                    payload: vec![inner.as_ref().clone()],
+                },
             ]),
-            &BOOL => Some(vec![("false".into(), vec![]), ("true".into(), vec![])]),
+            &BOOL => Some(vec![
+                Variant {
+                    name: "false".into(),
+                    tag: 0,
+                    payload: vec![],
+                },
+                Variant {
+                    name: "true".into(),
+                    tag: 1,
+                    payload: vec![],
+                },
+            ]),
             &INT => None,
             _ => return Err(at.error("match expects an enum, optional value, bool or i32")),
         };
@@ -1227,11 +1359,11 @@ impl Body<'_> {
                     let variants = variants
                         .as_ref()
                         .ok_or_else(|| at.error("variant pattern requires an enum"))?;
-                    let (tag, (_, payload)) = variants
+                    let variant = variants
                         .iter()
-                        .enumerate()
-                        .find(|(_, (variant, _))| variant == variant_name)
+                        .find(|variant| variant.name == variant_name)
                         .ok_or_else(|| at.error(format!("unknown variant '{name}'")))?;
+                    let payload = &variant.payload;
                     if payload.len() != bindings.len() {
                         return Err(at.error("variant pattern has the wrong number of bindings"));
                     }
@@ -1240,7 +1372,7 @@ impl Body<'_> {
                         .cloned()
                         .zip(payload.iter().cloned())
                         .collect();
-                    (Some(tag as i32), bindings)
+                    (Some(variant.tag), bindings)
                 }
                 _ => return Err(at.error("pattern does not match the value type")),
             };
@@ -1517,6 +1649,11 @@ impl Body<'_> {
                 if let Some(local) = self.find_local(name) {
                     self.load(local.base, &local.ty, at)?;
                     local.ty
+                } else if let Some((index, ty)) =
+                    self.compiler.state(&self.function.module, name, at)?
+                {
+                    self.emit(Op::LoadState(index), at);
+                    ty
                 } else {
                     let value = self
                         .compiler
@@ -1737,6 +1874,14 @@ impl Body<'_> {
                 "f32" => FLOAT,
                 _ => Ty::Scalar(Scalar::Ticks),
             };
+            if let Ty::Enum(name) = &from
+                && to == INT
+                && self.compiler.enums[name]
+                    .iter()
+                    .all(|v| v.payload.is_empty())
+            {
+                return Ok(INT);
+            }
             match (from.scalar(), to.scalar()) {
                 (Some(Scalar::I32), Some(Scalar::F32)) => {
                     self.emit(Op::Convert(Conversion::I32ToF32), at);
@@ -1777,15 +1922,13 @@ impl Body<'_> {
             }
             if let Some((enum_name, variant)) = qualified.rsplit_once("::")
                 && let Some(variants) = self.compiler.enums.get(enum_name)
-                && let Some((tag, (_, parameters))) = variants
-                    .iter()
-                    .enumerate()
-                    .find(|(_, (name, _))| name == variant)
+                && let Some(variant) = variants.iter().find(|v| v.name == variant)
             {
                 if awaited {
                     return Err(at.error("enum construction cannot be awaited"));
                 }
-                let parameters = parameters.clone();
+                let tag = variant.tag;
+                let parameters = variant.payload.clone();
                 if parameters.len() != arguments.len() {
                     return Err(at.error("enum variant has the wrong number of arguments"));
                 }
@@ -1794,7 +1937,7 @@ impl Body<'_> {
                     &TypeRef::Named(enum_name.into()),
                     at,
                 )?;
-                self.emit(Op::Push(tag as i32), at);
+                self.emit(Op::Push(tag), at);
                 let mut used = 1;
                 for (value, parameter) in arguments.iter().zip(&parameters) {
                     self.expr(value, Some(parameter))?;
@@ -2011,6 +2154,8 @@ fn number_value(source: &str, at: &Location) -> Result<(Ty, i32), Diagnostic> {
     }
     let value = if let Some(hex) = text.strip_prefix("0x") {
         i64::from_str_radix(hex, 16)
+    } else if let Some(hex) = text.strip_prefix("-0x") {
+        i64::from_str_radix(hex, 16).map(|value| -value)
     } else {
         text.parse::<i64>()
     }

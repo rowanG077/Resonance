@@ -106,6 +106,13 @@ impl<H> Default for NativeBindings<H> {
 pub trait Host: Sized {
     const NATIVES: NativeBindings<Self> = NativeBindings::new();
     const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::new();
+    /// Persistent values are keyed by their source module and declaration name.
+    fn load_state(&self, _name: &str) -> Result<Option<i32>, String> {
+        Err("persistent script state is unavailable".into())
+    }
+    fn store_state(&mut self, _name: &str, _value: i32) -> Result<(), String> {
+        Err("persistent script state is read-only or unavailable".into())
+    }
     /// Admit a child of the currently running task. The host owns scheduling.
     fn spawn(&mut self, _function: u16, _arguments: &[i32]) -> Result<i32, String> {
         Err("this host does not support child tasks".into())
