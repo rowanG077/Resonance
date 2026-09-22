@@ -1,0 +1,25 @@
+script library;
+// Skeleton: a14addef6cd183f71a6d8ec2638ae9e53a6b28a8ec7cb774e158abbe1ff8d2ce
+pub const Node000_T02_P06: string = "T02_P06";
+pub const Node001_T04_G: string = "T04_G";
+pub const Node002_T02_P01: string = "T02_P01";
+pub const Node003_T_Soko: string = "T_Soko";
+pub const Node004_Sky: string = "Sky";
+pub const Node005_T02_P03: string = "T02_P03";
+pub const Node006_T02_P6_Mark1: string = "T02_P6_Mark1";
+pub const Node007_T02_P6_Mark2: string = "T02_P6_Mark2";
+pub const Node008_Ex_Door: string = "ex_door";
+pub const Node009_Ex_Dr_Shadow01: string = "ex_Dr_Shadow01";
+pub const Node010_Ex_Dr_Shadow02: string = "ex_Dr_Shadow02";
+pub const Node011_Ex_Dr_Shadow00: string = "ex_Dr_Shadow00";
+pub const Node012_Man001: string = "man001";
+pub const Node013_Man002: string = "man002";
+pub const Node014_Man003: string = "man003";
+pub const Node015_Man004: string = "man004";
+pub const Node016_Man005: string = "man005";
+pub const Node017_Man006: string = "man006";
+pub const Node018_Man007: string = "man007";
+pub const Node019_Man008: string = "man008";
+pub const Node020_Man010: string = "man010";
+pub const Node021_Man011: string = "man011";
+pub const Node022_Man_SD01: string = "man_SD01";

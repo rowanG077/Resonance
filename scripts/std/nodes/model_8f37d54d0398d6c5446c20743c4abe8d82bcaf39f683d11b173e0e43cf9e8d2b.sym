@@ -1,0 +1,18 @@
+script library;
+// Skeleton: 8f37d54d0398d6c5446c20743c4abe8d82bcaf39f683d11b173e0e43cf9e8d2b
+pub const Node000_Ground: string = "ground";
+pub const Node001_Number44: string = "44";
+pub const Node002_Number42: string = "42";
+pub const Node003_Number40: string = "40";
+pub const Node004_Number36: string = "36";
+pub const Node005_Number34: string = "34";
+pub const Node006_Number32: string = "32";
+pub const Node007_Number30: string = "30";
+pub const Node008_Number24: string = "24";
+pub const Node009_Number22: string = "22";
+pub const Node010_Number20: string = "20";
+pub const Node011_Number14: string = "14";
+pub const Node012_Number12: string = "12";
+pub const Node013_Number10: string = "10";
+pub const Node014_Number8: string = "8";
+pub const Node015_Yuka: string = "yuka";

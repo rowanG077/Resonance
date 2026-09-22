@@ -1,0 +1,7 @@
+script library;
+// Skeleton: fcdfb5d85296b1ec91bf1d519e2cb57ae6a27982613276a5d466dc116160f869
+pub const LeftWing: string = "Bone_wing_L";
+pub const Node000_A_Bone: string = "A_Bone";
+pub const Node001_Bone_Body: string = "Bone_body";
+pub const Node002_Bone_Buki: string = "Bone_buki";
+pub const RightWing: string = "Bone_wing_R";

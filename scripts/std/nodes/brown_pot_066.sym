@@ -1,0 +1,28 @@
+script library;
+// Skeleton: f90c1abc6260868214919b065e466af95448c0e2f3050d151ba958c5c9a6f356
+pub const Node000_Mo2_Bone00_Kosi: string = "mo2_Bone00_Kosi";
+pub const Node001_Bone01_Body: string = "Bone01_Body";
+pub const Node002_Bone02_Body: string = "Bone02_Body";
+pub const Node003_Mo3_Bone03_Body: string = "mo3_Bone03_Body";
+pub const Node004_Bone04_Body: string = "Bone04_Body";
+pub const Node005_Bone05_Body: string = "Bone05_Body";
+pub const Node006_Mo2_Bone06_Body: string = "mo2_Bone06_Body";
+pub const Node007_NS_Bone07_Body: string = "NS_Bone07_Body";
+pub const Node008_NS_Bone08_Body: string = "NS_Bone08_Body";
+pub const Node009_Mo3_Bone09_Kuti: string = "mo3_Bone09_Kuti";
+pub const Node010_At00_Bone0A_Kiba: string = "at00_Bone0A_Kiba";
+pub const Node011_Bone10_Kubi: string = "Bone10_Kubi";
+pub const Node012_Mo1_Bone11_Kubi: string = "mo1_Bone11_Kubi";
+pub const Node013_Ns_Bone12_Kubi: string = "ns_Bone12_Kubi";
+pub const Node014_Mo1_Bone13_Kubi: string = "mo1_Bone13_Kubi";
+pub const Node015_Ns_Bone14_Kubi: string = "ns_Bone14_Kubi";
+pub const Node016_Ns_Bone15_Kubi: string = "ns_Bone15_Kubi";
+pub const Node017_Bone16_Kubi: string = "Bone16_Kubi";
+pub const Node018_Ns_Bone17_Kubi: string = "ns_Bone17_Kubi";
+pub const Node019_Ns_Bone18_Tama: string = "ns_Bone18_Tama";
+pub const Node020_Mo2_Elem07_10Tama: string = "mo2_elem07_10Tama";
+pub const Node021_NS_Bone20_AsiOya: string = "NS_Bone20_AsiOya";
+pub const Node022_Bone22_AsiUsiro_L: string = "Bone22_AsiUsiro_L";
+pub const Node023_Bone21_AsiMae_L: string = "Bone21_AsiMae_L";
+pub const Node024_Bone21_AsiMae_R: string = "Bone21_AsiMae_R";
+pub const Node025_Bone22_AsiUsiro_R: string = "Bone22_AsiUsiro_R";

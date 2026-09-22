@@ -1,0 +1,3 @@
+script library;
+// Skeleton: d6a7164db2cca4eac9d93a570f0af0641388a6e7ca4e529586d926e348a0246f
+pub const Node000_Blue_Wave: string = "blue_wave";

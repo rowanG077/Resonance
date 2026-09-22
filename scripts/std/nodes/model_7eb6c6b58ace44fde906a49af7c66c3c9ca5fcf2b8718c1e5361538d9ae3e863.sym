@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 7eb6c6b58ace44fde906a49af7c66c3c9ca5fcf2b8718c1e5361538d9ae3e863
+pub const Node000_Vertex_Kage: string = "vertex_kage";
+pub const Node001_Vertex_Light: string = "vertex_light";
+pub const Node002_Vertex_0001: string = "vertex_0001";

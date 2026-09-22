@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 89c0528fc086d2a614208f7cd810785a0053b2a1cabd89e860aaed52a4a73e8b
+pub const Node000_D032: string = "d032";

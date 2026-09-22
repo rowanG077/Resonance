@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 40a381a89c4e60b0c93620a5839e293b0eb4051d0c6bd4614c6dba0e2ccf2866
+pub const Node000_Ue: string = "ue";
+pub const Node001_Shita: string = "shita";
+pub const Node002_Effect: string = "Effect";
+pub const Node003_Grass: string = "grass";
+pub const Node004_Grass_Hole: string = "grass_hole";

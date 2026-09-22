@@ -1,0 +1,21 @@
+script library;
+// Skeleton: 869eb5f43acfbdf0064081beb900651ac3505288e767590ec09ab5fd71a21c50
+pub const Node000_Toki01: string = "toki01";
+pub const Node001_Toki04: string = "toki04";
+pub const Node002_Toki02: string = "toki02";
+pub const Node003_Toki03: string = "toki03";
+pub const Node004_Kane: string = "kane";
+pub const Node005_Parts_All: string = "Parts_all";
+pub const Node006_Sakaya01: string = "sakaya01";
+pub const Node007_Time_Tower: string = "Time_tower";
+pub const Node008_Dami_Ie01: string = "Dami_ie01";
+pub const Node009_Message01: string = "message01";
+pub const Node010_DOOR01_AUTO_S_PUSH_W175e022: string = "DOOR01_AUTO_S_PUSH_W175e022";
+pub const Node011_Snow_Wall: string = "snow_wall";
+pub const Node012_Aass02: string = "aass02";
+pub const Node013_Jimen001: string = "jimen001";
+pub const Node014_Miki: string = "miki";
+pub const Node015_VC_Col01: string = "VC_col01";
+pub const Node016_VC_Col02: string = "VC_col02";
+pub const Node017_VC_Col003: string = "VC_col003";
+pub const Node018_VC_Col004: string = "VC_col004";

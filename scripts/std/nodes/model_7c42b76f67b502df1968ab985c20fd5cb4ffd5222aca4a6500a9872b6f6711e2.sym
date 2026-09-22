@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 7c42b76f67b502df1968ab985c20fd5cb4ffd5222aca4a6500a9872b6f6711e2
+pub const Node000_Smoke: string = "smoke";
+pub const Node001_Box12: string = "Box12";

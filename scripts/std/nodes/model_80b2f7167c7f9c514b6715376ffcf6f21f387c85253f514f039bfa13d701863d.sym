@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 80b2f7167c7f9c514b6715376ffcf6f21f387c85253f514f039bfa13d701863d
+pub const Node000_Cylinder01_: string = "Cylinder01_";
+pub const Node001_Cloud: string = "cloud";
+pub const Node002_Object01_: string = "Object01_";

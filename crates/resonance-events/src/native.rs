@@ -1,6 +1,6 @@
 //! Native service shims registered by typed call ID. The VM knows neither
 //! actors nor assets; these handlers operate independently of scene/event IDs.
-use crate::world::{Fade, Overlay};
+use crate::world::{Fade, Overlay, OverlayKind, SpriteOverlay};
 use crate::{Actor, Animation, CameraTrack, GameWorld, Particle, ResourceKind, ResourceLibrary};
 use crate::{
     dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, Movie, flags},
@@ -40,6 +40,44 @@ pub(crate) struct NativeHost<'a> {
 fn require(ok: bool, what: &str) -> Result<(), String> {
     if ok { Ok(()) } else { Err(what.into()) }
 }
+fn sprite_property(
+    actor: &mut Actor,
+    overlay: &mut Overlay,
+    selector: i32,
+    value: Option<i32>,
+) -> Option<i32> {
+    let OverlayKind::Sprite(sprite) = &mut overlay.kind else {
+        return None;
+    };
+    let previous = match selector {
+        8 => actor.properties.get(&8).copied().unwrap_or(0),
+        15 => sprite.alpha_step as i32,
+        30..=32 => (sprite.scale[(selector - 30) as usize] * 100.) as i32,
+        4 | 37 => actor.heading as i32,
+        42..=44 => i32::from(overlay.rgba[(selector - 42) as usize]),
+        62 => i32::from(sprite.image),
+        _ => return None,
+    };
+    if let Some(value) = value {
+        match selector {
+            4 => actor.target_heading = value as f32,
+            8 => {
+                overlay.rgba[3] = value as u8;
+                actor.properties.insert(8, i32::from(value as u8));
+            }
+            15 => sprite.alpha_step = value as f32,
+            30..=32 => sprite.scale[(selector - 30) as usize] = value as f32 / 100.,
+            37 => {
+                actor.heading = value as f32;
+                actor.target_heading = actor.heading;
+            }
+            42..=44 => overlay.rgba[(selector - 42) as usize] = value as u8,
+            62 => sprite.image = value as u8,
+            _ => unreachable!(),
+        }
+    }
+    Some(previous)
+}
 impl NativeHost<'_> {
     fn yield_update(&mut self) -> Result<NativeResult, String> {
         *self.wait = Some(Wait::Tick(
@@ -51,6 +89,13 @@ impl NativeHost<'_> {
         Ok(NativeResult::Suspend)
     }
     fn resolve(&self, script_id: i32, kind: ResourceKind) -> Result<u32, String> {
+        if let Some((ResourceKind::UnboundGeometry, id)) =
+            self.world.loaded_resources.get(&script_id)
+        {
+            return Err(format!(
+                "geometry resource {id:#x} requires caller-supplied textures"
+            ));
+        }
         self.world
             .loaded_resources
             .get(&script_id)
@@ -79,17 +124,20 @@ impl NativeHost<'_> {
             .ok_or("bone index is missing")?;
         let clip = self
             .resources
-            .model(animation.resource)
-            .and_then(|m| m.clips.get(&animation.slot))
+            .animation(animation)
             .ok_or("animation is missing")?;
-        let sample = animation.sample(self.world.tick, 0, clip.duration_ticks as f32) as u32;
-        let track = clip
+        let sample = animation.sample(
+            self.world.tick,
+            model.attachment_pose_delay,
+            clip.duration_ticks as f32,
+        );
+        let pose = clip
             .attachments
-            .get(name)
-            .ok_or("attachment is not cooked for this animation")?;
-        let point = track
-            .sample(sample)
-            .ok_or("attachment query outside cooked range")?;
+            .as_ref()
+            .ok_or("attachment pose is not prepared for this animation")?;
+        let point = pose
+            .sample(name, sample)
+            .map_err(|error| format!("attachment evaluation failed: {error:#}"))?;
         Ok(std::array::from_fn(|i| {
             (point[i] + actor.position[i]).trunc() as i32
         }))
@@ -227,16 +275,27 @@ impl NativeHost<'_> {
             }
             NativeCall::GetActorProperty | NativeCall::SetActorProperty => {
                 // Ordinary property writes return the previous value.
-                require(
-                    matches!(a[1], 1..=4 | 7..=13 | 15..=17 | 46 | 66 | 112)
-                        && (a[1] != 112 || op == NativeCall::GetActorProperty),
-                    "actor property shim is not implemented",
-                )?;
                 let id = if a[0] == crate::CONTROLLED_ACTOR {
                     self.world.controlled_actor
                 } else {
                     a[0]
                 };
+                if let (Some(actor), Some(overlay)) = (
+                    self.world.actors.get_mut(&id),
+                    self.world.overlays.get_mut(&id),
+                ) && let Some(previous) = sprite_property(
+                    actor,
+                    overlay,
+                    a[1],
+                    (op == NativeCall::SetActorProperty).then(|| a[2]),
+                ) {
+                    return Ok(NativeResult::Continue(Some(previous)));
+                }
+                require(
+                    matches!(a[1], 1..=4 | 7..=13 | 15..=17 | 46 | 66 | 112)
+                        && (a[1] != 112 || op == NativeCall::GetActorProperty),
+                    "actor property shim is not implemented",
+                )?;
                 if a[1] == 112 {
                     let luck = if (1..=9).contains(&id) {
                         let party = self
@@ -374,10 +433,11 @@ impl NativeHost<'_> {
                 _ => return Err("render configuration command is not implemented".into()),
             },
             NativeCall::CreateOverlay => {
-                let resource = self.resources.resolve(a[1], ResourceKind::Overlay)?;
+                let resource = self.resolve(a[1], ResourceKind::Overlay)?;
                 self.world.insert_actor(
                     a[0],
                     Actor {
+                        heading: a[6] as f32,
                         cull_outside_view: false,
                         grounded: false,
                         collidable: false,
@@ -390,15 +450,14 @@ impl NativeHost<'_> {
                     Overlay {
                         born: self.world.tick,
                         size: [a[4], a[5]],
-                        angle: a[6],
                         rgba: [a[7] as u8, a[8] as u8, a[9] as u8, a[10] as u8],
                         duration: a[11].max(0) as u32,
                         kind: if a[0] == 999_989 {
-                            crate::world::OverlayKind::LocationCaption {
+                            OverlayKind::LocationCaption {
                                 hold_ticks: a[12].max(0) as u32,
                             }
                         } else {
-                            crate::world::OverlayKind::Sprite { depth: a[12] }
+                            OverlayKind::Sprite(SpriteOverlay::new(a[12], a[10] as u8, a[11]))
                         },
                     },
                 );
@@ -518,6 +577,7 @@ impl NativeHost<'_> {
             // This command only consumes its argument; the VM has already done that.
             NativeCall::DiscardValue => {}
             NativeCall::ConfigureActorAnimation => {
+                use crate::animation::AnimationSource;
                 if a[1] == 0 {
                     if let Some(actor) = self.world.actors.get_mut(&a[0]) {
                         actor.scripted_animation = false;
@@ -528,42 +588,48 @@ impl NativeHost<'_> {
                 let resolved = if a[1] == -1 {
                     None
                 } else {
-                    Some(self.resolve(a[1], ResourceKind::Model)?)
+                    Some(match self.world.loaded_resources.get(&a[1]) {
+                        Some((ResourceKind::Animation, id)) => (*id, AnimationSource::Resource),
+                        _ => (
+                            self.resolve(a[1], ResourceKind::Model)?,
+                            AnimationSource::Model,
+                        ),
+                    })
                 };
                 let actor = self
                     .world
                     .actors
                     .get_mut(&a[0])
                     .ok_or("animation actor missing")?;
-                let resource = resolved.unwrap_or(actor.resource);
-                let model = self
+                let (resource, source) =
+                    resolved.unwrap_or((actor.resource, AnimationSource::Model));
+                let clips = self
                     .resources
-                    .model(resource)
+                    .clips(resource, source)
                     .ok_or("animation resource missing")?;
                 let requested =
                     u16::try_from(a[2].max(12)).map_err(|_| "invalid animation slot")?;
-                let slot = if model.clips.contains_key(&requested) {
+                let slot = if clips.contains_key(&requested) {
                     requested
                 } else {
                     12
                 };
-                require(
-                    model.clips.contains_key(&slot),
-                    "animation slot is not cooked",
-                )?;
+                require(clips.contains_key(&slot), "animation slot is not cooked")?;
                 require(
                     matches!(a[4], 1 | 8),
                     "animation playback flags are not implemented",
                 )?;
+                let count = if actor.animation_bindings.0 == self.world.tick {
+                    actor.animation_bindings.1.saturating_add(1)
+                } else {
+                    1
+                };
+                actor.animation_bindings = (self.world.tick, count);
                 actor.animation = Some(Animation {
+                    source,
                     blend_ticks: if a[3] < 0 { 1 } else { a[3] as u32 },
                     repeat: a[4] == 1,
-                    ..Animation::new(
-                        resource,
-                        slot,
-                        model.clips[&slot].duration_ticks,
-                        self.world.tick,
-                    )
+                    ..Animation::new(resource, slot, clips[&slot].duration_ticks, self.world.tick)
                 });
                 actor.scripted_animation = true;
                 self.world.pending_animation_bindings.insert(a[0]);

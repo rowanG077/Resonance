@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 7138f6daf6670e484253907aef4280c06ef54baaaba0234ab6788bfcdafcf177
+pub const Node000_Sphere01: string = "Sphere01";
+pub const Node001_Sphere02: string = "Sphere02";
+pub const Node002_CANDLE_LIGHT: string = "CANDLE_LIGHT";
+pub const Node003_Sphere03: string = "Sphere03";
+pub const Node004_Sphere04: string = "Sphere04";
+pub const Node005_Sphere05: string = "Sphere05";
+pub const Node006_Sphere06: string = "Sphere06";
+pub const Node007_CANDLE_LIGHT01: string = "CANDLE_LIGHT01";
+pub const Node008_CANDLE_LIGHT02: string = "CANDLE_LIGHT02";
+pub const Node009_CANDLE_LIGHT03: string = "CANDLE_LIGHT03";

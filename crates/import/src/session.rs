@@ -2,19 +2,25 @@
 use crate::{digest, dol, write_atomic};
 use anyhow::{Context, Result, ensure};
 use resonance_content::session::{CharacterDefinition, ItemDefinition, SessionData, StatGrowth};
-use std::{collections::BTreeMap, fs, path::Path};
+#[cfg(test)]
+use std::fs;
+use std::{collections::BTreeMap, path::Path};
 
 /// Localized display text stays separate from save-compatible item statistics.
-pub(crate) fn cook_text(extracted: &Path, output: &Path) -> Result<String> {
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
+pub(crate) fn cook_text(
+    executable: &[u8],
+    menu: &crate::menu::Inputs,
+    output: &Path,
+) -> Result<String> {
+    let defaults = &menu.characters;
     let characters = (1..=10)
         .map(|id| {
-            let address = if id == 10 {
-                0x8035bb80 // The companion's name is initialized separately from party records.
+            let name = if id == 10 {
+                // The companion's name is initialized separately from party records.
+                dol::text(executable, 0x8035bb80)?
             } else {
-                0x801f9fc8 + (id - 1) as u32 * 0x118
+                defaults.definitions[(id - 1) as usize].name.clone()
             };
-            let name = dol::text(&executable, address)?;
             ensure!(
                 !name.is_empty() && !name.chars().any(char::is_control),
                 "invalid character name {id}"
@@ -23,51 +29,28 @@ pub(crate) fn cook_text(extracted: &Path, output: &Path) -> Result<String> {
         })
         .collect::<Result<BTreeMap<_, _>>>()?;
     let mut names = BTreeMap::new();
-    for (id, row) in dol::slice(&executable, 0x801fad98, 528 * 60)?
-        .chunks_exact(60)
-        .enumerate()
-    {
-        let pointer = u32::from_be_bytes(row[..4].try_into()?);
-        let bytes = dol::slice(&executable, pointer, 128)?;
-        let end = bytes
-            .iter()
-            .position(|&b| b == 0)
-            .context("unterminated item name")?;
-        let (name, _, invalid) = encoding_rs::SHIFT_JIS.decode(&bytes[..end]);
+    for (id, row) in menu.items.iter().enumerate() {
+        let name = row.name.as_ref().context("missing item name")?;
         ensure!(
-            !invalid && !name.chars().any(char::is_control),
+            !name.chars().any(char::is_control),
             "invalid item name {id}"
         );
-        names.insert(id as u16, name.into_owned());
+        names.insert(id as u16, name.clone());
     }
     let mut titles = BTreeMap::new();
-    let starts: Vec<_> = dol::slice(&executable, 0x80210920, 18)?
-        .chunks_exact(2)
-        .map(|b| u16::from_be_bytes(b.try_into().unwrap()))
-        .chain([159])
-        .collect();
-    ensure!(
-        starts.windows(2).all(|w| w[0] < w[1] && w[1] - w[0] < 32),
-        "invalid title table ranges"
-    );
-    for character in 0..9 {
-        for (title, index) in (starts[character]..starts[character + 1]).enumerate() {
-            let pointer = u32::from_be_bytes(
-                dol::slice(&executable, 0x80210934 + u32::from(index) * 16, 4)?.try_into()?,
-            );
-            let bytes = dol::slice(&executable, pointer, 128)?;
-            let end = bytes
-                .iter()
-                .position(|&b| b == 0)
-                .context("unterminated title name")?;
-            let (name, _, invalid) = encoding_rs::SHIFT_JIS.decode(&bytes[..end]);
-            ensure!(
-                !invalid && !name.chars().any(char::is_control),
-                "invalid title name"
-            );
+    let catalogue = &menu.titles;
+    for character in 1..=9 {
+        let entries = catalogue.for_character(character)?;
+        ensure!(
+            (1..32).contains(&entries.len()),
+            "invalid title table ranges"
+        );
+        for (title, entry) in entries.iter().enumerate() {
+            let name = catalogue.required_text(entry.name)?;
+            ensure!(!name.chars().any(char::is_control), "invalid title name");
             titles.insert(
-                (character as u16) << 8 | (title + 1) as u16,
-                name.into_owned(),
+                u16::from(character - 1) << 8 | (title + 1) as u16,
+                name.to_owned(),
             );
         }
     }
@@ -81,30 +64,15 @@ pub(crate) fn cook_text(extracted: &Path, output: &Path) -> Result<String> {
     Ok(path.into())
 }
 
-pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let half = |bytes: &[u8], at: usize| -> Result<u16> {
-        Ok(u16::from_be_bytes(
-            bytes
-                .get(at..at + 2)
-                .context("truncated session halfword")?
-                .try_into()?,
-        ))
-    };
-    let word = |bytes: &[u8], at: usize| -> Result<u32> {
-        Ok(u32::from_be_bytes(
-            bytes
-                .get(at..at + 4)
-                .context("truncated session word")?
-                .try_into()?,
-        ))
-    };
-    // The equipment table has 528 entries of 60 bytes: categories,
-    // permitted owners, and one-item stack limits.
-    let zelos_only = [0x800eba48, 0x800eba54, 0x800eba60, 0x800eba6c]
+/// Nine logical party bits, including shared swordsman gear and its source exceptions.
+pub(crate) fn equipment_owners(
+    executable: &[u8],
+    items: &[crate::item::Definition],
+) -> Result<Vec<u16>> {
+    let kratos_only = [0x800eba48, 0x800eba54, 0x800eba60, 0x800eba6c]
         .into_iter()
         .map(|address| {
-            let instruction = word(dol::slice(&executable, address, 4)?, 0)?;
+            let instruction = crate::read::u32(dol::slice(executable, address, 4)?, 0)?;
             ensure!(
                 instruction >> 16 == 0x2c05,
                 "unsupported equipment owner check"
@@ -112,54 +80,60 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
             Ok(usize::from(instruction as u16))
         })
         .collect::<Result<Vec<_>>>()?;
-    let items = dol::slice(&executable, 0x801FAD98, 528 * 60)?
-        .chunks_exact(60)
+    Ok(items
+        .iter()
         .enumerate()
-        .map(|(id, row)| {
-            let mask = u16::from(row[0x15]);
-            // Expand the shared swordsman bit, then apply Zelos's exclusive gear.
-            let mut mask = mask | ((mask & 0x20) << 3);
-            if zelos_only.contains(&id) {
-                mask &= !0x20;
-            }
-            ItemDefinition {
-                equipment_kind: match row[0x1a] {
-                    13..=22 => Some(0),
-                    23..=26 => Some(1),
-                    27..=30 => Some(2),
-                    31..=34 => Some(3),
-                    35..=42 => Some(4),
-                    _ => None,
-                },
-                allowed_characters: mask,
-                stack_limit: if row[0x1a] == 45 { 1 } else { 20 },
-            }
+        .map(|(item, row)| {
+            expand_equipment_owners(row.equipment_owner_mask, kratos_only.contains(&item))
+        })
+        .collect())
+}
+
+fn expand_equipment_owners(raw: u8, kratos_only: bool) -> u16 {
+    let mask = u16::from(raw);
+    let mask = mask | ((mask & 0x20) << 3);
+    if kratos_only { mask & !0x20 } else { mask }
+}
+
+pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path) -> Result<String> {
+    let arte_catalogue = &menu.arte;
+    let defaults = &menu.characters;
+    let items = &menu.items;
+    let owners = equipment_owners(executable, items)?;
+    let titles = &menu.titles;
+    let items = items
+        .iter()
+        .enumerate()
+        .map(|(id, row)| ItemDefinition {
+            equipment_kind: match row.category {
+                13..=22 => Some(0),
+                23..=26 => Some(1),
+                27..=30 => Some(2),
+                31..=34 => Some(3),
+                35..=42 => Some(4),
+                _ => None,
+            },
+            allowed_characters: owners[id],
+            stack_limit: resonance_content::session::item_stack_limit(row.category),
         })
         .collect();
-    let experience = dol::slice(&executable, 0x80202958, 252 * 4)?
-        .chunks_exact(4)
-        .map(|v| u32::from_be_bytes(v.try_into().unwrap()))
-        .collect();
     let mut characters = Vec::new();
-    for index in 0..9u32 {
-        let row = dol::slice(&executable, 0x801F9FC8 + index * 0x118, 0x118)?;
-        let list = dol::slice(&executable, 0x80202DC8 + index * 0x29, 0x29)?;
-        ensure!(list[0] <= 40, "invalid character technique list");
-        let learned = u64::from_be_bytes(row[0x70..0x78].try_into()?);
+    for (index, row) in defaults.definitions.iter().take(9).enumerate() {
+        let list = arte_catalogue.learned_by(index as u8 + 1)?;
         let mut techniques = Vec::new();
         let mut level_techniques = BTreeMap::<u8, Vec<u16>>::new();
-        for (slot, &id) in list[1..=usize::from(list[0])].iter().enumerate() {
+        for (slot, &id) in list.iter().enumerate() {
             // Owner masks number bits from the least significant bit.
-            if learned & (1u64 << slot) != 0 {
+            if row.learned_techniques & (1u64 << slot) != 0 {
                 techniques.push(u16::from(id));
             }
-            let tech = dol::slice(&executable, 0x80202F90 + u32::from(id) * 0x58, 0x58)?;
-            let required = half(tech, 0x3e)?;
+            let tech = arte_catalogue.definition(usize::from(id))?;
+            let required = tech.required_level;
             if required != 0
                 && required <= 250
-                && tech[0x17] == 0
-                && half(tech, 0x18)? == 0
-                && half(tech, 0x26)? == 0
+                && tech.learning_route == 0
+                && tech.learning_parent == 0
+                && tech.required_learned[0] == 0
             {
                 level_techniques
                     .entry(required as u8)
@@ -167,39 +141,47 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
                     .push(u16::from(id));
             }
         }
-        let gains = dol::slice(&executable, 0x80202D48 + index * 14, 14)?;
-        let title_start = half(dol::slice(&executable, 0x80210920 + index * 2, 2)?, 0)?;
+        let gains = &defaults.growth[index];
         // Members start with title 1 before setup scripts run.
-        let title = dol::slice(&executable, 0x80210934 + u32::from(title_start) * 16, 16)?;
-        let stats = [0x26, 0x28, 0x2a, 0x2c, 0x34, 0x32, 0x30].map(|at| half(row, at).unwrap());
+        let title = titles
+            .for_character(index as u8 + 1)?
+            .first()
+            .context("missing initial character title")?;
+        let stats = [
+            row.base_hp,
+            row.base_tp,
+            row.base_attack,
+            row.base_defense,
+            row.base_intelligence,
+            row.base_evasion,
+            row.base_accuracy,
+        ]
+        .map(|value| value as u16);
         characters.push(CharacterDefinition {
-            cooking: row[0xf4..0x10c].try_into()?,
-            ex_skills: row[0xee..0xf2].try_into()?,
-            ex_gems: row[0xea..0xee].try_into()?,
+            cooking: row.cooking,
+            ex_skills: row.ex_skills,
+            ex_gems: row.ex_gems,
             compound_ex_skills: (0..24u8)
-                .filter(|i| word(row, 0x110).unwrap() & (1 << i) != 0)
+                .filter(|i| row.compound_ex_skills & (1 << i) != 0)
                 .collect(),
             recent_compound_ex_skills: (0..24u8)
-                .filter(|i| word(row, 0x114).unwrap() & (1 << i) != 0)
+                .filter(|i| row.recent_compound_ex_skills & (1 << i) != 0)
                 .collect(),
-            technique_balance: row[0x10c] as i8,
-            affinity: word(row, 0x58)? as i32,
-            level: row[0x10],
-            experience: word(row, 0x18)?,
+            technique_balance: row.technique_balance,
+            affinity: row.affinity,
+            level: row.level,
+            experience: row.experience,
             base_stats: stats,
-            luck: (half(row, 0x2e)? / 10).min(255) as u8,
-            overlimit: row[0x56],
-            equipment: [0x4a, 0x4c, 0x4e, 0x52, 0x54, 0x50].map(|at| half(row, at).unwrap()),
+            luck: (row.base_luck as u16 / 10).min(255) as u8,
+            overlimit: row.overlimit,
+            equipment: [0, 1, 2, 4, 5, 3].map(|slot| row.equipment[slot] as u16),
             techniques,
-            allowed_techniques: list[1..=usize::from(list[0])]
-                .iter()
-                .map(|id| u16::from(*id))
-                .collect(),
-            shortcuts: [0xd8, 0xda, 0xdc, 0xde].map(|at| half(row, at).unwrap()),
+            allowed_techniques: list.iter().map(|id| u16::from(*id)).collect(),
+            shortcuts: row.shortcuts.map(|id| id as u16),
             growth: std::array::from_fn(|i| StatGrowth {
-                base: gains[i * 2],
-                random: gains[i * 2 + 1],
-                title_bonus: title[8 + i],
+                base: gains[i].base,
+                random: gains[i].random,
+                title_bonus: title.growth[i],
             }),
             level_techniques,
         });
@@ -207,13 +189,104 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
     let data = SessionData {
         ex_skills: None,
         version: 1,
-        executable_sha256: digest(&executable),
+        executable_sha256: digest(executable),
         items,
         characters,
-        experience,
+        experience: defaults.experience.clone(),
     };
     data.validate()?;
     let path = "game/session-data.json";
     write_atomic(&output.join(path), &serde_json::to_vec_pretty(&data)?)?;
     Ok(path.into())
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires both extracted discs and frozen session/text publications"]
+    fn shared_title_reader_preserves_complete_session_and_text_on_both_discs() -> Result<()> {
+        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
+        let frozen = std::env::var_os("RESONANCE_COOKED")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| local.join("worktrees/generic-cooking/local/all-assets"));
+        let output = tempfile::tempdir()?;
+        for disc in [1, 2] {
+            let extracted = local.join(format!("extracted/disc{disc}"));
+            let source = crate::cooked::Source::open(&frozen, disc, "sys/main.dol")?;
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            let menu = crate::menu::Inputs::read(&executable)?;
+            for path in [
+                cook(&executable, &menu, output.path())?,
+                cook_text(&executable, &menu, output.path())?,
+            ] {
+                let actual: serde_json::Value =
+                    serde_json::from_slice(&fs::read(output.path().join(&path))?)?;
+                let expected: serde_json::Value = source.document(&path)?;
+                assert_eq!(actual, expected, "disc {disc}: {path}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires both original extracted discs; only exports session JSON"]
+    fn original_session_preserves_allowed_and_initially_learned_techniques() -> Result<()> {
+        let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+        let output = crate::temporary_path(&std::env::temp_dir().join("session-catalogue"));
+        let result = (|| -> Result<()> {
+            for disc in [1, 2] {
+                let source = extracted.join(format!("disc{disc}"));
+                let executable = fs::read(source.join("sys/main.dol"))?;
+                let menu = crate::menu::Inputs::read(&executable)?;
+                let path = cook(&executable, &menu, &output)?;
+                let data: SessionData = serde_json::from_slice(&fs::read(output.join(path))?)?;
+                assert_eq!(data.characters.len(), 9);
+                for (index, character) in data.characters.iter().enumerate() {
+                    let row = dol::slice(&executable, 0x80202dc8 + index as u32 * 41, 41)?;
+                    let expected: Vec<_> = row[1..=usize::from(row[0])]
+                        .iter()
+                        .map(|&id| u16::from(id))
+                        .collect();
+                    assert_eq!(character.allowed_techniques, expected);
+                    let learned = u64::from_be_bytes(
+                        dol::slice(&executable, 0x801f9fc8 + index as u32 * 0x118 + 0x70, 8)?
+                            .try_into()?,
+                    );
+                    assert_eq!(
+                        character.techniques,
+                        expected
+                            .into_iter()
+                            .enumerate()
+                            .filter_map(|(slot, id)| (learned & (1 << slot) != 0).then_some(id))
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+            Ok(())
+        })();
+        if output.exists() {
+            fs::remove_dir_all(output)?;
+        }
+        result
+    }
+
+    #[test]
+    fn equipment_masks_preserve_all_nine_owners_and_kratos_exclusive_gear() {
+        for (raw, exclusive, expected) in [
+            (0xff, false, &[1, 2, 3, 4, 5, 6, 7, 8, 9][..]),
+            (0x20, false, &[6, 9]),
+            (0x20, true, &[9]),
+            (0x24, true, &[3, 9]),
+            (0x80, false, &[8]),
+            (0, true, &[]),
+        ] {
+            let mask = super::expand_equipment_owners(raw, exclusive);
+            let owners = (1..=9)
+                .filter(|character| mask & (1_u16 << (character - 1)) != 0)
+                .collect::<Vec<_>>();
+            assert_eq!(owners, expected);
+        }
+    }
 }

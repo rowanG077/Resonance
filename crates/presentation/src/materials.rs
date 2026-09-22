@@ -9,6 +9,52 @@ use bevy::{
     sprite_render::{AlphaMode2d, Material2d, Material2dKey},
 };
 
+/// Each geometry mesh has one authored draw recipe, bound per scene instance.
+#[derive(Component, Reflect, Clone, Copy, Debug, PartialEq, Eq)]
+#[reflect(Component)]
+pub(super) struct MaterialSlot(pub usize);
+
+impl MaterialSlot {
+    pub fn index(self, count: usize) -> anyhow::Result<usize> {
+        let index = self.0;
+        anyhow::ensure!(
+            index < count,
+            "undeclared material slot {index} (count {count})"
+        );
+        Ok(index)
+    }
+}
+
+pub(super) fn install(app: &mut App) {
+    use bevy::gltf::extensions::{
+        ErasedGltfExtensionHandler, GltfExtensionHandler, GltfExtensionHandlers,
+    };
+    struct Slots;
+    impl GltfExtensionHandler for Slots {
+        fn dyn_clone(&self) -> Box<dyn ErasedGltfExtensionHandler> {
+            Box::new(Self)
+        }
+
+        fn on_spawn_mesh_and_material(
+            &mut self,
+            _: &mut bevy::asset::LoadContext<'_>,
+            _: &bevy::gltf::gltf::Primitive,
+            mesh: &bevy::gltf::gltf::Mesh,
+            _: &bevy::gltf::gltf::Material,
+            entity: &mut EntityWorldMut,
+            _: &str,
+        ) {
+            entity.insert(MaterialSlot(mesh.index()));
+        }
+    }
+    app.register_type::<MaterialSlot>();
+    app.world_mut()
+        .resource_mut::<GltfExtensionHandlers>()
+        .0
+        .write_blocking()
+        .push(Box::new(Slots));
+}
+
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub(super) struct TitleOutput {
     #[texture(0)]
@@ -119,6 +165,7 @@ pub(super) struct TitleSurface {
     /// World-space light position and channel strength (0..255).
     pub field_light: Vec4,
     pub shade_colors: [Vec4; 2],
+    pub vertex_color: bool,
     pub constant_color: bool,
     pub blend: bool,
     pub additive: bool,
@@ -139,6 +186,7 @@ impl Default for TitleSurface {
             tint: Vec4::ONE,
             field_light: Vec4::ZERO,
             shade_colors: [Vec4::ONE; 2],
+            vertex_color: true,
             constant_color: false,
             blend: false,
             additive: false,
@@ -183,6 +231,7 @@ impl From<&TitleSurface> for SurfaceUniform {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct SurfaceKey {
+    vertex_color: bool,
     field_lighting: bool,
     constant_color: bool,
     depth_test: bool,
@@ -195,6 +244,7 @@ pub(super) struct SurfaceKey {
 impl From<&TitleSurface> for SurfaceKey {
     fn from(material: &TitleSurface) -> Self {
         Self {
+            vertex_color: material.vertex_color,
             field_lighting: material.toon_ramp.is_some(),
             constant_color: material.constant_color,
             depth_test: material.depth_test,
@@ -227,6 +277,19 @@ impl Material for TitleSurface {
         key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/surface".into());
+        if !key.bind_group_data.vertex_color {
+            // Keep shared vertex buffers intact; this recipe does not consume color.
+            let color = bevy::shader::ShaderDefVal::from("VERTEX_COLORS");
+            descriptor
+                .vertex
+                .shader_defs
+                .retain(|definition| *definition != color);
+            if let Some(fragment) = &mut descriptor.fragment {
+                fragment
+                    .shader_defs
+                    .retain(|definition| *definition != color);
+            }
+        }
         // Imported triangles have counter-clockwise winding.
         descriptor.primitive.cull_mode = match key.bind_group_data.cull {
             resonance_content::CullFace::Back => Some(Face::Back),

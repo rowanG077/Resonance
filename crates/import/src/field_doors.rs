@@ -100,7 +100,10 @@ pub(crate) fn cook(gltf: &Value) -> Result<Vec<Door>> {
             "invalid door transform"
         );
         doors.push(Door {
-            bone: name.into(),
+            bone: node["extras"]["resonance_bone"]
+                .as_u64()
+                .context("door lacks a skeleton index")?
+                .try_into()?,
             position: matrix.transform_point3(Vec3::ZERO).to_array(),
             approach: approach.to_array(),
             heading,
@@ -121,7 +124,7 @@ mod tests {
         let name = "DOOR01_AUTO_L_PULL_W-100";
         let mut gltf = json!({"nodes":[
             {"translation":[10.,20.,3.],"children":[1]},
-            {"name":name,"children":[2]}, {"name":name,"mesh":0}
+            {"name":name,"children":[2],"extras":{"resonance_bone":1}}, {"name":name,"mesh":0}
         ]});
         let doors = cook(&gltf).unwrap();
         assert_eq!(doors.len(), 1);
@@ -143,9 +146,25 @@ mod tests {
     }
 
     #[test]
+    fn doors_with_equal_names_keep_distinct_skeleton_indices() {
+        let name = "DOOR01_AUTO_PULL_S_W-125e969";
+        let doors = cook(&json!({"nodes":[
+            {"name":name,"extras":{"resonance_bone":2},"translation":[0.,0.,0.]},
+            {"name":name,"extras":{"resonance_bone":3},"translation":[0.,400.,0.]}
+        ]}))
+        .unwrap();
+        assert_eq!(
+            doors.iter().map(|door| door.bone).collect::<Vec<_>>(),
+            [2, 3]
+        );
+        assert_ne!(doors[0].position, doors[1].position);
+    }
+
+    #[test]
     fn scaled_genis_door_keeps_its_observed_standing_heading() {
         let door = cook(&json!({"nodes":[{
             "name":"DOOR01_AUTO_S_PUSH_W175e82",
+            "extras":{"resonance_bone":0},
             "rotation":[0.,0.,0.2206106185913086,0.975361943244934],
             "scale":[0.949999988079071,1.,1.],
             "translation":[-2853.958984375,1610.7022705078125,192.68101501464844]

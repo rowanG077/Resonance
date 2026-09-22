@@ -1,0 +1,3 @@
+script library;
+// Skeleton: ab5e961dac3de921bc4c7bc6175341b6e711be95fd90821189c17f7f4f4ebdf9
+pub const Node000_Neco2: string = "neco2";

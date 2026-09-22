@@ -106,6 +106,9 @@ pub(super) fn record(mut app: App, output: PathBuf) -> Result<()> {
         serde_json::to_writer(&mut timeline, &observation(app.world()))?;
         timeline.write_all(b"\n")?;
         let end = step * u64::from(RATE) * UPDATE_RATE_DENOMINATOR / UPDATE_RATE_NUMERATOR;
+        app.world()
+            .resource::<movie::Playback>()
+            .wait_for_audio(end - frames)?;
         for _ in frames..end {
             for _ in 0..2 {
                 let sample = samples.next().unwrap_or(0.);
@@ -178,7 +181,7 @@ pub(super) fn record(mut app: App, output: PathBuf) -> Result<()> {
     for name in [
         "title.json",
         "boot.json",
-        "intro.json",
+        "movies/0.json",
         "title-audio.json",
         "title-sounds.json",
     ] {

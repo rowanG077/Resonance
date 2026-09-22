@@ -1,0 +1,9 @@
+script library;
+// Skeleton: cfbafa18fffae8e5cafae3bc81728f7faefeaff9cea39113526a074bbb1722b9
+pub const Node000_Fall_Ground00: string = "fall_ground00";
+pub const Node001_Fall_Ground01: string = "fall_ground01";
+pub const Node002_Fall_Ground05: string = "fall_ground05";
+pub const Node003_Fall_Ground06: string = "fall_ground06";
+pub const Node004_Fall_Ground04: string = "fall_ground04";
+pub const Node005_Fall_Ground02: string = "fall_ground02";
+pub const Node006_Fall_Ground03: string = "fall_ground03";

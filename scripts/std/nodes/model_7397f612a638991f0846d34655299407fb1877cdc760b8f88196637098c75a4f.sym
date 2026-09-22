@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 7397f612a638991f0846d34655299407fb1877cdc760b8f88196637098c75a4f
+pub const Node000_Tekkouseki1a: string = "tekkouseki1a";
+pub const Node001_Tekkouseki1b: string = "tekkouseki1b";

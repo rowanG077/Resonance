@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 95e50e121c5e40e0e96dbab62b2627b0a1bdd8a065316a44c93bc02c31e54400
+pub const Node000_Turara: string = "turara";
+pub const Node001_Turara_05: string = "turara_05";
+pub const Node002_Turara_04: string = "turara_04";
+pub const Node003_Turara_03: string = "turara_03";
+pub const Node004_Turara_01: string = "turara_01";
+pub const Node005_Turara_02: string = "turara_02";

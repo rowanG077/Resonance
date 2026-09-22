@@ -1,0 +1,6 @@
+script library;
+// Skeleton: a58ca426a37e8dc1b01b21fb7d26f5dce2af224dc95ee258f70bee1fea926349
+pub const Node000_Cumo: string = "cumo";
+pub const Node001_Cumo01: string = "cumo01";
+pub const Node002_Cumo03: string = "cumo03";
+pub const Node003_Cumo02: string = "cumo02";

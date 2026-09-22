@@ -1,0 +1,6 @@
+script library;
+// Skeleton: c588b2053b1fc91b992ad6594cd7b202175071457eda9a1b35de7150b23e1d1f
+pub const Node000_Daiza: string = "daiza";
+pub const Node001_Option_Panel: string = "option_panel";
+pub const Node002_Main_Panel_Off: string = "main_panel_off";
+pub const Node003_Main_Panel_On: string = "main_panel_on";

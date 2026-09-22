@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 39342c9890b96372d19666a4a2cc9d6f0b095615e0838a33bc3c2204566a16f3
+pub const Node000_Yuka_Obj: string = "yuka_obj";
+pub const Node001_All: string = "all";
+pub const Node002_Check_Point: string = "check_point";
+pub const Node003_Plane01: string = "Plane01";
+pub const Node004_Shutter: string = "shutter";

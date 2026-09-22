@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 8edb7d35732b3c6e20b8d629a0c405cbeb95acecdeb92145d8bb3b3d996ec5d8
+pub const LeftArm00: string = "Arm00_L";
+pub const LeftArm10: string = "Arm10_L";
+pub const LeftArm11: string = "Arm11_L";
+pub const Node000_Mo15_One: string = "mo15_one";
+pub const Node001_Kk00_Tobira: string = "kk00_Tobira";
+pub const Node003_PA01_Arm_R: string = "PA01_Arm_R";
+pub const Node006_PA00_Arm_R: string = "PA00_Arm_R";
+pub const Node009_PA03_Arm_L: string = "PA03_Arm_L";
+pub const Node011_PA02_Arm_L: string = "PA02_Arm_L";
+pub const Node012_Wepon01_L: string = "Wepon01_L";
+pub const Node013_Wepon00_R: string = "Wepon00_R";
+pub const Node014_Wepon01_R: string = "Wepon01_R";
+pub const Node015_Wepon00_L: string = "Wepon00_L";
+pub const Node016_Mo15_One01: string = "mo15_one01";
+pub const RightArm00: string = "Arm00_R";
+pub const RightArm10: string = "Arm10_R";
+pub const RightArm11: string = "Arm11_R";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: de3d7759b4d6f12926939ac3077cc23e509607cc1c96331d764d8ee9ec8de08a
+pub const Node000_Ice_Fuuin_Obj_03: string = "ice_fuuin_obj_03";
+pub const Node001_Ice_Fuuin_Obj_04: string = "ice_fuuin_obj_04";

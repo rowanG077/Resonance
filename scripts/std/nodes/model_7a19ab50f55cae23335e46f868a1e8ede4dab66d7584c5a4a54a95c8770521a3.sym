@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 7a19ab50f55cae23335e46f868a1e8ede4dab66d7584c5a4a54a95c8770521a3
+pub const Node000_S_Kabe: string = "s_kabe";

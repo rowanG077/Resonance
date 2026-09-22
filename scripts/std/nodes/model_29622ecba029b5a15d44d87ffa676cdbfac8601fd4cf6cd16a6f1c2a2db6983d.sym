@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 29622ecba029b5a15d44d87ffa676cdbfac8601fd4cf6cd16a6f1c2a2db6983d
+pub const Node000_Kanseisitsu_Base: string = "kanseisitsu_base";
+pub const Node001_Door_ObjB_01: string = "door_objB_01";
+pub const Node002_Door_ObjB_02: string = "door_objB_02";
+pub const Node003_Door_ObjA_01: string = "door_objA_01";
+pub const Node004_Door_ObjA_02: string = "door_objA_02";
+pub const Node005_Kanseisitsu_Front_Wall: string = "kanseisitsu_front_wall";
+pub const Node006_Fit_D09: string = "fit_d09";
+pub const Node007_Dome_Nai_Door: string = "dome_nai_door";
+pub const Node008_Tetsu_Koushi01: string = "tetsu_koushi01";
+pub const Node009_Tetsu_Koushi00: string = "tetsu_koushi00";
+pub const Node010_Shutter: string = "shutter";

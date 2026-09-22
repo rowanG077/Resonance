@@ -1,0 +1,20 @@
+script library;
+// Skeleton: fd4bc56a5161ea037eb6c92007872ccf6a3d8e4f474f20522d242ba64cbd6240
+pub const Node000_Rouya_Ent10: string = "rouya_ent10";
+pub const Node001_Rouya_Ent01: string = "rouya_ent01";
+pub const Node002_Rouya_Ent02: string = "rouya_ent02";
+pub const Node003_Rouya_Ent03: string = "rouya_ent03";
+pub const Node004_Rouya_Ent04: string = "rouya_ent04";
+pub const Node005_Rouya_Ent05: string = "rouya_ent05";
+pub const Node006_Rouya_Ent07: string = "rouya_ent07";
+pub const Node007_Rouya_Ent08: string = "rouya_ent08";
+pub const Node008_Rouya_Ent09: string = "rouya_ent09";
+pub const Node009_Rouya_Ent: string = "rouya_ent";
+pub const Node010_Rouya_Ent11: string = "rouya_ent11";
+pub const Node011_Rouya_Ent13: string = "rouya_ent13";
+pub const Node012_Rouya_Ent17: string = "rouya_ent17";
+pub const Node013_Rouya_Ent15: string = "rouya_ent15";
+pub const Node014_Rouya_Ent18: string = "rouya_ent18";
+pub const Node015_Rouya_Ent16: string = "rouya_ent16";
+pub const Node016_Rouya_Ent14: string = "rouya_ent14";
+pub const Node017_Rouya_Ent12: string = "rouya_ent12";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: a8c3aa5c468c0e85af56d1700eb8bf56a24efe1432131ae64f138fe268770b9f
+pub const Node000_Faa04_02: string = "faa04_02";
+pub const Node001_Faa04_02_Box: string = "faa04_02_box";

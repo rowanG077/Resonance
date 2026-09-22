@@ -1,0 +1,9 @@
+script library;
+// Skeleton: ab8a4bf2afdecef221b53a1659e67dc3a8d0e4786ecb409448f70de525261189
+pub const Node000_Ice_D00: string = "ice_d00";
+pub const Node001_Ice_D00_Kawa: string = "ice_d00_kawa";
+pub const Node002_Ki_01: string = "ki_01";
+pub const Node003_Iwa_01: string = "iwa_01";
+pub const Node004_Ki_02: string = "ki_02";
+pub const Node005_Ki_03: string = "ki_03";
+pub const Node006_Iwa_02: string = "iwa_02";

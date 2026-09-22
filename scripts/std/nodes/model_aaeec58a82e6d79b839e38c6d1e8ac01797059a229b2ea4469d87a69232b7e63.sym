@@ -1,0 +1,26 @@
+script library;
+// Skeleton: aaeec58a82e6d79b839e38c6d1e8ac01797059a229b2ea4469d87a69232b7e63
+pub const Node000_T01_P02: string = "T01_P02";
+pub const Node001_T01_G02: string = "T01_G02";
+pub const Node002_T01_P03: string = "T01_P03";
+pub const Node003_T01_P01: string = "T01_P01";
+pub const Node004_T01_Sky: string = "T01_Sky";
+pub const Node005_Dummy01a: string = "Dummy01a";
+pub const Node006_Dummy02a: string = "Dummy02a";
+pub const Node007_Dummy03a: string = "Dummy03a";
+pub const Node008_Dummy04a: string = "Dummy04a";
+pub const Node009_Dummy05a: string = "Dummy05a";
+pub const Node010_Dummy06a: string = "Dummy06a";
+pub const Node011_Dummy07a: string = "Dummy07a";
+pub const Node012_Dummy08a: string = "Dummy08a";
+pub const Node013_Dummy09a: string = "Dummy09a";
+pub const Node014_T01_G01: string = "T01_G01";
+pub const Node015_Tm_Blige_Ref: string = "Tm_Blige_ref";
+pub const Node016_Tm_Inf_Nm01: string = "Tm_Inf_nm01";
+pub const Node017_Tm_Inf_Nm02: string = "Tm_Inf_nm02";
+pub const Node018_Tm_Inf_Nm03: string = "Tm_Inf_nm03";
+pub const Node019_Tmp_Tori01: string = "Tmp_Tori01";
+pub const Node020_Tmp_Tori02: string = "Tmp_Tori02";
+pub const Node021_Tmp_Tori03: string = "Tmp_Tori03";
+pub const Node022_Tmp_Tori04: string = "Tmp_Tori04";
+pub const Node023_Tmp_Tori05: string = "Tmp_Tori05";

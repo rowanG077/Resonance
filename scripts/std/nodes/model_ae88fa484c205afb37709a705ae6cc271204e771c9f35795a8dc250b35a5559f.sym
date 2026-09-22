@@ -1,0 +1,21 @@
+script library;
+// Skeleton: ae88fa484c205afb37709a705ae6cc271204e771c9f35795a8dc250b35a5559f
+pub const Node000_Sunlight_Event: string = "sunlight_event";
+pub const Node001_Light1_01: string = "light1_01";
+pub const Node002_Light2_01: string = "light2_01";
+pub const Node003_Light3_01: string = "light3_01";
+pub const Node004_Light4_01_Event: string = "light4_01_event";
+pub const Node005_Light2: string = "light2";
+pub const Node006_Light3: string = "light3";
+pub const Node007_Light1: string = "light1";
+pub const Node008_Light4_Event: string = "light4_event";
+pub const Node009_Light2_02: string = "light2_02";
+pub const Node010_Light1_02: string = "light1_02";
+pub const Node011_Light4_02_Event: string = "light4_02_event";
+pub const Node012_Light3_02: string = "light3_02";
+pub const Node013_Light2_Event: string = "light2_event";
+pub const Node014_Light2_02_Event: string = "light2_02_event";
+pub const Node015_Light2_01_Event: string = "light2_01_event";
+pub const Node016_Light1_Event: string = "light1_event";
+pub const Node017_Light1_02_Event: string = "light1_02_event";
+pub const Node018_Light1_01_Event: string = "light1_01_event";

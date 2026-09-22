@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 827c88267d992213aaface4c06969560dd5c87da7edef72f5f431c27635e9081
+pub const Node000_Y2000_Lalight_L: string = "_y2000_lalight_l";
+pub const Node001_Y2000_Lacover_L: string = "_y2000_lacover_l";
+pub const Node002_Y2000_La_L_Fire: string = "_y2000_la_l_fire";
+pub const Node003_Y2000_Lacover_R: string = "_y2000_lacover_r";
+pub const Node004_Y2000_La_R_Fire: string = "_y2000_la_r_fire";
+pub const Node005_Y2000_Lalight_R: string = "_y2000_lalight_r";
+pub const Node006_Y2000_Wlight: string = "_y2000_wlight";
+pub const Node007_Y2000_Window: string = "_y2000_window";

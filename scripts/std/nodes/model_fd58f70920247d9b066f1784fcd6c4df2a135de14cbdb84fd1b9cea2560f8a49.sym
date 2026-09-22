@@ -1,0 +1,4 @@
+script library;
+// Skeleton: fd58f70920247d9b066f1784fcd6c4df2a135de14cbdb84fd1b9cea2560f8a49
+pub const Node000_Kamelamp_Bace: string = "kamelamp_bace";
+pub const Node001_Kamelamp_Huta: string = "kamelamp_huta";

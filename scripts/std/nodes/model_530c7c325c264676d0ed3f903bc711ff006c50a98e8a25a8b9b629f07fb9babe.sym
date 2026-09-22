@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 530c7c325c264676d0ed3f903bc711ff006c50a98e8a25a8b9b629f07fb9babe
+pub const Node000_Shadow: string = "shadow";
+pub const Node001_Panel_03: string = "panel_03";
+pub const Node002_Panel_01: string = "panel_01";
+pub const Node003_Panel_02: string = "panel_02";

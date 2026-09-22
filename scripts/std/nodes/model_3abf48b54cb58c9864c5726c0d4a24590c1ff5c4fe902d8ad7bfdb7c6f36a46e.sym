@@ -1,0 +1,25 @@
+script library;
+// Skeleton: 3abf48b54cb58c9864c5726c0d4a24590c1ff5c4fe902d8ad7bfdb7c6f36a46e
+pub const Node000_Box14: string = "Box14";
+pub const Node001_Box109: string = "Box109";
+pub const Node002_Sky: string = "sky";
+pub const Node003_Plane02: string = "Plane02";
+pub const Node004_Plane270: string = "Plane270";
+pub const Node005_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node006_Box178: string = "Box178";
+pub const Node007_Object237: string = "ｵﾌﾞｼﾞｪｸﾄ237";
+pub const Node008_Box179: string = "Box179";
+pub const Node009_Object251: string = "ｵﾌﾞｼﾞｪｸﾄ251";
+pub const Node010_Win_D00_Door00: string = "win_d00_door00";
+pub const Node011_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node012_Object13: string = "ｵﾌﾞｼﾞｪｸﾄ13";
+pub const Node013_Object14: string = "ｵﾌﾞｼﾞｪｸﾄ14";
+pub const Node014_Cylinder56: string = "Cylinder56";
+pub const Node015_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node016_Shadow_On: string = "shadow_on";
+pub const Node017_Shadow_Off: string = "shadow_off";
+pub const Node018_Map_Brockobj: string = "map_brockobj";
+pub const Node019_Box255: string = "Box255";
+pub const Node020_Box263: string = "Box263";
+pub const Node021_Box262: string = "Box262";
+pub const Node022_Box260: string = "Box260";

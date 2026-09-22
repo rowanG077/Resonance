@@ -1,0 +1,6 @@
+script library;
+// Skeleton: b96d1cb9dbb011f844b513ab992af91faa427faf16c8ba8ca8b6862d82022091
+pub const Node000_Wall: string = "wall";
+pub const Node001_Inobj: string = "inobj";
+pub const Node002_Bar: string = "bar";
+pub const Node003_Neko_Hata: string = "neko_hata";

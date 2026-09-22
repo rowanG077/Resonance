@@ -1,0 +1,6 @@
+script library;
+// Skeleton: e1f84116c5907be2634ce40b68827d184790fb01a6288c9e535d299180afb563
+pub const Node000_Mdl_02: string = "mdl_02";
+pub const Node001_Cylinder115: string = "Cylinder115";
+pub const Node002_Cylinder117: string = "Cylinder117";
+pub const Node003_Room2: string = "room2";

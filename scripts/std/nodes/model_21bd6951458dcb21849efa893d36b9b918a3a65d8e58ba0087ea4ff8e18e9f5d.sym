@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 21bd6951458dcb21849efa893d36b9b918a3a65d8e58ba0087ea4ff8e18e9f5d
+pub const Node000_Light: string = "light";
+pub const Node001_Majikiri: string = "majikiri";

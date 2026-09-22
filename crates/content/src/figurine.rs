@@ -3,7 +3,7 @@ use crate::model_preview::ModelPreview;
 use serde::{Deserialize, Serialize};
 
 pub const FIGURINE_COUNT: usize = 288;
-pub const FIGURINE_VERSION: u32 = 1;
+pub const FIGURINE_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FigurineBook {

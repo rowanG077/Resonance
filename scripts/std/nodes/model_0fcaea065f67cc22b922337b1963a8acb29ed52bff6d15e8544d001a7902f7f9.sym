@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 0fcaea065f67cc22b922337b1963a8acb29ed52bff6d15e8544d001a7902f7f9
+pub const Node000_Sphere17: string = "Sphere17";
+pub const Node001_Sphere33: string = "Sphere33";
+pub const Node002_Sphere32: string = "Sphere32";
+pub const Node003_Suimen: string = "suimen";

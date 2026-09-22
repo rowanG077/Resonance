@@ -1,0 +1,3 @@
+script library;
+// Skeleton: a451f1c9e62e47c0b796e4909859475611d6233076629bbcd87ea69ad6aba308
+pub const Node000_Kyoumen: string = "kyoumen";

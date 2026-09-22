@@ -1,0 +1,3 @@
+script library;
+// Skeleton: e8533d70d4f7181e04d9a67e225483d805d8e87d2205ca357f657e05fb931a34
+pub const Node000_Gp: string = "gp";

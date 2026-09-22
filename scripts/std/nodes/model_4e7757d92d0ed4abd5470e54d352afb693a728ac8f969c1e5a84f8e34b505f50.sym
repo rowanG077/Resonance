@@ -1,0 +1,18 @@
+script library;
+// Skeleton: 4e7757d92d0ed4abd5470e54d352afb693a728ac8f969c1e5a84f8e34b505f50
+pub const Node000_Jimen: string = "jimen";
+pub const Node001_Sky: string = "sky";
+pub const Node002_Taru_Col01: string = "taru_col01";
+pub const Node003_Item_All: string = "Item_all";
+pub const Node004_Name_Plate: string = "Name_plate";
+pub const Node005_Pochi: string = "pochi";
+pub const Node006_DOOR01_AUTO_PUSH_W175e474: string = "DOOR01_AUTO_PUSH_W175e474";
+pub const Node007_DOOR02_AUTO_PUSH_W175e474: string = "DOOR02_AUTO_PUSH_W175e474";
+pub const Node008_Nawa_Col01: string = "nawa_col01";
+pub const Node009_Minka: string = "minka";
+pub const Node010_Roof: string = "roof";
+pub const Node011_DOOR03: string = "DOOR03";
+pub const Node012_Mokuzai_All: string = "mokuzai_all";
+pub const Node013_Box06: string = "Box06";
+pub const Node014_Box01: string = "Box01";
+pub const Node015_In01: string = "in01";

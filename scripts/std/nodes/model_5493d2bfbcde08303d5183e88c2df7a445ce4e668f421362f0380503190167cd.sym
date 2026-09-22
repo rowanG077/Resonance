@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 5493d2bfbcde08303d5183e88c2df7a445ce4e668f421362f0380503190167cd
+pub const Node000_Mdl_02: string = "mdl_02";
+pub const Node001_Mdl_01: string = "mdl_01";
+pub const Node002_MAD: string = "MAD";

@@ -1,0 +1,12 @@
+script library;
+pub const Reserved0: i32 = 0;
+pub const Lloyd: i32 = 1;
+pub const Colette: i32 = 2;
+pub const Genis: i32 = 3;
+pub const Raine: i32 = 4;
+pub const Sheena: i32 = 5;
+pub const Zelos: i32 = 6;
+pub const Presea: i32 = 7;
+pub const Regal: i32 = 8;
+pub const Kratos: i32 = 9;
+pub const Noishe: i32 = 10;

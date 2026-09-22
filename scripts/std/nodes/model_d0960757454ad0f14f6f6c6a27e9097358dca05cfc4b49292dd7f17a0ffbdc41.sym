@@ -1,0 +1,20 @@
+script library;
+// Skeleton: d0960757454ad0f14f6f6c6a27e9097358dca05cfc4b49292dd7f17a0ffbdc41
+pub const Node000_Wa_1: string = "wa_1";
+pub const Node001_Turn_St1: string = "turn_st1";
+pub const Node002_Cylinder01: string = "Cylinder01";
+pub const Node003_Cylinder02: string = "Cylinder02";
+pub const Node004_Wa_02: string = "wa_02";
+pub const Node005_Wa_03: string = "wa_03";
+pub const Node006_Wdshift_0: string = "wdshift_0";
+pub const Node007_Mc_00: string = "mc_00";
+pub const Node008_Mc_01: string = "mc_01";
+pub const Node009_Mc_02: string = "mc_02";
+pub const Node010_Turn_St02: string = "turn_st02";
+pub const Node011_Wb_01a: string = "wb_01a";
+pub const Node012_Wb_02a: string = "wb_02a";
+pub const Node013_Wb_03a: string = "wb_03a";
+pub const Node014_Wb_01b: string = "wb_01b";
+pub const Node015_Wb_02b: string = "wb_02b";
+pub const Node016_Wb_03b: string = "wb_03b";
+pub const Node017_Wa_04: string = "wa_04";

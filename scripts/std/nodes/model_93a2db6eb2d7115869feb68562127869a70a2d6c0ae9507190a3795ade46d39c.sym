@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 93a2db6eb2d7115869feb68562127869a70a2d6c0ae9507190a3795ade46d39c
+pub const Node000_NS_Bone00: string = "NS_Bone00";
+pub const Node001_NS_Bone11_R: string = "NS_Bone11_R";
+pub const Node002_NS_Bone11_L: string = "NS_Bone11_L";
+pub const Node003_NS_Bone10_R: string = "NS_Bone10_R";
+pub const Node004_NS_Bone10_L: string = "NS_Bone10_L";
+pub const Node005_NS_Bone01: string = "NS_Bone01";
+pub const Node006_NS_Bone02: string = "NS_Bone02";

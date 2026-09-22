@@ -1,0 +1,7 @@
+script library;
+// Skeleton: ebac66d7e76ede1c30ab77a682181b4347328e301b8d727fa5caaf5122fbbce9
+pub const LeftWing00: string = "hane00_L";
+pub const LeftWing01: string = "hane01_L";
+pub const LeftWing02: string = "hane02_L";
+pub const LeftWing03: string = "hane03_L";
+pub const LeftWing04: string = "hane04_L";

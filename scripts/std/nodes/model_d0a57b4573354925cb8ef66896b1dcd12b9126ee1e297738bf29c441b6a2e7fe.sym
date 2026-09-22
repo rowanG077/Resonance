@@ -1,0 +1,3 @@
+script library;
+// Skeleton: d0a57b4573354925cb8ef66896b1dcd12b9126ee1e297738bf29c441b6a2e7fe
+pub const Node000_Chacram: string = "chacram";

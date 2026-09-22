@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 9cfbd7f655e294b8efddea58c4d2fc6d97d8967b2908775bf5924e36e1669532
+pub const Node000_Base: string = "base";
+pub const Node001_Iriguti_Dummy: string = "iriguti_Dummy";
+pub const Node002_Center_Door_Left: string = "Center_door_left";
+pub const Node003_Center_Door_Right: string = "Center_door_right";
+pub const Node004_Rock: string = "rock";
+pub const Node005_Grass: string = "grass";
+pub const Node006_Siba: string = "siba";

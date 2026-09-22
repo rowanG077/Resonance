@@ -1,0 +1,6 @@
+script library;
+// Skeleton: a361e996b9e637386e85f471f867d041af1ab2a08845cfa3a5962444f03c5131
+pub const Node000_Yunkeru02_Ha: string = "yunkeru02_ha";
+pub const Node001_Yakusou: string = "yakusou";
+pub const Node002_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node003_Yakusou01: string = "yakusou01";

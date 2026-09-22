@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 0ca4e6f18629b3d99b7baf2cd94abf2410aef670f9144f5ad9eaead4c1e38236
+pub const Node000_To_Mei: string = "to_mei";
+pub const Node001_To_Mei_Soto: string = "to_mei_soto";
+pub const Node002_To_Mei_In: string = "to_mei_in";

@@ -86,9 +86,11 @@ pub struct MenuTexture {
     pub width: u32,
     pub height: u32,
     pub repeat: bool,
+    /// Window patterns take opacity from their vertex color, not the image.
+    pub opaque: bool,
 }
 impl MenuArt {
-    pub const VERSION: u32 = 14;
+    pub const VERSION: u32 = 15;
 
     pub fn validate(&self) -> Result<()> {
         ensure!(

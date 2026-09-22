@@ -4,10 +4,15 @@ use super::audio_output::Player as AudioPlayer;
 use super::{Events, PendingAudio, PendingInput, RunOptions, audio, movie};
 use anyhow::{Context, Result, ensure};
 use bevy::prelude::*;
-pub(super) use fields::{FieldPackage, PLAYABLE_FIELDS, manifest_path};
+pub(super) use fields::{FieldPackage, available_fields};
+pub(super) use resonance_content::field::preload_path as manifest_path;
 use resonance_content::{MovieAsset, field::FieldAssets, prepared::Files};
 use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldSession};
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::Arc,
+};
 
 #[derive(Resource)]
 pub(super) struct Request(pub Option<Vec<u8>>);
@@ -25,6 +30,7 @@ pub(super) struct Session {
     data: Arc<resonance_content::session::SessionData>,
     skits: Arc<resonance_content::skit::SkitCatalog>,
     fields: BTreeMap<u32, Arc<FieldPackage>>,
+    available_fields: BTreeSet<u32>,
 }
 
 impl Session {
@@ -36,11 +42,11 @@ impl Session {
         let mut cache = super::loading::Cache::default();
         let files = Arc::new(Files::load(
             root,
-            &[&manifest_path(5)?, &manifest_path(340)?],
+            &[&manifest_path(5), &manifest_path(340)],
             &mut cache.bytes,
             || false,
         )?);
-        Self::load_prepared(root, files, None, &mut cache.audio)
+        Self::load_prepared(root, files, None, &mut cache)
     }
 
     pub(super) fn identity(root: &Path) -> Result<resonance_persistence::Identity> {
@@ -52,7 +58,7 @@ impl Session {
         // playable. Each added package is independently checked on preparation;
         // changing shared data or these original scripts still changes the identity.
         for map in [5, 330, 332, 340] {
-            let path = manifest_path(map)?.replace(".preload.json", ".json");
+            let path = resonance_content::field::metadata_path(map);
             let field: FieldAssets = serde_json::from_slice(&std::fs::read(root.join(path))?)?;
             field.validate()?;
             ensure!(
@@ -91,7 +97,7 @@ impl Session {
         root: &Path,
         files: Arc<Files>,
         saved: Option<FieldCheckpoint>,
-        audio: &mut super::field_audio::Cache,
+        cache: &mut super::loading::Cache,
     ) -> Result<Self> {
         let mut data: resonance_content::session::SessionData =
             files.json("game/session-data.json")?;
@@ -105,11 +111,12 @@ impl Session {
         let skits = Arc::new(skits);
         let identity = Self::identity(root)?;
         let map = saved.as_ref().map_or(5, |c| c.map_id);
-        let initial = Arc::new(FieldPackage::load(root, files.clone(), map, audio)?);
+        let initial = Arc::new(FieldPackage::load(root, files.clone(), map, cache)?);
+        let available_fields = available_fields(root)?;
         let mut entry = if let Some(checkpoint) = &saved {
             checkpoint
                 .clone()
-                .entry(&initial.assets, data.clone(), PLAYABLE_FIELDS.into())?
+                .entry(&initial.assets, data.clone(), available_fields.clone())?
         } else {
             FieldEntry {
                 kind: Default::default(),
@@ -125,7 +132,7 @@ impl Session {
                 data: Some(data.clone()),
                 skits: None,
                 text: Default::default(),
-                available_fields: PLAYABLE_FIELDS.into(),
+                available_fields: available_fields.clone(),
                 position: [-719., -371., 0.],
                 heading: 0.,
                 idle_animation: Some(116),
@@ -137,8 +144,16 @@ impl Session {
         if let Some(checkpoint) = &saved {
             initialize_checkpoint(&mut field, checkpoint)?;
         }
+        initial.queue_entry(
+            &mut field,
+            if saved.is_some() {
+                resonance_game::field::EntryKind::Restore
+            } else {
+                resonance_game::field::EntryKind::Arrival
+            },
+        );
         let story_movie = if saved.is_none() {
-            let movie: MovieAsset = files.json("story-intro.json")?;
+            let movie: MovieAsset = files.json("movies/1.json")?;
             movie.validate()?;
             ensure!(
                 root.join(&movie.path).is_file(),
@@ -150,7 +165,7 @@ impl Session {
         };
         let mut fields = BTreeMap::new();
         if map == 5 {
-            fields.insert(340, Arc::new(FieldPackage::load(root, files, 340, audio)?));
+            fields.insert(340, Arc::new(FieldPackage::load(root, files, 340, cache)?));
         }
         fields.insert(map, initial.clone());
         Ok(Self {
@@ -165,6 +180,7 @@ impl Session {
             data,
             skits,
             fields,
+            available_fields,
         })
     }
 
@@ -187,15 +203,32 @@ impl Session {
             .get(&checkpoint.map_id)
             .context("saved field is not prepared")?
             .clone();
-        let mut entry =
-            checkpoint
-                .clone()
-                .entry(&package.assets, self.data.clone(), PLAYABLE_FIELDS.into())?;
+        let mut entry = checkpoint.clone().entry(
+            &package.assets,
+            self.data.clone(),
+            self.available_fields.clone(),
+        )?;
         entry.skits = Some(self.skits.clone());
         let mut field = package.enter(entry)?;
         initialize_checkpoint(&mut field, &checkpoint)?;
+        package.queue_entry(&mut field, resonance_game::field::EntryKind::Restore);
         self.activate(field, &package, false);
         self.prepared_movie = None;
+        Ok(())
+    }
+
+    pub(super) fn refresh_scripts(
+        &mut self,
+        map: u32,
+        script_root: Option<std::path::PathBuf>,
+        resident: &super::loading::Resident,
+    ) -> Result<()> {
+        let package = self
+            .fields
+            .get(&map)
+            .context("saved field is not prepared")?;
+        let refreshed = resident.refresh_scripts(script_root, package)?;
+        self.fields.insert(map, Arc::new(refreshed));
         Ok(())
     }
 
@@ -226,13 +259,14 @@ impl Session {
             persistent: self.field.events.persistent_state()?,
             data: Some(self.data.clone()),
             skits: Some(self.skits.clone()),
-            available_fields: PLAYABLE_FIELDS.into(),
+            available_fields: self.available_fields.clone(),
             position: request.position,
             heading: request.heading,
             camera: request.camera.clone(),
             ..Default::default()
         })?;
         field.continue_ambient(&self.field);
+        package.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
         self.activate(field, &package, starting_story);
         self.fields.insert(package.assets.map_id, package);
         Ok(())
@@ -330,6 +364,7 @@ pub(super) fn enter(world: &mut World) {
     {
         match super::loading::Pending::start(
             world.resource::<RunOptions>().assets.clone(),
+            world.resource::<RunOptions>().script_root.clone(),
             request.0,
             world.resource::<super::loading::Resident>(),
         ) {
@@ -431,6 +466,9 @@ pub(super) fn transition(world: &mut World) {
     let Some(request) = session.field.events.world.field_transition.clone() else {
         return;
     };
+    let script_root = world
+        .get_resource::<RunOptions>()
+        .and_then(|options| options.script_root.clone());
     world
         .resource::<super::loading::Resident>()
         .active
@@ -443,12 +481,20 @@ pub(super) fn transition(world: &mut World) {
             };
             world.remove_resource::<super::loading::FieldPending>();
             Arc::new(result?)
-        } else if let Some(package) = world.resource::<Session>().fields.get(&request.map) {
+        } else if script_root.is_none()
+            && let Some(package) = world.resource::<Session>().fields.get(&request.map)
+        {
             package.clone()
         } else {
             let pending = super::loading::FieldPending::field(
                 world.resource::<RunOptions>().assets.clone(),
+                script_root.clone(),
                 request.map,
+                world
+                    .resource::<Session>()
+                    .fields
+                    .get(&request.map)
+                    .cloned(),
                 world.resource::<super::loading::Resident>(),
             )?;
             world.insert_resource(pending);
@@ -489,6 +535,7 @@ pub(super) fn advance(
         if let Some(request) = session.field.events.world.movie.clone() {
             ensure!(request.resource == 1, "New Game movie binding is missing");
             movie.start_script_movie(
+                request.resource,
                 session
                     .prepared_movie
                     .take()

@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 1b30a67b110be7bb0dc853a4b34222ad1b96a2d413721a06d9bdb3f780ef8ff5
+pub const Node000_Way: string = "way";
+pub const Node001_Right_Door03: string = "Right_door03";
+pub const Node002_Left_Door01: string = "left_door01";
+pub const Node003_Conveyer: string = "conveyer";
+pub const Node004_ON6: string = "ON6";
+pub const Node005_ON4: string = "ON4";
+pub const Node006_ON5: string = "ON5";
+pub const Node007_ON1: string = "ON1";
+pub const Node008_ON2: string = "ON2";
+pub const Node009_ON3: string = "ON3";

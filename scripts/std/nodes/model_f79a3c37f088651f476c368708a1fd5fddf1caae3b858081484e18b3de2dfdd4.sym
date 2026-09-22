@@ -1,0 +1,7 @@
+script library;
+// Skeleton: f79a3c37f088651f476c368708a1fd5fddf1caae3b858081484e18b3de2dfdd4
+pub const Node000_Orugouru1a: string = "orugouru1a";
+pub const Node001_Orugouru1d: string = "orugouru1d";
+pub const Node002_Orugouru1e: string = "orugouru1e";
+pub const Node003_Orugouru1c: string = "orugouru1c";
+pub const Node004_Orugouru1b: string = "orugouru1b";

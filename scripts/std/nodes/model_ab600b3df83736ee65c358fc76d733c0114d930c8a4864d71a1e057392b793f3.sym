@@ -1,0 +1,3 @@
+script library;
+// Skeleton: ab600b3df83736ee65c358fc76d733c0114d930c8a4864d71a1e057392b793f3
+pub const Node000_Dammy_Cor: string = "dammy_cor";

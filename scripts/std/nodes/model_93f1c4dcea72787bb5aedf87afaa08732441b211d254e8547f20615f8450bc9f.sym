@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 93f1c4dcea72787bb5aedf87afaa08732441b211d254e8547f20615f8450bc9f
+pub const Node000_Railing: string = "手摺";
+pub const Node001_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node002_Hole: string = "hole";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node004_Hole_Moyou: string = "hole_moyou";

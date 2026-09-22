@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 0a06330ddd828bfd3f2684f5b6de7fc3067c8b239599191a4d5785c565ae1844
+pub const Node000_Window_Light: string = "window_light";
+pub const Node001_Lamp_Light: string = "lamp_light";

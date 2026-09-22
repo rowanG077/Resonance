@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 5d1d5a7f0b755ae8b89df3abdce4719c2cdffdbc4babf9e5701a86f6e1154aee
+pub const Node000_Fl_0: string = "fl_0";
+pub const Node001_Wa_0: string = "wa_0";
+pub const Node002_Door_0_L: string = "door_0_l";
+pub const Node003_Door_0_R: string = "door_0_r";

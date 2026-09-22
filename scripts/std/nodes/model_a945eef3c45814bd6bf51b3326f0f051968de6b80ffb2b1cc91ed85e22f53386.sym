@@ -1,0 +1,7 @@
+script library;
+// Skeleton: a945eef3c45814bd6bf51b3326f0f051968de6b80ffb2b1cc91ed85e22f53386
+pub const Node000_Ivt_Obj1: string = "ivt_obj1";
+pub const Node001_Obj03: string = "obj03";
+pub const Node002_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node004_Ivt_Obj0: string = "ivt_obj0";

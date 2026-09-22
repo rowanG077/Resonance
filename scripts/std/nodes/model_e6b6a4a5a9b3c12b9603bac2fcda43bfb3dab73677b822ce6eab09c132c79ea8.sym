@@ -1,0 +1,26 @@
+script library;
+// Skeleton: e6b6a4a5a9b3c12b9603bac2fcda43bfb3dab73677b822ce6eab09c132c79ea8
+pub const Node000_Glass_03_A: string = "glass_03_a";
+pub const Node001_Glass_Ura0: string = "glass_ura0";
+pub const Node002_Glass_02_A: string = "glass_02_a";
+pub const Node003_Glass_Ura1: string = "glass_ura1";
+pub const Node004_Glass_01_A: string = "glass_01_a";
+pub const Node005_Glass_Ura2: string = "glass_ura2";
+pub const Node006_Light05: string = "light05";
+pub const Node007_Fire07: string = "fire07";
+pub const Node008_Light04: string = "light04";
+pub const Node009_Fire06: string = "fire06";
+pub const Node010_Light06: string = "light06";
+pub const Node011_Fire08: string = "fire08";
+pub const Node012_Light07: string = "light07";
+pub const Node013_Fire09: string = "fire09";
+pub const Node014_Light09: string = "light09";
+pub const Node015_Fire11: string = "fire11";
+pub const Node016_Light08: string = "light08";
+pub const Node017_Fire10: string = "fire10";
+pub const Node018_Light01: string = "light01";
+pub const Node019_Fire02: string = "fire02";
+pub const Node020_Light02: string = "light02";
+pub const Node021_Fire01: string = "fire01";
+pub const Node022_Light03: string = "light03";
+pub const Node023_Fire04: string = "fire04";

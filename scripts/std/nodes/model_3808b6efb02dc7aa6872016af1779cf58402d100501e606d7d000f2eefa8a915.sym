@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 3808b6efb02dc7aa6872016af1779cf58402d100501e606d7d000f2eefa8a915
+pub const Node000_Enelgy: string = "enelgy";

@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 79b7f7574c7b27b8c4c6d686155ba1a9b9dad6c41f41d3af728051929d717ff7
+pub const Node000_Aqu_Ring: string = "aqu_ring";
+pub const Node001_Aqu_Out04: string = "aqu_out04";
+pub const Node002_Aqu_Out00: string = "aqu_out00";
+pub const Node003_Aqu_Out02: string = "aqu_out02";
+pub const Node004_Aqu_Out07: string = "aqu_out07";
+pub const Node005_Aqu_Out05: string = "aqu_out05";
+pub const Node006_Aqu_Out01: string = "aqu_out01";
+pub const Node007_Aqu_Out03: string = "aqu_out03";
+pub const Node008_Aqu_Out06: string = "aqu_out06";
+pub const Node009_Kaze_In: string = "kaze_in";
+pub const Node010_Ring_00: string = "ring_00";
+pub const Node011_Ring_01: string = "ring_01";
+pub const Node012_Ring_02: string = "ring_02";
+pub const Node013_Ring_03: string = "ring_03";
+pub const Node014_Ring_04: string = "ring_04";
+pub const Node015_Ring_05: string = "ring_05";
+pub const Node016_Ring_06: string = "ring_06";
+pub const Node017_Ring_07: string = "ring_07";

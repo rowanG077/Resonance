@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 9377d3063d5302ea5f0256ce5f1b0fc38c44596c9f680e8576496e6fe69a4c2a
+pub const Node000_Light3_01: string = "light3_01";
+pub const Node001_Light2_01: string = "light2_01";
+pub const Node002_Light3: string = "light3";
+pub const Node003_Light2: string = "light2";
+pub const Node004_Light1_02: string = "light1_02";
+pub const Node005_Light2_02: string = "light2_02";
+pub const Node006_Light3_02: string = "light3_02";

@@ -1,0 +1,15 @@
+script library;
+// Skeleton: d45f51c5c572512bbc7a1ae6d881025d02ea9293eeb0ec18a7f7ca016b123e34
+pub const Node000_Y0002: string = "y0002";
+pub const Node001_Y0003: string = "y0003";
+pub const Node002_Y0000: string = "y0000";
+pub const Node003_Y0001: string = "y0001";
+pub const Node004_Y0000_Kabe: string = "y0000_kabe";
+pub const Node005_Y0000_Hasira: string = "y0000_hasira";
+pub const Node006_Y0000_Window_R: string = "y0000_window_r";
+pub const Node007_Y0000_Window_L: string = "y0000_window_l";
+pub const Node008_Y0000_Window_Out: string = "y0000_window_out";
+pub const Node009_Y0000_Anm1: string = "y0000_anm1";
+pub const Node010_Y0000_Anm2: string = "y0000_anm2";
+pub const Node011_Y0000_Anm3: string = "y0000_anm3";
+pub const Node012_Y0002_2: string = "y0002_2";

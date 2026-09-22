@@ -32,6 +32,11 @@ pub struct ItemDefinition {
     pub stack_limit: u8,
 }
 
+/// Key items are unique; ordinary inventory uses the base-game twenty-item cap.
+pub const fn item_stack_limit(category: u8) -> u8 {
+    if category == 45 { 1 } else { 20 }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterDefinition {
     #[serde(default, skip_serializing_if = "zeroes")]

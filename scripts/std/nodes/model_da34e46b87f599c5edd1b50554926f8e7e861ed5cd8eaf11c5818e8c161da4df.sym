@@ -1,0 +1,13 @@
+script library;
+// Skeleton: da34e46b87f599c5edd1b50554926f8e7e861ed5cd8eaf11c5818e8c161da4df
+pub const Node000_Map_02: string = "map_02";
+pub const Node001_Map_01: string = "map_01";
+pub const Node002_Map_03: string = "map_03";
+pub const Node003_Rotationer_05: string = "rotationer_05";
+pub const Node004_Rotationer_01: string = "rotationer_01";
+pub const Node005_Rotationer_02: string = "rotationer_02";
+pub const Node006_Rotationer_03: string = "rotationer_03";
+pub const Node007_Rotationer_04: string = "rotationer_04";
+pub const Node008_Rotationer_06: string = "rotationer_06";
+pub const Node009_Rotationer_07: string = "rotationer_07";
+pub const Node010_Rotationer_08: string = "rotationer_08";

@@ -1,0 +1,14 @@
+script library;
+// Skeleton: e2036540301ac741862d87ccb13b777c79eb7bc071e18e0d6c83149ddb553f3f
+pub const Node000_Mori04: string = "mori04";
+pub const Node001_Tree_B: string = "tree_B";
+pub const Node002_Ha_A: string = "ha_A";
+pub const Node003_Ha_B: string = "ha_B";
+pub const Node004_Tree_D02: string = "tree_D02";
+pub const Node005_Tree_E02: string = "tree_E02";
+pub const Node006_Tree_A04: string = "tree_A04";
+pub const Node007_Tree_C02: string = "tree_C02";
+pub const Node008_Maruta01: string = "maruta01";
+pub const Node009_Flower: string = "flower";
+pub const Node010_EDA: string = "EDA";
+pub const Node011_OP_Tuta81: string = "OP_tuta81";

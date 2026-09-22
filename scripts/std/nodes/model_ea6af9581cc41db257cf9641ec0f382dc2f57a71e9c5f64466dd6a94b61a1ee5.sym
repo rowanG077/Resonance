@@ -1,0 +1,13 @@
+script library;
+// Skeleton: ea6af9581cc41db257cf9641ec0f382dc2f57a71e9c5f64466dd6a94b61a1ee5
+pub const Node000_Number06_Suisou_B: string = "_06_suisou_b";
+pub const Node001_Lamp_Fire01: string = "_lamp_fire01";
+pub const Node002_Lamp_Fire02: string = "_lamp_fire02";
+pub const Node003_Lamp_Fire03: string = "_lamp_fire03";
+pub const Node004_Lamp_Fire04: string = "_lamp_fire04";
+pub const Node005_Lamp_Light01: string = "_lamp_light01";
+pub const Node006_Lamp_Light02: string = "_lamp_light02";
+pub const Node007_Lamp_Light03: string = "_lamp_light03";
+pub const Node008_Lamp_Light04: string = "_lamp_light04";
+pub const Node009_Sky: string = "_sky";
+pub const Node010_Window_Light: string = "_window_light";

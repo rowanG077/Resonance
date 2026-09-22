@@ -1,0 +1,19 @@
+script library;
+// Skeleton: aafb72bb0ddfcc87914148ebb234bb10e89028154d5399a09bdcfecd98711eb5
+pub const Node000_Ground_02: string = "ground_02";
+pub const Node001_Huuinn: string = "huuinn";
+pub const Node002_Ground: string = "ground";
+pub const Node003_Botan: string = "botan";
+pub const Node004_Cylinder04: string = "Cylinder04";
+pub const Node005_Tesuri: string = "tesuri";
+pub const Node006_Haidennbann: string = "haidennbann";
+pub const Node007_Gate: string = "gate";
+pub const Node008_Long_Kaidan: string = "long_kaidan";
+pub const Node009_Porl: string = "porl";
+pub const Node010_Box93: string = "Box93";
+pub const Node011_Box02: string = "Box02";
+pub const Node012_Dfhb: string = "dfhb";
+pub const Node013_Wegw: string = "wegw";
+pub const Node014_Box104: string = "Box104";
+pub const Node015_Ring_04: string = "ring_04";
+pub const Node016_Ring_05: string = "ring_05";

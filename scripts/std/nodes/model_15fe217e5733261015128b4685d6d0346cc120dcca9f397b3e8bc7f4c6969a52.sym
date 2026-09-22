@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 15fe217e5733261015128b4685d6d0346cc120dcca9f397b3e8bc7f4c6969a52
+pub const Node000_Garaxcy: string = "garaxcy";
+pub const Node001_Chikyuu: string = "chikyuu";
+pub const Node002_Ccline: string = "ccline";
+pub const Node003_Moon: string = "moon";
+pub const Node004_Ccline01: string = "ccline01";
+pub const Node005_Ccline02: string = "ccline02";

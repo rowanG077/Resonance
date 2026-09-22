@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 1162fc3bd35506e93b9ba5400f62ff836fd187a0ad2b0056409cce47c53a2b0d
+pub const Node000_Group05: string = "Group05";
+pub const Node001_Grass_All: string = "grass_all";
+pub const Node002_Light01: string = "light01";
+pub const Node003_L08: string = "L08";
+pub const Node004_L01: string = "L01";
+pub const Node005_L03: string = "L03";
+pub const Node006_L04: string = "L04";
+pub const Node007_L05: string = "L05";
+pub const Node008_L02: string = "L02";
+pub const Node009_L11: string = "L11";
+pub const Node010_L06: string = "L06";
+pub const Node011_L12: string = "L12";
+pub const Node012_L13: string = "L13";
+pub const Node013_L09: string = "L09";
+pub const Node014_L10: string = "L10";
+pub const Node015_Light02: string = "light02";
+pub const Node016_Light03: string = "light03";
+pub const Node017_L07: string = "L07";

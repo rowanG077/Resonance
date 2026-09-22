@@ -1,4 +1,5 @@
 //! High-level title behavior. No rendering, original RAM, or disc dependencies.
+pub mod authored;
 pub mod boot;
 pub mod choice;
 pub mod clock;

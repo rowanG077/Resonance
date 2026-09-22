@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 8a2e7a31089bd484c9c4437e7d5637e828a3b6114b4be9b8668bae7beed67704
+pub const Node000_Tt_Glass190: string = "tt_Glass190";
+pub const Node001_Tt_Glass200: string = "tt_Glass200";
+pub const Node002_Tt_Mesh_190: string = "tt_Mesh_190";
+pub const Node003_Tt_Mesh_200: string = "tt_Mesh_200";

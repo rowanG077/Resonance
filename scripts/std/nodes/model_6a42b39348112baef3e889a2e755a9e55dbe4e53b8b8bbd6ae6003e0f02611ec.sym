@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 6a42b39348112baef3e889a2e755a9e55dbe4e53b8b8bbd6ae6003e0f02611ec
+pub const Node000_Mini_25_Mg10: string = "mini_25_mg10";

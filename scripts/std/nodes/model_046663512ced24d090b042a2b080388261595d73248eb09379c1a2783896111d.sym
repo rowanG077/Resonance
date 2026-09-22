@@ -1,0 +1,21 @@
+script library;
+// Skeleton: 046663512ced24d090b042a2b080388261595d73248eb09379c1a2783896111d
+pub const Node000_Pata_Fire00: string = "pata_fire00";
+pub const Node001_Pata_Fire_Ani04: string = "pata_fire_ani04";
+pub const Node002_Pata_Fire_Ani05: string = "pata_fire_ani05";
+pub const Node003_Pata_Fire_Ani06: string = "pata_fire_ani06";
+pub const Node004_Pata_Fire_Ani07: string = "pata_fire_ani07";
+pub const Node005_Pata_Fire_Ani08: string = "pata_fire_ani08";
+pub const Node006_Pata_Fire_Ani10: string = "pata_fire_ani10";
+pub const Node007_Dummy01: string = "Dummy01";
+pub const Node008_Pata_Fire_Ani00: string = "pata_fire_ani00";
+pub const Node009_Pata_Fire_Ani01: string = "pata_fire_ani01";
+pub const Node010_Pata_Fire_Ani02: string = "pata_fire_ani02";
+pub const Node011_Dummy02: string = "Dummy02";
+pub const Node012_Pata_Fire_Ani03: string = "pata_fire_ani03";
+pub const Node013_Dummy03: string = "Dummy03";
+pub const Node014_Pata_Fire_Ani09: string = "pata_fire_ani09";
+pub const Node015_Dummy04: string = "Dummy04";
+pub const Node016_Pata_Fire_Ani11: string = "pata_fire_ani11";
+pub const Node017_Pata_Fire_Ani12: string = "pata_fire_ani12";
+pub const Node018_Pata_Fire_Ani13: string = "pata_fire_ani13";

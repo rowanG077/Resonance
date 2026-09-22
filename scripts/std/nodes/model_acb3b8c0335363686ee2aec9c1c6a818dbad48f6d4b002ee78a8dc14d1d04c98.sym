@@ -1,0 +1,20 @@
+script library;
+// Skeleton: acb3b8c0335363686ee2aec9c1c6a818dbad48f6d4b002ee78a8dc14d1d04c98
+pub const Node000_SUISYOU: string = "SUISYOU";
+pub const Node001_SUISYOU01: string = "SUISYOU01";
+pub const Node002_LIGHT: string = "LIGHT";
+pub const Node003_Sphere11: string = "Sphere11";
+pub const Node004_Sphere05: string = "Sphere05";
+pub const Node005_Sphere06: string = "Sphere06";
+pub const Node006_Sphere07: string = "Sphere07";
+pub const Node007_Sphere08: string = "Sphere08";
+pub const Node008_Sphere09: string = "Sphere09";
+pub const Node009_Sphere10: string = "Sphere10";
+pub const Node010_Sphere04: string = "Sphere04";
+pub const Node011_Sphere12: string = "Sphere12";
+pub const Node012_Sphere13: string = "Sphere13";
+pub const Node013_Sphere14: string = "Sphere14";
+pub const Node014_Sphere15: string = "Sphere15";
+pub const Node015_Sphere16: string = "Sphere16";
+pub const Node016_Sphere17: string = "Sphere17";
+pub const Node017_Sphere18: string = "Sphere18";

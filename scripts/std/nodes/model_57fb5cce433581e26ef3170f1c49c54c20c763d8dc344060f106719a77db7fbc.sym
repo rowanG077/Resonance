@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 57fb5cce433581e26ef3170f1c49c54c20c763d8dc344060f106719a77db7fbc
+pub const Node000_Right_Door04: string = "Right_door04";
+pub const Node001_Left_Door02: string = "left_door02";
+pub const Node002_Left_Door03: string = "left_door03";
+pub const Node003_Right_Door07: string = "Right_door07";
+pub const Node004_Yuka_1f: string = "yuka_1f";

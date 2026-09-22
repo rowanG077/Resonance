@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 7a97b438baf72072bd3c7e5ad4357055ff809eec52729e058b9dd3f9238cbdff
+pub const Node000_Parts: string = "parts";
+pub const Node001_Pole: string = "pole";
+pub const Node002_Kaidan: string = "kaidan";
+pub const Node003_Elc_D01a: string = "elc_d01a";
+pub const Node004_Elc_D01b: string = "elc_d01b";
+pub const Node005_Elc_D01c: string = "elc_d01c";
+pub const Node006_TutaA: string = "tutaA";
+pub const Node007_Kuro: string = "kuro";
+pub const Node008_Tuta_PA01: string = "tuta_pA01";
+pub const Node009_Panel_6default: string = "panel_6default";
+pub const Node010_Panel_6default01: string = "panel_6default01";
+pub const Node011_Panel_6default02: string = "panel_6default02";
+pub const Node012_Object02: string = "Object02#0";
+pub const Node013_Gareki: string = "gareki";
+pub const Node014_TutaA00: string = "tutaA00";
+pub const Node015_Object01: string = "Object01";
+pub const Node016_Object02: string = "Object02#1";
+pub const Node017_Default: string = "default";

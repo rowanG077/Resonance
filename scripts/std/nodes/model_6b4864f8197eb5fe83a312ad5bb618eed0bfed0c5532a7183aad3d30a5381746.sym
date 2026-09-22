@@ -1,0 +1,16 @@
+script library;
+// Skeleton: 6b4864f8197eb5fe83a312ad5bb618eed0bfed0c5532a7183aad3d30a5381746
+pub const Node000_Group08: string = "Group08";
+pub const Node001_Saka01_Kagehead: string = "Saka01_kagehead";
+pub const Node002_Saka01_Kagebody: string = "Saka01_kagebody";
+pub const Node003_Saka01_Kagetail: string = "Saka01_kagetail";
+pub const Node004_Saka02_Kagehead: string = "Saka02_kagehead";
+pub const Node005_Saka02_Kagebody: string = "Saka02_kagebody";
+pub const Node006_Saka02_Kagetail: string = "Saka02_kagetail";
+pub const Node007_Sakana02_Head: string = "Sakana02_head";
+pub const Node008_Sakana02_Body: string = "Sakana02_body";
+pub const Node009_Sakana02_Tail: string = "Sakana02_tail";
+pub const Node010_Sakana01_Head: string = "Sakana01_head";
+pub const Node011_Sakana01_Body: string = "Sakana01_body";
+pub const Node012_Sakana01_Tail: string = "Sakana01_tail";
+pub const Node013_Water: string = "water";

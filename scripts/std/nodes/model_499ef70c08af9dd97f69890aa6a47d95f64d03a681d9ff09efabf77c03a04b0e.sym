@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 499ef70c08af9dd97f69890aa6a47d95f64d03a681d9ff09efabf77c03a04b0e
+pub const Node000_Mado: string = "mado";

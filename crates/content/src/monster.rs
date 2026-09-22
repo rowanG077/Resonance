@@ -3,7 +3,7 @@ use crate::{menu_data::Element, model_preview::ModelPreview};
 use serde::{Deserialize, Serialize};
 
 pub const MONSTER_COUNT: usize = 251;
-pub const MONSTER_VERSION: u32 = 1;
+pub const MONSTER_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonsterBook {

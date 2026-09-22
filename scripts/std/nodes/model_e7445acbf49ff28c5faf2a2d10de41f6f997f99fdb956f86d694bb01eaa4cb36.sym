@@ -1,0 +1,6 @@
+script library;
+// Skeleton: e7445acbf49ff28c5faf2a2d10de41f6f997f99fdb956f86d694bb01eaa4cb36
+pub const Node000_Sw_Ina: string = "sw_ina";
+pub const Node001_Swa: string = "swa";
+pub const Node002_Sw_Inb: string = "sw_inb";
+pub const Node003_Swa01: string = "swa01";

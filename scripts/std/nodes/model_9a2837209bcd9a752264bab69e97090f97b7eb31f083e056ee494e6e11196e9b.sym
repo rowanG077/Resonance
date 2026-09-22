@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 9a2837209bcd9a752264bab69e97090f97b7eb31f083e056ee494e6e11196e9b
+pub const Node000_TRAP_R3: string = "TRAP_R3";
+pub const Node001_Q: string = "q";

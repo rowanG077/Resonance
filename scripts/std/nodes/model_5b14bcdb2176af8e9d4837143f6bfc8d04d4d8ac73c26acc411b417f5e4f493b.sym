@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 5b14bcdb2176af8e9d4837143f6bfc8d04d4d8ac73c26acc411b417f5e4f493b
+pub const Node000_T2_Shadow: string = "T2_Shadow";
+pub const Node001_T1_Plant: string = "T1_Plant";

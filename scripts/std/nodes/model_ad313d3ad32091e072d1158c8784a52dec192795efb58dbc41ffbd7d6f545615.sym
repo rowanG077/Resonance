@@ -1,0 +1,27 @@
+script library;
+// Skeleton: ad313d3ad32091e072d1158c8784a52dec192795efb58dbc41ffbd7d6f545615
+pub const Node000_T02_P6: string = "T02_P6";
+pub const Node001_T02_G: string = "T02_G";
+pub const Node002_T02_P04: string = "T02_P04";
+pub const Node003_T02_P01: string = "T02_P01";
+pub const Node004_T02_P7: string = "T02_P7";
+pub const Node005_T_Soko: string = "T_Soko";
+pub const Node006_Sky: string = "Sky";
+pub const Node007_T02_P03: string = "T02_P03";
+pub const Node008_DOOR01_AUTO_PUSH_W175: string = "DOOR01_AUTO_PUSH_W175";
+pub const Node009_DOOR02_AUTO_PUSH_W175: string = "DOOR02_AUTO_PUSH_W175";
+pub const Node010_T02_P4_Mark1: string = "T02_P4_Mark1";
+pub const Node011_T02_P4_Mark2: string = "T02_P4_Mark2";
+pub const Node012_DOOR_L: string = "DOOR_L";
+pub const Node013_DOOR_R: string = "DOOR_R";
+pub const Node014_T02_P02: string = "T02_P02";
+pub const Node015_P3_Cs01: string = "P3_cs01";
+pub const Node016_P3_Cs01_A01: string = "P3_cs01_A01";
+pub const Node017_P3_Cs01_A02: string = "P3_cs01_A02";
+pub const Node018_P3_Cs01_B01: string = "P3_cs01_B01";
+pub const Node019_P3_Cs01_B02: string = "P3_cs01_B02";
+pub const Node020_P3_Cs02: string = "P3_cs02";
+pub const Node021_P3_Cs02_A01: string = "P3_cs02_A01";
+pub const Node022_P3_Cs02_A02: string = "P3_cs02_A02";
+pub const Node023_P3_Cs02_B01: string = "P3_cs02_B01";
+pub const Node024_P3_Cs02_B02: string = "P3_cs02_B02";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 87e096cd6ff1d820348c7e3753dc100e61534609fc4c266060cd6994047e09e8
+pub const Node000_Kokuban: string = "kokuban";

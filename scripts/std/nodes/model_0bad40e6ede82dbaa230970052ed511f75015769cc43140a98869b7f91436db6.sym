@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 0bad40e6ede82dbaa230970052ed511f75015769cc43140a98869b7f91436db6
+pub const LeftFoot01: string = "Bone_ashi01_L";
+pub const LeftFoot02: string = "Bone_ashi02_L";
+pub const Node000_Dch000_Skin: string = "dch000_skin";
+pub const Node001_Obj_Root: string = "obj_root";
+pub const Node002_Obj_Smoke01: string = "obj_smoke01";
+pub const Node003_Obj_Smoke02: string = "obj_smoke02";
+pub const Node004_Obj_Smoke03: string = "obj_smoke03";
+pub const Node005_Obj_Smoke04: string = "obj_smoke04";
+pub const RightFoot01: string = "Bone_ashi01_R";
+pub const RightFoot02: string = "Bone_ashi02_R";
+pub const Waist: string = "Bone_koshi";

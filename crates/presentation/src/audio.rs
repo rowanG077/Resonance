@@ -251,12 +251,19 @@ mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
 
+    fn assets() -> std::path::PathBuf {
+        std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
+            Into::into,
+        )
+    }
+
     #[test]
     #[ignore = "requires cooked menu programs and pinned muted Dolphin recordings; never opens a device"]
     fn program_cues_match_dolphin_and_respect_live_group_volume() {
         use resonance_audio::cue::{Studio, package::Manifest};
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let cooked = root.join("local/cooked");
+        let cooked = assets();
         let metadata: resonance_content::TitleSounds =
             serde_json::from_slice(&fs::read(cooked.join("title-sounds.json")).unwrap()).unwrap();
         let bank = Manifest::load(&cooked, &metadata.path, &metadata.sha256).unwrap();
@@ -336,8 +343,7 @@ mod tests {
         assert_eq!(reference.spec().sample_rate, 32028);
         reference.seek(1_383_592).unwrap();
         let mut expected = reference.samples::<i16>();
-        let assets = root.join("cooked");
-        let (audio, control) = PlaybackAssets::load(&assets).unwrap().session(false);
+        let (audio, control) = PlaybackAssets::load(&assets()).unwrap().session(false);
         // Same source and stereo mixer used by Bevy, consumed without a device.
         let (mixer, mut output) = resonance_playback::Offline::new();
         let source = audio.decoder();
@@ -388,9 +394,7 @@ mod tests {
                 .seek(case["window"]["reference_start_frame"].as_u64().unwrap() as u32)
                 .unwrap();
             let mut expected = reference.samples::<i16>();
-            let (source, control) = PlaybackAssets::load(&root.join("local/cooked"))
-                .unwrap()
-                .session(false);
+            let (source, control) = PlaybackAssets::load(&assets()).unwrap().session(false);
             let mut output = source.decoder();
             let events = case["cue_events"].as_array().map_or(&[][..], Vec::as_slice);
             for frame in 0..case["window"]["frames"].as_u64().unwrap() {

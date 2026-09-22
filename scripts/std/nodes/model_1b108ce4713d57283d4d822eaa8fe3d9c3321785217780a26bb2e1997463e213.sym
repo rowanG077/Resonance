@@ -1,0 +1,16 @@
+script library;
+// Skeleton: 1b108ce4713d57283d4d822eaa8fe3d9c3321785217780a26bb2e1997463e213
+pub const Node000_Number1_Soko: string = "1_soko";
+pub const Node001_M_Bri_Body: string = "m_bri_body";
+pub const Node002_M_Sky: string = "m_sky";
+pub const Node003_B_M_Bri: string = "B_m_bri";
+pub const Node004_A_M_Bri: string = "A_m_bri";
+pub const Node005_C_M_Bri: string = "C_m_bri";
+pub const Node006_D_M_Bri: string = "D_m_bri";
+pub const Node007_Number2_Soko: string = "2_soko";
+pub const Node008_Number3_Soko: string = "3_soko";
+pub const Node009_Number4_Soko: string = "4_soko";
+pub const Node010_Number5_Soko: string = "5_soko";
+pub const Node011_E_M_Bri: string = "E_m_bri";
+pub const Node012_Kozima_B: string = "kozima_b";
+pub const Node013_Kozima_A: string = "kozima_a";

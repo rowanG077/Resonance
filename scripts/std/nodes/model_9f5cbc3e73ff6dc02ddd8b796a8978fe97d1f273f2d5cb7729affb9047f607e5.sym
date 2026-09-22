@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 9f5cbc3e73ff6dc02ddd8b796a8978fe97d1f273f2d5cb7729affb9047f607e5
+pub const Node000_No_Cook_00: string = "no_cook_00";

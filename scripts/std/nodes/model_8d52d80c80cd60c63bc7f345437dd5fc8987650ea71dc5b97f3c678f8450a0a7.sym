@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 8d52d80c80cd60c63bc7f345437dd5fc8987650ea71dc5b97f3c678f8450a0a7
+pub const Node000_Tuuro: string = "tuuro";
+pub const Node001_Kuro: string = "kuro";
+pub const Node002_Elc_D00c: string = "elc_d00c";
+pub const Node003_Elc_D00a: string = "elc_d00a";
+pub const Node004_Elc_D00b: string = "elc_d00b";
+pub const Node005_TutaA: string = "tutaA";
+pub const Node006_Kaidan: string = "kaidan";
+pub const Node007_Tuta_PA02: string = "tuta_pA02";
+pub const Node008_Tenso: string = "tenso";
+pub const Node009_Anim_Tenso: string = "anim_tenso";
+pub const Node010_Gareki: string = "gareki";
+pub const Node011_TutaA00: string = "tutaA00";
+pub const Node012_Object01: string = "Object01";
+pub const Node013_Object02: string = "Object02";
+pub const Node014_Default: string = "default";
+pub const Node015_Object03: string = "Object03";
+pub const Node016_Object04: string = "Object04";
+pub const Node017_Switch_On: string = "switch_on";
+pub const Node018_Switch_Off: string = "switch_off";
+pub const Node019_Door_R: string = "door_R";
+pub const Node020_Door_L: string = "door_L";

@@ -30,9 +30,9 @@ pub struct Glyph {
     pub followed_by_control: bool,
 }
 impl Glyph {
-    /// ASCII box sizing samples the next encoded character, including controls.
+    /// Single-byte box sizing samples the next encoded character, including controls.
     pub fn measured_character(&self, next: Option<char>) -> char {
-        if !self.character.is_ascii() {
+        if !resonance_content::font::is_single_byte(self.character) {
             self.character
         } else if self.followed_by_control {
             ' '
@@ -80,7 +80,6 @@ pub struct DialoguePlayer {
     voice_durations: Arc<BTreeMap<u32, u32>>,
     glyph_alpha: Vec<u8>,
     instant_glyphs: bool,
-    reveal_handoff: bool,
 }
 impl DialoguePlayer {
     /// Scripts can release a persistent notice after its text has appeared.
@@ -113,7 +112,6 @@ impl DialoguePlayer {
             voice_durations: Default::default(),
             glyph_alpha: Vec::new(),
             instant_glyphs: dialogue.flags & flags::INSTANT != 0,
-            reveal_handoff: false,
         })
     }
     pub fn current(&self) -> &Page {
@@ -177,8 +175,7 @@ impl DialoguePlayer {
             && self.operation.is_pending()
             && (self.visible < self.current().glyphs.len() || !self.voice_finished())
     }
-    /// A press reveals the page, then advances it on a later press.
-    /// Holding accept accelerates text without repeatedly advancing pages.
+    /// A press advances a revealed page; holding accept accelerates its text.
     pub fn step(&mut self, advance: bool, accelerate: bool) -> Result<Vec<VoiceAction>> {
         if self.closed {
             return Ok(Vec::new());
@@ -212,10 +209,7 @@ impl DialoguePlayer {
         for alpha in &mut self.glyph_alpha {
             *alpha = alpha.saturating_add(GLYPH_ALPHA_STEP);
         }
-        // Give the script its readiness dispatch to install a choice before
-        // another press can dismiss the page that will contain it.
-        let reveal_handoff = std::mem::take(&mut self.reveal_handoff);
-        let advance = advance && !reveal_handoff && !self.persistent && self.accepts_input();
+        let advance = advance && !self.persistent && self.accepts_input();
         let next_page =
             self.auto_pages && self.page + 1 < self.pages.len() && self.voice_finished();
         if (advance || next_page) && self.fully_revealed() {
@@ -228,12 +222,6 @@ impl DialoguePlayer {
             self.glyph_alpha.clear();
             self.delay = 0;
             self.voice_cursor = 0;
-        } else if advance {
-            self.visible = self.current().glyphs.len();
-            self.delay = 0;
-            self.glyph_alpha.resize(self.visible, 255);
-            self.glyph_alpha.fill(255);
-            self.reveal_handoff = true;
         } else {
             while self.visible < self.current().glyphs.len() {
                 let glyph = &self.current().glyphs[self.visible];
@@ -541,7 +529,7 @@ mod tests {
         );
     }
     #[test]
-    fn confirm_reveals_one_page_then_can_dismiss_an_unfinished_voice() {
+    fn confirm_waits_for_revealed_text_then_can_interrupt_an_unfinished_voice() {
         let (player, _scope) = player("ABCDE\u{c}F", 0);
         let mut player = player.with_voice_durations(Arc::new([(7, 100)].into()));
         for _ in 0..6 {
@@ -549,8 +537,16 @@ mod tests {
         }
         assert_eq!(player.visible, 1);
         assert!(player.step(true, true).unwrap().is_empty());
-        assert_eq!((player.page, player.visible, player.delay), (0, 5, 0));
-        assert!(player.glyph_alpha.iter().all(|&alpha| alpha == 255));
+        assert_eq!((player.page, player.visible), (0, 2));
+        assert_eq!(player.glyph_alpha(1), 0);
+        while !player.fully_revealed() {
+            player.step(false, true).unwrap();
+        }
+        assert!(!player.operation.progress().ready);
+        for _ in 0..6 {
+            assert!(player.step(true, true).unwrap().is_empty());
+            assert_eq!(player.page, 0, "confirmation waits for glyph opacity");
+        }
         assert!(!player.voice_finished());
         assert!(player.is_talking());
         player.step(false, true).unwrap();
@@ -560,8 +556,14 @@ mod tests {
         player.step(true, false).unwrap();
         assert_eq!(player.visible, 1);
         assert!(!player.voice_finished());
-        assert!(player.step(true, false).unwrap().is_empty());
-        assert_eq!(player.phase, WindowPhase::Text, "script readiness handoff");
+        for _ in 0..6 {
+            assert!(player.step(true, false).unwrap().is_empty());
+            assert_eq!(player.phase, WindowPhase::Text);
+        }
+        assert!(
+            !player.operation.progress().ready,
+            "voice still owns readiness"
+        );
         assert_eq!(player.step(true, false).unwrap(), [VoiceAction::Stop]);
         assert!(!player.is_talking());
         for _ in 0..4 {
@@ -650,6 +652,11 @@ mod tests {
         assert_eq!(pages[1].glyphs[3].measured_character(Some('X')), ' ');
         assert_eq!(pages[1].glyphs[2].measured_character(Some('X')), 'X');
         assert_eq!(pages[1].glyphs[2].measured_character(Some('\n')), ' ');
+        let mut kana = pages[1].glyphs[2].clone();
+        for (character, measured) in [('ｵ', 'X'), ('･', 'X'), ('オ', 'オ')] {
+            kana.character = character;
+            assert_eq!(kana.measured_character(Some('X')), measured);
+        }
         assert_eq!(
             pages[0]
                 .glyphs

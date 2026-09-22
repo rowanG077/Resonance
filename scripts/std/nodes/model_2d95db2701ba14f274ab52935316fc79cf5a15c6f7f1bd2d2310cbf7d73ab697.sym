@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 2d95db2701ba14f274ab52935316fc79cf5a15c6f7f1bd2d2310cbf7d73ab697
+pub const Node000_Group11: string = "Group11";
+pub const Node001_Near_All: string = "near_all";
+pub const Node002_Ngr_Top: string = "Ngr_top";
+pub const Node003_Ngr_Sec01: string = "Ngr_sec01";
+pub const Node004_Ngr_Sec02: string = "Ngr_sec02";
+pub const Node005_Ngr_Sec03: string = "Ngr_sec03";
+pub const Node006_Ngr_Ed01: string = "Ngr_ed01";
+pub const Node007_Ngr_Ed02: string = "Ngr_ed02";
+pub const Node008_Ngr_Ed03: string = "Ngr_ed03";
+pub const Node009_Ngr_Ed04: string = "Ngr_ed04";
+pub const Node010_Ngr_Ed05: string = "Ngr_ed05";
+pub const Node011_Ngr_Ed06: string = "Ngr_ed06";
+pub const Node012_Ngr_Ed07: string = "Ngr_ed07";
+pub const Node013_Ned_Top: string = "ned_top";
+pub const Node014_Ned_Sec01: string = "ned_sec01";
+pub const Node015_Ned_Sec02: string = "ned_sec02";
+pub const Node016_Ned_Sec03: string = "ned_sec03";
+pub const Node017_Ned_Sec04: string = "ned_sec04";
+pub const Node018_Ned_Ed01: string = "ned_ed01";
+pub const Node019_Ned_Ed02: string = "ned_ed02";
+pub const Node020_Ned_Ed03: string = "ned_ed03";

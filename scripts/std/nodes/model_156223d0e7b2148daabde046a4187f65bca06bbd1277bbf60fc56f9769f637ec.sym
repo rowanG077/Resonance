@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 156223d0e7b2148daabde046a4187f65bca06bbd1277bbf60fc56f9769f637ec
+pub const Node000_Mdl_Izr_I0B: string = "mdl_izr_i0B";
+pub const Node001_Mdl_Izr_I00: string = "mdl_izr_i00";

@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 1cf37db0ce7ec4acb6e76fe93c0fb5a217afeb5f591904bbd806f13b7b686f7f
+pub const Node000_Mdl_Oza_I05B: string = "mdl_oza_i05B";
+pub const Node001_Mdl_Oza_I05A: string = "mdl_oza_i05A";
+pub const Node002_BET02: string = "BET02";
+pub const Node003_BET01: string = "BET01";
+pub const Node004_Cylinder04: string = "Cylinder04";
+pub const Node005_Hedra01: string = "Hedra01";
+pub const Node006_Plane01: string = "Plane01";

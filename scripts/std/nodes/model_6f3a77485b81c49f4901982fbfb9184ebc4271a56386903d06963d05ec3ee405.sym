@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 6f3a77485b81c49f4901982fbfb9184ebc4271a56386903d06963d05ec3ee405
+pub const Node000_Amida_Barl: string = "amida_barl";
+pub const Node001_Bar: string = "bar";
+pub const Node002_Amida_Barr: string = "amida_barr";

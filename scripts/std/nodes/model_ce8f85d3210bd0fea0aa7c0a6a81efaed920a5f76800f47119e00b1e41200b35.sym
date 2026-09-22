@@ -1,0 +1,9 @@
+script library;
+// Skeleton: ce8f85d3210bd0fea0aa7c0a6a81efaed920a5f76800f47119e00b1e41200b35
+pub const Node000_Sky: string = "sky";
+pub const Node001_Plane43: string = "Plane43";
+pub const Node002_Ground: string = "ground";
+pub const Node003_Cylinder02: string = "Cylinder02";
+pub const Node004_Wood: string = "wood#0";
+pub const Node005_Wood: string = "wood#1";
+pub const Node006_Cone01: string = "Cone01";

@@ -1,0 +1,12 @@
+script library;
+// Skeleton: f44d7e1b21c20d93a555ff99559c1fc7bf2c4f8b5394acbe09677ec1e397497e
+pub const Node000_A_Grass_P40: string = "a_grass_p40";
+pub const Node001_A_Canyon01: string = "a_canyon01";
+pub const Node002_A_Map03: string = "a_map03";
+pub const Node003_A_Grass_P200: string = "a_grass_p200";
+pub const Node004_A_Grass_P180: string = "a_grass_p180";
+pub const Node005_A_Grass_P190: string = "a_grass_p190";
+pub const Node006_A_Grass_P160: string = "a_grass_p160";
+pub const Node007_A_Grass_P170: string = "a_grass_p170";
+pub const Node008_A_Grass_P178: string = "a_grass_p178";
+pub const Node009_A_Grass_P198: string = "a_grass_p198";

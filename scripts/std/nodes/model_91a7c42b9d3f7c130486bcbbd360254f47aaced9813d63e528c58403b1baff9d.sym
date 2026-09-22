@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 91a7c42b9d3f7c130486bcbbd360254f47aaced9813d63e528c58403b1baff9d
+pub const Node000_Bin: string = "bin";
+pub const Node001_Futa: string = "futa";
+pub const Node002_Kuchi: string = "kuchi";

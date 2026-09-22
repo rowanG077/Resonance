@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 4650c122c5c1e18182f23251e5dc7a2e829021eba44a76d5ad71d4388a0f8f96
+pub const Node000_Group09: string = "Group09";
+pub const Node001_HS02_Kage: string = "HS02_kage";
+pub const Node002_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node003_Grass_All: string = "grass_all";
+pub const Node004_K02_06: string = "k02_06";
+pub const Node005_K03_09: string = "k03_09";
+pub const Node006_Hasu01: string = "Hasu01";
+pub const Node007_Hasu02: string = "Hasu02";
+pub const Node008_HS01_Kage: string = "HS01_kage";
+pub const Node009_Win: string = "win";
+pub const Node010_K01_03: string = "k01_03";
+pub const Node011_Tres_P30: string = "Tres_p30";
+pub const Node012_Dos_P40: string = "Dos_p40";
+pub const Node013_Uno_P50: string = "uno_p50";
+pub const Node014_Quatro_P20: string = "Quatro_p20";
+pub const Node015_Sinco_P10: string = "Sinco_p10";
+pub const Node016_Mid: string = "mid";
+pub const Node017_Mid2: string = "mid2";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 254260971e8f4d642fa9bf45addad28c8a86c0e0f73865ceb8ce2359220cf11b
+pub const Node000_Obj_Fab_Warp_Blue: string = "obj_fab_warp_blue";

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 6c45ae9c542b845cd0dc957d5c05cd628c3fc705dd47ad46b23bb7c092caed3a
+pub const Node000_Enkei: string = "enkei";
+pub const Node001_Kage_01: string = "kage_01";
+pub const Node002_Kage_02: string = "kage_02";
+pub const Node003_Kage_03: string = "kage_03";
+pub const Node004_Rock: string = "rock";
+pub const Node005_Gat_T00: string = "gat_t00";

@@ -1,0 +1,17 @@
+script library;
+// Skeleton: f146fa1c5ca0a1b69edcc43e366092ac6eb32e4eb5077748e5515e207fb1eba0
+pub const Node000_Ground: string = "ground";
+pub const Node001_Number44: string = "44";
+pub const Node002_Number08: string = "08";
+pub const Node003_Number12: string = "12";
+pub const Node004_Number10: string = "10";
+pub const Node005_Number14: string = "14";
+pub const Node006_Number40: string = "40";
+pub const Node007_Number42: string = "42";
+pub const Node008_Number34: string = "34";
+pub const Node009_Number36: string = "36";
+pub const Node010_Number32: string = "32";
+pub const Node011_Number30: string = "30";
+pub const Node012_Number22: string = "22";
+pub const Node013_Number20: string = "20";
+pub const Node014_Number24: string = "24";

@@ -1,0 +1,6 @@
+script library;
+// Skeleton: dac52ec92e1804744aa570847eefacfdf598d6bf95a86d38a06e83b08d99ffef
+pub const Node000_Number0709Obj238: string = "0709.obj238";
+pub const Node001_DOOR01_AUTO_PULL_W175e334: string = "DOOR01_AUTO_PULL_W-175e334";
+pub const Node002_DOOR02_AUTO_PULL_W175e334: string = "DOOR02_AUTO_PULL_W-175e334";
+pub const Node003_Number0801Obj242: string = "0801.obj242";

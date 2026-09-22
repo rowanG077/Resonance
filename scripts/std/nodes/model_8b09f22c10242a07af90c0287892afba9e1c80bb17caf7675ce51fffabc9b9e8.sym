@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 8b09f22c10242a07af90c0287892afba9e1c80bb17caf7675ce51fffabc9b9e8
+pub const Node000_Vertex_Kage: string = "vertex_kage";
+pub const Node001_Vertex_0001: string = "vertex_0001";
+pub const Node002_Vertex_Fire_R4: string = "vertex_fire_r4";
+pub const Node003_Vertex_Fire_R3: string = "vertex_fire_r3";
+pub const Node004_Vertex_Fire_L4: string = "vertex_fire_l4";
+pub const Node005_Vertex_Fire_L3: string = "vertex_fire_l3";
+pub const Node006_Vertex_Fire_R2: string = "vertex_fire_r2";
+pub const Node007_Vertex_Fire_R: string = "vertex_fire_r";
+pub const Node008_Vertex_Fire_L: string = "vertex_fire_l";
+pub const Node009_Vertex_Fire_L2: string = "vertex_fire_l2";

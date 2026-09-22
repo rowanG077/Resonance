@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 4e439a5f5b762436a2dd20685adffdebe734cfea4a16f8e08060a5bfde8afcd8
+pub const Node000_BoxGizmo01: string = "ﾎﾞｯｸｽ ｷﾞｽﾞﾓ01";
+pub const Node001_Box01: string = "Box01";
+pub const Node002_Saku_Test: string = "saku_test";
+pub const Node003_Koya_Test: string = "koya_test";
+pub const Node004_Mizukumiba: string = "mizukumiba";
+pub const Node005_Hasi: string = "hasi";
+pub const Node006_Mdl_Vmh_D05_Iwa: string = "mdl_vmh_d05_iwa";
+pub const Node007_Line02: string = "Line02";
+pub const Node008_Ki_R: string = "ki_R";
+pub const Node009_Mdl_Vmh_D05_Iwa02: string = "mdl_vmh_d05_iwa02";
+pub const Node010_Yunkeru_Ki: string = "yunkeru_ki";
+pub const Node011_Default: string = "default";
+pub const Node012_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node013_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node014_DOOR01_AUTO_S_PUSH_W135e583: string = "DOOR01_AUTO_S_PUSH_W135e583";

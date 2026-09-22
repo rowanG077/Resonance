@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 51be1969a8b741de2b2f86ac6d59841385eff372070fd52bfa6eb8eaf4993cff
+pub const Node000_Enseki: string = "enseki";
+pub const Node001_Kuro: string = "kuro";
+pub const Node002_Pole: string = "pole";
+pub const Node003_Hako2: string = "hako2";
+pub const Node004_Taru: string = "taru";
+pub const Node005_Hako: string = "hako";
+pub const Node006_Kadolitght_Mini03: string = "kadolitght_mini03";
+pub const Node007_Hako03: string = "hako03";
+pub const Node008_Tank: string = "tank";
+pub const Node009_Boxlight: string = "boxlight";
+pub const Node010_Hako04: string = "hako04";
+pub const Node011_Elc_D06a: string = "elc_d06a";
+pub const Node012_Elc_D06b: string = "elc_d06b";
+pub const Node013_TutaA: string = "tutaA";
+pub const Node014_Tuta_PA01: string = "tuta_pA01";

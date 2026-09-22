@@ -1,0 +1,5 @@
+script library;
+// Skeleton: c5ad5e0a3dd67df544ca55175fa68dd57d4a6dcdf5e590da2b2a1e506aeaa89a
+pub const Node000_Wall: string = "wall";
+pub const Node001_Item: string = "item";
+pub const Node002_DOOR01_AUTO_S_PUSH_W125e975: string = "DOOR01_AUTO_S_PUSH_W125e975";

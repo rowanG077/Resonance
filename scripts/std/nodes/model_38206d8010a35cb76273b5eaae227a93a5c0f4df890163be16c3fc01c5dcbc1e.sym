@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 38206d8010a35cb76273b5eaae227a93a5c0f4df890163be16c3fc01c5dcbc1e
+pub const Node000_Izr_House02: string = "izr_house02";

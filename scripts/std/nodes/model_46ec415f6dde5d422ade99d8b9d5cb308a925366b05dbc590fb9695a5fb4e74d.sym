@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 46ec415f6dde5d422ade99d8b9d5cb308a925366b05dbc590fb9695a5fb4e74d
+pub const Node000_DOOR_AUTO_PUSH_W150e000: string = "DOOR_AUTO_PUSH_W150e000";
+pub const Node001_Room_722Obj614: string = "room_722.obj614";
+pub const Node002_Heya: string = "heya";

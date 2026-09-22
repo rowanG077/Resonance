@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 518522fa710cefd8b99ff1e97cadc87d187ca18504536b79161e85a67a10e9ab
+pub const Node000_Bk: string = "bk";
+pub const Node001_Chu_I07_011a: string = "chu_i07_011a";
+pub const Node002_Chu_I07_011b: string = "chu_i07_011b";
+pub const Node003_Chu_I07_011kabe: string = "chu_i07_011kabe";
+pub const Node004_Chu_I07_022: string = "chu_i07_022";
+pub const Node005_Chu_I07_023: string = "chu_i07_023";
+pub const Node006_Chu_I07_X11: string = "chu_i07_x11";
+pub const Node007_Chu_I07_X12: string = "chu_i07_x12";
+pub const Node008_Chu_I07_X13: string = "chu_i07_x13";
+pub const Node009_DOORopen: string = "DOORopen";
+pub const Node010_DOORclose: string = "DOORclose";

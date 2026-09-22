@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 7c531990d200896fe4219bcee37878ac81dbe3a36b289c4cd84a3566bb185019
+pub const Node000_Architecture: string = "architecture";
+pub const Node001_DOOR01_AUTO_PULL_W175: string = "DOOR01_AUTO_PULL_W-175";
+pub const Node002_Room_2: string = "room_2";
+pub const Node003_Room: string = "room";
+pub const Node004_Furniture: string = "furniture";
+pub const Node005_Pole_Near: string = "pole_near";

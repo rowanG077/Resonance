@@ -1,0 +1,6 @@
+script library;
+// Skeleton: eb8949c7084f7b434f120b67009e56a943bee784886dd7560cc8ce930076d6d1
+pub const Node000_Mount_Cap_002: string = "!!!@mount_cap_002";
+pub const Node001_Mount_Out_Line04: string = "!!!mount_out_line04";
+pub const Node002_Ocean_03: string = "!!!ocean_03";
+pub const Node003_Wave_02: string = "!!!wave_02";

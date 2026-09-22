@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 9020f15d34c8dc30a78ca04a351a4498ee46ed4a2dfe9963e89b37af5631d1c4
+pub const Node000_Elc_D12_L: string = "elc_d12_l";

@@ -51,6 +51,25 @@ pub(super) struct Resident {
 pub(super) struct Cache {
     pub bytes: resonance_content::prepared::Cache,
     pub audio: super::field_audio::Cache,
+    pub scripts: Option<resonance_game::authored::FieldScripts>,
+}
+impl Cache {
+    fn configure_scripts(&mut self, root: Option<PathBuf>) {
+        if self.scripts.as_ref().map(|scripts| scripts.root()) != root.as_deref() {
+            self.scripts = root.map(resonance_game::authored::FieldScripts::new);
+        }
+    }
+}
+impl Resident {
+    pub fn refresh_scripts(
+        &self,
+        root: Option<PathBuf>,
+        package: &super::new_game::FieldPackage,
+    ) -> Result<super::new_game::FieldPackage> {
+        let mut cache = self.cache.lock().unwrap();
+        cache.configure_scripts(root);
+        package.refresh_scripts(&mut cache)
+    }
 }
 struct ReaderAdapter {
     resident: Resident,
@@ -130,7 +149,12 @@ pub(super) struct Task<T: Send + 'static> {
     pub started: Instant,
 }
 impl Pending {
-    pub fn start(root: PathBuf, checkpoint: Option<Vec<u8>>, resident: &Resident) -> Result<Self> {
+    pub fn start(
+        root: PathBuf,
+        script_root: Option<PathBuf>,
+        checkpoint: Option<Vec<u8>>,
+        resident: &Resident,
+    ) -> Result<Self> {
         let cache = resident.cache.clone();
         Self::spawn(move |stop| {
             let identity = super::new_game::Session::identity(&root)?;
@@ -140,23 +164,20 @@ impl Pending {
                 })
                 .transpose()?;
             let map = checkpoint.as_ref().map_or(5, |c| c.map_id);
-            let mut paths = vec![super::new_game::manifest_path(map)?];
+            let mut paths = vec![super::new_game::manifest_path(map)];
             if map == 5 {
-                paths.push(super::new_game::manifest_path(340)?);
+                paths.push(super::new_game::manifest_path(340));
             }
             let mut cache = cache.lock().unwrap();
+            cache.configure_scripts(script_root);
             let files = Arc::new(Files::load(
                 &root,
                 &paths.iter().map(String::as_str).collect::<Vec<_>>(),
                 &mut cache.bytes,
                 || stop.load(Ordering::Relaxed),
             )?);
-            let mut session = super::new_game::Session::load_prepared(
-                &root,
-                files,
-                checkpoint,
-                &mut cache.audio,
-            )?;
+            let mut session =
+                super::new_game::Session::load_prepared(&root, files, checkpoint, &mut cache)?;
             anyhow::ensure!(
                 session.identity == identity,
                 "cooked content changed during field preparation"
@@ -169,12 +190,24 @@ impl Pending {
     }
 }
 impl FieldPending {
-    pub fn field(root: PathBuf, map: u32, resident: &Resident) -> Result<Self> {
+    pub fn field(
+        root: PathBuf,
+        script_root: Option<PathBuf>,
+        map: u32,
+        previous: Option<Arc<super::new_game::FieldPackage>>,
+        resident: &Resident,
+    ) -> Result<Self> {
         let cache = resident.cache.clone();
         Self::spawn(move |stop| {
-            super::new_game::FieldPackage::prepare(&root, map, &mut cache.lock().unwrap(), || {
-                stop.load(Ordering::Relaxed)
-            })
+            let mut cache = cache.lock().unwrap();
+            cache.configure_scripts(script_root);
+            if let Some(previous) = previous {
+                previous.refresh_scripts(&mut cache)
+            } else {
+                super::new_game::FieldPackage::prepare(&root, map, &mut cache, || {
+                    stop.load(Ordering::Relaxed)
+                })
+            }
         })
     }
 }

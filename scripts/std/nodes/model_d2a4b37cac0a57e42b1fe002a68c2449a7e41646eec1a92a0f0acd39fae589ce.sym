@@ -1,0 +1,3 @@
+script library;
+// Skeleton: d2a4b37cac0a57e42b1fe002a68c2449a7e41646eec1a92a0f0acd39fae589ce
+pub const Node000_A: string = "A";

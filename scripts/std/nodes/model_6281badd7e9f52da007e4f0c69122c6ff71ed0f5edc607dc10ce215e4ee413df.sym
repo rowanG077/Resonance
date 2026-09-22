@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 6281badd7e9f52da007e4f0c69122c6ff71ed0f5edc607dc10ce215e4ee413df
+pub const Node000_Elb_D06: string = "elb_d06";
+pub const Node001_Switch_Red: string = "switch_red";
+pub const Node002_Switch_Green: string = "switch_green";

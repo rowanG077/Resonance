@@ -1,0 +1,7 @@
+script library;
+// Skeleton: ee34274922095b85a7c557d9984752057586bee960ac760d4f97aafeae3ef962
+pub const RightWing00: string = "hane00_R";
+pub const RightWing01: string = "hane01_R";
+pub const RightWing02: string = "hane02_R";
+pub const RightWing03: string = "hane03_R";
+pub const RightWing04: string = "hane04_R";

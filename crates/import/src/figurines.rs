@@ -1,127 +1,63 @@
-//! Convert figurine catalogue entries and shared NPC models into player assets.
+//! Prepare catalogue previews directly from original NPC models and menu records.
 use crate::{
-    character::archive_entry,
-    compression, dol,
-    field::sections,
-    model_preview::{Layer, layers},
-    read::u32 as word,
+    all_assets::figurine_catalogue::{Catalogue, Record, Resource},
+    scene::source::Models,
     write_atomic,
 };
 use anyhow::{Context, Result, ensure};
 use resonance_content::{
+    CullFace,
     figurine::{FIGURINE_COUNT, FIGURINE_VERSION, Figurine, FigurineBook},
     model_preview::{ModelPreview, PreviewPart},
 };
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
-pub(crate) fn book(executable: &[u8], output: &Path) -> Result<FigurineBook> {
-    Ok(FigurineBook {
-        title: dol::text(executable, word(dol::slice(executable, 0x8019d6f4, 4)?, 0)?)?,
-        records: (0..FIGURINE_COUNT)
-            .map(|id| {
-                serde_json::from_slice(&fs::read(output.join(format!("figurines/{id:03}.json")))?)
-                    .context("figurine assets need recooking; run cook-figurines")
-            })
-            .collect::<Result<_>>()?,
-    })
-}
-
-pub fn cook(extracted: &Path, output: &Path, selected: &[u16]) -> Result<()> {
+pub(crate) fn prepare(
+    extracted: &Path,
+    output: &Path,
+    catalogue: &Catalogue,
+) -> Result<FigurineBook> {
     ensure!(
-        selected.iter().all(|&id| usize::from(id) < FIGURINE_COUNT),
-        "unknown figurine"
+        catalogue.records.len() >= FIGURINE_COUNT,
+        "incomplete figurine catalogue"
     );
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let archive = fs::read(extracted.join("files/npc_all.bin"))?;
-    let mut models: BTreeMap<u32, Vec<PreviewPart>> = BTreeMap::new();
-    for id in 0..FIGURINE_COUNT as u16 {
-        if !selected.is_empty() && !selected.contains(&id) {
-            continue;
-        }
-        let row = dol::slice(&executable, 0x802280c0 + u32::from(id) * 80, 80)?;
-        let resource = word(row, 8)?
-            .checked_sub(0x20000)
-            .context("invalid figurine model")?;
-        let bytes = archive_entry(&archive, resource as usize)?;
-        if let std::collections::btree_map::Entry::Vacant(entry) = models.entry(resource) {
+    let files = extracted.join("files");
+    let path = crate::all_assets::roles::declared_path(&files, catalogue.text(catalogue.archive))?;
+    let bytes = fs::read(files.join(path))?;
+    let archive = crate::all_assets::archive_entries(&bytes).context("invalid NPC archive")?;
+    let mut models = BTreeMap::new();
+    let mut records = Vec::new();
+    let mut behaviors = crate::model_behavior::Bindings::new()?;
+    for (id, row) in catalogue.records.iter().take(FIGURINE_COUNT).enumerate() {
+        ensure!(!row.is_null(), "figurine {id} has no model");
+        let (Resource::DirectNpc(entry) | Resource::TaggedNpc(entry)) = row.resource else {
+            anyhow::bail!("figurine {id} has no model");
+        };
+        // Empty entries have no preview; unlike field resources they never alias entry zero.
+        let range = archive
+            .get(entry as usize)
+            .and_then(Option::as_ref)
+            .with_context(|| format!("figurine {id} has no archive entry {entry}"))?;
+        let canonical = (range.start, range.end);
+        if let std::collections::btree_map::Entry::Vacant(entry) = models.entry(canonical) {
             entry.insert(
-                model(bytes, resource, output)
-                    .with_context(|| format!("figurine {id} model {resource}"))?,
+                model(
+                    output,
+                    &crate::compression::payload(bytes[range.clone()].to_vec())?,
+                )
+                .with_context(|| format!("figurine {id} model {canonical:?}"))?,
             );
         }
-        let mut parts = models[&resource].clone();
-        let bones = &parts[0].scene.bone_names;
-        let mut hidden: std::collections::BTreeSet<_> = bones
-            .iter()
-            .filter(|name| name.starts_with("kk"))
-            .cloned()
-            .collect();
-        for offset in (16..80).step_by(4) {
-            let pointer = word(row, offset)?;
-            if pointer == 0 {
-                continue;
-            }
-            let rule = dol::text(&executable, pointer)?;
-            let prefix = rule.strip_prefix('-').unwrap_or(&rule);
-            for bone in bones.iter().filter(|b| b.starts_with(prefix)) {
-                if rule.starts_with('-') {
-                    hidden.insert(bone.clone());
-                } else {
-                    hidden.remove(bone);
-                }
-            }
-        }
-        let variant = word(row, 12)?;
-        if variant != 0 {
-            let ranges = sections(bytes)?;
-            for (index, part) in parts.iter_mut().enumerate() {
-                let data = &bytes[ranges[index].clone().context("missing figurine layer")?];
-                let Some(texture) = data[14].checked_sub(1).map(usize::from) else {
-                    continue;
-                };
-                let primary = &bytes[ranges[0].clone().unwrap()];
-                let normalized = crate::character::texture_palette(primary, data)?;
-                let palette = crate::tpl::parse_tpl(&normalized[word(&normalized, 0)? as usize..])?;
-                let texture_info = palette
-                    .get(texture)
-                    .context("invalid figurine variant texture")?;
-                let frames = match texture_info.height {
-                    512 => 2,
-                    1024 => 4,
-                    _ => 0,
-                };
-                if variant >= frames {
-                    continue;
-                }
-                let shift = variant as f32 / frames as f32;
-                part.uv_offsets = part
-                    .scene
-                    .materials
-                    .iter()
-                    .map(|m| {
-                        let y = |binding: &Option<resonance_content::TextureBinding>| {
-                            if binding.as_ref().is_some_and(|b| b.texture == texture) {
-                                shift
-                            } else {
-                                0.
-                            }
-                        };
-                        [0., y(&m.color), 0., y(&m.multiply)]
-                    })
-                    .collect();
-            }
-        }
+        let model = &models[&canonical];
         let record = Figurine {
             version: FIGURINE_VERSION,
-            id,
-            name: dol::text(&executable, word(row, 0)?)?,
-            preview: ModelPreview {
-                scale: 1.,
-                elevation: if resource == 73 { -80. } else { 0. },
-                parts,
-                hidden_geometry: hidden.into_iter().collect(),
-                node_scales: Vec::new(),
-            },
+            id: id as u16,
+            name: catalogue.required_text(row.name)?.into(),
+            preview: preview(model, row, catalogue, &mut behaviors)?,
         };
         record
             .validate()
@@ -130,73 +66,192 @@ pub fn cook(extracted: &Path, output: &Path, selected: &[u16]) -> Result<()> {
             &output.join(format!("figurines/{id:03}.json")),
             &serde_json::to_vec_pretty(&record)?,
         )?;
+        records.push(record);
     }
-    Ok(())
+    behaviors.finish(crate::model_behavior::Catalogue::Figurines)?;
+    Ok(FigurineBook {
+        title: catalogue.required_text(catalogue.title)?.into(),
+        records,
+    })
 }
 
-fn model(bytes: &[u8], id: u32, output: &Path) -> Result<Vec<PreviewPart>> {
-    let ranges = sections(bytes)?;
-    let model = &bytes[ranges[0].clone().context("missing figurine mesh")?];
-    let outline = ranges
-        .get(1)
-        .and_then(Option::as_ref)
-        .map(|r| &bytes[r.clone()]);
-    let animation = ranges
+struct Model {
+    parts: Vec<PreviewPart>,
+    appearance: Vec<Option<usize>>,
+    rows: u32,
+}
+
+fn preview(
+    model: &Model,
+    row: &Record,
+    catalogue: &Catalogue,
+    behaviors: &mut crate::model_behavior::Bindings,
+) -> Result<ModelPreview> {
+    let hidden_prefix = catalogue.text(catalogue.preview.hidden_prefix);
+    let mut parts = model.parts.clone();
+    let bones = &parts[0].scene.bone_names;
+    let mut hidden: BTreeSet<_> = bones
         .iter()
-        .skip(2)
-        .flatten()
-        .next()
-        .map(|r| {
-            let data = &bytes[r.clone()];
-            if data.starts_with(&0x007b7960u32.to_be_bytes()) {
-                Ok(data.to_vec())
+        .filter(|name| name.starts_with(hidden_prefix))
+        .cloned()
+        .collect();
+    for &rule in row.bone_rules.iter().flatten() {
+        let rule = catalogue.text(rule);
+        let prefix = rule.strip_prefix('-').unwrap_or(rule);
+        for bone in bones.iter().filter(|name| name.starts_with(prefix)) {
+            if rule.starts_with('-') {
+                hidden.insert(bone.clone());
             } else {
-                compression::decode(data)
+                hidden.remove(bone);
             }
-        })
+        }
+    }
+    if row.appearance_row > 0 && row.appearance_row < model.rows {
+        // Both layers use the primary atlas height, but each has its own texture selector.
+        let shift = row.appearance_row as f32 / model.rows as f32;
+        for (part, texture) in parts.iter_mut().zip(&model.appearance) {
+            let Some(texture) = texture else {
+                continue;
+            };
+            part.uv_offsets = part
+                .scene
+                .materials
+                .iter()
+                .map(|material| {
+                    let y = |binding: &Option<resonance_content::TextureBinding>| {
+                        if binding.as_ref().is_some_and(|b| b.texture == *texture) {
+                            shift
+                        } else {
+                            0.
+                        }
+                    };
+                    [0., y(&material.color), 0., y(&material.multiply)]
+                })
+                .collect();
+        }
+    }
+    let mut preview = ModelPreview {
+        scale: 1.,
+        elevation: catalogue.preview.default_elevation,
+        behavior: None,
+        parts,
+        hidden_geometry: hidden.into_iter().collect(),
+    };
+    preview.behavior = behaviors.bind(crate::model_behavior::Subject::Figurine(row.resource));
+    Ok(preview)
+}
+
+fn model(root: &Path, package: &[u8]) -> Result<Model> {
+    let sections = crate::field::sections(package)?;
+    ensure!(
+        sections.len() >= 2,
+        "figurine package needs two layer slots"
+    );
+    let member = |index: usize| {
+        sections[index]
+            .as_ref()
+            .map(|range| &package[range.clone()])
+    };
+    let primary = member(0).context("missing figurine mesh")?;
+    // The final package member is not part of the native idle search.
+    let mut decoded = crate::scene::decoded::Package::default();
+    let animation = (2..sections.len().saturating_sub(1))
+        .find_map(member)
+        .map(|bytes| decoded.decode_animation(bytes, || crate::animation::read_member(bytes)))
         .transpose()?;
-    let mut parts = Vec::new();
-    layers(
-        Layer {
-            model,
-            outline,
-            animation: animation.as_deref(),
+    let mut model = Model {
+        parts: Vec::new(),
+        appearance: Vec::new(),
+        rows: 0,
+    };
+    for source in [Some(primary), member(1)].into_iter().flatten() {
+        decoded.decode_model(source, primary, root)?;
+    }
+    let mut models = Models::new(root, &decoded);
+    for (index, source) in [Some(primary), member(1)].into_iter().enumerate() {
+        let Some(source) = source else {
+            continue;
+        };
+        let (selector, rows) = appearance(primary, source, index == 0)?;
+        model.appearance.push(selector);
+        if index == 0 {
+            model.rows = rows;
+        }
+        let animation = animation.as_ref();
+        models.add(
+            &format!("figurine/{index}"),
+            source,
+            primary,
+            move |geometry, _, scene, glb| {
+                scene.resource = index as u16;
+                for material in &mut scene.materials {
+                    material.draw_order += index as u32 * resonance_content::field::MODEL_DRAW_SPAN;
+                    if index == 1 {
+                        material.cull = CullFace::Front;
+                        material.blend = true;
+                    }
+                }
+                scene.outline_color = (index == 1).then_some([0, 0, 0, 127]);
+                if let Some(animation) = animation {
+                    let bindings = geometry
+                        .bindings
+                        .as_ref()
+                        .context("animated figurine has no skeleton")?;
+                    scene.clips.push(glb.animate(animation.motion(bindings)?)?);
+                    scene.autoplay = true;
+                }
+                Ok(())
+            },
+        )?;
+    }
+    model.parts = models
+        .finish()
+        .into_iter()
+        .map(|layer| PreviewPart {
+            animation: animation.as_ref().map(|_| 0),
+            scene: layer.part,
             attached_to: None,
             additive: false,
-        },
-        &mut parts,
-        &format!("figurines/models/{id:03}"),
-        output,
-    )?;
-    Ok(parts)
+            uv_offsets: Vec::new(),
+        })
+        .collect();
+    Ok(model)
 }
 
-#[test]
-#[ignore = "requires locally cooked figurine assets"]
-fn catalogue_uses_shared_converted_assets() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked");
-    let mut meshes = std::collections::BTreeSet::new();
-    for id in 0..FIGURINE_COUNT {
-        let record: Figurine = serde_json::from_slice(
-            &fs::read(root.join(format!("figurines/{id:03}.json"))).unwrap(),
-        )
-        .unwrap();
-        record.validate().unwrap();
-        assert_eq!(usize::from(record.id), id);
-        meshes.insert(record.preview.parts[0].scene.mesh.clone());
-        for part in &record.preview.parts {
-            assert_eq!(
-                &fs::read(root.join(&part.scene.mesh)).unwrap()[..4],
-                b"glTF"
-            );
-            for texture in &part.scene.textures {
-                assert!(texture.ends_with(".ktx2") && root.join(texture).is_file());
-            }
+fn appearance(primary: &[u8], source: &[u8], primary_layer: bool) -> Result<(Option<usize>, u32)> {
+    let word = crate::read::u32;
+    let palette = if word(source, 0)? == 0 {
+        primary
+    } else {
+        source
+    };
+    let textures = if word(palette, 0)? == 0 {
+        Vec::new()
+    } else {
+        crate::tpl::parse_tpl(
+            palette
+                .get(word(palette, 0)? as usize..word(palette, 4)? as usize)
+                .context("invalid figurine palette range")?,
+        )?
+    };
+    let selector =
+        crate::all_assets::geometry::model_selectors(source, textures.len().try_into()?)?[2]
+            .map(usize::from);
+    let rows = if primary_layer && let Some(index) = selector {
+        match textures
+            .get(index)
+            .context("invalid figurine appearance texture")?
+            .height
+        {
+            512 => 2,
+            1024 => 4,
+            _ => 0,
         }
-        if id == 172 {
-            assert_eq!(record.name, "Katz");
-            assert_eq!(record.preview.parts[0].scene.clips[0].duration_ticks(), 120);
-        }
-    }
-    assert_eq!(meshes.len(), 271, "model variants should share mesh files");
+    } else {
+        0
+    };
+    Ok((selector, rows))
 }
+
+#[cfg(test)]
+pub(crate) mod tests;

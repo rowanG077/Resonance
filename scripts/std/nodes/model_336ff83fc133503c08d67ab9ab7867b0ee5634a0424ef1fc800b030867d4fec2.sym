@@ -1,0 +1,25 @@
+script library;
+// Skeleton: 336ff83fc133503c08d67ab9ab7867b0ee5634a0424ef1fc800b030867d4fec2
+pub const Node000_Box06: string = "Box06";
+pub const Node001_Object13: string = "ｵﾌﾞｼﾞｪｸﾄ13";
+pub const Node002_Gate2: string = "gate2";
+pub const Node003_Object17: string = "ｵﾌﾞｼﾞｪｸﾄ17";
+pub const Node004_Yr01: string = "yr01";
+pub const Node005_Object20: string = "ｵﾌﾞｼﾞｪｸﾄ20";
+pub const Node006_Object24: string = "ｵﾌﾞｼﾞｪｸﾄ24";
+pub const Node007_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node008_Yr03: string = "yr03";
+pub const Node009_Object38: string = "ｵﾌﾞｼﾞｪｸﾄ38";
+pub const Node010_Object44: string = "ｵﾌﾞｼﾞｪｸﾄ44";
+pub const Node011_Object47: string = "ｵﾌﾞｼﾞｪｸﾄ47";
+pub const Node012_Gate03: string = "gate03";
+pub const Node013_Gate04: string = "gate04";
+pub const Node014_Door_Side000: string = "door_side000";
+pub const Node015_Door_Side03: string = "door_side03";
+pub const Node016_Door_Side05: string = "door_side05";
+pub const Node017_Door_Side07: string = "door_side07";
+pub const Node018_Box150: string = "Box150";
+pub const Node019_P: string = "p";
+pub const Node020_Rtfh: string = "rtfh";
+pub const Node021_Parge_Ground: string = "parge_ground";
+pub const Node022_Radder: string = "radder";

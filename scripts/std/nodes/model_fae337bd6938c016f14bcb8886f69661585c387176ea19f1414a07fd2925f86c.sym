@@ -1,0 +1,7 @@
+script library;
+// Skeleton: fae337bd6938c016f14bcb8886f69661585c387176ea19f1414a07fd2925f86c
+pub const Node000_Trap01: string = "trap01";
+pub const Node001_Trap02: string = "trap02";
+pub const Node002_Trap03: string = "trap03";
+pub const Node003_Trap04: string = "trap04";
+pub const Node004_Trap05: string = "trap05";

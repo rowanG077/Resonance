@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 7743833df05d8d921df3da1cfc66b91186a963e43a893a0d105d84ebd41394aa
+pub const Node000_Mdl_Isa_I03_00_01: string = "mdl_isa_i03_00_01";
+pub const Node001_Mdl_Isa_I03_00_02: string = "mdl_isa_i03_00_02";
+pub const Node002_DOOR01_AUTO_S_PULL_W175: string = "DOOR01_AUTO_S_PULL_W-175";
+pub const Node003_Fire01: string = "fire01";
+pub const Node004_Fire02: string = "fire02";
+pub const Node005_Cartain04: string = "cartain04";
+pub const Node006_Room_Plus_Alpha: string = "room_plus_alpha";

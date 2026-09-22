@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 8ac100e3e71147715ea6f2ea8b88648a5dcf4e4457b015e9e909098b5e9fa945
+pub const Node000_Bh07_01_Outline: string = "bh07_01_outline";
+pub const Node001_Bh07_00: string = "bh07_00";

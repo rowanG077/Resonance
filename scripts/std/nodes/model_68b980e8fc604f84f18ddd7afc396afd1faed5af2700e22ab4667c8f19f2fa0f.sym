@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 68b980e8fc604f84f18ddd7afc396afd1faed5af2700e22ab4667c8f19f2fa0f
+pub const Node000_Regal: string = "regal";

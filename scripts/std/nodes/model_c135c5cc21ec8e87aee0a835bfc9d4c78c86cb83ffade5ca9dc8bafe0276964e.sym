@@ -1,0 +1,4 @@
+script library;
+// Skeleton: c135c5cc21ec8e87aee0a835bfc9d4c78c86cb83ffade5ca9dc8bafe0276964e
+pub const Node000_Takara01: string = "takara01";
+pub const Node001_Takara02: string = "takara02";

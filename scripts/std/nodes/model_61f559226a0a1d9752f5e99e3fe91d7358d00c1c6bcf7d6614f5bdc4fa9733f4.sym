@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 61f559226a0a1d9752f5e99e3fe91d7358d00c1c6bcf7d6614f5bdc4fa9733f4
+pub const Node000_Rea_Bird_Outline: string = "rea_bird_Outline";

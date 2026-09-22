@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 0c31bcb644306c734ee9732de00cf28a422c9dc5a120947b4fbca78e6fe3556f
+pub const Node000_Plane08: string = "Plane08";
+pub const Node001_Plane02: string = "Plane02";
+pub const Node002_Plane06: string = "Plane06";
+pub const Node003_Plane03: string = "Plane03";
+pub const Node004_Ring: string = "ring";
+pub const Node005_Glow01: string = "glow01";
+pub const Node006_Glow02: string = "glow02";
+pub const Node007_Glow03: string = "glow03";
+pub const Node008_Glow04: string = "glow04";
+pub const Node009_Glow05: string = "glow05";
+pub const Node010_Glow06: string = "glow06";
+pub const Node011_Glow07: string = "glow07";
+pub const Node012_Glow08: string = "glow08";

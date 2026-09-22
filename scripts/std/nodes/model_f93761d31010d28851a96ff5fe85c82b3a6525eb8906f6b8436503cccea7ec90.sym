@@ -1,0 +1,3 @@
+script library;
+// Skeleton: f93761d31010d28851a96ff5fe85c82b3a6525eb8906f6b8436503cccea7ec90
+pub const Node000_G_Eff05: string = "g_eff05";

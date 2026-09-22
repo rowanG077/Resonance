@@ -1,0 +1,3 @@
+script library;
+// Skeleton: b7fc5940c1a64ae10e3eaa41899854d8a775cb136e81869d56ff7fd3f4648d55
+pub const Node000_Yuan: string = "yuan";

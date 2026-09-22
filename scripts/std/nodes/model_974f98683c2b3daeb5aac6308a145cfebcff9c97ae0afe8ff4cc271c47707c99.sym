@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 974f98683c2b3daeb5aac6308a145cfebcff9c97ae0afe8ff4cc271c47707c99
+pub const Node000_Al_Plant00_P100: string = "al_plant00_p100";
+pub const Node001_Al_L01_P100: string = "al_l01_p100";
+pub const Node002_Al_Plant01_P100: string = "al_plant01_p100";
+pub const Node003_Al_M_Enkei_P30: string = "al_m_enkei_p30";
+pub const Node004_Al_Bg_01_P25: string = "al_bg_01_p25";
+pub const Node005_Al_Bg_03_P15: string = "al_bg_03_p15";
+pub const Node006_Al_Bg_Ura_02_P15: string = "al_bg_ura_02_p15";
+pub const Node007_Al_Tree_P90: string = "al_tree_p90";
+pub const Node008_Al_Tree_P80: string = "al_tree_p80";

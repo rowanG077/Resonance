@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 33df93870461801a00277ba5e68d5da742009d3274bf831029d0f91a9a75180f
+pub const Node000_Wall: string = "wall";
+pub const Node001_Ramp: string = "ramp";
+pub const Node002_Item: string = "item";

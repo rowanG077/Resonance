@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 2b0a8ddd897f03ff5a655d6e67c7ea0a6d548463e09c9dd112b4edbd2b77bee5
+pub const Node000_Bar_T04_Stone01: string = "bar_t04_Stone01";

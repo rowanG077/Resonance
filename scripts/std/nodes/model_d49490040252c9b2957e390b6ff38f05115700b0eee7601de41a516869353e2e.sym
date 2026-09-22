@@ -1,0 +1,9 @@
+script library;
+// Skeleton: d49490040252c9b2957e390b6ff38f05115700b0eee7601de41a516869353e2e
+pub const Node000_Ground: string = "ground";
+pub const Node001_Mount_Base: string = "mount_base";
+pub const Node002_Sea_Bottom: string = "sea_bottom";
+pub const Node003_Mitibiki_House08: string = "mitibiki_house08";
+pub const Node004_Mitibiki_G3: string = "mitibiki_g3";
+pub const Node005_Moa2: string = "moa2";
+pub const Node006_Moa: string = "moa";

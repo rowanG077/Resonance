@@ -1,0 +1,27 @@
+script library;
+// Skeleton: baa9fb12377ef98d8193debb4798ecd4eec2ccb15fe6ccd9058ea690993a4e73
+pub const Node000_M_Gr_Map00: string = "m_gr_map00";
+pub const Node001_Bone_B_Bri: string = "bone_b_bri";
+pub const Node002_M_Underwater: string = "m_underwater";
+pub const Node003_M_Sky_Sky: string = "m_sky_sky";
+pub const Node004_M_Bri_P_Map05: string = "m_bri_p_map05";
+pub const Node005_M_Bribs_Map06: string = "m_bribs_map06";
+pub const Node006_M_Bribs_Map01: string = "m_bribs_map01";
+pub const Node007_M_Map02: string = "m_map02";
+pub const Node008_Ani_Kanban: string = "ani_kanban";
+pub const Node009_M_Bg: string = "m_bg";
+pub const Node010_Bone_B_Signal: string = "bone_b_signal";
+pub const Node011_M_Bri_Map01: string = "m_bri_map01";
+pub const Node012_M_Low_Bg: string = "m_low_bg";
+pub const Node013_M_Low_Bri_B: string = "m_low_bri_b";
+pub const Node014_M_Low_D02: string = "m_low_d02";
+pub const Node015_M_Low_Bgg: string = "m_low_bgg";
+pub const Node016_Dummy02: string = "Dummy02";
+pub const Node017_Dummy02_Scall: string = "Dummy02_scall";
+pub const Node018_M_Ship_Map03_Event: string = "m_ship_map03_event";
+pub const Node019_M_Shi_Rea_Map03_Event: string = "m_shi_rea_map03_event";
+pub const Node020_Bone_A_Signal: string = "bone_a_signal";
+pub const Node021_Bone_A_Bri: string = "bone_a_bri";
+pub const Node022_Bone_A_Saku: string = "bone_a_saku";
+pub const Node023_Bone_B_Saku: string = "bone_b_saku";
+pub const Node024_M_Bg_P150: string = "m_bg_p150";

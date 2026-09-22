@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 05c5348bb8c9e48cebde4894ea6372a066ed61c544b6bfbc14c22f68cb37a208
+pub const Node000_Base1121Obj863: string = "base1121.obj863";
+pub const Node001_Base1121c_MergeRoom: string = "base1121c_merge.room";
+pub const Node002_DOOR_A_AUTO_PUSH_W175e000: string = "DOOR_a_AUTO_PUSH_W175e000";
+pub const Node003_DOOR_B_AUTO_PUSH_W175e000: string = "DOOR_b_AUTO_PUSH_W175e000";

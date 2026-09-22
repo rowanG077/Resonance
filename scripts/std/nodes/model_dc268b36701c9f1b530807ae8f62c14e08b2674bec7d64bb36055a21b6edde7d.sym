@@ -1,0 +1,5 @@
+script library;
+// Skeleton: dc268b36701c9f1b530807ae8f62c14e08b2674bec7d64bb36055a21b6edde7d
+pub const Node000_Kenin04: string = "kenin04";
+pub const Node001_Light: string = "light";
+pub const Node002_Light_Off: string = "light_off";

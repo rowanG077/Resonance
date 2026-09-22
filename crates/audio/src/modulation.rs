@@ -159,6 +159,14 @@ mod tests {
         assert_eq!(oscillator.value, -4092);
         oscillator.advance(25, &tables);
         assert_eq!(oscillator.value, 0);
+        oscillator.advance(25, &tables);
+        assert_eq!(oscillator.value, 4092);
+        oscillator.set(0, false);
+        oscillator.advance(100, &tables);
+        assert_eq!(
+            oscillator.value, 0,
+            "disabled vibrato must discard its audible value"
+        );
     }
     #[test]
     fn vibrato_combines_fixed_and_modulation_depth_with_integer_rounding() {

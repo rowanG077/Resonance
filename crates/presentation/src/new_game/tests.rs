@@ -9,6 +9,128 @@ fn asset_root() -> std::path::PathBuf {
 }
 
 #[test]
+#[ignore = "requires cooked fields and the captured slope quicksave; no window or audio device"]
+fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
+    use super::super::loading::{FieldPending, Pending, Resident, Task};
+    use std::{
+        fs, thread,
+        time::{Duration, Instant},
+    };
+    fn finish<T: Send + 'static>(task: Task<T>) -> Result<T> {
+        let started = Instant::now();
+        loop {
+            if let Some(result) = task.poll()? {
+                return result;
+            }
+            ensure!(
+                started.elapsed() < Duration::from_secs(30),
+                "field preparation timed out"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    struct Directory(std::path::PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let source_root = Directory(
+        std::env::temp_dir().join(format!("resonance-authored-loading-{}", std::process::id())),
+    );
+    fs::create_dir(&source_root.0).unwrap();
+    fs::write(
+        source_root.0.join("fields.json"),
+        r#"{"332":{"module":"entry","task":"run","on":"entry"}}"#,
+    )
+    .unwrap();
+    let source = "use game::story; use game::field; pub task run() { await field::wait_ticks(2ticks); story::set_flag(2000, true); }";
+    fs::write(source_root.0.join("entry.sym"), source).unwrap();
+    let root = asset_root();
+    let identity = Session::identity(&root).unwrap();
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/milestone-3/slope-quicksave.json");
+    let (header, mut saved): (_, FieldCheckpoint) =
+        resonance_persistence::decode(&fs::read(fixture).unwrap(), &identity).unwrap();
+    saved.progress.event_flags.remove(&2000);
+    saved.progress.event_flags.remove(&2001);
+    let bytes = resonance_persistence::encode(&header, &saved).unwrap();
+    let resident = Resident::default();
+    let mut session = finish(
+        Pending::start(
+            root.clone(),
+            Some(source_root.0.clone()),
+            Some(bytes),
+            &resident,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(!session.field.player_has_control());
+    assert!(session.field.checkpoint().is_err());
+    assert!(!session.field.events.world.event_flags.contains(&2000));
+    for _ in 0..3 {
+        session.field.step(Default::default()).unwrap();
+    }
+    assert!(session.field.events.world.event_flags.contains(&2000));
+    assert!(session.field.player_has_control());
+
+    let previous = session.fields[&332].clone();
+    fs::write(
+        source_root.0.join("entry.sym"),
+        source.replace("2000", "2001"),
+    )
+    .unwrap();
+    let refreshed = finish(
+        FieldPending::field(
+            root.clone(),
+            Some(source_root.0.clone()),
+            332,
+            Some(previous.clone()),
+            &resident,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(Arc::ptr_eq(&previous.files, &refreshed.files));
+    assert!(Arc::ptr_eq(&previous.audio, &refreshed.audio));
+    session.fields.insert(332, Arc::new(refreshed));
+    session.restore(saved).unwrap();
+    for _ in 0..3 {
+        session.field.step(Default::default()).unwrap();
+    }
+    assert!(session.field.events.world.event_flags.contains(&2001));
+    assert!(!session.field.events.world.event_flags.contains(&2000));
+
+    fs::write(
+        source_root.0.join("entry.sym"),
+        "use game::field; pub task run() { await field::notice(\"☃\"); }",
+    )
+    .unwrap();
+    let rejected = finish(
+        FieldPending::field(
+            root,
+            Some(source_root.0.clone()),
+            332,
+            Some(previous),
+            &resident,
+        )
+        .unwrap(),
+    );
+    assert!(
+        rejected
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("prepare authored entry")
+    );
+    assert!(
+        session.field.player_has_control(),
+        "failed preparation leaves the active field usable"
+    );
+}
+
+#[test]
 #[ignore = "requires cooked classroom assets; no window or audio device"]
 fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
     let root = asset_root();
@@ -263,10 +385,14 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
         }
         assert_eq!(session.assets.map_id, map);
         assert_eq!(session.field.story_progress().unwrap(), story);
-        if matches!(map, 330 | 332) {
-            // The optional scenery layer must reach the VM and renderer, not
-            // disappear through a fixed two-entry binding list.
-            for (actor, section) in [(999996, 0), (999998, 2), (999980, 12)] {
+        // Every authored scenery layer keeps its reserved script identity.
+        for (actor, section) in [(999996, 0), (999997, 10), (999980, 12), (999998, 2)] {
+            if session
+                .assets
+                .parts
+                .iter()
+                .any(|part| u32::from(part.resource) == section)
+            {
                 assert_eq!(
                     session.field.events.world.actors[&actor].resource,
                     resonance_content::field::SCENERY_RESOURCE_BASE + section
@@ -475,7 +601,7 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
             persistent,
             data: Some(data),
             position: [-52., -619., 0.],
-            available_fields: PLAYABLE_FIELDS.into(),
+            available_fields: available_fields(&root).unwrap(),
             ..Default::default()
         })
         .unwrap();
@@ -491,7 +617,7 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
         &root,
         package.files,
         Some(field.checkpoint().unwrap()),
-        &mut cache.audio,
+        &mut cache,
     )
     .unwrap();
     audio
@@ -586,7 +712,7 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     hop!(1010, true, 339);
     hop!(1000, true, 332);
     hop!(1001, false, 330);
-    assert_eq!(visited, PLAYABLE_FIELDS.into());
+    assert_eq!(visited, (330..=340).collect());
 
     let mut tutorial = session.field.checkpoint().unwrap();
     tutorial.progress.script_globals[0x40 / 4] = 202000;
@@ -640,7 +766,7 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
 fn moving_slope_checkpoint_survives_cold_and_warm_loads() {
     use sha2::{Digest, Sha256};
     let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let root = project.join("local/cooked");
+    let root = asset_root();
     let bytes = std::fs::read(project.join("local/milestone-3/slope-quicksave.json")).unwrap();
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
@@ -653,8 +779,7 @@ fn moving_slope_checkpoint_survives_cold_and_warm_loads() {
     let ground = resonance_game::field::navigation::WalkMesh::new(&package.assets.ground).unwrap();
     assert!((ground.height(saved.position, 32.).unwrap() - saved.position[2]).abs() > 0.001);
     let mut session =
-        Session::load_prepared(&root, package.files, Some(saved.clone()), &mut cache.audio)
-            .unwrap();
+        Session::load_prepared(&root, package.files, Some(saved.clone()), &mut cache).unwrap();
     for _ in 0..2 {
         let restored = session.field.checkpoint().unwrap();
         assert_eq!(restored.position, saved.position);

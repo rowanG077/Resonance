@@ -1,5 +1,56 @@
-//! Bounded character-animation decompression.
+//! Bounded original cabinet and resource-stream decompression.
 use anyhow::{Context, Result, ensure};
+use std::io::{Cursor, Read};
+
+pub(crate) fn cabinet(bytes: &[u8]) -> Result<(String, Vec<u8>)> {
+    let mut cabinet = cab::Cabinet::new(Cursor::new(bytes))?;
+    let names: Vec<_> = cabinet
+        .folder_entries()
+        .flat_map(|folder| folder.file_entries())
+        .map(|entry| entry.name().to_owned())
+        .collect();
+    ensure!(names.len() == 1, "resource archive needs one payload");
+    let name = names[0].replace('\\', "/");
+    resonance_content::validate_asset_path(&name)?;
+    let mut expanded = Vec::new();
+    cabinet
+        .read_file(&names[0])?
+        .take(64 * 1024 * 1024 + 1)
+        .read_to_end(&mut expanded)?;
+    ensure!(
+        expanded.len() <= 64 * 1024 * 1024,
+        "expanded resource exceeds 64 MiB"
+    );
+    Ok((name, expanded))
+}
+
+pub(crate) fn payload(mut bytes: Vec<u8>) -> Result<Vec<u8>> {
+    for _ in 0..16 {
+        bytes = if bytes.starts_with(b"MSCF") {
+            cabinet(&bytes)?.1
+        } else if let Some(compressed) = member(&bytes) {
+            decode(compressed)?
+        } else {
+            return Ok(bytes);
+        };
+    }
+    anyhow::bail!("resource compression nesting exceeds 16 levels")
+}
+
+pub(crate) fn member(bytes: &[u8]) -> Option<&[u8]> {
+    let header = bytes.get(..9)?;
+    if !matches!(header[0], 0 | 1 | 3) {
+        return None;
+    }
+    let packed = u32::from_le_bytes(header[1..5].try_into().ok()?) as usize;
+    let expanded = u32::from_le_bytes(header[5..9].try_into().ok()?) as usize;
+    let end = 9_usize.checked_add(packed)?;
+    ((1..=16 * 1024 * 1024).contains(&expanded)
+        && end <= bytes.len()
+        && bytes.len() - end < 32
+        && bytes[end..].iter().all(|&byte| byte == 0))
+    .then(|| &bytes[..end])
+}
 
 pub(crate) fn decode(data: &[u8]) -> Result<Vec<u8>> {
     let header = data.get(..9).context("truncated compressed resource")?;

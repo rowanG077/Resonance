@@ -1,0 +1,3 @@
+script library;
+// Skeleton: fdcd12bea74be60372ed389d04e51c849e36da5ae1e309cd768d8da8bdd13717
+pub const Node000_Presea: string = "Presea";

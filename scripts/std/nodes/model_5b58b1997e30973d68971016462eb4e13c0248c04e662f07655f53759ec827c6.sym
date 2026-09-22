@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 5b58b1997e30973d68971016462eb4e13c0248c04e662f07655f53759ec827c6
+pub const Node000_Book_00: string = "book_00";

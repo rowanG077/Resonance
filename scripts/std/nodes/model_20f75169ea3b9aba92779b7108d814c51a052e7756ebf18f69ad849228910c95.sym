@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 20f75169ea3b9aba92779b7108d814c51a052e7756ebf18f69ad849228910c95
+pub const Node000_Line_R: string = "line_r";

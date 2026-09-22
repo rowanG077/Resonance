@@ -1,0 +1,7 @@
+script library;
+// Skeleton: b42bc1ef53a77401fcd449c95d92f3d37d8075ba73673eb02ed1c1dabb7a61dc
+pub const Node000_Cliff00: string = "cliff00";
+pub const Node001_DOOR01_AUTO_PUSH_W177e374: string = "DOOR01_AUTO_PUSH_W177e374";
+pub const Node002_Kraft_House: string = "kraft_house";
+pub const Node003_Komono: string = "komono";
+pub const Node004_Komono2: string = "komono2";

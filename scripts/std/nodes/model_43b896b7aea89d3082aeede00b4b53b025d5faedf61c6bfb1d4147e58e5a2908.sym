@@ -1,0 +1,25 @@
+script library;
+// Skeleton: 43b896b7aea89d3082aeede00b4b53b025d5faedf61c6bfb1d4147e58e5a2908
+pub const Node000_Flower3: string = "flower3";
+pub const Node001_Flower1: string = "flower1";
+pub const Node002_Fog_2: string = "fog_2";
+pub const Node003_Fog_1: string = "fog_1";
+pub const Node004_Fog3: string = "fog3";
+pub const Node005_Glass_Fog: string = "glass_fog";
+pub const Node006_C_4: string = "c_4";
+pub const Node007_C_1: string = "c_1";
+pub const Node008_Pole01: string = "pole01";
+pub const Node009_Pole02: string = "pole02";
+pub const Node010_Pole03: string = "pole03";
+pub const Node011_G_C_02: string = "g_c_02";
+pub const Node012_Motif_L01: string = "motif_l01";
+pub const Node013_C_05: string = "c_05";
+pub const Node014_C_06: string = "c_06";
+pub const Node015_G_03: string = "g_03";
+pub const Node016_Glow_001: string = "glow_001";
+pub const Node017_Flower2: string = "flower2";
+pub const Node018_Plane02: string = "Plane02";
+pub const Node019_Plane04: string = "Plane04";
+pub const Node020_Cylinder02: string = "Cylinder02";
+pub const Node021_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node022_Cylinder03: string = "Cylinder03";

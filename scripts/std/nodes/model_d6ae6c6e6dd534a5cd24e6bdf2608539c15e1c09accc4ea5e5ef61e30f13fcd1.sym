@@ -1,0 +1,11 @@
+script library;
+// Skeleton: d6ae6c6e6dd534a5cd24e6bdf2608539c15e1c09accc4ea5e5ef61e30f13fcd1
+pub const Node000_Mdl_Vmh_D02__Iwa: string = "mdl_vmh_d02__iwa";
+pub const Node001_Ki_R02: string = "ki_R02";
+pub const Node002_Yunkeru_Ki_03: string = "yunkeru_ki_03";
+pub const Node003_Mi: string = "mi";
+pub const Node004_Obj1: string = "obj1";
+pub const Node005_Kawazoko_D00: string = "kawazoko_d00";
+pub const Node006_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node007_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node008_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";

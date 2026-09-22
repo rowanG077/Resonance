@@ -1,0 +1,3 @@
+script library;
+// Skeleton: e17f090dcc66adc5e5ed16f2f1d385fa4fcf886a9314e816e490028a7e14a78f
+pub const Node000_Box: string = "box";

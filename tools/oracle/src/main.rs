@@ -38,7 +38,7 @@ enum Command {
         output: PathBuf,
         #[command(flatten)]
         changes: Box<inventory_fixture::Changes>,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         cooked: PathBuf,
     },
     /// Index lossless Dolphin video by VI timestamp and extract requested frames.
@@ -57,7 +57,7 @@ enum Command {
         case: PathBuf,
         #[arg(long)]
         disc: PathBuf,
-        #[arg(long, default_value = "local/cooked")]
+        #[arg(long, default_value = "local/all-assets")]
         cooked: PathBuf,
         #[arg(long)]
         output: PathBuf,

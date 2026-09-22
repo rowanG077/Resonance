@@ -39,6 +39,7 @@ fn preserves_envelope_pcm_and_rejects_damaged_controls_and_samples() {
             volume_16_scale: 1. / (127. * 65536.),
             controller_14_scale: 1. / 16383.,
             pan_16_scale: 1. / (63. * 65536.),
+            spatial: None,
         },
         cues: BTreeMap::from([(
             "navigate".into(),

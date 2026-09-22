@@ -1,0 +1,3 @@
+script library;
+// Skeleton: ed02c535f5fabf40f21bb0529ff1fe62c63fc53a0239ebd2798843ad53801f8b
+pub const Node000_Kabotya: string = "kabotya";

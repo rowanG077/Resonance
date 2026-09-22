@@ -1,0 +1,8 @@
+script library;
+// Skeleton: db6f26997cc0948166a29ab397322f58d93319b80b9e3e0a309c866e8835844c
+pub const Node000_Glass: string = "glass";
+pub const Node001_Light: string = "light";
+pub const Node002_Glass_Kai1: string = "glass_kai1";
+pub const Node003_Plane01: string = "Plane01";
+pub const Node004_Object01: string = "Object01";
+pub const Node005_Object02: string = "Object02";

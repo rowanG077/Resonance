@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 94f8e4f8573d499bbf63eb77c72a5141b275aae8c52936c41e34b1dc94990e29
+pub const Node000_Sida: string = "sida";
+pub const Node001_Kusa: string = "kusa";
+pub const Node002_Ha_R: string = "ha_R";
+pub const Node003_Kusa01: string = "kusa01";
+pub const Node004_Tuta00: string = "tuta00";
+pub const Node005_Hana: string = "hana";
+pub const Node006_Kusa_Long: string = "kusa_long";
+pub const Node007_Kusa02: string = "kusa02";
+pub const Node008_Kusa03: string = "kusa03";
+pub const Node009_Kusa05: string = "kusa05";

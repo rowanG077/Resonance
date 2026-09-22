@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 1564977458c1c390564ddd2be893cb96141d7f478de591ca173789197b41c47d
+pub const Node000_S: string = "s";
+pub const Node001_S01: string = "s01";
+pub const Node002_S02: string = "s02";
+pub const Node003_S03: string = "s03";
+pub const Node004_S04: string = "s04";
+pub const Node005_S05: string = "s05";
+pub const Node006_S06: string = "s06";
+pub const Node007_S07: string = "s07";
+pub const Node008_Moa_D01_Light00: string = "moa_d01_light00";
+pub const Node009_Moa_D01_Light01: string = "moa_d01_light01";

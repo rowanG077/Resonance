@@ -1,4 +1,5 @@
 use super::*;
+use crate::figurines::tests::compare_scene_assets;
 
 #[test]
 #[ignore = "requires locally cooked monster assets"]
@@ -48,4 +49,44 @@ fn catalogue_matches_oracle_statistics_and_uses_converted_assets() {
             );
         }
     }
+}
+
+#[test]
+#[ignore = "requires extracted discs and prepared assets; RESONANCE_COOKED selects the baseline"]
+fn shared_monster_preparation_preserves_every_catalogue_record_and_preview() -> Result<()> {
+    let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
+    let baseline = std::env::var_os("RESONANCE_COOKED")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| local.join("all-assets"));
+    let expected: resonance_content::menu_data::MenuData =
+        serde_json::from_slice(&fs::read(baseline.join("game/menu-data.json"))?)?;
+    for disc in [1, 2] {
+        let output = tempfile::tempdir()?;
+        let extracted = local.join(format!("extracted/disc{disc}"));
+        let executable = fs::read(extracted.join("sys/main.dol"))?;
+        let actual = prepare(
+            &extracted,
+            output.path(),
+            &executable,
+            &crate::all_assets::monster_catalogue::read(&executable)?,
+            &inventory_ui::read(&executable)?,
+        )?;
+        ensure!(
+            serde_json::to_value(&actual)? == serde_json::to_value(&expected.monsters)?,
+            "disc {disc} monsters metadata differs from the prepared baseline"
+        );
+        for monster in &actual.records {
+            for (index, part) in monster.preview.parts.iter().enumerate() {
+                compare_scene_assets(&part.scene, output.path(), &baseline)
+                    .with_context(|| format!("disc {disc} monster {} layer {index}", monster.id))?;
+            }
+        }
+        for legacy in ["assets", "data", "sources.json"] {
+            ensure!(
+                !output.path().join(legacy).exists(),
+                "source preparation recreated {legacy}"
+            );
+        }
+    }
+    Ok(())
 }

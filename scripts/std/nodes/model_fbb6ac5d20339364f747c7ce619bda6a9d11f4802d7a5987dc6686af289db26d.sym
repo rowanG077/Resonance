@@ -1,0 +1,5 @@
+script library;
+// Skeleton: fbb6ac5d20339364f747c7ce619bda6a9d11f4802d7a5987dc6686af289db26d
+pub const Node000_Mdl_Hol_D01: string = "mdl_hol_d01";
+pub const Node001_Door01: string = "door01";
+pub const Node002_Door02: string = "door02";

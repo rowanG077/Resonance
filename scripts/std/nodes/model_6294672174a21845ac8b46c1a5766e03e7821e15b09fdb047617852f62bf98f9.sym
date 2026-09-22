@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 6294672174a21845ac8b46c1a5766e03e7821e15b09fdb047617852f62bf98f9
+pub const Node000_E: string = "e";
+pub const Node001_Ring_02: string = "ring_02";
+pub const Node002_Box09: string = "Box09";
+pub const Node003_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

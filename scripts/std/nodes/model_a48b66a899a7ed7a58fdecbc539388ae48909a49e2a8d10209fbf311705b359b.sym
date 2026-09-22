@@ -1,0 +1,12 @@
+script library;
+// Skeleton: a48b66a899a7ed7a58fdecbc539388ae48909a49e2a8d10209fbf311705b359b
+pub const Node000_Mount_Out_Line04: string = "mount_out_line04";
+pub const Node001_Mount_Base: string = "mount_base";
+pub const Node002_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node003_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node004_Object07: string = "ｵﾌﾞｼﾞｪｸﾄ07";
+pub const Node005_Object32: string = "ｵﾌﾞｼﾞｪｸﾄ32";
+pub const Node006_Fla_Wall: string = "fla_wall";
+pub const Node007_Object12: string = "ｵﾌﾞｼﾞｪｸﾄ12";
+pub const Node008_Moa2: string = "moa2";
+pub const Node009_Moa: string = "moa";

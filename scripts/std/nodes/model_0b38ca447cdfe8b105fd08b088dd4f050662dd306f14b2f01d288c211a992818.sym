@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 0b38ca447cdfe8b105fd08b088dd4f050662dd306f14b2f01d288c211a992818
+pub const Node000_Window_Grass: string = "window_grass";

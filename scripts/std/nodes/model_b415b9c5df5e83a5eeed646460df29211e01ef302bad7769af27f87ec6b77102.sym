@@ -1,0 +1,5 @@
+script library;
+// Skeleton: b415b9c5df5e83a5eeed646460df29211e01ef302bad7769af27f87ec6b77102
+pub const Node000_Box286: string = "Box286";
+pub const Node001_Box288: string = "Box288";
+pub const Node002_Box287: string = "Box287";

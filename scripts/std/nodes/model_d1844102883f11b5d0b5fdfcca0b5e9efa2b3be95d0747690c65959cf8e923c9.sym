@@ -1,0 +1,12 @@
+script library;
+// Skeleton: d1844102883f11b5d0b5fdfcca0b5e9efa2b3be95d0747690c65959cf8e923c9
+pub const Node000_Hahen_00: string = "hahen_00";
+pub const Node001_Wa_02: string = "wa_02";
+pub const Node002_Wa_01: string = "wa_01";
+pub const Node003_Wa_03: string = "wa_03";
+pub const Node004_Hahen_01: string = "hahen_01";
+pub const Node005_Hahen_02: string = "hahen_02";
+pub const Node006_Lightning00: string = "lightning00";
+pub const Node007_Lightning01: string = "lightning01";
+pub const Node008_Lightning02: string = "lightning02";
+pub const Node009_Lightning03: string = "lightning03";

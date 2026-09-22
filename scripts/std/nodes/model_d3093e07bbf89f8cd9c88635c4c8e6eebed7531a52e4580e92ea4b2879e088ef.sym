@@ -1,0 +1,7 @@
+script library;
+// Skeleton: d3093e07bbf89f8cd9c88635c4c8e6eebed7531a52e4580e92ea4b2879e088ef
+pub const Node000_DOOR_AUTO_PULL_W175e000: string = "DOOR_AUTO_PULL_W-175e000";
+pub const Node001_Rui_I02_013: string = "rui_i02_01-3";
+pub const Node002_Rui_I02_012: string = "rui_i02_01-2";
+pub const Node003_Rui_I02_000: string = "rui_i02_00-0";
+pub const Node004_Rui_I02_001: string = "rui_i02_00-1";

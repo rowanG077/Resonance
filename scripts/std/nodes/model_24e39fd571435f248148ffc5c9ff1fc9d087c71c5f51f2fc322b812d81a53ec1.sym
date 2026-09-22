@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 24e39fd571435f248148ffc5c9ff1fc9d087c71c5f51f2fc322b812d81a53ec1
+pub const Node000_Bone: string = "Bone";
+pub const Node001_Bone_Dou: string = "Bone_dou";
+pub const Node002_Bone_Dou01_L: string = "Bone_dou01_L";
+pub const Node003_Bone_Dou02_L: string = "Bone_dou02_L";
+pub const Node004_Bone_Dou03_L: string = "Bone_dou03_L";
+pub const Node005_Bone_Dou04_L: string = "Bone_dou04_L";
+pub const Node006_Bone_Dou05_L: string = "Bone_dou05_L";
+pub const Node007_Bone_Dou06_L: string = "Bone_dou06_L";
+pub const Node011_Bone_Dou05_R: string = "Bone_dou05_R";
+pub const Node012_Bone_Dou06_R: string = "Bone_dou06_R";
+pub const Node013_Bone_Dou04_R: string = "Bone_dou04_R";
+pub const Node014_Bone_Dou03_R: string = "Bone_dou03_R";
+pub const Node015_Bone_Dou02_R: string = "Bone_dou02_R";
+pub const Node016_Bone_Dou01_R: string = "Bone_dou01_R";
+pub const Tail01: string = "Bone_tail01";
+pub const Tail02: string = "Bone_tail02";
+pub const Tail03: string = "Bone_tail03";

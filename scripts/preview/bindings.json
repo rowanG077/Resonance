@@ -1,0 +1,22 @@
+[
+  {
+    "select": {"figurines": ["Efreet"]},
+    "module": "preview::efreet",
+    "function": "apply"
+  },
+  {
+    "select": {"monsters": ["Yggdrasill236", "Yggdrasill237", "Yggdrasill238"]},
+    "module": "preview::hide_attachment",
+    "function": "apply"
+  },
+  {
+    "select": {"monsters": ["TheFugitive", "TheNeglected", "TheJudged"]},
+    "module": "preview::smaller_wings",
+    "function": "apply"
+  },
+  {
+    "select": {"monsters": ["SwordDancer"]},
+    "module": "preview::sword_dancer",
+    "function": "apply"
+  }
+]

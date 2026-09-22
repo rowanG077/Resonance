@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 211a3fc806150adedab63e8e2a89596761182d7394861c3dda08931cc64792cb
+pub const Node000_Number01: string = "01";
+pub const Node001_Number01sky: string = "01sky";
+pub const Node002_Number03: string = "03";
+pub const Node003_Number02: string = "02";
+pub const Node004_Number03_2: string = "03_2";
+pub const Node005_Number03_3: string = "03_3";
+pub const Node006_Number03_4b: string = "03_4b";
+pub const Node007_Number03_4a: string = "03_4a";

@@ -9,7 +9,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 struct Shared {
@@ -108,6 +108,23 @@ impl MovieStream {
     pub fn dropped_frames(&self) -> u64 {
         self.shared.dropped.load(Ordering::Relaxed)
     }
+    /// Offline consumers can outrun decoding after loading or GPU stalls. Wait
+    /// before pulling PCM; live mixer and device callbacks must never call this.
+    pub fn wait_for_audio(&self, frames: u64, timeout: Duration) -> Result<()> {
+        let started = Instant::now();
+        loop {
+            self.check()?;
+            if self.shared.audio.finished() || self.shared.audio.buffered() >= frames {
+                return Ok(());
+            }
+            ensure!(
+                started.elapsed() < timeout,
+                "movie audio preparation timed out: {frames} frames requested, {} buffered",
+                self.shared.audio.buffered()
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
     pub fn check(&self) -> Result<()> {
         if let Some(error) = self
             .shared
@@ -128,5 +145,63 @@ impl MovieStream {
 impl Drop for MovieStream {
     fn drop(&mut self) {
         self.shared.cancelled.store(true, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn offline_audio_waits_for_decoding_and_preserves_eof_errors_and_timeout() -> Result<()> {
+        let shared = Arc::new(Shared {
+            audio: Arc::new(Pcm::new(32028)),
+            video: Mutex::new(VecDeque::new()),
+            cancelled: AtomicBool::new(false),
+            complete: AtomicBool::new(false),
+            retired: AtomicBool::new(false),
+            dropped: AtomicU64::new(0),
+            error: Mutex::new(None),
+        });
+        let stream = MovieStream {
+            shared: shared.clone(),
+        };
+        let (send, receive) = mpsc::channel();
+        let waiter = thread::spawn(move || {
+            send.send(stream.wait_for_audio(2, Duration::from_secs(5)))
+                .unwrap();
+            stream
+        });
+        assert!(matches!(
+            receive.recv_timeout(Duration::from_millis(10)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        shared.audio.push(0, vec![1., 2., 3., 4.])?;
+        receive.recv_timeout(Duration::from_secs(5))??;
+        let stream = waiter.join().unwrap();
+        assert_eq!(
+            shared.audio.source(false).take(4).collect::<Vec<_>>(),
+            [1., 2., 3., 4.]
+        );
+        assert_eq!(shared.audio.underruns(), 0);
+        assert!(
+            stream
+                .wait_for_audio(1, Duration::ZERO)
+                .unwrap_err()
+                .to_string()
+                .contains("timed out")
+        );
+        shared.audio.finish();
+        stream.wait_for_audio(1, Duration::ZERO)?;
+        *shared.error.lock().unwrap() = Some("decoder failed".into());
+        assert!(
+            stream
+                .wait_for_audio(1, Duration::ZERO)
+                .unwrap_err()
+                .to_string()
+                .contains("decoder failed")
+        );
+        Ok(())
     }
 }

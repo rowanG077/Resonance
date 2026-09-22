@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 2c80144206afe892bc402bd3b0afd9022b5c9fbd3da2c40ab8e321cc28ae780a
+pub const Node000_Jimen: string = "jimen";
+pub const Node001_Number512B: string = "512B";
+pub const Node002_Sea_Soko: string = "sea_soko";
+pub const Node003_Number512: string = "512";
+pub const Node004_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node005_DOOR01_AUTO_S_PUSH_W175e788: string = "DOOR01_AUTO_S_PUSH_W175e788";
+pub const Node006_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node007_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node008_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";

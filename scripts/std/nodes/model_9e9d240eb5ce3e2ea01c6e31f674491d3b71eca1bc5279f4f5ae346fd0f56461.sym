@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 9e9d240eb5ce3e2ea01c6e31f674491d3b71eca1bc5279f4f5ae346fd0f56461
+pub const Node000_Mark: string = "mark";

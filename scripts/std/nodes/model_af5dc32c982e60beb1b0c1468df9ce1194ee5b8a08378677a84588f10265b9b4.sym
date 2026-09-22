@@ -1,0 +1,16 @@
+script library;
+// Skeleton: af5dc32c982e60beb1b0c1468df9ce1194ee5b8a08378677a84588f10265b9b4
+pub const Node000_Null_Base_Top: string = "Null_Base_top";
+pub const Node001_Circle01: string = "Circle01";
+pub const Node002_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node003_Circle02: string = "Circle02";
+pub const Node004_Circle03: string = "Circle03";
+pub const Node005_Circle04: string = "Circle04";
+pub const Node006_Cylinder04: string = "Cylinder04";
+pub const Node007_GeoSphere01: string = "GeoSphere01";
+pub const Node008_GeoSphere02: string = "GeoSphere02";
+pub const Node009_GeoSphere03: string = "GeoSphere03";
+pub const Node010_GeoSphere04: string = "GeoSphere04";
+pub const Node011_GeoSphere05: string = "GeoSphere05";
+pub const Node012_GeoSphere06: string = "GeoSphere06";
+pub const Node013_GeoSphere07: string = "GeoSphere07";

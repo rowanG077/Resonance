@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 2e3771a82dd3ff23ef1443cfb136f9d7278ab7fd348a633c26395d3fad4ab61a
+pub const Head: string = "Bone_head";
+pub const Node000_Mouse: string = "mouse";
+pub const Node001_A_Bone: string = "A_Bone";
+pub const Node002_Bone_Body1: string = "Bone_body1";
+pub const Node003_Bone_Body2: string = "Bone_body2";
+pub const Node005_Bone_Fashi1_L: string = "Bone_Fashi1_L";
+pub const Node006_Bone_Fashi2_L: string = "Bone_Fashi2_L";
+pub const Node007_Bone_Fashi3_L: string = "Bone_Fashi3_L";
+pub const Node008_Bone_Fashi1_R: string = "Bone_Fashi1_R";
+pub const Node009_Bone_Fashi2_R: string = "Bone_Fashi2_R";
+pub const Node010_Bone_Fashi3_R: string = "Bone_Fashi3_R";
+pub const Node011_Bone_Bashi1_L: string = "Bone_Bashi1_L";
+pub const Node012_Bone_Bashi2_L: string = "Bone_Bashi2_L";
+pub const Node013_Bone_Bashi3_L: string = "Bone_Bashi3_L";
+pub const Node014_Bone_Bashi4_L: string = "Bone_Bashi4_L";
+pub const Node017_Bone_Bashi1_R: string = "Bone_Bashi1_R";
+pub const Node018_Bone_Bashi2_R: string = "Bone_Bashi2_R";
+pub const Node019_Bone_Bashi3_R: string = "Bone_Bashi3_R";
+pub const Node020_Bone_Bashi4_R: string = "Bone_Bashi4_R";
+pub const Tail1: string = "Bone_tail1";
+pub const Tail2: string = "Bone_tail2";

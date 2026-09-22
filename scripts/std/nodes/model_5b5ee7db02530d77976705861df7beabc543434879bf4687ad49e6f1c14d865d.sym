@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 5b5ee7db02530d77976705861df7beabc543434879bf4687ad49e6f1c14d865d
+pub const Node000_Object11: string = "ｵﾌﾞｼﾞｪｸﾄ11";
+pub const Node001_Cylinder02: string = "Cylinder02";
+pub const Node002_Cylinder03: string = "Cylinder03";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node004_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node005_DOOR01_AUTO_PULL_W175: string = "DOOR01_AUTO_PULL_W-175";

@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 5765ef2cba440ef571a420a861e66eee9921a9f9fdc2faead9835bd9d7f7dcc8
+pub const Node000_Light2: string = "light2";
+pub const Node001_Light1: string = "light1";
+pub const Node002_Glass: string = "glass";
+pub const Node003_Glass_Ura: string = "glass_ura";

@@ -1,9 +1,10 @@
 //! Apply native skeletal adjustments and attachments to ordinary scene bones.
+use super::sparse_animation::affine::{Helper as TransformHelper, Locals, Pose};
 use super::{
     field_audit::{Applied, Request},
     field_view::{ActorPart, State},
 };
-use bevy::{prelude::*, transform::helper::TransformHelper};
+use bevy::prelude::*;
 use std::collections::BTreeMap;
 
 /// glTF geometry nodes and their primitive children can repeat bone names.
@@ -44,16 +45,18 @@ pub(super) fn restore(mut saved: ResMut<Authored>, mut nodes: Query<&mut Transfo
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy injects the independent scene queries and pose resources.
 pub(super) fn bones(
     state: State,
-    actors: Query<(Entity, &ActorPart)>,
+    actors: Query<(Entity, &ActorPart, Option<&super::field_animation::Rig>)>,
     children: Query<&Children>,
     names: Query<&Name>,
     mut nodes: Query<&mut Transform>,
+    mut affine: ResMut<Locals>,
     mut saved: ResMut<Authored>,
     mut applied: ResMut<Applied>,
 ) {
-    for (root, part) in &actors {
+    for (root, part, rig) in &actors {
         let Some(actor) = state.get().events.world.actors.get(&part.actor) else {
             continue;
         };
@@ -64,11 +67,14 @@ pub(super) fn bones(
             continue;
         }
         for (&slot, adjustment) in &actor.appearance.bone_adjustments {
-            let entity = children.iter_descendants(root).find(|entity| {
-                names
-                    .get(*entity)
-                    .is_ok_and(|name| name.as_str() == adjustment.bone)
-            });
+            let entity = match &adjustment.bone {
+                resonance_events::BoneTarget::Index(index) => {
+                    rig.and_then(|rig| rig.bone_at(*index))
+                }
+                resonance_events::BoneTarget::Name(bone) => children
+                    .iter_descendants(root)
+                    .find(|entity| names.get(*entity).is_ok_and(|name| name.as_str() == bone)),
+            };
             if let Some(entity) = entity
                 && let Ok(mut transform) = nodes.get_mut(entity)
             {
@@ -76,19 +82,24 @@ pub(super) fn bones(
                 let [x, y, z] = adjustment
                     .sample(state.get().events.tick())
                     .map(f32::to_radians);
-                transform.rotation *= Quat::from_euler(EulerRot::ZYX, z, y, x);
+                affine.rotate(
+                    entity,
+                    &mut transform,
+                    Quat::from_euler(EulerRot::ZYX, z, y, x),
+                );
                 applied.ack(Request::Bone(part.actor, part.part, slot));
             }
         }
     }
 }
 
+#[allow(clippy::type_complexity)] // Read attachment world poses before writing their local transforms.
 pub(super) fn attachments(
     state: State,
     actors: Query<(Entity, &ActorPart)>,
     children: Query<&Children>,
     names: Query<&Name>,
-    mut transforms: ParamSet<(TransformHelper, Query<&mut Transform>)>,
+    mut transforms: ParamSet<(TransformHelper, (Query<&mut Transform>, ResMut<Locals>))>,
     mut applied: ResMut<Applied>,
 ) {
     let mut targets = Vec::new();
@@ -120,17 +131,19 @@ pub(super) fn attachments(
         {
             let local = Transform::from_translation(Vec3::from_array(actor.position))
                 .with_rotation(Quat::from_rotation_z(actor.heading.to_radians()));
-            targets.push((
-                root,
-                part.actor,
-                part.part,
-                pose.mul_transform(local).compute_transform(),
-            ));
+            let pose = pose.mul_transform(local);
+            let target = if helper.has_affine(bone) {
+                Pose::Affine(pose.affine())
+            } else {
+                Pose::Trs(pose.compute_transform())
+            };
+            targets.push((root, part.actor, part.part, target));
         }
     }
+    let (mut nodes, mut affine) = transforms.p1();
     for (root, actor, part, target) in targets {
-        if let Ok(mut transform) = transforms.p1().get_mut(root) {
-            *transform = target;
+        if let Ok(mut transform) = nodes.get_mut(root) {
+            affine.set(root, &mut transform, target);
             applied.ack(Request::Attachment(actor, part));
         }
     }

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 5104ca8f359c95fed8de3af2bac846dc77d871d6029e8f3f4ad546c313815403
+pub const Node000_Shikenkan: string = "shikenkan";
+pub const Node001_Beeker_Water: string = "beeker_Water";
+pub const Node002_Beeker: string = "beeker";
+pub const Node003_Bin_Inside: string = "bin_inside";
+pub const Node004_Futa: string = "futa";
+pub const Node005_Bin: string = "bin";

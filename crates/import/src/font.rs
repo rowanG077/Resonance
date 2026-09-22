@@ -1,7 +1,9 @@
 //! Two-bit bitmap font atlas and proportional glyph metrics.
 use crate::{digest, dol, write_atomic};
 use anyhow::{Context, Result, ensure};
-use resonance_content::font::{BitmapFont, DialogueArt, Glyph, UiTexture};
+use resonance_content::font::{BitmapFont, DialogueArt, Glyph, MovieSubtitles};
+mod layout;
+pub(crate) use layout::system_texture;
 use std::{collections::BTreeMap, fs, path::Path};
 
 /// System strings store literal palette changes, rather than script expressions.
@@ -73,39 +75,68 @@ mod system_text_tests {
     }
 }
 
-pub fn cook(extracted: &Path, output: &Path) -> Result<()> {
-    cook_repertoire(extracted, output, &Default::default())
+pub(crate) struct PreparedDialogue {
+    pub font: BitmapFont,
+    pub art: DialogueArt,
 }
 
-pub(crate) fn cook_repertoire(
-    extracted: &Path,
-    output: &Path,
-    required: &std::collections::BTreeSet<char>,
-) -> Result<()> {
-    let source = fs::read(extracted.join("files/u_f_fontb0.dat"))?;
+pub(crate) use layout::prepare;
+
+/// Dialogue repertoire, subtitles, windows and selection layout, without field preparation.
+pub(crate) fn cook_embedded(extracted: &Path, output: &Path) -> Result<()> {
     let executable = fs::read(extracted.join("sys/main.dol"))?;
-    // The dialogue font uses this four-color palette.
-    let mapping = dol::slice(&executable, 0x801F8984, 96 * 2)?;
-    let palette = dol::slice(&executable, 0x801F88A0, 8)?;
-    let colors: Vec<_> = palette
-        .chunks_exact(2)
-        .map(|p| rgb5a3(u16::from_be_bytes(p.try_into().unwrap())))
-        .collect();
+    read_font(extracted, &executable)?.publish(output)?;
+    write_atomic(
+        &output.join("embedded/dialogue.json"),
+        &serde_json::to_vec_pretty(&layout::Recipe::read(&executable)?)?,
+    )
+}
+
+struct DecodedFont {
+    font: BitmapFont,
+    pixels: Vec<u8>,
+    subtitles: MovieSubtitles,
+}
+
+impl DecodedFont {
+    fn publish(self, output: &Path) -> Result<BitmapFont> {
+        crate::texture::cook(
+            self.font.width,
+            self.font.height,
+            &self.pixels,
+            &output.join(&self.font.texture),
+        )?;
+        for (path, bytes) in [
+            (
+                "fonts/dialogue.json",
+                serde_json::to_vec_pretty(&self.font)?,
+            ),
+            (
+                "ui/story-subtitles.json",
+                serde_json::to_vec_pretty(&self.subtitles)?,
+            ),
+        ] {
+            write_atomic(&output.join(path), &bytes)?;
+        }
+        Ok(self.font)
+    }
+}
+
+fn read_font(extracted: &Path, executable: &[u8]) -> Result<DecodedFont> {
+    let directory = crate::font_directory::Directory::read(executable)?;
+    let files = extracted.join("files");
+    let source = fs::read(files.join(crate::field_resources::resolve_path(
+        &files,
+        &directory.startup,
+    )?))?;
+    crate::font_directory::validate_size(source.len() as u64)?;
+    let colors = directory.palette.map(rgb5a3);
     // Cook the font's complete first three Shift-JIS pages, including both
     // quotation marks. A single sampled conversation is not a font inventory.
-    let mut repertoire: Vec<(char, u16)> = (32u8..127)
-        .map(|byte| {
-            let i = usize::from(byte - 32);
-            (
-                char::from(byte),
-                if byte == b'^' {
-                    0x81a7
-                } else {
-                    u16::from_be_bytes(mapping[i * 2..i * 2 + 2].try_into().unwrap())
-                },
-            )
-        })
-        .collect();
+    let mut repertoire = (32u8..127)
+        .map(char::from)
+        .map(|character| Ok((character, directory.metrics.code(character)?)))
+        .collect::<Result<Vec<_>>>()?;
     for code in 0x8140u16..0x8440 {
         if code & 255 < 0x40 {
             continue;
@@ -130,6 +161,7 @@ pub(crate) fn cook_repertoire(
     // A white texel in the outer gutter supports ordinary solid UI quads.
     rgba[..4].fill(255);
     let mut glyphs = BTreeMap::new();
+    let mut native_glyphs = BTreeMap::new();
     for (i, (character, code)) in repertoire.into_iter().enumerate() {
         let pixels = decode_glyph(&source, code)?;
         let x = (i as u32 % 16) * 26 + 1;
@@ -141,35 +173,38 @@ pub(crate) fn cook_repertoire(
                     .copy_from_slice(&colors[usize::from(pixels[(row * 24 + column) as usize])]);
             }
         }
-        let advance = glyph_advance(&executable, code)?;
+        let advance = directory.metrics.advance(code);
+        let glyph = Glyph {
+            rect: [x, y, 24, 24],
+            advance,
+        };
+        native_glyphs.insert(code, glyph.clone());
+        glyphs.insert(character, glyph);
+    }
+    // Single-byte kana retain their Unicode identity and share the native
+    // bitmap selected by the alternate character table.
+    for character in '\u{ff61}'..='\u{ff9f}' {
+        let code = directory.metrics.code(character)?;
         glyphs.insert(
             character,
-            Glyph {
-                rect: [x, y, 24, 24],
-                advance,
-            },
+            native_glyphs
+                .get(&code)
+                .context("halfwidth font bitmap is missing")?
+                .clone(),
         );
     }
     let fallback = glyphs.remove(&'\u{fffd}').unwrap();
     for character in fallback_characters() {
         glyphs.entry(character).or_insert_with(|| fallback.clone());
     }
-    for character in required {
-        ensure!(
-            matches!(character, '\n' | '\r' | '\u{c}') || glyphs.contains_key(character),
-            "source font cannot represent {character:?}"
-        );
-    }
-    for skit in crate::skit::definitions(&executable)? {
+    for skit in crate::all_assets::skits::definitions_from_source(executable)? {
         ensure!(
             skit.title.chars().all(|c| glyphs.contains_key(&c)),
             "source font cannot represent skit {}",
             skit.id
         );
     }
-    fs::create_dir_all(output.join("fonts"))?;
     let texture = "fonts/dialogue.ktx2";
-    crate::texture::cook(width, height, &rgba, &output.join(texture))?;
     let font = BitmapFont {
         version: 1,
         texture: texture.into(),
@@ -178,27 +213,16 @@ pub(crate) fn cook_repertoire(
         line_height: 24,
         glyphs,
         source_sha256: digest(&source),
-        executable_sha256: digest(&executable),
+        executable_sha256: digest(executable),
     };
     font.validate()?;
-    cook_subtitles(&executable, output, &font)?;
-    write_atomic(
-        &output.join("fonts/dialogue.json"),
-        &serde_json::to_vec_pretty(&font)?,
-    )?;
-    cook_windows(extracted, output)?;
-    crate::menu::cook(extracted, &executable, output)?;
-    Ok(())
+    let subtitles = read_subtitles(executable, &font)?;
+    Ok(DecodedFont {
+        font,
+        pixels: rgba,
+        subtitles,
+    })
 }
-pub(crate) fn glyph_advance(executable: &[u8], code: u16) -> Result<u32> {
-    if !(0x8140..=0x829a).contains(&code) {
-        return Ok(24);
-    }
-    let index = u32::from((code >> 8) - 0x81) * 192 + u32::from((code & 255) - 0x40);
-    let value = dol::slice(executable, 0x801f9680 + index, 1)?[0];
-    Ok(if value == 0 { 24 } else { u32::from(value) })
-}
-
 fn fallback_characters() -> impl Iterator<Item = char> {
     (0x8440u16..=0xfcfc).filter_map(|code| {
         let bytes = code.to_be_bytes();
@@ -209,7 +233,7 @@ fn fallback_characters() -> impl Iterator<Item = char> {
     })
 }
 
-fn cook_subtitles(executable: &[u8], output: &Path, font: &BitmapFont) -> Result<()> {
+fn read_subtitles(executable: &[u8], font: &BitmapFont) -> Result<MovieSubtitles> {
     use resonance_content::font::{MovieSubtitles, SubtitleCue, SubtitleLine};
     // Movie 1 has sixteen-byte cues with three nullable text pointers.
     let base = u32::from_be_bytes(dol::slice(executable, 0x801F9DA0, 4)?.try_into()?);
@@ -241,7 +265,11 @@ fn cook_subtitles(executable: &[u8], output: &Path, font: &BitmapFont) -> Result
                     .glyphs
                     .get(&character)
                     .with_context(|| format!("uncooked subtitle glyph {character:?}"))?;
-                let scale = if character.is_ascii() { 18. / 17. } else { 1. };
+                let scale = if resonance_content::font::is_single_byte(character) {
+                    18. / 17.
+                } else {
+                    1.
+                };
                 width += (glyph.advance as f32 * scale) as i32 - 1;
             }
             lines.push(SubtitleLine {
@@ -257,80 +285,9 @@ fn cook_subtitles(executable: &[u8], output: &Path, font: &BitmapFont) -> Result
         cues,
     };
     track.validate()?;
-    write_atomic(
-        &output.join("ui/story-subtitles.json"),
-        &serde_json::to_vec_pretty(&track)?,
-    )
+    Ok(track)
 }
 
-/// Compose system.tpl’s nine textures into frames, speaker tabs, and fills.
-fn cook_windows(extracted: &Path, output: &Path) -> Result<()> {
-    let source = fs::read(extracted.join("files/system.tpl"))?;
-    let mut textures = Vec::new();
-    fs::create_dir_all(output.join("ui"))?;
-    for (index, (width, height, pixels)) in crate::tpl::decode(&source)?.into_iter().enumerate() {
-        let path = format!("ui/system-{index}.ktx2");
-        crate::texture::cook(width, height, &pixels, &output.join(&path))?;
-        textures.push(UiTexture {
-            path,
-            width,
-            height,
-        });
-    }
-    // The default selection style chooses an embedded cursor atlas.
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let mode = (dol::slice(&executable, 0x80219cf8, 8)?[7] >> 4) & 3;
-    let (address, size, index) = match mode {
-        0 => (0x80249500, 0x280, 0),
-        1 => (0x80249280, 0x280, 0),
-        2 => (0x80236e80, 0x2500, 13),
-        _ => anyhow::bail!("unsupported default cursor mode"),
-    };
-    let cursor_bank = dol::slice(&executable, address, size)?;
-    let decoded = crate::tpl::decode(cursor_bank)?;
-    let (width, height, pixels) = decoded.get(index).context("default cursor is missing")?;
-    let path = "ui/choice-cursor.ktx2";
-    crate::texture::cook(*width, *height, pixels, &output.join(path))?;
-    let art = DialogueArt {
-        version: 2,
-        font: "fonts/dialogue.json".into(),
-        textures,
-        cursor: UiTexture {
-            path: path.into(),
-            width: *width,
-            height: *height,
-        },
-        selection: resonance_content::font::SelectionArt {
-            mode,
-            color: dol::slice(&executable, 0x8019ad10 + u32::from(mode) * 28 + 24, 4)?
-                .try_into()?,
-            row_offsets: dol::slice(&executable, 0x801ac004, 9)?
-                .iter()
-                .map(|v| *v as i8)
-                .collect::<Vec<_>>()
-                .try_into()
-                .unwrap(),
-            bob_amplitude: f32::from_be_bytes(
-                dol::slice(
-                    &executable,
-                    if mode == 0 { 0x8035d8b0 } else { 0x8035d8b4 },
-                    4,
-                )?
-                .try_into()?,
-            ),
-            bob_step: f32::from_be_bytes(dol::slice(&executable, 0x8035d8a8, 4)?.try_into()?)
-                * if mode == 0 { 2. } else { 1. }
-                / f32::from_be_bytes(dol::slice(&executable, 0x8035d8ac, 4)?.try_into()?),
-        },
-        source_sha256: digest(&source),
-    };
-    art.validate()?;
-    write_atomic(
-        &output.join("ui/dialogue.json"),
-        &serde_json::to_vec_pretty(&art)?,
-    )?;
-    Ok(())
-}
 /// Decode a menu symbol into the same RGBA pixels as the shared text atlas.
 pub(crate) fn glyph_image(
     extracted: &Path,
@@ -338,18 +295,15 @@ pub(crate) fn glyph_image(
     character: u8,
 ) -> Result<(u32, u32, Vec<u8>)> {
     ensure!((32..127).contains(&character), "menu symbol is not ASCII");
-    let code = if character == b'^' {
-        0x81a7
-    } else {
-        u16::from_be_bytes(
-            dol::slice(executable, 0x801f8984 + u32::from(character - 32) * 2, 2)?.try_into()?,
-        )
-    };
-    let colors: Vec<_> = dol::slice(executable, 0x801f88a0, 8)?
-        .chunks_exact(2)
-        .map(|p| rgb5a3(u16::from_be_bytes(p.try_into().unwrap())))
-        .collect();
-    let source = fs::read(extracted.join("files/u_f_fontb0.dat"))?;
+    let directory = crate::font_directory::Directory::read(executable)?;
+    let code = directory.metrics.code(char::from(character))?;
+    let colors = directory.palette.map(rgb5a3);
+    let files = extracted.join("files");
+    let source = fs::read(files.join(crate::field_resources::resolve_path(
+        &files,
+        &directory.startup,
+    )?))?;
+    crate::font_directory::validate_size(source.len() as u64)?;
     Ok((
         24,
         24,
@@ -398,7 +352,7 @@ pub(crate) fn validate_messages(
     }
     Ok(())
 }
-fn rgb5a3(v: u16) -> [u8; 4] {
+pub(crate) fn rgb5a3(v: u16) -> [u8; 4] {
     if v & 0x8000 != 0 {
         let channel = |shift: u32| {
             let c = ((v >> shift) & 31u16) as u8;
@@ -418,6 +372,61 @@ fn rgb5a3(v: u16) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires both extracted discs; validates font pixels and every field message without output"]
+    fn original_font_covers_every_field_and_native_halfwidth_bitmap() -> Result<()> {
+        use symphonia_script::{message, scenario};
+        let mut messages = 0;
+        for disc in [1, 2] {
+            let extracted = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../local/extracted/disc{disc}"));
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            let directory = crate::font_directory::Directory::read(&executable)?;
+            let files = extracted.join("files");
+            let source = fs::read(files.join(crate::field_resources::resolve_path(
+                &files,
+                &directory.startup,
+            )?))?;
+            let decoded = read_font(&extracted, &executable)?;
+            for byte in 0xa1u8..=0xdf {
+                let bytes = [byte];
+                let (text, _, invalid) = encoding_rs::SHIFT_JIS.decode(&bytes);
+                ensure!(!invalid, "invalid halfwidth encoding");
+                let character = text.chars().next().context("missing halfwidth character")?;
+                let glyph = &decoded.font.glyphs[&character];
+                let code = directory.metrics.alternate_codes[usize::from((byte & 0x7f) - 0x20)];
+                assert_eq!(glyph.advance, directory.metrics.advance(code));
+                let pixels = decode_glyph(&source, code)?;
+                for row in 0..24 {
+                    for column in 0..24 {
+                        let [x, y, _, _] = glyph.rect;
+                        let at = ((y as usize + row) * decoded.font.width as usize
+                            + x as usize
+                            + column)
+                            * 4;
+                        assert_eq!(
+                            decoded.pixels[at..at + 4],
+                            rgb5a3(directory.palette[usize::from(pixels[row * 24 + column])]),
+                            "disc {disc} halfwidth {character:?} pixel {row}/{column}"
+                        );
+                    }
+                }
+            }
+            for path in crate::field_catalogue::map_paths(&extracted)? {
+                let map = crate::field::MapArchive::open(&files.join(&path))?;
+                let script = map.section(6)?;
+                let header = scenario::parse_header(script)?;
+                let field = message::parse(&script[header.auxiliary_offset()..])?;
+                validate_messages(&decoded.font, &field)
+                    .with_context(|| format!("disc {disc} {path}"))?;
+                messages += field.len();
+            }
+        }
+        println!("Validated {messages} messages and all 63 halfwidth glyphs on both discs");
+        Ok(())
+    }
+
     #[test]
     fn packed_glyph_order_and_row_stride_are_preserved() {
         let mut source = vec![0; 24 * 96];

@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 6b68e7e92b8733cfcf9f9e18877c7c7ed1b92545b0faa8ba7c852b3df3fd0611
+pub const Node000_Pre000_Skin: string = "pre000_skin";
+pub const Node001_Pre000_Saya: string = "pre000_saya";
+pub const Node002_Pre000_Ken: string = "pre000_ken";

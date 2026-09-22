@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 959f811ab71dc73b657992ec06fcf0ef0a323bf668c06e5ff814b4cc4bffbc45
+pub const Node000_A: string = "_A";
+pub const Node001_Ami03: string = "ami03";
+pub const Node002_Ami06: string = "ami06";
+pub const Node003_Ami04: string = "ami04";
+pub const Node004_Al_Kage: string = "al_kage";
+pub const Node005_Enkei: string = "enkei";
+pub const Node006_Ami05: string = "ami05";
+pub const Node007_Shadow01: string = "shadow01";
+pub const Node008_Grasses: string = "grasses";

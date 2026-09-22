@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 118cbc5a30a11b555139d9f504647307c59825305e73caffd0c1570fd80cf4ad
+pub const Node000_Shuft: string = "shuft";

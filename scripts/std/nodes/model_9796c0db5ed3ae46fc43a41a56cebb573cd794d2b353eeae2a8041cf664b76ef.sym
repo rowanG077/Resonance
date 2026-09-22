@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 9796c0db5ed3ae46fc43a41a56cebb573cd794d2b353eeae2a8041cf664b76ef
+pub const Node000_Sukuinotou: string = "sukuinotou";
+pub const Node001_Sukuinotou_Core: string = "sukuinotou_core";
+pub const Node002_Sukuinotou_Foot: string = "sukuinotou_foot";
+pub const Node003_Sukuinotou_Fin: string = "sukuinotou_fin";

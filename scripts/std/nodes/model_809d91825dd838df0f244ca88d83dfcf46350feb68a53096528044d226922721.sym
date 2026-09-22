@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 809d91825dd838df0f244ca88d83dfcf46350feb68a53096528044d226922721
+pub const Node000_TL_Sea10: string = "TL_Sea10";
+pub const Node001_TL_Shadow: string = "TL_shadow";
+pub const Node002_TL_Sea20: string = "TL_Sea20";

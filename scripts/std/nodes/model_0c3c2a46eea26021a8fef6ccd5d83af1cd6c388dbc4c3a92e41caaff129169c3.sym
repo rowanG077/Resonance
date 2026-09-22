@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 0c3c2a46eea26021a8fef6ccd5d83af1cd6c388dbc4c3a92e41caaff129169c3
+pub const Node000_Alpha: string = "Alpha";
+pub const Node001_Ligt: string = "ligt";
+pub const Node002_Dos_P40: string = "dos_p40";
+pub const Node003_Quatro_P20: string = "quatro_p20";
+pub const Node004_Uno_P50: string = "uno_p50";
+pub const Node005_Tres_P30: string = "tres_p30";

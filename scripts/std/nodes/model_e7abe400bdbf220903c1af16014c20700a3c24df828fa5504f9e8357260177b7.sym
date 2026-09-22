@@ -1,0 +1,8 @@
+script library;
+// Skeleton: e7abe400bdbf220903c1af16014c20700a3c24df828fa5504f9e8357260177b7
+pub const Node000_Ruin_9_17c: string = "ruin_9_17c";
+pub const Node001_DOOR01_AUTO_PUSH_W150: string = "DOOR01_AUTO_PUSH_W-150";
+pub const Node002_DOOR01_AUTO_PULL_W175e3: string = "DOOR01_AUTO_PULL_W-175e3";
+pub const Node003_Box02: string = "Box02";
+pub const Node004_DOOR01_AUTO_PUSH_W150: string = "DOOR01_AUTO_PUSH_W150";
+pub const Node005_KabeBox02: string = "kabeBox02";

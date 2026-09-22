@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 46e06a680baa8760cfbe54668db629d4a06c83c8153aea362c6770f516b84eb7
+pub const Node000_Tr_Glass00: string = "tr_glass00";
+pub const Node001_Tr_Sinkan00: string = "tr_sinkan00";

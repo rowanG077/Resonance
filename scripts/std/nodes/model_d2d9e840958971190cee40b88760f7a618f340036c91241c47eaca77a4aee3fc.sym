@@ -1,0 +1,3 @@
+script library;
+// Skeleton: d2d9e840958971190cee40b88760f7a618f340036c91241c47eaca77a4aee3fc
+pub const Node000_Li_0: string = "li_0";

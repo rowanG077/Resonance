@@ -1,0 +1,3 @@
+script library;
+// Skeleton: b5716f7667403cc1ac77eec9962e685188924dc04d4460456f2b874c9713d0cb
+pub const Node000_Doom: string = "doom";

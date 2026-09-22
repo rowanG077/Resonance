@@ -1,0 +1,5 @@
+script library;
+// Skeleton: dd0f36aed659c38d8a3507a8d443d6d7f76f9244ddcab142615cec5f5cf78767
+pub const Node000_Obj3: string = "obj3";
+pub const Node001_DOOR01_AUTO_L_PULL_W175e337: string = "DOOR01_AUTO_L_PULL_W-175e337";
+pub const Node002_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";

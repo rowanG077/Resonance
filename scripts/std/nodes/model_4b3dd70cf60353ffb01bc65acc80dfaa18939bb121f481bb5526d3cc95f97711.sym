@@ -1,0 +1,23 @@
+script library;
+// Skeleton: 4b3dd70cf60353ffb01bc65acc80dfaa18939bb121f481bb5526d3cc95f97711
+pub const Node000_Number0002: string = "0002";
+pub const Node001_Number0001: string = "0001";
+pub const Node002_Number0001_Kanki: string = "0001_kanki";
+pub const Node003_Number0001_Surikogi: string = "0001_surikogi";
+pub const Node004_Number0001_Surikogisw: string = "0001_surikogisw";
+pub const Node005_Number0001_Surikogirope: string = "0001_surikogirope";
+pub const Node006_Number0004: string = "0004";
+pub const Node007_Number0003: string = "0003";
+pub const Node008_Number0002_Tizu: string = "0002_tizu";
+pub const Node009_Number0004_Book1: string = "0004_book1";
+pub const Node010_Number0004_Flower: string = "0004_flower";
+pub const Node011_Number0004_Book2: string = "0004_book2";
+pub const Node012_Number0002_Usu: string = "0002_usu";
+pub const Node013_Number0003_Flower01: string = "0003_flower01";
+pub const Node014_Number0003_Flower02: string = "0003_flower02";
+pub const Node015_Number0003_Flower03: string = "0003_flower03";
+pub const Node016_Number0003_Flower04: string = "0003_flower04";
+pub const Node017_Number0003_Flower05: string = "0003_flower05";
+pub const Node018_Number0003_Flower06: string = "0003_flower06";
+pub const Node019_Number0003_Flower07: string = "0003_flower07";
+pub const Node020_Number0003_Flower08: string = "0003_flower08";

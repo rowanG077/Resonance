@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 792ffc51fb364a1f874137d6964756f4dd7c0c347844b7510a9a5ee1340daebe
+pub const Node000_Elec_Trap00: string = "elec_trap00";
+pub const Node001_Elec_Trap01: string = "elec_trap01";
+pub const Node002_Elec_Trap02: string = "elec_trap02";
+pub const Node003_Elec_Trap03: string = "elec_trap03";
+pub const Node004_Elec_Trap04: string = "elec_trap04";
+pub const Node005_Elec_Trap05: string = "elec_trap05";
+pub const Node006_Elec_Trap06: string = "elec_trap06";
+pub const Node007_Elec_Trap07: string = "elec_trap07";
+pub const Node008_Uturi: string = "uturi";

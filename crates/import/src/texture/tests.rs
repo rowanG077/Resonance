@@ -1,7 +1,8 @@
-use super::{cook, cook_png, encode::*, fingerprint};
+use super::cook;
 use bevy_image::{CompressedImageFormats, ktx2_buffer_to_image};
 use ktx2::{ColorModel, ColorPrimaries, Format, Reader, SupercompressionScheme, TransferFunction};
-use std::{fs, io::Read, time::SystemTime};
+use resonance_asset_writer::ktx2::*;
+use std::{fs, io::Read};
 
 fn verify(width: u32, height: u32, pixels: &[u8]) {
     let encoded = encode_rgba8(width, height, pixels).unwrap();
@@ -125,39 +126,48 @@ fn rejects_invalid_dimensions_and_lengths_before_compression() {
 }
 
 #[test]
-fn cache_identity_includes_recipe_dimensions_and_pixels() {
-    let pixels = [23; 24];
-    let hash = fingerprint(2, 3, &pixels);
-    assert_eq!(hash, fingerprint(2, 3, &pixels));
-    assert_ne!(hash, crate::digest(&pixels)); // Invalidates old portrait cooks.
-    assert_ne!(hash, fingerprint(3, 2, &pixels));
-    assert_ne!(hash, fingerprint(2, 3, &[24; 24]));
+fn preserves_authored_mips_in_the_player_image_loader() {
+    let pixels = [
+        vec![17; 8 * 4 * 4],
+        vec![29; 4 * 2 * 4],
+        vec![43; 2 * 4],
+        vec![71; 4],
+    ];
+    let levels: Vec<_> = pixels.iter().map(Vec::as_slice).collect();
+    let bytes = encode_levels(8, 4, &levels).unwrap();
+    let reader = Reader::new(&bytes).unwrap();
+    assert_eq!(reader.header().level_count, 4);
+    for (level, pixels) in reader.levels().zip(&pixels) {
+        let mut decoded = Vec::new();
+        ruzstd::decoding::StreamingDecoder::new(level.data)
+            .unwrap()
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(&decoded, pixels);
+    }
+    let image = ktx2_buffer_to_image(&bytes, CompressedImageFormats::NONE, false).unwrap();
+    assert_eq!(image.texture_descriptor.mip_level_count, 4);
+    assert_eq!(image.data.unwrap(), pixels.concat());
+    assert_eq!(encode_levels(1, 1, &levels), Err(EncodeError::LevelCount));
+    assert_eq!(encode_levels(8, 4, &[]), Err(EncodeError::LevelCount));
+    assert!(encode_levels(8, 4, &[&pixels[0], &pixels[2]]).is_err());
 }
 
 #[test]
-fn png_adapter_and_repeated_cooks_preserve_pixels_and_files() {
+fn recooking_replaces_stale_output_and_failed_encoding_preserves_pixels() {
     let directory = tempfile::tempdir().unwrap();
-    let png = directory.path().join("editable.png");
     let output = directory.path().join("nested/texture.ktx2");
     let pixels = [31, 73, 127, 0, 11, 13, 17, 255];
-    image::save_buffer(&png, &pixels, 2, 1, image::ColorType::Rgba8).unwrap();
-    cook_png(&png, &output).unwrap();
+    cook(2, 1, &pixels, &output).unwrap();
     assert_eq!(
         fs::read(&output).unwrap(),
         encode_rgba8(2, 1, &pixels).unwrap()
     );
-    // No sleep or filesystem timestamp-resolution assumption is needed.
-    fs::File::options()
-        .write(true)
-        .open(&output)
-        .unwrap()
-        .set_modified(SystemTime::UNIX_EPOCH)
-        .unwrap();
-    let timestamp = fs::metadata(&output).unwrap().modified().unwrap();
+    fs::write(&output, b"stale texture").unwrap();
     cook(2, 1, &pixels, &output).unwrap();
     assert_eq!(
-        fs::metadata(&output).unwrap().modified().unwrap(),
-        timestamp
+        fs::read(&output).unwrap(),
+        encode_rgba8(2, 1, &pixels).unwrap()
     );
     assert!(cook(2, 1, &pixels[..7], &output).is_err());
     assert_eq!(

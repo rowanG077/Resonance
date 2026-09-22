@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 8d83ebb8aadc1c2c7194294b044e0f9087ca3a1b78ab8f38f1d37311e1377a93
+pub const Node000_Slide: string = "slide";
+pub const Node001_Solid: string = "solid";
+pub const Node002_Archer: string = "archer";
+pub const Node003_Bow_Box: string = "bow_box";

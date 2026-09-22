@@ -1,0 +1,14 @@
+script library;
+// Skeleton: 99532b45bb32826dd10eb2f45396d54a3da4ec3704d58f080ab371d3ddc9911e
+pub const Node000_Group02: string = "Group02";
+pub const Node001_Pack: string = "pack";
+pub const Node002_Quaqua: string = "quaqua";
+pub const Node003_Dosdos: string = "dosdos";
+pub const Node004_Tres: string = "tres";
+pub const Node005_Sinsin: string = "sinsin";
+pub const Node006_Won: string = "won";
+pub const Node007_Unouno: string = "unouno";
+pub const Node008_Kusa001: string = "kusa001";
+pub const Node009_Kusa002: string = "kusa002";
+pub const Node010_BigFoot: string = "BigFoot";
+pub const Node011_Far_View01: string = "far_view01";

@@ -13,3 +13,4 @@ resonance-content.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+symphonia-script-compiler.workspace = true
