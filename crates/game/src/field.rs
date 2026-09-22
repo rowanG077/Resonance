@@ -75,6 +75,7 @@ pub struct FieldSession {
     pub effect_clock: crate::clock::PresentationClock,
     pub map_id: u32,
     pub events: EventRuntime,
+    authored_entry: Option<Arc<crate::authored::PreparedEvent>>,
     pub menu: Option<crate::menu::Menu>,
     pub shop: Option<shop::Shop>,
     menu_operation: Option<resonance_events::Operation>,
@@ -112,6 +113,9 @@ impl FieldSession {
     /// Whether field input belongs to the player. Transient UI notifications
     /// do not take control and are intentionally excluded from this query.
     pub fn player_has_control(&self) -> bool {
+        self.authored_entry.is_none() && self.field_control_available()
+    }
+    fn field_control_available(&self) -> bool {
         self.menu.is_none()
             && self.shop.is_none()
             && self.events.world.menu_request.is_none()
@@ -207,6 +211,7 @@ impl FieldSession {
             effect_clock: crate::clock::PresentationClock::new(entry.persistent.tick),
             map_id: assets.map_id,
             events: start_with_entry(script, messages, assets, entry)?,
+            authored_entry: None,
             menu: None,
             shop: None,
             menu_operation: None,
@@ -226,9 +231,19 @@ impl FieldSession {
                 .transpose()?,
         })
     }
+    /// Install a prepared entry only after legacy setup/checkpoint restoration.
+    /// The presentation owner starts gameplay updates after the field is ready.
+    pub fn queue_authored_entry(&mut self, event: Option<Arc<crate::authored::PreparedEvent>>) {
+        self.authored_entry = event;
+    }
     pub fn step(&mut self, input: FieldInput) -> Result<()> {
         self.play_time.advance();
         self.effect_clock.advance();
+        if self.field_control_available()
+            && let Some(event) = self.authored_entry.take()
+        {
+            event.start(&mut self.events)?;
+        }
         if self.player_has_control() && self.events.world.party.is_some() {
             self.events.restore_field_leader()?;
         }
@@ -871,6 +886,32 @@ pub fn start(
     start_with_entry(script, messages, assets, FieldEntry::default())
 }
 
+fn bind_clips(
+    resources: &mut ResourceLibrary,
+    owner: u32,
+    clips: &[resonance_content::SceneClip],
+) -> Result<()> {
+    for clip in clips {
+        let clips = match clip.animation_resource {
+            Some(resource) => resources.animations.entry(resource).or_default(),
+            None => {
+                resources
+                    .bindings
+                    .insert(owner as i32, (ResourceKind::Model, owner));
+                &mut resources.models.entry(owner).or_default().clips
+            }
+        };
+        let previous = clips.insert(clip.resource_slot, AnimationClip::from(clip));
+        ensure!(
+            previous.is_none_or(|value| value.duration_ticks == clip.duration_ticks()),
+            "animation {:?}/{} has inconsistent durations across models",
+            clip.animation_resource,
+            clip.resource_slot
+        );
+    }
+    Ok(())
+}
+
 fn start_with_entry(
     script: &[u8],
     messages: Vec<symphonia_script::message::Message>,
@@ -909,7 +950,13 @@ fn start_with_entry(
         ..Default::default()
     };
     resources.movies.insert(1);
-    for &resource in assets.captions.keys() {
+    for geometry in &assets.unbound_geometry {
+        resources.bindings.insert(
+            geometry.resource as i32,
+            (ResourceKind::UnboundGeometry, geometry.resource),
+        );
+    }
+    for &resource in assets.overlays.keys() {
         resources
             .bindings
             .insert(resource, (ResourceKind::Overlay, resource as u32));
@@ -930,21 +977,10 @@ fn start_with_entry(
                 has_eyes: model.appearance.as_ref().is_some_and(|a| a.eyes.is_some()),
                 names: model.bone_names.clone(),
                 hidden_nodes: character.hidden_nodes.iter().copied().collect(),
-                clips: BTreeMap::new(),
+                ..Default::default()
             },
         );
-        for clip in &model.clips {
-            let animation = clip.animation_resource.unwrap_or(resource);
-            resources
-                .bindings
-                .insert(animation as i32, (ResourceKind::Model, animation));
-            resources
-                .models
-                .entry(animation)
-                .or_default()
-                .clips
-                .insert(clip.resource_slot, AnimationClip::from(clip));
-        }
+        bind_clips(&mut resources, resource, &model.clips)?;
     }
     let (mut world, memory) = entry.persistent.into_world();
     if let Some((party, menu)) = world.party.as_mut().zip(resources.menu_data.as_ref()) {
@@ -1001,6 +1037,7 @@ fn start_with_entry(
         // Reserved script actor IDs address the scenery layers directly.
         let actor = match part.resource {
             0 => 0xF423C,
+            10 => 0xF423D,
             2 => 0xF423E,
             12 => 0xF422C,
             _ => -(resource as i32),
@@ -1009,14 +1046,10 @@ fn start_with_entry(
             resource,
             ModelResource {
                 names: part.bone_names.clone(),
-                clips: part
-                    .clips
-                    .iter()
-                    .map(|clip| (clip.resource_slot, AnimationClip::from(clip)))
-                    .collect(),
                 ..Default::default()
             },
         );
+        bind_clips(&mut resources, resource, &part.clips)?;
         let mut instance = Actor::new(resource, [0.; 3]);
         instance.cull_outside_view = false;
         instance.grounded = false;
@@ -1056,6 +1089,57 @@ fn start_with_entry(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scenery_and_actors_share_external_clips_without_replacing_autoplay() {
+        let mut resources = ResourceLibrary::default();
+        let own = resonance_content::SceneClip {
+            motion: "clips/test.motion".into(),
+            resource_slot: 0,
+            duration_seconds: 1.,
+            animation_resource: None,
+            secondary_pose_nodes: Vec::new(),
+        };
+        let mut shared = resonance_content::SceneClip {
+            motion: "clips/test.motion".into(),
+            resource_slot: 12,
+            duration_seconds: 2.,
+            animation_resource: Some(0x10004),
+            secondary_pose_nodes: Vec::new(),
+        };
+        bind_clips(
+            &mut resources,
+            SCENERY_RESOURCE_BASE,
+            &[own, shared.clone()],
+        )
+        .unwrap();
+        bind_clips(&mut resources, 1, &[shared.clone()]).unwrap();
+        assert_eq!(
+            resources.models[&SCENERY_RESOURCE_BASE]
+                .clips
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            [0]
+        );
+        assert_eq!(
+            resources.animations[&0x10004][&12].duration_ticks,
+            shared.duration_ticks()
+        );
+        assert!(!resources.models.contains_key(&0x10004));
+        let mut own = shared.clone();
+        own.animation_resource = None;
+        own.duration_seconds = 1.;
+        shared.animation_resource = Some(8);
+        bind_clips(&mut resources, 8, &[own, shared.clone()]).unwrap();
+        assert_ne!(
+            resources.models[&8].clips[&12].duration_ticks,
+            resources.animations[&8][&12].duration_ticks
+        );
+        assert_eq!(resources.resolve(8, ResourceKind::Model).unwrap(), 8);
+        shared.duration_seconds = 3.;
+        assert!(bind_clips(&mut resources, 2, &[shared]).is_err());
+    }
+
     use super::*;
     use symphonia_script::{
         NativeCall, Width,
@@ -1106,6 +1190,7 @@ mod tests {
         };
         FieldSession {
             map_id: 0,
+            authored_entry: None,
             menu_resources: None,
             play_time: Default::default(),
             effect_clock: Default::default(),

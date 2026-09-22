@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 440cce6b6ff8e49b92128accf790913e4aac6d5f92c9d045530fd2a10d7b38e3
+pub const Node000_Plane01: string = "Plane01";
+pub const Node001_Plane02: string = "Plane02";

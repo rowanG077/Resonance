@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 049903ab684585694ae263198e1b3950a492b921cddfa57a22983875b0c33ab3
+pub const Node000_Oza: string = "oza";

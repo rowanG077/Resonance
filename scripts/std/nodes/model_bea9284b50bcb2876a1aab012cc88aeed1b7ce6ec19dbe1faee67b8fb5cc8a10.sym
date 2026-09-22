@@ -1,0 +1,3 @@
+script library;
+// Skeleton: bea9284b50bcb2876a1aab012cc88aeed1b7ce6ec19dbe1faee67b8fb5cc8a10
+pub const Node000_Cone01: string = "Cone01";

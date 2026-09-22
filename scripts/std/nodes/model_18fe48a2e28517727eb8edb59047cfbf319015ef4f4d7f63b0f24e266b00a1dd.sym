@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 18fe48a2e28517727eb8edb59047cfbf319015ef4f4d7f63b0f24e266b00a1dd
+pub const Node000_Kawa_Haya: string = "kawa_haya";
+pub const Node001_Kawa_Oso: string = "kawa_oso";

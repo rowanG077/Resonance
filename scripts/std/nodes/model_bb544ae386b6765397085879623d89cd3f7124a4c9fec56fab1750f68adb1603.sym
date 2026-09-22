@@ -1,0 +1,16 @@
+script library;
+// Skeleton: bb544ae386b6765397085879623d89cd3f7124a4c9fec56fab1750f68adb1603
+pub const Node000_D13: string = "d13";
+pub const Node001_Pole01: string = "pole01";
+pub const Node002_Door_Waku: string = "door_waku";
+pub const Node003_Console: string = "console";
+pub const Node004_Okimono: string = "okimono";
+pub const Node005_TutaA: string = "tutaA";
+pub const Node006_Tuta_Kiwa: string = "tuta_kiwa";
+pub const Node007_Default: string = "default";
+pub const Node008_Duct_Cover: string = "duct_cover";
+pub const Node009_Turiten: string = "turiten";
+pub const Node010_Door_L: string = "door_L";
+pub const Node011_Door_R: string = "door_R";
+pub const Node012_Lever: string = "lever";
+pub const Node013_Tuta: string = "tuta";

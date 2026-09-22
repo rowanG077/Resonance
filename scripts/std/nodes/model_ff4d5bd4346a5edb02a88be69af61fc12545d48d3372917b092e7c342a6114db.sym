@@ -1,0 +1,27 @@
+script library;
+// Skeleton: ff4d5bd4346a5edb02a88be69af61fc12545d48d3372917b092e7c342a6114db
+pub const Head: string = "Bone_head";
+pub const LeftFoot1: string = "Bone_ashi1_L";
+pub const LeftFoot2: string = "Bone_ashi2_L";
+pub const LeftFoot3: string = "Bone_ashi3_L";
+pub const LeftFoot4: string = "Bone_ashi4_L";
+pub const LeftWing1: string = "Bone_wing1_L";
+pub const LeftWing2: string = "Bone_wing2_L";
+pub const LeftWing3: string = "Bone_wing3_L";
+pub const LeftWing4: string = "Bone_wing4_L";
+pub const Neck: string = "Bone_neck";
+pub const Node000_A_Bone: string = "A_Bone";
+pub const Node001_Bone_Body1: string = "Bone_body1";
+pub const Node002_Bone_Body2: string = "Bone_body2";
+pub const RightFoot1: string = "Bone_ashi1_R";
+pub const RightFoot2: string = "Bone_ashi2_R";
+pub const RightFoot3: string = "Bone_ashi3_R";
+pub const RightFoot4: string = "Bone_ashi4_R";
+pub const RightWing1: string = "Bone_wing1_R";
+pub const RightWing2: string = "Bone_wing2_R";
+pub const RightWing3: string = "Bone_wing3_R";
+pub const RightWing4: string = "Bone_wing4_R";
+pub const Tail1: string = "Bone_tail1";
+pub const Tail2: string = "Bone_tail2";
+pub const Tail3: string = "Bone_tail3";
+pub const Tail4: string = "Bone_tail4";

@@ -276,8 +276,7 @@ impl NativeHost<'_> {
                 {
                     let duration = self
                         .resources
-                        .model(animation.resource)
-                        .and_then(|m| m.clips.get(&animation.slot))
+                        .animation(animation)
                         .ok_or("animation clip is not cooked")?
                         .duration_ticks as f32;
                     let position = animation.sample(self.world.tick, 0, duration);
@@ -709,10 +708,9 @@ impl NativeHost<'_> {
                 );
             }
             NativeCall::ResolveScriptResource => {
-                let binding = *self
+                let binding = self
                     .resources
-                    .bindings
-                    .get(&a[0])
+                    .binding(a[0])
                     .ok_or("requested resource is not cooked")?;
                 let handle = (0..128)
                     .map(|i| (0xffff0000u32 | i) as i32)
@@ -842,7 +840,7 @@ fn adjust_bone(
         slot,
         BoneAdjustment {
             from,
-            bone,
+            bone: crate::BoneTarget::Name(bone),
             angles,
             duration_ticks: duration.max(1),
             start_tick: tick,

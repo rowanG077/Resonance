@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 0e815a028ec509fc7dc313993391e3608bb631fc43b90833bd3d541b5211e61d
+pub const Node000_G_Eff: string = "g_eff";
+pub const Node001_G_Eff01: string = "g_eff01";
+pub const Node002_G_Eff02: string = "g_eff02";
+pub const Node003_G_Eff03: string = "g_eff03";
+pub const Node004_G_Eff04: string = "g_eff04";

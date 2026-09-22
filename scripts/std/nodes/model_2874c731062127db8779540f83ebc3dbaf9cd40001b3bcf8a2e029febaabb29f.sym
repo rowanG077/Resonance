@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 2874c731062127db8779540f83ebc3dbaf9cd40001b3bcf8a2e029febaabb29f
+pub const Node000_D01_Ki_Ino_01: string = "d01_ki_ino_01";
+pub const Node001_D01_Ki_Ino02: string = "d01_ki_ino02";
+pub const Node002_D01_Ki_Ino04: string = "d01_ki_ino04";
+pub const Node003_D01_Ki_Ino_03: string = "d01_ki_ino_03";

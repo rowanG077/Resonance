@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 17c34e79e0ccb10ad00b971d0a1269c4a927a3db4772514af7eca0e30f1e6e1f
+pub const Node000_Bar_I011: string = "bar_i01-1";
+pub const Node001_Bar_I010: string = "bar_i01-0";

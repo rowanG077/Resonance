@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 8060732a28a41dfe964d84d3496e5fcf38b81d6135cdf6f1a97fe8b5e870d1a6
+pub const Node000_ChamferCyl03: string = "ChamferCyl03";
+pub const Node001_ChamferCyl04: string = "ChamferCyl04";
+pub const Node002_Plane02: string = "Plane02";
+pub const Node003_ChamferCyl05: string = "ChamferCyl05";
+pub const Node004_ChamferCyl06: string = "ChamferCyl06";
+pub const Node005_Plane03: string = "Plane03";
+pub const Node006_ChamferCyl07: string = "ChamferCyl07";
+pub const Node007_ChamferCyl08: string = "ChamferCyl08";
+pub const Node008_Plane04: string = "Plane04";
+pub const Node009_Plane01: string = "Plane01";

@@ -1,0 +1,7 @@
+script library;
+// Skeleton: cb775533438f7857330521c9aa025f5ebbe7fdf7cfd73a47599fc0546e5727c3
+pub const Node000_Chu_I07_014l2: string = "_chu_i07_014l2";
+pub const Node001_Chu_I07_024sky: string = "_chu_i07_024sky";
+pub const Node002_Chu_I08_14l: string = "_chu_i08_14l";
+pub const Node003_Lamp_Fire01: string = "_lamp_fire01";
+pub const Node004_Lamp_Light01: string = "_lamp_light01";

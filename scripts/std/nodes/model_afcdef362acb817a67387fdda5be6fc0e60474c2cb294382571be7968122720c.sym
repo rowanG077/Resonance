@@ -1,0 +1,6 @@
+script library;
+// Skeleton: afcdef362acb817a67387fdda5be6fc0e60474c2cb294382571be7968122720c
+pub const Node000_Number1003_Window: string = "_1003_window";
+pub const Node001_Vertex_Lamp1: string = "_vertex_lamp1";
+pub const Node002_Vertex_Lamp2: string = "_vertex_lamp2";
+pub const Node003_Vertex_Light: string = "_vertex_light";

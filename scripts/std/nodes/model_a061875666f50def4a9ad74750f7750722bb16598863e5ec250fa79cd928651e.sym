@@ -1,0 +1,21 @@
+script library;
+// Skeleton: a061875666f50def4a9ad74750f7750722bb16598863e5ec250fa79cd928651e
+pub const Node000_Tree01: string = "tree01";
+pub const Node001_Fix_Jmen: string = "fix_jmen";
+pub const Node002_Plane01: string = "Plane01";
+pub const Node003_Tree_MidA: string = "tree_midA";
+pub const Node004_Default01: string = "default01";
+pub const Node005_Tree_TypeA: string = "tree_typeA";
+pub const Node006_Tree_TypeA01: string = "tree_typeA01";
+pub const Node007_Tree_TypeA02: string = "tree_typeA02";
+pub const Node008_Tree_TypeA03: string = "tree_typeA03";
+pub const Node009_Tree_TypeA04: string = "tree_typeA04";
+pub const Node010_Low_Tree23: string = "low_tree23";
+pub const Node011_Flower: string = "flower";
+pub const Node012_EDA: string = "EDA";
+pub const Node013_Object01: string = "Object01";
+pub const Node014_Object02: string = "Object02";
+pub const Node015_Object03: string = "Object03";
+pub const Node016_MARUTA: string = "MARUTA";
+pub const Node017_MARUTA01: string = "MARUTA01";
+pub const Node018_MARUTA02: string = "MARUTA02";

@@ -1,51 +1,43 @@
 # Field preparation
 
-Every cooked field requires a complete `<name>.preload.json`. The schema lives
+Every cooked field requires a complete `fields/map-{id}.preload.json`. The schema lives
 in `resonance_content::field_preload`, generation in
 `resonance_import::field_preload`, and runtime ownership in `prepared`,
 presentation `loading` and `field_warm`.
 
-`cook-classroom` writes setup and classroom inventories. Separate audio/movie
-cooks refresh them, including cache hits. To rebuild inventories alone:
-
-```sh
-target/debug/resonance-import cook-field-preload \
-  --field fields/iselia-classroom.json --audio fields/iselia-classroom-audio.json
-target/debug/resonance-import cook-field-preload \
-  --field fields/new-game-setup.json --audio fields/iselia-classroom-audio.json \
-  --movie story-intro.json
-```
-
-`cook-field --map ID` resolves the archive through the original field catalog
-and cooks geometry, animations, collision, dialogue, declared NPC resources,
+`cook-all` walks the original field catalogue and prepares every field through
+one path. The catalogue resolves each source archive; its declarations select
+geometry, animations, collision, dialogue, declared NPC resources,
 the field's packed model bank and MAP-local models. The bank has its own script-ID
 table; a direct actor ID need not be a separately declared shared NPC resource.
-Maps 330–340 cover the classroom and connected Iselia exploration route.
 Standalone character files and grouped archive dependencies resolve through the
 source resource catalog. Cooking rejects declared model/animation IDs without a
-character binding. Tutorial texture packages use separate overlay recipes. Mesh filenames
+character binding. All overlay texture banks are cooked independently of script branches.
+The runtime evaluates procedural location-caption reveals from their cooked image sizes;
+it does not generate an animation track on first use. Authored animation tracks remain
+cooked assets. Mesh filenames
 include their content hash so a changed shared character clip set cannot overwrite
 meshes referenced by another field.
 Field inventories also include skit scenarios, message tables, portrait atlases
 and media metadata. Portrait surfaces and dialogue layers warm with the field;
 opening Z performs no reads or shader compilation. Silent media carries only a
-clock; audible tracks join the prepared voice bank. `cook-skits` refreshes shared
-content hashes and existing field inventories together.
+clock; audible tracks join the prepared voice bank. Shared content hashes and
+dependent field inventories refresh together.
 Field particle recipes carry their texture, palette and motion parameters.
 Their texture dependencies and render layers are prepared before activation;
 live particles only update geometry and use the same missing-effect audit.
-`cook-field-audio --map ID --coefficients PATH` inventories audio across declared
-script branches, message voices and shared native service cues. It resolves the
-required sound banks and music, with `--additional-disc PATH` for voice archives
-absent from the primary disc. Unresolved requests fail cooking.
+The same field preparation inventories audio across declared script branches,
+message voices and shared native service cues. It resolves sound banks, music
+and voices across both extracted discs. Movie dependencies follow the field's
+script requests. Unresolved requests fail cooking.
 
 The shared dialogue atlas has a fixed repertoire. Unsupported source-font
 characters share its original fallback bitmap, declared explicitly in the font
 metadata, so cooking one field cannot change another field's glyph coordinates.
 
-Paths are relative to `--output`, default `local/cooked`. Supply the complete
-`--audio` and `--movie` lists each time. New recipes call
-`field_preload::cook(root, Inputs { field, audio, movies })` after writing metadata.
+Paths are relative to `--output`, default `local/all-assets`. Field scene and
+audio metadata use `fields/map-{id}.json` and `fields/map-{id}-audio.json`.
+No field-specific command or manual dependency list is required.
 
 ## Inventory contract
 
@@ -83,8 +75,9 @@ request; checkpoint startup prepares its saved field directly. Field changes
 pause gameplay, retire outgoing audio and publish verified bytes before renderer
 loading begins. Live actors, effects and UI instances retire on handoff; visited
 packages and artwork remain cached. Returns recreate instances from those assets
-and reuse shader and sampler variants. The supported route covers maps 330–340;
-additional destinations need scene-owner bindings and content validation.
+and reuse shader and sampler variants. Available destinations are discovered from
+published field inventories. The validated playable route covers maps 330–340;
+preparing other fields does not establish support for their native services.
 
 Relevant tests: `cargo test -p resonance-import --lib field_preload::`,
 `cargo test -p resonance-content prepared::`, and

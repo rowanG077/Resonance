@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 7fdc721d277832b51c087095c11a64cc185d5db3a45c441e9ecb8430fc24c88b
+pub const Node000_Kouseki_X: string = "kouseki_x";

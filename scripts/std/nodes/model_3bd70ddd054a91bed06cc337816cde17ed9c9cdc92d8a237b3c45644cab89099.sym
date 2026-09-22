@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 3bd70ddd054a91bed06cc337816cde17ed9c9cdc92d8a237b3c45644cab89099
+pub const Node000_Light19: string = "light19";
+pub const Node001_Light20: string = "light20";
+pub const Node002_Light21: string = "light21";
+pub const Node003_Light22: string = "light22";
+pub const Node004_Light23: string = "light23";
+pub const Node005_Light24: string = "light24";
+pub const Node006_White10: string = "white10";
+pub const Node007_Black10: string = "black10";

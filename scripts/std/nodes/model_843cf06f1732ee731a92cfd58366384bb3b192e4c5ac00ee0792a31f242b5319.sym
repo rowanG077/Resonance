@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 843cf06f1732ee731a92cfd58366384bb3b192e4c5ac00ee0792a31f242b5319
+pub const Node000_Obj_Candle00: string = "obj_candle00";

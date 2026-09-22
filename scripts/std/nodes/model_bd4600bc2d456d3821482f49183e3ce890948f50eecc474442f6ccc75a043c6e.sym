@@ -1,0 +1,12 @@
+script library;
+// Skeleton: bd4600bc2d456d3821482f49183e3ce890948f50eecc474442f6ccc75a043c6e
+pub const Node000_Sekityu_02a: string = "Sekityu_02a";
+pub const Node001_Sekityu_02b: string = "Sekityu_02b";
+pub const Node002_Sekityu_02c: string = "Sekityu_02c";
+pub const Node003_Sekityu_04a: string = "Sekityu_04a";
+pub const Node004_Sekityu_04b: string = "Sekityu_04b";
+pub const Node005_Sekityu_03a: string = "Sekityu_03a";
+pub const Node006_Sekityu_03b: string = "Sekityu_03b";
+pub const Node007_Sekityu_03c: string = "Sekityu_03c";
+pub const Node008_Sekityu_01a: string = "Sekityu_01a";
+pub const Node009_Sekityu_01b: string = "Sekityu_01b";

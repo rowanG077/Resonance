@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 340913cc0de59a946e12eca5520e9b0034ccb6bede6b10c74690e19daadf3fa6
+pub const Node000_Obj01: string = "obj01";
+pub const Node001_Obj02: string = "obj02";
+pub const Node002_DOOR01: string = "DOOR01";
+pub const Node003_DOOR02: string = "DOOR02";
+pub const Node004_DOOR03: string = "DOOR03";
+pub const Node005_DOOR04: string = "DOOR04";

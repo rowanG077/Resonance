@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 024a83a0921a2a3f8a597aeba0a201cddb55f8d6064dd31e4510e309c9a6ae72
+pub const Node000_Kabe: string = "kabe";
+pub const Node001_Tenso: string = "tenso";
+pub const Node002_Tenso_Anim: string = "tenso_anim";

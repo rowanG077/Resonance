@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 09ccb46679ee121c54820309ac526291919357eaa5c319daf6b54b24ea09a16a
+pub const Node000_Rui_Jimen01: string = "rui_jimen01";
+pub const Node001_Rui_House01: string = "rui_house01";
+pub const Node002_Rui_House02: string = "rui_house02";
+pub const Node003_Rui_House03: string = "rui_house03";
+pub const Node004_Rui_House04: string = "rui_house04";
+pub const Node005_Rui_House05: string = "rui_house05";
+pub const Node006_Rui_House06: string = "rui_house06";
+pub const Node007_Rui_Bridge01: string = "rui_bridge01";
+pub const Node008_Rui_Bridge02: string = "rui_bridge02";
+pub const Node009_Mesh02: string = "Mesh02";

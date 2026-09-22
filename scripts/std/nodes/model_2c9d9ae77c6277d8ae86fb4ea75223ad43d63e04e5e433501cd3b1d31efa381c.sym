@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 2c9d9ae77c6277d8ae86fb4ea75223ad43d63e04e5e433501cd3b1d31efa381c
+pub const Node000_Right_Door05: string = "Right_door05";
+pub const Node001_Door01: string = "door01";
+pub const Node002_Right_Door06: string = "Right_door06";
+pub const Node003_Left_Door01: string = "left_door01";
+pub const Node004_Left_Door03: string = "left_door03";
+pub const Node005_Left_Door04: string = "left_door04";
+pub const Node006_Right_Door03: string = "Right_door03";
+pub const Node007_Door: string = "door";
+pub const Node008_Switch: string = "switch";
+pub const Node009_Switch04: string = "switch04";
+pub const Node010_Switch05: string = "switch05";
+pub const Node011_Switch06: string = "switch06";
+pub const Node012_Kabe: string = "kabe";
+pub const Node013_Switch_On: string = "switch_on";
+pub const Node014_Switch04_On: string = "switch04_on";
+pub const Node015_Switch05_On: string = "switch05_on";
+pub const Node016_Switch06_On: string = "switch06_on";

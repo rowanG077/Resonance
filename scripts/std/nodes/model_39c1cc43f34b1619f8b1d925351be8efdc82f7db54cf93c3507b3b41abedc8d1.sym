@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 39c1cc43f34b1619f8b1d925351be8efdc82f7db54cf93c3507b3b41abedc8d1
+pub const Node000_Object01: string = "オブジェクト01";

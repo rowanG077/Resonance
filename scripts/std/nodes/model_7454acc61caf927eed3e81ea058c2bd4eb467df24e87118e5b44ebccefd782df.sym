@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 7454acc61caf927eed3e81ea058c2bd4eb467df24e87118e5b44ebccefd782df
+pub const Node000_Al: string = "al";
+pub const Node001_Tr_Tree_Twei: string = "tr_tree_twei";
+pub const Node002_Tr_Tree_Ein: string = "tr_tree_ein";
+pub const Node003_Tr_Tree_Vier: string = "tr_tree_vier";
+pub const Node004_Tr_Tree_Funf: string = "tr_tree_funf";
+pub const Node005_Tr_Tree_Drei: string = "tr_tree_drei";

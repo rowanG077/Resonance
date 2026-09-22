@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 8bffb535f63e4c93e5f34ea80c15d2c670c699be8a336cab438e0e1032a4b147
+pub const Node000_SentakuA_Shadow_A: string = "sentakuA_shadow_a";
+pub const Node001_SentakuB_Shadow_A: string = "sentakuB_shadow_a";
+pub const Node002_Alpha_A: string = "alpha_a";
+pub const Node003_Door_Shadow_A: string = "door_shadow_a";

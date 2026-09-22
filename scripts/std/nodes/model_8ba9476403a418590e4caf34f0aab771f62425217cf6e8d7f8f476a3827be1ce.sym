@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 8ba9476403a418590e4caf34f0aab771f62425217cf6e8d7f8f476a3827be1ce
+pub const Node000_Renegade03: string = "renegade03";

@@ -1,0 +1,25 @@
+script library;
+// Skeleton: b68e56b8d885b59c96dfb8ab443082c281e577f0bf03e39bd8dc292e83b24bae
+pub const Node000_DOOR01_AUTO_L_PUSH_W174e9: string = "DOOR01_AUTO_L_PUSH_W174e9";
+pub const Node001_Tehai01: string = "Tehai01";
+pub const Node002_Tehai02: string = "Tehai02";
+pub const Node003_Tehai03: string = "Tehai03";
+pub const Node004_Tehai04: string = "Tehai04";
+pub const Node005_T00_P06: string = "T00_P06";
+pub const Node006_T00_P04_New: string = "T00_P04_New";
+pub const Node007_T00_P01: string = "T00_P01";
+pub const Node008_T00_P02: string = "T00_P02";
+pub const Node009_T00_P03: string = "T00_P03";
+pub const Node010_T00_E02: string = "T00_E02";
+pub const Node011_T00_P05_New: string = "T00_P05_New";
+pub const Node012_T00_G01: string = "T00_G01";
+pub const Node013_Tm_Fub01: string = "Tm_Fub01";
+pub const Node014_Tm_Fub02: string = "Tm_Fub02";
+pub const Node015_Tm_Fub03: string = "Tm_Fub03";
+pub const Node016_Tm_Fub04: string = "Tm_Fub04";
+pub const Node017_Tm_HT_Kanban: string = "Tm_HT_Kanban";
+pub const Node018_Tm_P01_Arm: string = "Tm_P01_Arm";
+pub const Node019_Tm_P01_Csm: string = "Tm_P01_Csm";
+pub const Node020_Tm_P01_Door: string = "Tm_P01_Door";
+pub const Node021_Tm_P01_Itm: string = "Tm_P01_Itm";
+pub const Node022_Tm_P01_Wpn: string = "Tm_P01_Wpn";

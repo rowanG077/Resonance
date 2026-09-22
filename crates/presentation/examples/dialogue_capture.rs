@@ -11,8 +11,10 @@ fn main() -> anyhow::Result<()> {
         .map(|path| -> anyhow::Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
         .transpose()?;
     anyhow::ensure!(args.next().is_none(), "unexpected arguments");
+    let assets = std::env::var_os("RESONANCE_TEST_ASSETS")
+        .map_or_else(|| "local/all-assets".into(), std::path::PathBuf::from);
     resonance_presentation::capture_dialogue(
-        std::path::Path::new("local/cooked"),
+        &assets,
         std::path::Path::new(&output),
         &prefix,
         hold_ticks,

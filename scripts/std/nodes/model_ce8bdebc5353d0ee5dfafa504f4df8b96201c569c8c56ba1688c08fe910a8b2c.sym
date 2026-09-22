@@ -1,0 +1,9 @@
+script library;
+// Skeleton: ce8bdebc5353d0ee5dfafa504f4df8b96201c569c8c56ba1688c08fe910a8b2c
+pub const Node000_Room1224mergeObj841: string = "room1224merge.obj841";
+pub const Node001_Object34: string = "ｵﾌﾞｼﾞｪｸﾄ34";
+pub const Node002_Object35: string = "ｵﾌﾞｼﾞｪｸﾄ35";
+pub const Node003_Object40: string = "ｵﾌﾞｼﾞｪｸﾄ40";
+pub const Node004_Object41: string = "ｵﾌﾞｼﾞｪｸﾄ41";
+pub const Node005_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node006_Object43: string = "ｵﾌﾞｼﾞｪｸﾄ43";

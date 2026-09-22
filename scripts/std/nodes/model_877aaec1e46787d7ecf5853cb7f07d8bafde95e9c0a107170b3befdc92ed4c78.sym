@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 877aaec1e46787d7ecf5853cb7f07d8bafde95e9c0a107170b3befdc92ed4c78
+pub const Node000_Rock_Hahen_02: string = "rock_hahen_02";
+pub const Node001_Rock_Hahen_00: string = "rock_hahen_00";
+pub const Node002_Rock_Hahen_01: string = "rock_hahen_01";
+pub const Node003_Rock_Hahen_03: string = "rock_hahen_03";
+pub const Node004_Rock_Hahen_06: string = "rock_hahen_06";
+pub const Node005_Rock_Hahen_04: string = "rock_hahen_04";
+pub const Node006_Rock_Hahen_07: string = "rock_hahen_07";
+pub const Node007_Rock_Hahen_05: string = "rock_hahen_05";

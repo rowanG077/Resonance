@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 0336247434d323f7b4f523e59eca7d1c990cbbae6991050b0329b5749a7fe40b
+pub const Node000_T04_E01: string = "T04_E01";
+pub const Node001_Plant_175: string = "Plant_175";
+pub const Node002_Plant_180: string = "Plant_180";
+pub const Node003_Plant_185: string = "Plant_185";
+pub const Node004_Plant_190: string = "Plant_190";
+pub const Node005_Plant_195: string = "Plant_195";
+pub const Node006_Plant_200: string = "Plant_200";
+pub const Node007_T_Ap02_195: string = "T_Ap02_195";
+pub const Node008_T_Ap01_200: string = "T_Ap01_200";
+pub const Node009_T_Ap03_190: string = "T_Ap03_190";
+pub const Node010_T_Ap04_185: string = "T_Ap04_185";
+pub const Node011_T_Ap06_175: string = "T_Ap06_175";
+pub const Node012_T_Ap07_170: string = "T_Ap07_170";
+pub const Node013_T_Ap08_165: string = "T_Ap08_165";
+pub const Node014_Tt_Door_Sd: string = "tt_Door_sd";
+pub const Node015_Tt_Sd_20: string = "tt_Sd_20";
+pub const Node016_Tt_Sp_10: string = "tt_sp_10";

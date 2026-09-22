@@ -1,0 +1,3 @@
+script library;
+// Skeleton: e80d34814c1da51a709ea232c77315b428aab16dbf79c2deb74da0e8a5ec7deb
+pub const Node000_Altesta: string = "altesta";

@@ -1,0 +1,22 @@
+script library;
+// Skeleton: 973aaf27763dc5c8d7a1e3ef7f188377052776d98ce271d066ea8594ce583a30
+pub const Node000_Sphere04: string = "Sphere04";
+pub const Node001_Sphere05: string = "Sphere05";
+pub const Node002_Sphere06: string = "Sphere06";
+pub const Node003_CANDLE_LIGHT01: string = "CANDLE_LIGHT01";
+pub const Node004_CANDLE_LIGHT03: string = "CANDLE_LIGHT03";
+pub const Node005_Sphere07: string = "Sphere07";
+pub const Node006_Sphere08: string = "Sphere08";
+pub const Node007_Sphere09: string = "Sphere09";
+pub const Node008_CANDLE_LIGHT04: string = "CANDLE_LIGHT04";
+pub const Node009_CANDLE_LIGHT05: string = "CANDLE_LIGHT05";
+pub const Node010_CANDLE_LIGHT06: string = "CANDLE_LIGHT06";
+pub const Node011_CANDLE_LIGHT07: string = "CANDLE_LIGHT07";
+pub const Node012_Sphere10: string = "Sphere10";
+pub const Node013_Sphere11: string = "Sphere11";
+pub const Node014_Sphere12: string = "Sphere12";
+pub const Node015_CANDLE_LIGHT08: string = "CANDLE_LIGHT08";
+pub const Node016_CANDLE_LIGHT09: string = "CANDLE_LIGHT09";
+pub const Node017_Sphere13: string = "Sphere13";
+pub const Node018_Sphere14: string = "Sphere14";
+pub const Node019_Sphere15: string = "Sphere15";

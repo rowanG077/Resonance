@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 875ee55d0b4864d26b37e31a6760fb59bc8f2bbe074944c2b35fbf7d1cd837a0
+pub const Node000_Kousen: string = "kousen";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: bda5d25872a4bf842855c24c8aa284ab7dc0635bd4ce3c9fde4b5ebad01f40eb
+pub const Node000_No_Cook_19: string = "no_cook_19";

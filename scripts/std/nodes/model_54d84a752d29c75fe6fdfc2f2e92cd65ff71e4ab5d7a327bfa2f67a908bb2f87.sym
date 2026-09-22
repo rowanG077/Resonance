@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 54d84a752d29c75fe6fdfc2f2e92cd65ff71e4ab5d7a327bfa2f67a908bb2f87
+pub const Node000_Bird_02_A: string = "bird_02_a";
+pub const Node001_Bird_02_L: string = "bird_02_l";
+pub const Node002_Bird_02_R: string = "bird_02_r";

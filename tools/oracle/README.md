@@ -151,7 +151,7 @@ and file-only audio:
 
 ```sh
 target/debug/examples/checkpoint_replay SAVE REPLAY.json \
-  local/native/replay local/cooked
+  local/native/replay local/all-assets
 ```
 
 Input changes use one-based game updates and hold keys until the next change;

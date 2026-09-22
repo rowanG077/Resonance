@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 85f164c17e91cedb15d3cb140b1567ec0b21bfea747aac598ebe06634f9a8899
+pub const Node000_Disc_Light1: string = "_disc_light1";
+pub const Node001_Sphere01_Fire_A2: string = "_Sphere01_fire_a2";
+pub const Node002_VertexGlass: string = "_vertex glass";
+pub const Node003_Vertex_Anm1: string = "_vertex_anm1";
+pub const Node004_Vertex_Anm2: string = "_vertex_anm2";
+pub const Node005_Vertex_Light: string = "_vertex_light";

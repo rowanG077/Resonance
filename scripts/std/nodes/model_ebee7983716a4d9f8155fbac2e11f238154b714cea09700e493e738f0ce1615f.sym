@@ -1,0 +1,11 @@
+script library;
+// Skeleton: ebee7983716a4d9f8155fbac2e11f238154b714cea09700e493e738f0ce1615f
+pub const Node000_Wall: string = "wall";
+pub const Node001_Door_B_Right: string = "door_B_right";
+pub const Node002_Door_B_Left: string = "door_B_left";
+pub const Node003_Door_A_Light: string = "door_A_light";
+pub const Node004_Door_A_Left: string = "door_A_left";
+pub const Node005_Floor: string = "floor";
+pub const Node006_Plane01: string = "Plane01";
+pub const Node007_Center_Machine: string = "center_machine";
+pub const Node008_Ring: string = "ring";

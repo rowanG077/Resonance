@@ -1,0 +1,22 @@
+script library;
+// Skeleton: bc10bbf5c713dd51dfe5c55c5f9ae3df6e6a4eb96994789da8344fc776b731cc
+pub const Node000_Fire_12: string = "fire_12";
+pub const Node001_Dfbxd06: string = "dfbxd06";
+pub const Node002_Ghmgh06: string = "ghmgh06";
+pub const Node003_Fire_01: string = "fire_01";
+pub const Node004_Fire_02: string = "fire_02";
+pub const Node005_Fire_03: string = "fire_03";
+pub const Node006_Fire_04: string = "fire_04";
+pub const Node007_Fire_05: string = "fire_05";
+pub const Node008_Fire_06: string = "fire_06";
+pub const Node009_Fire_07: string = "fire_07";
+pub const Node010_Fire_08: string = "fire_08";
+pub const Node011_Fire_09: string = "fire_09";
+pub const Node012_Fire_10: string = "fire_10";
+pub const Node013_Fire_11: string = "fire_11";
+pub const Node014_Ghmgh07: string = "ghmgh07";
+pub const Node015_Dfbxd07: string = "dfbxd07";
+pub const Node016_Ghmgh08: string = "ghmgh08";
+pub const Node017_Dfbxd08: string = "dfbxd08";
+pub const Node018_Ghmgh09: string = "ghmgh09";
+pub const Node019_Dfbxd09: string = "dfbxd09";

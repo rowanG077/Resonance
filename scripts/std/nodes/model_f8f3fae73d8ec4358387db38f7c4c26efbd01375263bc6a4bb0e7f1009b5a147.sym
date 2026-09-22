@@ -1,0 +1,13 @@
+script library;
+// Skeleton: f8f3fae73d8ec4358387db38f7c4c26efbd01375263bc6a4bb0e7f1009b5a147
+pub const Node000_Mount_Out_Line04: string = "!!!mount_out_line04";
+pub const Node001_Mount_Cap_009: string = "!!!@mount_cap_009";
+pub const Node002_Mount_Cap_010: string = "!!!@mount_cap_010";
+pub const Node003_Mount_Cap_008: string = "!!!@mount_cap_008";
+pub const Node004_Mount_Cap_007: string = "!!!@mount_cap_007";
+pub const Node005_Ocean_03: string = "!!!ocean_03";
+pub const Node006_Wave_02: string = "!!!wave_02";
+pub const Node007_Wave_01: string = "!!!wave_01";
+pub const Node008_Fore_Top_001: string = "!!!@fore_top_001";
+pub const Node009_Fore_Miki_002: string = "!!!@fore_miki_002";
+pub const Node010_Fore_Miki_001: string = "!!!@fore_miki_001";

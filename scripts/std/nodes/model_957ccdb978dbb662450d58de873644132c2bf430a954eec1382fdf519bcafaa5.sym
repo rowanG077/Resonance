@@ -1,0 +1,14 @@
+script library;
+// Skeleton: 957ccdb978dbb662450d58de873644132c2bf430a954eec1382fdf519bcafaa5
+pub const Node000_Tt_Plane01_100: string = "tt_Plane01_100";
+pub const Node001_Tt_Plane02_105: string = "tt_Plane02_105";
+pub const Node002_Tt_Plane03_110: string = "tt_Plane03_110";
+pub const Node003_Tt_Plane04_115: string = "tt_Plane04_115";
+pub const Node004_Tt_Plane05_120: string = "tt_Plane05_120";
+pub const Node005_Tt0_En01_10: string = "tt0_En01_10";
+pub const Node006_Tt0_Sd_20: string = "tt0_Sd_20";
+pub const Node007_Tt1_Plane01_100: string = "tt1_Plane01_100";
+pub const Node008_Tt1_Plane02_105: string = "tt1_Plane02_105";
+pub const Node009_Tt1_Sd_25: string = "tt1_Sd_25";
+pub const Node010_Tt1_Wat_180: string = "tt1_Wat_180";
+pub const Node011_Tt2_Sd_25: string = "tt2_Sd_25";

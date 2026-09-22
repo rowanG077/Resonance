@@ -1,0 +1,15 @@
+script library;
+// Skeleton: d35c78f36c4596a7a0fb6e202b9e614a9b04349f845c9954625c6be577f0c5be
+pub const Node000_Rock_: string = "rock_";
+pub const Node001_Mag20: string = "mag20";
+pub const Node002_Ground: string = "ground";
+pub const Node003_Sidewall: string = "sidewall";
+pub const Node004_Sideyane: string = "sideyane";
+pub const Node005_Gate: string = "gate";
+pub const Node006_Wall_Span01: string = "wall_span01";
+pub const Node007_Side: string = "side";
+pub const Node008_Wall_Span00: string = "wall_span00";
+pub const Node009_Sphere01: string = "Sphere01";
+pub const Node010_Gjb: string = "gjb";
+pub const Node011_Cylinder01: string = "Cylinder01";
+pub const Node012_Teleport: string = "teleport";

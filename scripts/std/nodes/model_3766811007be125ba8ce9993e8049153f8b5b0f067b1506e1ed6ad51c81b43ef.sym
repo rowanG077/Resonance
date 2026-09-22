@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 3766811007be125ba8ce9993e8049153f8b5b0f067b1506e1ed6ad51c81b43ef
+pub const Node000_Takaraboko: string = "Takaraboko";
+pub const Node001_Takaraboko_Futa: string = "Takaraboko_Futa";

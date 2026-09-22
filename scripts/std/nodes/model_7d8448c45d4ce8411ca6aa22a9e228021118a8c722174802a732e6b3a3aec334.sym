@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 7d8448c45d4ce8411ca6aa22a9e228021118a8c722174802a732e6b3a3aec334
+pub const Node000_DOOR01_AUTO_PUSH_W175e017: string = "DOOR01_AUTO_PUSH_W175e017";
+pub const Node001_Number0912Obj258: string = "0912.obj258";
+pub const Node002_Number0912Obj261: string = "0912.obj261";
+pub const Node003_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node004_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node005_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node006_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node007_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node008_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node009_Object07: string = "ｵﾌﾞｼﾞｪｸﾄ07";

@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 02828579a882f3d73fe9edf0f4ace9fd33c47ede1fadfe588bb31834f88311cf
+pub const Node000_S_Chair_01: string = "s_chair_01";
+pub const Node001_S_Chair_02: string = "s_chair_02";
+pub const Node002_S_Chair_03: string = "s_chair_03";
+pub const Node003_S_Chair_04: string = "s_chair_04";
+pub const Node004_S_Chair_06: string = "s_chair_06";
+pub const Node005_S_Chair_07: string = "s_chair_07";
+pub const Node006_S_Chair_08: string = "s_chair_08";
+pub const Node007_S_Chair_09: string = "s_chair_09";
+pub const Node008_S_Chair_11: string = "s_chair_11";
+pub const Node009_S_Chair_12: string = "s_chair_12";
+pub const Node010_S_Chair_13: string = "s_chair_13";

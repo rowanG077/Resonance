@@ -1,0 +1,9 @@
+script library;
+// Skeleton: b4460d432eb34ffbb2a7f2d31efdb8fe528829c020388f6645cf370248dcd42f
+pub const Node000_Cloud: string = "Cloud";
+pub const Node001_Cumo: string = "cumo";
+pub const Node002_Mo01: string = "mo01";
+pub const Node003_Mo02: string = "mo02";
+pub const Node004_Mo03: string = "mo03";
+pub const Node005_Mo04: string = "mo04";
+pub const Node006_Mo05: string = "mo05";

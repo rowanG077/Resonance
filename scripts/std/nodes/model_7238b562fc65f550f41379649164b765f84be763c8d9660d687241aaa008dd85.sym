@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 7238b562fc65f550f41379649164b765f84be763c8d9660d687241aaa008dd85
+pub const Node000_Switch: string = "switch";
+pub const Node001_Yuka_Obj: string = "yuka_obj";
+pub const Node002_Kabe: string = "kabe";
+pub const Node003_Shutter: string = "shutter";
+pub const Node004_Switch_B: string = "switch_b";
+pub const Node005_Switch_Y: string = "switch_y";

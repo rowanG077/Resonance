@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 70420472eccd538ecc05ecb0cf187d0d218d7d2ce5094bc5b34d49aa6f011573
+pub const Node000_P2: string = "P2";
+pub const Node001_G01: string = "G01";
+pub const Node002_P3: string = "P3";
+pub const Node003_P6: string = "P6";
+pub const Node004_M4_P6_Inf: string = "m4_p6_Inf";
+pub const Node005_P7: string = "P7";
+pub const Node006_P5: string = "P5";
+pub const Node007_P4: string = "P4";
+pub const Node008_M3_P4_Tal: string = "m3_p4_Tal";
+pub const Node009_P1: string = "P1";
+pub const Node010_P2_Boat01: string = "P2_Boat01";
+pub const Node011_P2_Boat02: string = "P2_Boat02";
+pub const Node012_M2_P2_Boat_Link: string = "m2_p2_boat_Link";
+pub const Node013_DOOR01_AUTO_PUSH_W175: string = "DOOR01_AUTO_PUSH_W175";
+pub const Node014_DOOR02_AUTO_PUSH_W175: string = "DOOR02_AUTO_PUSH_W175";
+pub const Node015_DOOR03_AUTO_PUSH_W175: string = "DOOR03_AUTO_PUSH_W175";
+pub const Node016_M0_P1_Inf: string = "m0_p1_Inf";

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 9a65188b493c76f2252e12d9570ef3d91d94775c7af3a6c47faac2f057b51aa8
+pub const Node000_DoorL: string = "doorL";
+pub const Node001_DoorR: string = "doorR";
+pub const Node002_Shutter: string = "shutter";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node004_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node005_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";

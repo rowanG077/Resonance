@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 78114eb776285b05ea6cd0cb77c4b2ac4fd58e8e5b3324fc23fab4c28f3e3d9c
+pub const Node000_Pre000_Axe01_Outline: string = "pre000_axe01_outline";
+pub const Node001_Pre000_Axe01: string = "pre000_axe01";

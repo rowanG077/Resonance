@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 0ba745cee58aa4b806ecb0e2cbfba23e683b1db4ab9ca354f73306cf9f5f2a08
+pub const Node000_Floor: string = "floor";

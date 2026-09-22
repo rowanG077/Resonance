@@ -1,13 +1,14 @@
 //! Preview dynamics reuse the field solver and share the resulting outline pose.
 use super::*;
 use crate::secondary_motion::Rig;
-use bevy::transform::helper::TransformHelper;
+use crate::sparse_animation::affine::{Helper as TransformHelper, Locals};
 
+#[allow(clippy::type_complexity)] // Snapshot authored world poses before writing local bones.
 pub(super) fn apply(
     mut state: State,
     viewer: Res<Viewer>,
     mut rigs: Query<&mut Rig>,
-    mut transforms: ParamSet<(TransformHelper, Query<&mut Transform>)>,
+    mut transforms: ParamSet<(TransformHelper, (Query<&mut Transform>, ResMut<Locals>))>,
 ) {
     let Some(menu) = state.menu() else { return };
     let Some(preview) = menu.preview() else {
@@ -21,11 +22,12 @@ pub(super) fn apply(
         return;
     };
     let roots = primary
-        .spec
-        .scene
-        .clips
-        .first()
-        .map(|c| c.secondary_pose_nodes.as_slice())
+        .clip
+        .map(|index| {
+            primary.spec.scene.clips[index]
+                .secondary_pose_nodes
+                .as_slice()
+        })
         .unwrap_or_default();
     let helper = transforms.p0();
     let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots, None) else {
@@ -43,9 +45,10 @@ pub(super) fn apply(
             locals.extend(rig.locals(&helper, &pose));
         }
     }
+    let (mut transforms, mut affine) = transforms.p1();
     for (entity, local) in locals {
-        if let Ok(mut transform) = transforms.p1().get_mut(entity) {
-            *transform = local;
+        if let Ok(mut transform) = transforms.get_mut(entity) {
+            affine.set(entity, &mut transform, local);
         }
     }
 }

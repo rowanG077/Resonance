@@ -11,6 +11,6 @@ resonance-events.workspace = true
 resonance-content.workspace = true
 symphonia-script.workspace = true
 symphonia-script-vm.workspace = true
-
-[dev-dependencies]
+symphonia-script-compiler.workspace = true
+symphonia-script-tools.workspace = true
 serde_json.workspace = true

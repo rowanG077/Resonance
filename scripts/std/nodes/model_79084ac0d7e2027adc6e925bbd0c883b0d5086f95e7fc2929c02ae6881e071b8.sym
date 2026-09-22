@@ -1,0 +1,14 @@
+script library;
+// Skeleton: 79084ac0d7e2027adc6e925bbd0c883b0d5086f95e7fc2929c02ae6881e071b8
+pub const Node000_DOOR01_AUTO_L_PUSH_W174e9: string = "DOOR01_AUTO_L_PUSH_W174e9";
+pub const Node001_T00_P06: string = "T00_P06";
+pub const Node002_T00_P04: string = "T00_P04";
+pub const Node003_T00_E02: string = "T00_E02";
+pub const Node004_T00_P05: string = "T00_P05";
+pub const Node005_T00_G01: string = "T00_G01";
+pub const Node006_T02_P07: string = "T02_P07";
+pub const Node007_T02_P08: string = "T02_P08";
+pub const Node008_Tm_HT_Kanban: string = "Tm_HT_Kanban";
+pub const Node009_Tm_P01_Arm: string = "Tm_P01_Arm";
+pub const Node010_Tm_P01_Csm: string = "Tm_P01_Csm";
+pub const Node011_Tm_P01_Door: string = "Tm_P01_Door";

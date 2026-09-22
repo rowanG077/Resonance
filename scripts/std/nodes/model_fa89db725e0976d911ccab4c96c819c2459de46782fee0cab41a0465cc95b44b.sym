@@ -1,0 +1,3 @@
+script library;
+// Skeleton: fa89db725e0976d911ccab4c96c819c2459de46782fee0cab41a0465cc95b44b
+pub const Node000_Sekiban: string = "sekiban";

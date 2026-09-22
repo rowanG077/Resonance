@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 2bc8c81c7c9e2aac4f74fd51a315407e4082aa0ed85144724ed40c8bf33e39a4
+pub const Node000_Smoke: string = "smoke";
+pub const Node001_Plane17: string = "Plane17";
+pub const Node002_Plane18: string = "Plane18";
+pub const Node003_Plane19: string = "Plane19";
+pub const Node004_Plane20: string = "Plane20";
+pub const Node005_Plane21: string = "Plane21";
+pub const Node006_Plane22: string = "Plane22";
+pub const Node007_Plane23: string = "Plane23";
+pub const Node008_Plane24: string = "Plane24";

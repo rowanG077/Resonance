@@ -1,0 +1,27 @@
+script library;
+// Skeleton: a276d750dd71b2858e5a596eeb97e63774b2483cdabfec97a426d5c3bc01f2b7
+pub const Node000_Rui_Jimen01: string = "rui_jimen01";
+pub const Node001_Rui_House01: string = "rui_house01";
+pub const Node002_Rui_House02: string = "rui_house02";
+pub const Node003_Rui_House04: string = "rui_house04";
+pub const Node004_Rui_House05: string = "rui_house05";
+pub const Node005_Rui_House06: string = "rui_house06";
+pub const Node006_Rui_House07: string = "rui_house07";
+pub const Node007_Object01: string = "Object01";
+pub const Node008_Object03: string = "Object03";
+pub const Node009_Object04: string = "Object04";
+pub const Node010_Object05: string = "Object05";
+pub const Node011_Object06: string = "Object06";
+pub const Node012_Object07: string = "Object07";
+pub const Node013_Object08: string = "Object08";
+pub const Node014_Object09: string = "Object09";
+pub const Node015_Object10: string = "Object10";
+pub const Node016_Object11: string = "Object11";
+pub const Node017_Object12: string = "Object12";
+pub const Node018_Object13: string = "Object13";
+pub const Node019_Object14: string = "Object14";
+pub const Node020_Object15: string = "Object15";
+pub const Node021_Object16: string = "Object16";
+pub const Node022_Object17: string = "Object17";
+pub const Node023_Object18: string = "Object18";
+pub const Node024_Object02: string = "Object02";

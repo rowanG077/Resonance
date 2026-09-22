@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 7da442350acea5f63e75e4a9bdbb5231ce5fc2edfc4c61e2110a61d226113b6b
+pub const Node000_Hashi: string = "hashi";
+pub const Node001_Hashi_01: string = "hashi_01";
+pub const Node002_Hashi_02: string = "hashi_02";
+pub const Node003_Hashi_03: string = "hashi_03";
+pub const Node004_Zou: string = "zou";
+pub const Node005_Zou_01: string = "zou_01";
+pub const Node006_Zou_01_B: string = "zou_01_b";
+pub const Node007_Zou_01_A: string = "zou_01_a";
+pub const Node008_Zou_02: string = "zou_02";
+pub const Node009_Zou_02_A: string = "zou_02_a";
+pub const Node010_Zou_02_B: string = "zou_02_b";
+pub const Node011_Zou_04: string = "zou_04";
+pub const Node012_Zou_04_A: string = "zou_04_a";
+pub const Node013_Zou_04_B: string = "zou_04_b";
+pub const Node014_Zou_03: string = "zou_03";
+pub const Node015_Zou_03_A: string = "zou_03_a";
+pub const Node016_Zou_03_B: string = "zou_03_b";

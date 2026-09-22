@@ -1,0 +1,5 @@
+script library;
+// Skeleton: b202553d3e26dbf6e0c12c6197d763a9f2332546b17e664c873ce6f15051e550
+pub const Node000_Komono: string = "komono";
+pub const Node001_Room: string = "room";
+pub const Node002_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: a3a7a224c4f463abc75d4ca169edc1f1ad310b05b147e3bec3303a09f878d3b3
+pub const Node000_Collet02: string = "collet02";

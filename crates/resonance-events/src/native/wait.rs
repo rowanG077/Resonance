@@ -84,8 +84,8 @@ impl NativeHost<'_> {
                         let observation = observations.front().ok_or("unobserved resource wait")?;
                         require(
                             observation.request_tick == self.world.tick
-                                && self.resources.bindings.get(&observation.resource)
-                                    == self.world.loaded_resources.get(&value),
+                                && self.resources.binding(observation.resource)
+                                    == self.world.loaded_resources.get(&value).copied(),
                             "resource request differs from the observed tick or resource",
                         )?;
                         *self.resource_wait = Some(*observation);

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 7bacd93c0292d0d54e5ebc7b83ec41baca0130c28a1e1ecad25842ac52fb7199
+pub const Node000_Ocean_03: string = "!!!ocean_03";
+pub const Node001_Wave_01: string = "!!!wave_01";

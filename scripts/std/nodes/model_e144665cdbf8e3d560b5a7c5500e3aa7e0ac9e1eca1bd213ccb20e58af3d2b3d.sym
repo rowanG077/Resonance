@@ -1,0 +1,25 @@
+script library;
+// Skeleton: e144665cdbf8e3d560b5a7c5500e3aa7e0ac9e1eca1bd213ccb20e58af3d2b3d
+pub const Node000_Ground: string = "ground";
+pub const Node001_Cyourou: string = "Cyourou";
+pub const Node002_MIN_ROOF: string = "MIN_ROOF";
+pub const Node003_MINKA01: string = "MINKA01";
+pub const Node004_Fu_Center: string = "Fu_center";
+pub const Node005_Fusya: string = "fusya";
+pub const Node006_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node007_Fu_Roof: string = "fu_roof";
+pub const Node008_Fusya: string = "Fusya";
+pub const Node009_Taoru: string = "taoru";
+pub const Node010_Taoru02: string = "taoru02";
+pub const Node011_Miki: string = "Miki";
+pub const Node012_Komono: string = "komono";
+pub const Node013_DOOR01_AUTO_S_PUSH_W175: string = "DOOR01_AUTO_S_PUSH_W175";
+pub const Node014_Cyou_Roof: string = "Cyou_roof";
+pub const Node015_Shfu02: string = "shfu02";
+pub const Node016_Shfu01: string = "shfu01";
+pub const Node017_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node018_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node019_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node020_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node021_DOOR02_AUTO_S_PUSH_W175: string = "DOOR02_AUTO_S_PUSH_W175";
+pub const Node022_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";

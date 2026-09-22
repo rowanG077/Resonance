@@ -1,0 +1,25 @@
+script library;
+// Skeleton: e32f22849ae4045a198b7513ed25dd63662ca2117c8b755e8899bbdd0c70f031
+pub const Head: string = "Bone_atama";
+pub const LeftArm01: string = "Bone_ude01_L";
+pub const Node000_Mo12Bone_Koshi: string = "mo12Bone_koshi";
+pub const Node001_MBone_Tuika00_L: string = "MBone_Tuika00_L";
+pub const Node002_MBone_Tuika10_L: string = "MBone_Tuika10_L";
+pub const Node003_MBone_Tuika20: string = "MBone_Tuika20";
+pub const Node004_MBone_Tuika21: string = "MBone_Tuika21";
+pub const Node005_MBone_Tuika00_R: string = "MBone_Tuika00_R";
+pub const Node006_MBone_Tuika10_R: string = "MBone_Tuika10_R";
+pub const Node007_Bone_Sebone03: string = "Bone_sebone03";
+pub const Node008_Bone_Kata_L: string = "Bone_kata_L";
+pub const Node010_NS_Bone_Ude03_L: string = "NS_Bone_ude03_L";
+pub const Node011_NS_Bone_Te_L: string = "NS_Bone_te_L";
+pub const Node012_Kk01_Corp21_02Shield: string = "kk01_Corp21_02Shield";
+pub const Node013_Bone_Kata_R: string = "Bone_kata_R";
+pub const Node015_NS_Bone_Ude03_R: string = "NS_Bone_ude03_R";
+pub const Node016_NS_Bone_Te_R: string = "NS_Bone_te_R";
+pub const Node017_Kk00_Corp21_01Ken: string = "kk00_Corp21_01Ken";
+pub const Node019_Ns__Bone_Ashi02_R: string = "ns__Bone_ashi02_R";
+pub const Node020_NS_Bone_Ashi04_R: string = "NS_Bone_ashi04_R";
+pub const Node021_Ns__Bone_Ashi02_L: string = "ns__Bone_ashi02_L";
+pub const Node022_NS_Bone_Ashi04_L: string = "NS_Bone_ashi04_L";
+pub const RightArm01: string = "Bone_ude01_R";

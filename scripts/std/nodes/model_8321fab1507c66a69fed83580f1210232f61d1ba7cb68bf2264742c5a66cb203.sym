@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 8321fab1507c66a69fed83580f1210232f61d1ba7cb68bf2264742c5a66cb203
+pub const Node000_Box68: string = "Box68";
+pub const Node001_Box70: string = "Box70";
+pub const Node002_Plane03: string = "Plane03";
+pub const Node003_Plane09: string = "Plane09";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: f316e2aed286800596e1e20a9b9cff6a51ee1dbafede353aa570953e6206ff37
+pub const Node000_Wonders_Color: string = "wonders_color";

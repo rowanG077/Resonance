@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 34629fd2254682cbd553114dc1118ef9ba553682671016d7b682483f0ee0892c
+pub const Node000_Iwa03: string = "iwa03";
+pub const Node001_Iwa02: string = "iwa02";
+pub const Node002_Iwa01: string = "iwa01";

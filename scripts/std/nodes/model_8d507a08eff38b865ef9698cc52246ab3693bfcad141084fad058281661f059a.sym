@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 8d507a08eff38b865ef9698cc52246ab3693bfcad141084fad058281661f059a
+pub const Node000_Syoumei_01: string = "syoumei_01";

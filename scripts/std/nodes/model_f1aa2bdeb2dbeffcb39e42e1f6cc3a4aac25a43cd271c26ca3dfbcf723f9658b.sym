@@ -1,0 +1,14 @@
+script library;
+// Skeleton: f1aa2bdeb2dbeffcb39e42e1f6cc3a4aac25a43cd271c26ca3dfbcf723f9658b
+pub const Node000_Dummy01: string = "Dummy01";
+pub const Node001_EFFE: string = "EFFE";
+pub const Node002_Efe00_0: string = "efe00_0";
+pub const Node003_Efe01_0: string = "efe01_0";
+pub const Node004_Efe01_1: string = "efe01_1";
+pub const Node005_Efe00_1: string = "efe00_1";
+pub const Node006_Dummy02: string = "Dummy02";
+pub const Node007_EFFE01: string = "EFFE01";
+pub const Node008_Efe00_02: string = "efe00_02";
+pub const Node009_Efe01_02: string = "efe01_02";
+pub const Node010_Efe01_03: string = "efe01_03";
+pub const Node011_Efe00_03: string = "efe00_03";

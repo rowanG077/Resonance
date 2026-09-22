@@ -1,0 +1,12 @@
+script library;
+// Skeleton: cc1d2a0899c2dab052f68668952f6a9344ba3f2625f41e03fbc152aae55247ff
+pub const Node000_Room_Base: string = "room_base";
+pub const Node001_Door_A_01: string = "door_A_01";
+pub const Node002_Door_A_02: string = "door_A_02";
+pub const Node003_Door_B_02: string = "door_B_02";
+pub const Node004_Door_B_01: string = "door_B_01";
+pub const Node005_Dact_Door_01: string = "dact_door_01";
+pub const Node006_Dact_Door_02: string = "dact_door_02";
+pub const Node007_Ura_02: string = "ura_02";
+pub const Node008_Ura_01: string = "ura_01";
+pub const Node009_Ura_03: string = "ura_03";

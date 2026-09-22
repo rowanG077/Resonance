@@ -1,0 +1,25 @@
+script library;
+// Skeleton: d545c3880360e11e713b6aaabfdcb2fd5f1b64e1a82a7a942db1f72f3b923112
+pub const Node000_A_Bri: string = "A_bri";
+pub const Node001_M_Underwater: string = "m_underwater";
+pub const Node002_M_Ground01: string = "m_ground01";
+pub const Node003_M_Bri_Tower_R18: string = "m_bri_tower_r18";
+pub const Node004_M_Map06_01: string = "m_map06_01";
+pub const Node005_M_Bribs_Map01: string = "m_bribs_map01";
+pub const Node006_M_Bg: string = "m_bg";
+pub const Node007_M_Sky: string = "m_sky";
+pub const Node008_Ani_Fl_A: string = "ani_fl_a";
+pub const Node009_Ani_Fl_B: string = "ani_fl_b";
+pub const Node010_Ani_Fl_C: string = "ani_fl_c";
+pub const Node011_Ani_Fl_D: string = "ani_fl_d";
+pub const Node012_Ani_Fl_E: string = "ani_fl_e";
+pub const Node013_Ani_Fl_F: string = "ani_fl_f";
+pub const Node014_Ani_Fl_G: string = "ani_fl_g";
+pub const Node015_Ani_Fl_Rope: string = "ani_fl_rope";
+pub const Node016_M_Saku: string = "m_saku";
+pub const Node017_B_Bri: string = "B_bri";
+pub const Node018_A_Gate: string = "A_gate";
+pub const Node019_B_Gate: string = "B_gate";
+pub const Node020_M_Map08_01: string = "m_map08_01";
+pub const Node021_M_Bg_Phybac: string = "m_bg_phybac";
+pub const Node022_M_Bg_Woods: string = "m_bg_woods";

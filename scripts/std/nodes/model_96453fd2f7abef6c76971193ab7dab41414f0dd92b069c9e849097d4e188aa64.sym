@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 96453fd2f7abef6c76971193ab7dab41414f0dd92b069c9e849097d4e188aa64
+pub const Head002: string = "head002";
+pub const Node000_Number2Dummy002: string = "2Dummy002";
+pub const Node001_Body002: string = "body002";
+pub const Node003_Back002: string = "back002";
+pub const Node005_R02_Wing01: string = "R02_wing01";
+pub const Node006_R02_Wing02: string = "R02_wing02";
+pub const Node007_R02_Wing03: string = "R02_wing03";
+pub const Node008_R02_Wing04: string = "R02_wing04";
+pub const Node009_L02_Wing01: string = "L02_wing01";
+pub const Node010_L02_Wing02: string = "L02_wing02";
+pub const Node011_L02_Wing03: string = "L02_wing03";
+pub const Node012_L02_Wing04: string = "L02_wing04";
+pub const Tail002: string = "tail002";

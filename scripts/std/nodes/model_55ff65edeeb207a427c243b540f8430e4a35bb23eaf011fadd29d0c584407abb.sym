@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 55ff65edeeb207a427c243b540f8430e4a35bb23eaf011fadd29d0c584407abb
+pub const Node000_Tt_En01_10: string = "tt_En01_10";
+pub const Node001_Tt_Sd_20: string = "tt_Sd_20";
+pub const Node002_Tt1_H01_Wa02_190: string = "tt1_H01_Wa02_190";
+pub const Node003_Tt2_Door_Sd_200: string = "tt2_Door_Sd_200";
+pub const Node004_Tt2_H01_W_Line_194: string = "tt2_H01_W_Line_194";
+pub const Node005_Tt2_H01_Wa01_180: string = "tt2_H01_Wa01_180";
+pub const Node006_Tt2_H01_Wa02_190: string = "tt2_H01_Wa02_190";
+pub const Node007_Tt2_H01_Wa_S01_186: string = "tt2_H01_Wa_S01_186";
+pub const Node008_Tt2_H01_Wa_Spl_188: string = "tt2_H01_Wa_spl_188";
+pub const Node009_Tt2_H01_Wa_Spl_192: string = "tt2_H01_Wa_spl_192";
+pub const Node010_Tt2_H01_Wa_Spl_193: string = "tt2_H01_Wa_spl_193";
+pub const Node011_Tt2_Sd_20: string = "tt2_sd_20";
+pub const Node012_Tt_Plane01_100: string = "tt_Plane01_100";
+pub const Node013_Tt_Plane02_105: string = "tt_Plane02_105";
+pub const Node014_Tt_Plane03_110: string = "tt_Plane03_110";
+pub const Node015_Tt_Plane04_115: string = "tt_Plane04_115";
+pub const Node016_Tt_Plane05_120: string = "tt_Plane05_120";

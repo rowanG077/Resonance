@@ -1,10 +1,10 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
-#[path = "field_ui_caption.rs"]
-mod caption;
 #[path = "field_ui_coverage.rs"]
 mod coverage;
 #[path = "field_ui_menu.rs"]
 mod menu;
+#[path = "field_ui_overlay.rs"]
+mod overlay;
 pub(super) fn model_preview_depth() -> f32 {
     menu::model_preview_depth()
 }
@@ -45,6 +45,7 @@ mod layer {
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+#[bind_group_data(SurfaceKey)]
 pub(super) struct Surface {
     #[texture(0)]
     source: Handle<Image>,
@@ -60,6 +61,14 @@ pub(super) struct Surface {
     color_mask: Handle<Image>,
     #[uniform(6)]
     coverage: Coverage,
+    opaque: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct SurfaceKey(bool);
+impl From<&Surface> for SurfaceKey {
+    fn from(surface: &Surface) -> Self {
+        Self(surface.opaque)
+    }
 }
 impl Material2d for Surface {
     fn fragment_shader() -> ShaderRef {
@@ -71,9 +80,14 @@ impl Material2d for Surface {
     fn specialize(
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
         _: &bevy::mesh::MeshVertexBufferLayoutRef,
-        _: bevy::sprite_render::Material2dKey<Self>,
+        key: bevy::sprite_render::Material2dKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/field-ui".into());
+        if key.bind_group_data.0
+            && let Some(fragment) = &mut descriptor.fragment
+        {
+            fragment.shader_defs.push("OPAQUE_IMAGE".into());
+        }
         Ok(())
     }
 }
@@ -90,7 +104,7 @@ pub(super) struct Artwork {
     choice_trail: super::choice_cursor::Trail,
     subtitles: resonance_content::font::MovieSubtitles,
     subtitle_layer: Option<Layer>,
-    captions: BTreeMap<u32, caption::Caption>,
+    overlays: overlay::Artwork,
     menu: menu::MenuArtwork,
     prompt_layers: Vec<Layer>,
     skits: skit::Artwork,
@@ -147,6 +161,7 @@ impl MenuOverlay {
                     frame_mask: source.clone(),
                     color_mask: source.clone(),
                     coverage: Coverage::default(),
+                    opaque: false,
                 })
             })
             .collect();
@@ -219,9 +234,9 @@ impl Layer {
 }
 impl Artwork {
     pub fn despawn(&mut self, world: &mut World) {
+        self.overlays.despawn(world);
         for layer in std::mem::take(&mut self.layers)
             .into_values()
-            .chain(self.captions.values_mut().flat_map(|c| c.layers.drain(..)))
             .chain(self.menu.layers.drain(..))
             .chain(self.prompt_layers.drain(..))
             .chain(self.skits.layers.drain(..))
@@ -240,14 +255,16 @@ impl Artwork {
         field: &resonance_content::field::FieldAssets,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
+        images: &mut Assets<Image>,
     ) -> Result<Self> {
-        Self::load_with(root, field, server, materials, None)
+        Self::load_with(root, field, server, materials, images, None)
     }
     pub fn load_with(
         root: &Path,
         field: &resonance_content::field::FieldAssets,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
+        image_assets: &mut Assets<Image>,
         files: Option<&resonance_content::prepared::Files>,
     ) -> Result<Self> {
         let read = |path: &str| -> Result<Vec<u8>> {
@@ -257,15 +274,14 @@ impl Artwork {
             )
         };
         let spec: DialogueArt = serde_json::from_slice(
-            &read("ui/dialogue.json")
-                .context("classroom dialogue art is missing; run cook-classroom")?,
+            &read("ui/dialogue.json").context("classroom dialogue art is missing; run cook-all")?,
         )?;
         spec.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&spec.font)?)?;
         font.validate()?;
         let subtitles: resonance_content::font::MovieSubtitles = serde_json::from_slice(
             &read("ui/story-subtitles.json")
-                .context("movie subtitles are missing; run cook-classroom")?,
+                .context("movie subtitles are missing; run cook-all")?,
         )?;
         subtitles.validate()?;
         let images: Vec<Handle<Image>> = spec
@@ -302,11 +318,12 @@ impl Artwork {
                     frame_mask: images[0].clone(),
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
+                    opaque: false,
                 })
             })
             .collect();
         let menu = menu::MenuArtwork::load(read, server, materials, &surfaces[9], &surfaces[10])?;
-        let skits = skit::Artwork::load(read, server, materials, &surfaces[9])?;
+        let skits = skit::Artwork::load(read, server, materials, &surfaces[9], image_assets)?;
         Ok(Self {
             skits,
             resolution: Default::default(),
@@ -319,14 +336,14 @@ impl Artwork {
             choice_trail: Default::default(),
             subtitles,
             subtitle_layer: None,
-            captions: caption::Caption::load(field, read, server, materials)?,
+            overlays: overlay::Artwork::load(field, read, server, materials, image_assets)?,
             menu,
             prompt_layers: Vec::new(),
         })
     }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
         self.images.iter().all(|image| images.contains(image.id()))
-            && self.captions.values().all(|caption| caption.ready(images))
+            && self.overlays.ready(images)
             && self.menu.ready(images)
             && self.skits.ready(images)
     }
@@ -340,9 +357,7 @@ impl Artwork {
         self.menu.prepare(commands, meshes);
         self.skits.prepare(commands, meshes);
         self.prepare_prompt(commands, meshes, materials);
-        for caption in self.captions.values_mut() {
-            caption.prepare(commands, meshes);
-        }
+        self.overlays.prepare(commands, meshes);
         for slot in 0..DIALOGUE_SLOTS {
             for (index, texture) in layer::TEXTURES.into_iter().enumerate() {
                 if self.layers.contains_key(&(slot, index)) {
@@ -403,7 +418,8 @@ impl Artwork {
         self.layers
             .values()
             .chain(self.subtitle_layer.iter())
-            .chain(self.captions.values().flat_map(|c| &c.layers))
+            .chain(&self.overlays.layers)
+            .chain(&self.overlays.warm)
             .chain(&self.menu.layers)
             .chain(&self.prompt_layers)
             .chain(&self.skits.layers)
@@ -443,18 +459,15 @@ impl Artwork {
             })
             .collect()
     }
-    pub fn render_captions(
+    pub fn render_overlays(
         &mut self,
         world: &resonance_events::GameWorld,
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<Vec<i32>> {
-        let mut handled = Vec::new();
-        for (&resource, caption) in &mut self.captions {
-            handled.extend(caption.render(resource, world, commands, meshes)?);
-        }
-        Ok(handled)
+        self.overlays.render(world, commands, meshes)
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         session: &FieldSession,
@@ -463,6 +476,7 @@ impl Artwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
         materials: &mut Assets<Surface>,
+        images: &mut Assets<Image>,
     ) -> Result<()> {
         self.render_prompt(session, commands, meshes)?;
         self.skits.render(
@@ -471,6 +485,7 @@ impl Artwork {
             self.resolution,
             commands,
             meshes,
+            images,
         )?;
         self.menu.render(
             menu::Source::Field(session),
@@ -810,10 +825,7 @@ pub(super) fn subtitles(
         .audio_sink(&sinks)
         .map(super::audio_output::Sink::position);
     let frame = movie.timeline_frame(position);
-    let story = movie
-        .asset
-        .as_ref()
-        .is_some_and(|a| a.path == "movies/story-intro.mkv");
+    let story = movie.resource == Some(1);
     let enabled = session
         .as_ref()
         .and_then(|s| s.field.events.world.party.as_ref())
@@ -842,7 +854,7 @@ pub(super) fn subtitles(
                     .glyphs
                     .get(&character)
                     .with_context(|| format!("uncooked subtitle glyph {character:?}"))?;
-                let (width, scale) = if character.is_ascii() {
+                let (width, scale) = if resonance_content::font::is_single_byte(character) {
                     (18., 18. / 17.)
                 } else {
                     (25., 1.)

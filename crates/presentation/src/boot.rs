@@ -22,7 +22,7 @@ impl Playback {
         }
         let asset: BootAssets =
             serde_json::from_slice(&fs::read(root.join("boot.json")).context(
-                "missing startup logos; run resonance-import cook-boot or use --skip-intro",
+                "missing startup logos; run resonance-import cook-all or use --skip-intro",
             )?)?;
         asset.validate()?;
         let mut logos = Logos::default();

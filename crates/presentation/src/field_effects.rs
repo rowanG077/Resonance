@@ -1,5 +1,7 @@
 //! Camera-facing sprites from cooked recipes and live event state.
+use super::sparse_animation::affine::Helper as TransformHelper;
 use super::{
+    field_animation::Rig,
     field_audit::{Applied, Request},
     field_view::{ActorPart, State},
     materials::TitleSurface,
@@ -11,10 +13,9 @@ use bevy::{
     image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
-    transform::helper::TransformHelper,
 };
 use resonance_content::{
-    effect::{FieldEffects, FlutterRecipe, RefractionRecipe, VerticalAnchor},
+    effect::{EmoteTrack, FieldEffects, FlutterRecipe, RefractionRecipe, VerticalAnchor},
     field::FieldAssets,
 };
 use std::{collections::BTreeMap, fs, path::Path};
@@ -261,8 +262,7 @@ pub(super) fn render(
     art: Res<Artwork>,
     images: Res<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    actors: Query<(Entity, &ActorPart)>,
-    children: Query<&Children>,
+    actors: Query<(&ActorPart, Option<&Rig>)>,
     names: Query<&Name>,
     helper: TransformHelper,
     mut applied: ResMut<Applied>,
@@ -344,8 +344,8 @@ pub(super) fn render(
     }
     let roots: BTreeMap<_, _> = actors
         .iter()
-        .filter(|(_, p)| p.part == 0)
-        .map(|(e, p)| (p.actor, (e, p)))
+        .filter(|(p, _)| p.part == 0)
+        .map(|(p, rig)| (p.actor, (p, rig)))
         .collect();
     let emotes = world.emotes.iter().map(|(&id, emote)| {
         (
@@ -373,29 +373,32 @@ pub(super) fn render(
         let Some(track) = track else {
             continue;
         };
-        let Some((root, part)) = roots.get(&actor) else {
-            continue;
-        };
-        if !part.prepared {
-            applied.loading(request);
+        let sprites = track.frame_with_phase(age, phase);
+        if sprites.is_empty() {
+            applied.ack(request);
             continue;
         }
-        let bone = children
-            .iter_descendants(*root)
-            .find(|e| names.get(*e).is_ok_and(|n| n.as_str() == track.anchor));
-        let Some(bone) = bone else {
+        let Some((part, rig)) = roots.get(&actor) else {
             continue;
         };
-        let Ok(anchor) = helper.compute_global_transform(bone) else {
+        let Some(rig) = rig.filter(|_| part.prepared) else {
+            applied.loading(request);
             continue;
         };
-        for sprite in track.frame_with_phase(age, phase) {
+        let Some(actor) = world.actors.get(&actor) else {
+            continue;
+        };
+        let Some(anchor) = anchor_position(rig, track, actor.position, &names, &helper) else {
+            continue;
+        };
+        for sprite in sprites {
             let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
-            let center = anchor.translation() + side * x + forward * y + Vec3::Z * z;
+            let center = anchor + side * x + forward * y + Vec3::Z * z;
             // Snap emote centers to whole world units; keep their rotated vertices
             // and the independently moving dust particles at full precision.
             let center = center.trunc();
-            let rotation = camera.rotation * Quat::from_rotation_z(sprite.rotation.to_radians());
+            let angle = sprite.rotation + track.rotation.angle(state.get().effect_clock.tick());
+            let rotation = camera.rotation * Quat::from_rotation_z(angle.to_radians());
             batches[layer].anchored_sprite(
                 center,
                 rotation,
@@ -410,8 +413,6 @@ pub(super) fn render(
                 sprite.vertical_anchor,
             );
         }
-        // The intro frame can deliberately contain no sprites; the track
-        // has still been sampled and handled by this renderer.
         applied.ack(request);
     }
     for (index, batch) in batches.into_iter().enumerate() {
@@ -430,9 +431,75 @@ pub(super) fn render(
     }
 }
 
+fn anchor_position(
+    rig: &Rig,
+    track: &EmoteTrack,
+    actor: [f32; 3],
+    names: &Query<&Name>,
+    helper: &TransformHelper,
+) -> Option<Vec3> {
+    match rig.bone(&track.anchor, names).ok()? {
+        Some(bone) => helper
+            .compute_global_transform(bone)
+            .ok()
+            .map(|t| t.translation()),
+        None => Some(Vec3::from_array(actor) + Vec3::from_array(track.missing_anchor_offset)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anchors_use_model_order_or_logical_position_but_never_hide_transform_errors() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        let root = world.spawn(Transform::from_xyz(900., 800., 700.)).id();
+        let mut node = |name, position| {
+            world
+                .spawn((
+                    Name::new(name),
+                    Transform::from_translation(position),
+                    ChildOf(root),
+                ))
+                .id()
+        };
+        let _geometry = node("Bone_atama", Vec3::splat(999.));
+        let prefix = node("Bone_atama_extra", Vec3::splat(1.));
+        let wrong_case = node("bone_atama", Vec3::splat(2.));
+        let head_a = node("Bone_atama", Vec3::splat(3.));
+        let head_b = node("Bone_atama", Vec3::new(7., 8., 9.));
+        let broken = world.spawn((Name::new("Bone_atama"), ChildOf(root))).id();
+        let unlabeled = world.spawn(Transform::IDENTITY).id();
+        let mut sample = |nodes: &[Entity], offset| {
+            let rig = Rig::new(nodes.iter().map(|&e| (e, Transform::IDENTITY)).collect());
+            let track = EmoteTrack {
+                anchor: "Bone_atama".into(),
+                missing_anchor_offset: offset,
+                rotation: resonance_content::effect::EmoteRotation::Fixed,
+                phase_count: 1,
+                intro: Vec::new(),
+                cycle: vec![Vec::new()],
+            };
+            world
+                .run_system_once(move |names: Query<&Name>, helper: TransformHelper| {
+                    anchor_position(&rig, &track, [10., 20., 30.], &names, &helper)
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            sample(&[prefix, head_b, head_a], [0., 0., 128.]),
+            Some(Vec3::new(907., 808., 709.))
+        );
+        assert_eq!(
+            sample(&[prefix, wrong_case], [0., 0., 128.]),
+            Some(Vec3::new(10., 20., 158.))
+        );
+        assert_eq!(sample(&[], [0.; 3]), Some(Vec3::new(10., 20., 30.)));
+        assert_eq!(sample(&[broken], [0., 0., 128.]), None);
+        assert_eq!(sample(&[unlabeled], [0., 0., 128.]), None);
+    }
 
     #[test]
     fn emote_vertical_anchors_preserve_odd_integer_heights() {

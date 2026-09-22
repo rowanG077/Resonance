@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 2a6f9669f96ab8ee4c5bc9e6feabfe3e751bdc05689e04274f38f48e4a701606
+pub const Node000_Sakana_Hana: string = "sakana_hana";

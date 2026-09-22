@@ -1,0 +1,8 @@
+script library;
+// Skeleton: b21b0f10c29e4813101ae1c6ec42ca64d7a72717f8e6c75df9f0be65e6fbbfe1
+pub const Node000_Thunder03f: string = "Thunder03f";
+pub const Node001_Thunder03e: string = "Thunder03e";
+pub const Node002_Thunder03d: string = "Thunder03d";
+pub const Node003_Thunder03c: string = "Thunder03c";
+pub const Node004_Thunder03b: string = "Thunder03b";
+pub const Node005_Thunder03a: string = "Thunder03a";

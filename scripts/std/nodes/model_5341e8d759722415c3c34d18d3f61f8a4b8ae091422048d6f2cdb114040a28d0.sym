@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 5341e8d759722415c3c34d18d3f61f8a4b8ae091422048d6f2cdb114040a28d0
+pub const Node000_Ev_L: string = "ev_l";
+pub const Node001_Ev_R: string = "ev_r";
+pub const Node002_EV: string = "EV";
+pub const Node003_DOOR01_AUTO_PUSH_W175: string = "DOOR01_AUTO_PUSH_W175";
+pub const Node004_Wall: string = "wall";
+pub const Node005_Barrier: string = "barrier";
+pub const Node006_Sky: string = "sky";
+pub const Node007_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

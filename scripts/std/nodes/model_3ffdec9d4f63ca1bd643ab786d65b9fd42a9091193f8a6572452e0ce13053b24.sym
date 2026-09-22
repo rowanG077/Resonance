@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 3ffdec9d4f63ca1bd643ab786d65b9fd42a9091193f8a6572452e0ce13053b24
+pub const Node000_Number0005_Window: string = "_0005_window";
+pub const Node001_Vertex_Kiri01: string = "_vertex_kiri01";
+pub const Node002_Vertex_Kiri02: string = "_vertex_kiri02";
+pub const Node003_Vertex_Kiri03: string = "_vertex_kiri03";
+pub const Node004_Vertex_Kiri04: string = "_vertex_kiri04";
+pub const Node005_Vertex_Kiri05: string = "_vertex_kiri05";
+pub const Node006_Vertex_Light: string = "_vertex_light";
+pub const Node007_Vertex_Surikogi_Light: string = "_vertex_surikogi_light";

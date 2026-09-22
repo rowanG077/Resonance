@@ -1,0 +1,9 @@
+script library;
+// Skeleton: d9510cfc25b92d19680887808cb9568e715006076de8581ab4ac311cbdd5aa66
+pub const Node000_Number1030_ConvrtObj658_1: string = "1030_convrt.obj658_1";
+pub const Node001_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node002_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node004_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node005_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node006_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";

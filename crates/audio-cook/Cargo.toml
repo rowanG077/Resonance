@@ -8,3 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 resonance-audio.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

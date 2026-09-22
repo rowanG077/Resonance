@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 7cd4db2db7f253ed9df7feee12eeae27777b1d5e289f6a7adb08ebd85a3b86fe
+pub const Node000_Mdl_Isa_I03_Ivt: string = "mdl_isa_i03_ivt";

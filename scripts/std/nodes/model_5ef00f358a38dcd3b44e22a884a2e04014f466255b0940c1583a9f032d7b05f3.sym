@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 5ef00f358a38dcd3b44e22a884a2e04014f466255b0940c1583a9f032d7b05f3
+pub const Node000_Ship_Efe00: string = "Ship_Efe00";
+pub const Node001_Ship_Efe01: string = "Ship_Efe01";
+pub const Node002_Ship_Efe02: string = "Ship_Efe02";
+pub const Node003_Ship_Efe03: string = "Ship_Efe03";
+pub const Node004_Ship_Efe04: string = "Ship_Efe04";
+pub const Node005_Ship_Efe05: string = "Ship_Efe05";

@@ -1,0 +1,19 @@
+script library;
+// Skeleton: 370f0eeaffa439d22010c2d65ff1fc930b319a01b078b02b80d84717321a9a3b
+pub const Node000_POS_DUMMY: string = "POS_DUMMY";
+pub const Node001_POS_Get01: string = "POS_get01";
+pub const Node002_POS_Get02: string = "POS_get02";
+pub const Node003_POS_Get03: string = "POS_get03";
+pub const Node004_POS_Get04: string = "POS_get04";
+pub const Node005_POS_Get05: string = "POS_get05";
+pub const Node006_POS_Get06: string = "POS_get06";
+pub const Node007_POS_Get07: string = "POS_get07";
+pub const Node008_POS_Get08: string = "POS_get08";
+pub const Node009_POS_Get09: string = "POS_get09";
+pub const Node010_POS_Get10: string = "POS_get10";
+pub const Node011_POS_Get11: string = "POS_get11";
+pub const Node012_POS_Get12: string = "POS_get12";
+pub const Node013_POS_Get13: string = "POS_get13";
+pub const Node014_POS_Get14: string = "POS_get14";
+pub const Node015_POS_Get15: string = "POS_get15";
+pub const Node016_POS_Get16: string = "POS_get16";

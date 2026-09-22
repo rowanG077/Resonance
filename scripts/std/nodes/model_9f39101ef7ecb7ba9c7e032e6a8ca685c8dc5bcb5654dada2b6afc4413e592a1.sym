@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 9f39101ef7ecb7ba9c7e032e6a8ca685c8dc5bcb5654dada2b6afc4413e592a1
+pub const Node000_Tt_En01: string = "tt_En01";
+pub const Node001_Tt_Mesh_100: string = "tt_mesh_100";
+pub const Node002_TT_Reaf180: string = "TT_Reaf180";
+pub const Node003_TT_Reaf185: string = "TT_Reaf185";
+pub const Node004_TT_Reaf190: string = "TT_Reaf190";
+pub const Node005_TT_Reaf195: string = "TT_Reaf195";
+pub const Node006_TT_Reaf200: string = "TT_Reaf200";
+pub const Node007_Tt_Water_200: string = "tt_Water_200";

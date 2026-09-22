@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 0ef614f2ec4c3f910172b30dc32127a5adcbe71e4c6cc772ee9add0bc4412941
+pub const Node000_ChamferCyl01: string = "ChamferCyl01";
+pub const Node001_ChamferCyl02: string = "ChamferCyl02";
+pub const Node002_Plane01: string = "Plane01";
+pub const Node003_ChamferCyl03: string = "ChamferCyl03";
+pub const Node004_ChamferCyl04: string = "ChamferCyl04";
+pub const Node005_Plane02: string = "Plane02";

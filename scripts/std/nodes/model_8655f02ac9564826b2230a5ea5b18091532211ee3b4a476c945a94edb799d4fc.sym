@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 8655f02ac9564826b2230a5ea5b18091532211ee3b4a476c945a94edb799d4fc
+pub const Node000_Bone_Ha_L_01: string = "Bone_ha_L_01";
+pub const Node001_Bone_Ha_L_02: string = "Bone_ha_L_02";
+pub const Node002_Bone_Ha_L_04: string = "Bone_ha_L_04";
+pub const Node003_Bone_Ha_R_01: string = "Bone_Ha_R_01";
+pub const Node004_Bone_Ha_R_02: string = "Bone_Ha_R_02";
+pub const Node005_Bone_Ha_R_04: string = "Bone_Ha_R_04";

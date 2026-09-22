@@ -1,0 +1,21 @@
+script library;
+// Skeleton: f3ede81abb638f173d92e1c3db1ba5a7c47c03e5a14d33174df37164d8a9697e
+pub const Node000_Dodai: string = "dodai";
+pub const Node001_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node002_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node003_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node004_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node005_Object07: string = "ｵﾌﾞｼﾞｪｸﾄ07";
+pub const Node006_Object08: string = "ｵﾌﾞｼﾞｪｸﾄ08";
+pub const Node007_Object09: string = "ｵﾌﾞｼﾞｪｸﾄ09";
+pub const Node008_Object10: string = "ｵﾌﾞｼﾞｪｸﾄ10";
+pub const Node009_Object11: string = "ｵﾌﾞｼﾞｪｸﾄ11";
+pub const Node010_Object13: string = "ｵﾌﾞｼﾞｪｸﾄ13";
+pub const Node011_For_D01: string = "for_d01";
+pub const Node012_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node013_Object14: string = "ｵﾌﾞｼﾞｪｸﾄ14";
+pub const Node014_Jama: string = "jama";
+pub const Node015_Object15: string = "ｵﾌﾞｼﾞｪｸﾄ15";
+pub const Node016_Sphere01: string = "Sphere01";
+pub const Node017_Sphere02: string = "Sphere02";
+pub const Node018_Object16: string = "ｵﾌﾞｼﾞｪｸﾄ16";

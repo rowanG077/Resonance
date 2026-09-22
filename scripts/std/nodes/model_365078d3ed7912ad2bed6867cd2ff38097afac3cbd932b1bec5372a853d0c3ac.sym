@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 365078d3ed7912ad2bed6867cd2ff38097afac3cbd932b1bec5372a853d0c3ac
+pub const Node000_Outside: string = "outside";
+pub const Node001_Furniture: string = "furniture";
+pub const Node002_Item2: string = "item2";

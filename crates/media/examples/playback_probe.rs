@@ -11,7 +11,7 @@ use std::{
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let root = PathBuf::from(args.next().unwrap_or_else(|| "local/cooked".into()));
+    let root = PathBuf::from(args.next().unwrap_or_else(|| "local/all-assets".into()));
     let seconds: f64 = args.next().unwrap_or_else(|| "640".into()).parse()?;
     let stall: u64 = args.next().unwrap_or_else(|| "200".into()).parse()?;
     let period: u32 = args.next().unwrap_or_else(|| "512".into()).parse()?;
@@ -39,12 +39,8 @@ fn main() -> Result<()> {
     let began = Instant::now();
     let mut rounds = 0;
     while began.elapsed().as_secs_f64() < seconds {
-        let name = if rounds % 2 == 0 {
-            "intro.json"
-        } else {
-            "story-intro.json"
-        };
-        let manifest = root.join(name);
+        let id = rounds % 2;
+        let manifest = root.join(resonance_content::movie::metadata_path(id));
         let asset: resonance_content::MovieAsset = serde_json::from_slice(
             &std::fs::read(&manifest).with_context(|| format!("reading {}", manifest.display()))?,
         )?;
@@ -101,7 +97,7 @@ fn main() -> Result<()> {
             thread::sleep(wait);
         }
         println!(
-            "Movie {name}: complete={} selected={selected} skipped_due_to_stalls={skipped} queue_drops={} decoded_underruns={} position={:?}",
+            "Movie {id}: complete={} selected={selected} skipped_due_to_stalls={skipped} queue_drops={} decoded_underruns={} position={:?}",
             handle.empty(),
             stream.dropped_frames(),
             pcm.underruns(),

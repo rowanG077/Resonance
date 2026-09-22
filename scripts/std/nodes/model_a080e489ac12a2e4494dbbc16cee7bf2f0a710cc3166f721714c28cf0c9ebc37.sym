@@ -1,0 +1,11 @@
+script library;
+// Skeleton: a080e489ac12a2e4494dbbc16cee7bf2f0a710cc3166f721714c28cf0c9ebc37
+pub const Node000_Kabe_00: string = "kabe_00";
+pub const Node001_Daiza_00: string = "daiza_00";
+pub const Node002_Tenjyo00: string = "tenjyo00";
+pub const Node003_Horo00: string = "horo00";
+pub const Node004_Jin02: string = "jin02";
+pub const Node005_Jin01: string = "jin01";
+pub const Node006_Dai03: string = "dai03";
+pub const Node007_Ten03: string = "ten03";
+pub const Node008_Isu00: string = "isu00";

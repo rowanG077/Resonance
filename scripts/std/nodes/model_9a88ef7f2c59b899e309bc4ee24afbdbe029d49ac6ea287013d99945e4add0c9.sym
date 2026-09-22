@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 9a88ef7f2c59b899e309bc4ee24afbdbe029d49ac6ea287013d99945e4add0c9
+pub const Node000_Kumo_In: string = "kumo_in";
+pub const Node001_Kumo_Out: string = "kumo_out";

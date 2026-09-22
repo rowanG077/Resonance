@@ -1,0 +1,11 @@
+script library;
+// Skeleton: aa86b7978e4a639f3ec8248620c47de6d5466c948fde834604cd6064ff8c01ba
+pub const Node000_Number11_07mergeObj714: string = "11_07merge.obj714";
+pub const Node001_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node002_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node003_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node004_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node005_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node006_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node007_Object07: string = "ｵﾌﾞｼﾞｪｸﾄ07";
+pub const Node008_Object08: string = "ｵﾌﾞｼﾞｪｸﾄ08";

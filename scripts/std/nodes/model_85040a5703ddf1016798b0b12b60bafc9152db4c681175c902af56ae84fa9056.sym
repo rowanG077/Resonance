@@ -1,0 +1,16 @@
+script library;
+// Skeleton: 85040a5703ddf1016798b0b12b60bafc9152db4c681175c902af56ae84fa9056
+pub const Node000_Sida: string = "sida";
+pub const Node001_Kusa00: string = "kusa00";
+pub const Node002_Kusa_03: string = "kusa_03";
+pub const Node003_Tuta_S02: string = "tuta_S02";
+pub const Node004_Kusa_BandS28: string = "kusa_BandS28";
+pub const Node005_Kusa3: string = "kusa3";
+pub const Node006_Kusa_Long01: string = "kusa_long01";
+pub const Node007_Kusa4: string = "kusa4";
+pub const Node008_HANA09: string = "HANA09";
+pub const Node009_Plane07: string = "Plane07";
+pub const Node010_Tuta03C07: string = "tuta03C07";
+pub const Node011_Tuta2D07: string = "tuta2D07";
+pub const Node012_Ha_R: string = "ha_R";
+pub const Node013_Yunkeru02_Ha2: string = "yunkeru02_ha2";

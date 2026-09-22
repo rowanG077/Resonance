@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 608c57067ffd5f7c6fb2394191c6c12b3d0320a6497e41afdab5ef565e737879
+pub const Node000_Elb_D13: string = "elb_d13";
+pub const Node001_DoorL: string = "doorL";
+pub const Node002_DoorR: string = "doorR";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 1a00004380faa38b5513312c48eb17c341162150ad5fe761ea7df6fae2be1b00
+pub const Node000_Iwa_Def: string = "iwa_def";

@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 306d86371398acd736dec7c576ab95008ba695365de1cb9e90a73c69128b3ad2
+pub const Node000_Effect_Part04: string = "effect_part04";
+pub const Node001_Effect_Part03: string = "effect_part03";
+pub const Node002_Effect_Part09: string = "effect_part09";
+pub const Node003_Effect_Part10: string = "effect_part10";
+pub const Node004_Aaama: string = "aaama";
+pub const Node005_Cylinder04: string = "Cylinder04";
+pub const Node006_Cylinder02: string = "Cylinder02";

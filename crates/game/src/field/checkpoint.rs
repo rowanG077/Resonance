@@ -18,6 +18,10 @@ pub struct FieldCheckpoint {
 impl FieldSession {
     pub fn checkpoint(&self) -> Result<FieldCheckpoint> {
         ensure!(
+            self.authored_entry.is_none(),
+            "quicksave unavailable before an authored entry event"
+        );
+        ensure!(
             self.active_skit.is_none() && self.events.world.skit_request.is_none(),
             "quicksave unavailable during skit playback"
         );

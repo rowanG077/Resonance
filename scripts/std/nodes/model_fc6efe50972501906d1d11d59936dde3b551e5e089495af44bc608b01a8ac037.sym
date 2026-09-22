@@ -1,0 +1,3 @@
+script library;
+// Skeleton: fc6efe50972501906d1d11d59936dde3b551e5e089495af44bc608b01a8ac037
+pub const Node000_Osihiki01: string = "osihiki01";

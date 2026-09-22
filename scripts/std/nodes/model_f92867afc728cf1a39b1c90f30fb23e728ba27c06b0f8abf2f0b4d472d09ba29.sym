@@ -1,0 +1,19 @@
+script library;
+// Skeleton: f92867afc728cf1a39b1c90f30fb23e728ba27c06b0f8abf2f0b4d472d09ba29
+pub const Head01: string = "Bone_head01";
+pub const LeftFoot: string = "Bone_asi_L";
+pub const Node000_Abone: string = "Abone";
+pub const Node001_Bone_Dou01: string = "Bone_dou01";
+pub const Node002_Bone_Dou02: string = "Bone_dou02";
+pub const Node003_Bone_Dou03: string = "Bone_dou03";
+pub const Node005_Bone_Sho01: string = "Bone_sho01";
+pub const Node006_Bone_Sho02: string = "Bone_sho02";
+pub const RightFoot: string = "Bone_asi_R";
+pub const Tail01: string = "Bone_tail01";
+pub const Tail02: string = "Bone_tail02";
+pub const Tail03: string = "Bone_tail03";
+pub const Tail04: string = "Bone_tail04";
+pub const Tail05: string = "Bone_tail05";
+pub const Tail06: string = "Bone_tail06";
+pub const Tail07: string = "Bone_tail07";
+pub const Tail08: string = "Bone_tail08";

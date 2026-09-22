@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 12baa56226ba8ca5c1f5c3460e8876ce9dae2579ddd927494b61d77be128cb6f
+pub const Node000_Tt_Door200: string = "tt_Door200";
+pub const Node001_Tt_Mesh200: string = "tt_mesh200";
+pub const Node002_Tt_Shadow20: string = "tt_Shadow20";
+pub const Node003_Tt_Tree80: string = "tt_Tree80";
+pub const Node004_Tt_Tree85: string = "tt_Tree85";
+pub const Node005_Tt_Tree90: string = "tt_Tree90";
+pub const Node006_Tt_Tree95: string = "tt_Tree95";
+pub const Node007_Tt_Tree100: string = "tt_Tree100";

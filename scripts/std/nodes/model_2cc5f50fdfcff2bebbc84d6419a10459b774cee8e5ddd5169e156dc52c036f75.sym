@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 2cc5f50fdfcff2bebbc84d6419a10459b774cee8e5ddd5169e156dc52c036f75
+pub const Node000_Shadow: string = "Shadow";
+pub const Node001_S02_T_190: string = "S02_T_190";
+pub const Node002_S02_T_195: string = "S02_T_195";
+pub const Node003_S02_T_200: string = "S02_T_200";
+pub const Node004_S_Door_Trans: string = "S_Door_Trans";
+pub const Node005_S02_T07net: string = "S02_T07net";

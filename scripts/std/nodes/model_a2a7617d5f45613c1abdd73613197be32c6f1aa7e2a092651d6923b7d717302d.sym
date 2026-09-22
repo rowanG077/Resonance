@@ -1,0 +1,6 @@
+script library;
+// Skeleton: a2a7617d5f45613c1abdd73613197be32c6f1aa7e2a092651d6923b7d717302d
+pub const Node000_Mdl_CHU_I00b: string = "mdl_CHU_i00b";
+pub const Node001_Mdl_Chu_I00_01c: string = "mdl_chu_i00_01c";
+pub const Node002_Mdl_CHU_I00_1: string = "mdl_CHU_i00_1";
+pub const Node003_Obj02: string = "obj02";

@@ -1,0 +1,18 @@
+script library;
+// Skeleton: f47de684682e154918a4542c89999ded12f5f18291e01d21a89761dfecdcc093
+pub const Node000_Tou01: string = "Tou01";
+pub const Node001_Dai: string = "Dai";
+pub const Node002_Yane: string = "Yane";
+pub const Node003_Megami: string = "Megami";
+pub const Node004_Megami11: string = "Megami11";
+pub const Node005_Megami10: string = "Megami10";
+pub const Node006_Megami12: string = "Megami12";
+pub const Node007_Megami13: string = "Megami13";
+pub const Node008_Megami14: string = "Megami14";
+pub const Node009_Megami15: string = "Megami15";
+pub const Node010_Megami16: string = "Megami16";
+pub const Node011_Megami18: string = "Megami18";
+pub const Node012_Megami17: string = "Megami17";
+pub const Node013_Megami02: string = "Megami02";
+pub const Node014_Megami01: string = "Megami01";
+pub const Node015_Sky: string = "sky";

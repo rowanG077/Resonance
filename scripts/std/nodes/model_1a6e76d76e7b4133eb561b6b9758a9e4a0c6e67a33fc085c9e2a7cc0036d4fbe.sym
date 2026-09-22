@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 1a6e76d76e7b4133eb561b6b9758a9e4a0c6e67a33fc085c9e2a7cc0036d4fbe
+pub const Node000_Wall: string = "wall";
+pub const Node001_Inobj: string = "inobj";
+pub const Node002_Book_00: string = "book_00";
+pub const Node003_Book_01: string = "book_01";
+pub const Node004_Book_03: string = "book_03";
+pub const Node005_Book_02: string = "book_02";
+pub const Node006_Book_04: string = "book_04";
+pub const Node007_Book_05: string = "book_05";

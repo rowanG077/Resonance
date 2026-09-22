@@ -1,0 +1,15 @@
+script library;
+// Skeleton: 40061d1d868926d90e253df69a3500a7492699a7c95b3e9a4a4ddd29624107f0
+pub const Node000_Cylinder01: string = "Cylinder01";
+pub const Node001_Cylinder02: string = "Cylinder02";
+pub const Node002_Cylinder03: string = "Cylinder03";
+pub const Node003_Glass03: string = "glass03";
+pub const Node004_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node005_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node006_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node007_Object04: string = "ｵﾌﾞｼﾞｪｸﾄ04";
+pub const Node008_Object05: string = "ｵﾌﾞｼﾞｪｸﾄ05";
+pub const Node009_Object06: string = "ｵﾌﾞｼﾞｪｸﾄ06";
+pub const Node010_Object07: string = "ｵﾌﾞｼﾞｪｸﾄ07";
+pub const Node011_Object08: string = "ｵﾌﾞｼﾞｪｸﾄ08";
+pub const Node012_Cylinder04: string = "Cylinder04";

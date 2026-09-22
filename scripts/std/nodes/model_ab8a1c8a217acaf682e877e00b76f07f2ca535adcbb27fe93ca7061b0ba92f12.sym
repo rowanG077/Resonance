@@ -1,0 +1,9 @@
+script library;
+// Skeleton: ab8a1c8a217acaf682e877e00b76f07f2ca535adcbb27fe93ca7061b0ba92f12
+pub const Node000_Enkei_: string = "enkei_";
+pub const Node001_Object01_: string = "ｵﾌﾞｼﾞｪｸﾄ01_";
+pub const Node002_Zimen: string = "zimen";
+pub const Node003_Object11_: string = "ｵﾌﾞｼﾞｪｸﾄ11_";
+pub const Node004_Cliff_: string = "崖_";
+pub const Node005_Obj0: string = "obj0";
+pub const Node006_Kaidan: string = "kaidan";

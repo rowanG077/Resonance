@@ -1,0 +1,27 @@
+script library;
+// Skeleton: 3a2faa45806fc1d891cfbf94a201714b8cce43b0ec1a078c2710602f6bc42d28
+pub const Node000_M_Gr_Map00: string = "m_gr_map00";
+pub const Node001_A_Bri_Body: string = "A_bri_body";
+pub const Node002_M_Underwater: string = "m_underwater";
+pub const Node003_M_Sky_Sky: string = "m_sky_sky";
+pub const Node004_M_Bri_P_Map05: string = "m_bri_p_map05";
+pub const Node005_M_Bribs_Map06: string = "m_bribs_map06";
+pub const Node006_M_Bribs_Map01: string = "m_bribs_map01";
+pub const Node007_M_Map02: string = "m_map02";
+pub const Node008_Evonmon_Kanban: string = "evonmon_kanban";
+pub const Node009_M_Bg: string = "m_bg";
+pub const Node010_Evonmon_Bri_Map00: string = "evonmon_bri_map00";
+pub const Node011_M_Low_Bg: string = "m_low_bg";
+pub const Node012_Bone_DoorLocked_Close: string = "bone_doorLocked_close";
+pub const Node013_C_En_O_C: string = "C_en_o_c";
+pub const Node014_Evonmon_En_F_C: string = "evonmon_en_f_c";
+pub const Node015_C_En_O_A: string = "C_en_o_a";
+pub const Node016_C_En_O_B: string = "C_en_o_b";
+pub const Node017_Evonmon_En_F_A: string = "evonmon_en_f_a";
+pub const Node018_Evonmon_En_F_B: string = "evonmon_en_f_b";
+pub const Node019_B_Bri_Body: string = "B_bri_body";
+pub const Node020_B_Shadow: string = "B_shadow";
+pub const Node021_B_Bri_Ring: string = "B_bri_ring";
+pub const Node022_Bone_DoorLocked_Open: string = "bone_doorLocked_open";
+pub const Node023_M_High: string = "m_high";
+pub const Node024_M_Bg_P140: string = "m_bg_p140";

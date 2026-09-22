@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 1d91312a25d164a59db53fcda1bbe1092c23bcde2cadfe4b05e21ac882f36826
+pub const Node000_Sphere01: string = "Sphere01";
+pub const Node001_Sphere02: string = "Sphere02";
+pub const Node002_Kabe: string = "kabe";
+pub const Node003_Souchi: string = "souchi";
+pub const Node004_Hikari: string = "hikari#0";
+pub const Node005_Hikari: string = "hikari#1";
+pub const Node006_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node007_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";

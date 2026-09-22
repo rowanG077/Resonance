@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 261c0137d820679022a4de7ea6a871fec03a05a7a32ff1e3e52ebced3ea5886e
+pub const Node000_Plane01: string = "Plane01";
+pub const Node001_Tikei: string = "tikei";
+pub const Node002_Object08: string = "ｵﾌﾞｼﾞｪｸﾄ08";
+pub const Node003_Object07: string = "ｵﾌﾞｼﾞｪｸﾄ07";
+pub const Node004_Core: string = "core";
+pub const Node005_A1: string = "a1";
+pub const Node006_A02: string = "a02";
+pub const Node007_A03: string = "a03";
+pub const Node008_Plane02: string = "Plane02";
+pub const Node009_Plane03: string = "Plane03";
+pub const Node010_Glass00: string = "glass00";
+pub const Node011_Glass06: string = "glass06";
+pub const Node012_Glass07: string = "glass07";
+pub const Node013_Step: string = "step";
+pub const Node014_Eda: string = "eda";

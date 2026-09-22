@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 1e51cfd42096f3f63d78765bc375da7a45c38a4116064f5a25f5ef192b8236e2
+pub const Node000_Mdl_Hara_T00_04025Obj131_3: string = "mdl_hara_t00_04025.obj131_3";
+pub const Node001_Mdl_Hra_T00_0501Mesh: string = "mdl_hra_t00_0501.mesh";
+pub const Node002_I00_0509Obj141: string = "i00_0509.obj141";
+pub const Node003_DOOR01_AUTO_PULL_W175e5: string = "DOOR01_AUTO_PULL_W-175e5";
+pub const Node004_Cylinder01: string = "Cylinder01";

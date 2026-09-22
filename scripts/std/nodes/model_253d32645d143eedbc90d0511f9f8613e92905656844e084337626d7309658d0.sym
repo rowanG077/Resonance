@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 253d32645d143eedbc90d0511f9f8613e92905656844e084337626d7309658d0
+pub const Node000_M_T01presea_H: string = "m_t01presea_h";
+pub const Node001_DOOR01_AUTO_PUSH_W183e233: string = "DOOR01_AUTO_PUSH_W183e233";
+pub const Node002_M_T01presea_Hr: string = "m_t01presea_hr";
+pub const Node003_M_Ozbt01_00: string = "m_ozbt01_00";
+pub const Node004_M_Ground_New: string = "m_ground_new";
+pub const Node005_M_Enkei: string = "m_enkei";

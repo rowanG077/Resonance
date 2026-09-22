@@ -1,0 +1,7 @@
+script library;
+// Skeleton: f3a123bd8ed33f8ce7f35beb56939c346357f3f60e353eb81f6be5f9e26b06f1
+pub const Node000_Tree_Old: string = "tree_old";
+pub const Node001_Rin_Jimen: string = "rin_jimen";
+pub const Node002_Rin_Iwa: string = "rin_iwa";
+pub const Node003_Rin_Eda: string = "rin_eda";
+pub const Node004_Rin_Ne: string = "rin_ne";

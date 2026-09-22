@@ -1,0 +1,4 @@
+script library;
+// Skeleton: ca5db441dd43fb57e2532d9da61c1660e0a0a27ce4a2d1e1c6ae97acd8b1cbc0
+pub const Node000_Number2002_05_02_1Obj58: string = "2002_05_02_1.obj58";
+pub const Node001_Obj61: string = "obj61";

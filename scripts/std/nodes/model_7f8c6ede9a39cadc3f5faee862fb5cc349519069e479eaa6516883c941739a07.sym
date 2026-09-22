@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 7f8c6ede9a39cadc3f5faee862fb5cc349519069e479eaa6516883c941739a07
+pub const Node000_M_Ohaka: string = "m_ohaka";

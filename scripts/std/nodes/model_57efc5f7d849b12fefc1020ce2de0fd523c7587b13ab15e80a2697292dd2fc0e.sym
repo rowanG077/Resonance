@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 57efc5f7d849b12fefc1020ce2de0fd523c7587b13ab15e80a2697292dd2fc0e
+pub const Node000_Moon_Light: string = "moon_light";

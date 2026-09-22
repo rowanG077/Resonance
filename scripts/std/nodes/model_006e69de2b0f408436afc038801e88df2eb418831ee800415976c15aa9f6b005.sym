@@ -1,0 +1,7 @@
+script library;
+// Skeleton: 006e69de2b0f408436afc038801e88df2eb418831ee800415976c15aa9f6b005
+pub const Node000_Verly01: string = "verly01";
+pub const Node001_Verly00: string = "verly00";
+pub const Node002_Verly02: string = "verly02";
+pub const Node003_Verly03: string = "verly03";
+pub const Node004_Verly04: string = "verly04";

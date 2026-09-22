@@ -1,149 +1,204 @@
-//! Skit scripts, expression atlases and media clocks extracted without playback.
-use crate::{dol, write_atomic};
+//! Skit scripts, portrait image bindings and media clocks prepared without playback.
+use crate::{all_assets::skits::Catalog, write_atomic};
 use anyhow::{Context, Result, ensure};
 use resonance_content::skit::{SkitCatalog, SkitResourcePaths};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 mod media;
-mod portraits;
+pub(crate) mod portraits;
+pub(crate) mod recipe;
 
-pub fn cook(extracted: &Path, output: &Path) -> Result<String> {
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let mut catalog = SkitCatalog {
-        version: 1,
-        skits: definitions(&executable)?,
-        resources: BTreeMap::new(),
-        portraits: portraits::cook(extracted, output, &executable)?,
-        media: media::cook(extracted, output, &executable)?,
-    };
-    for skit in &catalog.skits {
-        let (table, index) = if skit.id < 120 {
-            (0x8020f850, skit.id - 1)
-        } else {
-            (0x8020fad0, skit.id - 600)
-        };
-        let pointer = u32::from_be_bytes(
-            dol::slice(&executable, table + u32::from(index) * 4, 4)?.try_into()?,
-        );
-        let source = extracted
-            .join("files")
-            .join(source_path(&executable, pointer)?);
-        let package =
-            fs::read(&source).with_context(|| format!("skit {}: {}", skit.id, source.display()))?;
-        ensure!(
-            package.len() >= 0x20 && package[..4] == 2u32.to_be_bytes(),
-            "skit package is truncated: {}",
-            source.display()
-        );
-        let offset = u32::from_be_bytes(package[4..8].try_into().unwrap()) as usize;
-        let size = u32::from_be_bytes(package[8..12].try_into().unwrap()) as usize;
-        ensure!(
-            offset == 0x20 && offset.checked_add(size) == Some(package.len()),
-            "invalid skit package: {}",
-            source.display()
-        );
-        let scenario = &package[offset..];
-        let header = symphonia_script::scenario::parse_header(scenario)
-            .map_err(|e| anyhow::anyhow!("{}: {e}", source.display()))?;
-        let messages = symphonia_script::message::parse(&scenario[header.auxiliary_offset()..])
-            .map_err(|e| anyhow::anyhow!("{}: {e}", source.display()))?;
-        symphonia_script::Program::decode(scenario)
-            .map_err(|e| anyhow::anyhow!("{}: {e}", source.display()))?;
-        let script_path = format!("game/skits/{:03}.ssb", skit.id);
-        let messages_path = format!("game/skits/{:03}.messages.json", skit.id);
-        write_atomic(&output.join(&script_path), scenario)?;
-        write_atomic(
-            &output.join(&messages_path),
-            &serde_json::to_vec_pretty(&messages)?,
-        )?;
-        catalog.resources.insert(
-            skit.id,
-            SkitResourcePaths {
-                script: script_path,
-                messages: messages_path,
+/// Portrait IDs use resource group 13; its source comes from the resource directory.
+pub(crate) fn portrait_path(extracted: &Path, executable: &[u8]) -> Result<String> {
+    let resources = crate::resource::read(executable)?;
+    crate::field_resources::resolve_path(&extracted.join("files"), resources.source(0xd0000)?)
+}
+
+struct Script {
+    bytes: Vec<u8>,
+    messages: Vec<symphonia_script::message::Message>,
+    binding: ScriptBinding,
+}
+
+#[derive(Clone)]
+struct ScriptBinding {
+    paths: SkitResourcePaths,
+    requested_media: BTreeSet<u32>,
+}
+
+fn read_script(path: &Path) -> Result<Script> {
+    let source = fs::read(path)?;
+    let directory = format!("assets/{}", crate::digest(&source));
+    let script =
+        crate::all_assets::decode_script(&source)?.context("invalid skit script resource")?;
+    Ok(Script {
+        binding: ScriptBinding {
+            paths: SkitResourcePaths {
+                script: format!("{directory}/script.ssb"),
+                messages: format!("{directory}/messages.json"),
             },
+            requested_media: media::requests(script.bytes)?,
+        },
+        bytes: script.bytes.to_vec(),
+        messages: script.messages,
+    })
+}
+
+impl Script {
+    fn publish(&self, output: &Path) -> Result<ScriptBinding> {
+        write_atomic(&output.join(&self.binding.paths.script), &self.bytes)?;
+        write_atomic(
+            &output.join(&self.binding.paths.messages),
+            &serde_json::to_vec(&self.messages)?,
+        )?;
+        Ok(self.binding.clone())
+    }
+}
+
+pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
+    let _publications = crate::publication::Session::start_if_needed(output)?;
+    crate::disc_number(extracted)?;
+    let executable = fs::read(extracted.join("sys/main.dol"))?;
+    let physical = Catalog::read(extracted, &executable)?;
+    let mut catalog = SkitCatalog {
+        version: 2,
+        skits: physical.definitions()?,
+        resources: BTreeMap::new(),
+        portraits: BTreeMap::new(),
+        portrait_recipes: physical
+            .portrait_recipes
+            .iter()
+            .map(recipe::Recipe::prepared)
+            .collect(),
+        media: BTreeMap::new(),
+    };
+    let files = extracted.join("files");
+    let mut sources = BTreeMap::<String, Vec<u16>>::new();
+    for skit in &catalog.skits {
+        let source = crate::field_resources::resolve_path(&files, physical.script(skit.id)?)?;
+        sources.entry(source).or_default().push(skit.id);
+    }
+    let mut requested = BTreeSet::new();
+    for (source, ids) in sources {
+        let path = files.join(source);
+        let binding = read_script(&path)
+            .with_context(|| path.display().to_string())?
+            .publish(output)?;
+        requested.extend(binding.requested_media);
+        for id in ids {
+            catalog.resources.insert(id, binding.paths.clone());
+        }
+    }
+    let archive = fs::read(files.join(&physical.portrait_archive))?;
+    let directory = format!("assets/{}", crate::digest(&archive));
+    for portrait in physical
+        .portraits
+        .iter()
+        .filter(|portrait| !portrait.images.is_empty())
+    {
+        let (id, asset) = portraits::decode(&archive, portrait, &directory)?.publish(output)?;
+        ensure!(
+            catalog.portraits.insert(id, asset).is_none(),
+            "duplicate portrait"
         );
     }
+    catalog.media = media::bind(
+        output,
+        extracted,
+        &crate::voice_directory::Directory::read(&executable)?,
+        requested,
+    )?;
     catalog.validate()?;
     let path = "game/skits.json";
     write_atomic(&output.join(path), &serde_json::to_vec_pretty(&catalog)?)?;
     Ok(path.into())
 }
-
-fn source_path(executable: &[u8], pointer: u32) -> Result<String> {
-    let bytes = dol::slice(executable, pointer, 96)?;
-    let end = bytes
-        .iter()
-        .position(|&b| b == 0)
-        .context("unterminated skit resource path")?;
-    let path = std::str::from_utf8(&bytes[..end])?;
-    let (dir, file) = path
-        .split_once('/')
-        .context("skit resource directory missing")?;
-    let path = format!("{}/{file}", dir.to_ascii_uppercase());
-    resonance_content::validate_asset_path(&path)?;
-    Ok(path)
-}
-
-/// Refresh existing fields after cooking shared skit content independently.
-pub fn cook_all(extracted: &Path, output: &Path) -> Result<()> {
-    let path = cook(extracted, output)?;
-    let names = crate::session::cook_text(extracted, output)?;
-    crate::field::refresh_shared(output, &[path, names])
-}
-
-pub(crate) fn definitions(
-    executable: &[u8],
-) -> Result<Vec<resonance_content::skit::SkitDefinition>> {
-    use resonance_content::skit::{SkitCondition, SkitDefinition, SkitLocation};
-    let mut definitions = Vec::new();
-    // Story and timed notifications share the same 24-byte definition layout.
-    for (base, first, count) in [(0x8020ac10, 1, 119), (0x8020bc78, 600, 259)] {
-        for (index, row) in dol::slice(executable, base, count * 24)?
-            .chunks_exact(24)
-            .enumerate()
-        {
-            let half = |at| u16::from_be_bytes(row[at..at + 2].try_into().unwrap());
-            let word = |at| i32::from_be_bytes(row[at..at + 4].try_into().unwrap());
-            let id = half(0);
-            ensure!(usize::from(id) == first + index, "invalid skit table order");
-            let range = [word(4), word(8)];
-            if range == [-1; 2] {
-                continue;
-            }
-            let address = word(20) as u32;
-            let mut bytes = Vec::new();
-            for offset in 0..=160 {
-                let byte = dol::slice(executable, address + offset, 1)?[0];
-                if byte == 0 {
-                    break;
-                }
-                bytes.push(byte);
-            }
-            ensure!(bytes.len() <= 160, "unterminated skit title");
-            let (title, _, invalid) = encoding_rs::SHIFT_JIS.decode(&bytes);
-            ensure!(!invalid, "invalid skit title encoding");
-            let location = match half(14) as i16 {
-                -9999 => SkitLocation::Anywhere,
-                -1 => SkitLocation::Overworld(None),
-                -2 => SkitLocation::Overworld(Some(0)),
-                -3 => SkitLocation::Overworld(Some(1)),
-                -4 => SkitLocation::Field,
-                id if id >= 0 => SkitLocation::Map(id as u16),
-                other => anyhow::bail!("unknown skit location {other}"),
-            };
-            definitions.push(SkitDefinition {
-                id,
-                title: title.into_owned(),
-                story: (range != [-999_999_999; 2]).then_some(range),
-                party_mask: half(12),
-                location,
-                condition: match (row[16], id) {
-                    (0, _) => SkitCondition::None,
-                    (_, 600) => SkitCondition::Maps([330, 346]),
-                    _ => SkitCondition::Unimplemented,
-                },
-            });
+#[test]
+#[ignore = "requires both original discs, RESONANCE_COOKED audio and frozen skit catalogues; no playback"]
+fn original_skit_preparation_matches_both_disc_catalogues_without_intermediate_assets() -> Result<()>
+{
+    use serde_json::Value;
+    let library = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_COOKED")
+            .context("set RESONANCE_COOKED to the validated shared library")?,
+    )
+    .canonicalize()?;
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooking-simplification");
+    for disc in [1, 2] {
+        let baseline = if disc == 1 {
+            library.clone()
+        } else {
+            fixtures.join("skit-baseline-disc2")
+        };
+        let expected_path = baseline.join("game/skits.json");
+        let mut expected: Value = serde_json::from_slice(&fs::read(expected_path)?)?;
+        let work = tempfile::tempdir()?;
+        for name in ["audio", "sources.json"] {
+            std::os::unix::fs::symlink(library.join(name), work.path().join(name))?;
         }
+        let extracted =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../local/extracted/disc{disc}"));
+        cook(&extracted, work.path())?;
+        let actual: Value =
+            serde_json::from_slice(&fs::read(work.path().join("game/skits.json"))?)?;
+        let resources = actual["resources"]
+            .as_object()
+            .context("missing resources")?;
+        for (id, resource) in resources {
+            let original = &mut expected["resources"][id];
+            let script = resource["script"].as_str().unwrap();
+            let messages = resource["messages"].as_str().unwrap();
+            assert!(script.starts_with("assets/") && messages.starts_with("assets/"));
+            assert_eq!(
+                fs::read(work.path().join(script))?,
+                fs::read(baseline.join(original["script"].as_str().unwrap()))?,
+                "disc {disc} skit {id}"
+            );
+            let messages: Value = serde_json::from_slice(&fs::read(work.path().join(messages))?)?;
+            let original_messages: Value = serde_json::from_slice(&fs::read(
+                baseline.join(original["messages"].as_str().unwrap()),
+            )?)?;
+            assert_eq!(messages, original_messages, "disc {disc} skit {id}");
+            *original = resource.clone();
+        }
+        assert_eq!(
+            actual, expected,
+            "complete disc {disc} skit catalogue changed"
+        );
+        for portrait in actual["portraits"]
+            .as_object()
+            .context("missing portraits")?
+            .values()
+        {
+            let images = portrait["images"]
+                .as_array()
+                .context("missing portrait images")?;
+            let first = images.first().context("empty portrait")?["texture"]
+                .as_str()
+                .context("missing portrait texture")?;
+            let metadata = Path::new(first)
+                .parent()
+                .context("portrait directory")?
+                .join("textures.json");
+            assert_eq!(
+                serde_json::to_value(crate::texture::read(&work.path().join(&metadata))?)?,
+                serde_json::to_value(crate::texture::read(&library.join(&metadata))?)?,
+                "portrait sampler, palette, or image inventory changed"
+            );
+            for image in images {
+                let path = image["texture"]
+                    .as_str()
+                    .context("missing portrait texture")?;
+                crate::texture::compare_images(&work.path().join(path), &library.join(path))?;
+            }
+        }
+        assert!(
+            !work.path().join("game/skits").exists(),
+            "preparation copied shared scripts"
+        );
     }
-    Ok(definitions)
+    Ok(())
 }

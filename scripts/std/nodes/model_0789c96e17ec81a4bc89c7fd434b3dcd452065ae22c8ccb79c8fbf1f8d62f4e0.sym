@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 0789c96e17ec81a4bc89c7fd434b3dcd452065ae22c8ccb79c8fbf1f8d62f4e0
+pub const Node000_Toumei: string = "toumei";
+pub const Node001_Mer_Pi07: string = "mer_pi07";
+pub const Node002_Mer_Pi05: string = "mer_pi05";
+pub const Node003_Mer_Pi06: string = "mer_pi06";

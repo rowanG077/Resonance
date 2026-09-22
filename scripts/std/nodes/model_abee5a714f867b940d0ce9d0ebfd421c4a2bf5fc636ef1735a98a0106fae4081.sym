@@ -1,0 +1,10 @@
+script library;
+// Skeleton: abee5a714f867b940d0ce9d0ebfd421c4a2bf5fc636ef1735a98a0106fae4081
+pub const Node000_Ky_0: string = "ky_0";
+pub const Node001_Ky_1: string = "ky_1";
+pub const Node002_Ky_2: string = "ky_2";
+pub const Node003_Cylinder19: string = "Cylinder19";
+pub const Node004_Cylinder23: string = "Cylinder23";
+pub const Node005_Ky_0R: string = "ky_0R";
+pub const Node006_Ky_1R: string = "ky_1R";
+pub const Node007_Ky_2R: string = "ky_2R";

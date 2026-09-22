@@ -1,0 +1,3 @@
+script library;
+// Skeleton: e2d485b0a782a0096bc856fa338c846c9f240bb9ae0757f96a39317da373aec4
+pub const Node000_Bar_T04_Path05: string = "Bar_t04_path05";

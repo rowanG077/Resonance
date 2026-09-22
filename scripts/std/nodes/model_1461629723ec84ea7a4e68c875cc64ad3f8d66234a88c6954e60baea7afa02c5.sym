@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 1461629723ec84ea7a4e68c875cc64ad3f8d66234a88c6954e60baea7afa02c5
+pub const Node000_Door_Hide: string = "Door_Hide";
+pub const Node001_Kabe: string = "Kabe";
+pub const Node002_Number1kai_Exit: string = "1kai_Exit";
+pub const Node003_Number2kai_Bridge: string = "2kai_Bridge";
+pub const Node004_Exit_Kabe: string = "Exit_Kabe";
+pub const Node005_Panel_01: string = "Panel_01";
+pub const Node006_Panel_02: string = "Panel_02";
+pub const Node007_Panel_03: string = "Panel_03";
+pub const Node008_Panel_04: string = "Panel_04";
+pub const Node009_Panel_05: string = "Panel_05";
+pub const Node010_Panel_06: string = "Panel_06";
+pub const Node011_Panel_07: string = "Panel_07";
+pub const Node012_Panel_08: string = "Panel_08";
+pub const Node013_Panel_09: string = "Panel_09";
+pub const Node014_Panel_10: string = "Panel_10";
+pub const Node015_Panel_11: string = "Panel_11";
+pub const Node016_Ring_00: string = "ring_00";
+pub const Node017_Ring_01: string = "ring_01";

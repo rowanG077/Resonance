@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 287b0050bba567b22d5cfe570ed03c2c036c0357549fd8a8f12587fb384e3bad
+pub const Node000_Mdl_Him_I00_02_2: string = "mdl_him_i00_02_2";
+pub const Node001_Mdl_Him_I00_02_1: string = "mdl_him_i00_02_1";
+pub const Node002_DOOR01_AUTO_PUSH_W175: string = "DOOR01_AUTO_PUSH_W175";
+pub const Node003_Mdl_Him_I00_03_C: string = "mdl_him_i00_03_c";
+pub const Node004_F_01: string = "F_01";
+pub const Node005_BOX: string = "BOX";

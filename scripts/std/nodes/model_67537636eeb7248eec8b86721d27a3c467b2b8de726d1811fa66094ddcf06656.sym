@@ -1,0 +1,9 @@
+script library;
+// Skeleton: 67537636eeb7248eec8b86721d27a3c467b2b8de726d1811fa66094ddcf06656
+pub const Node000_Mdl_Ask_I06b: string = "mdl_ask_i06b";
+pub const Node001_Ask_I06a: string = "ask_i06a";
+pub const Node002_Number01: string = "01";
+pub const Node003_Cylinder01: string = "Cylinder01";
+pub const Node004_Plane03: string = "Plane03";
+pub const Node005_Kabe001: string = "kabe001";
+pub const Node006_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";

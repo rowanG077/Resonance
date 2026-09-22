@@ -1,0 +1,8 @@
+script library;
+// Skeleton: f5fe55dda2488294eab0f6ed3370610be7092014a73cd75a02487e455c23d63a
+pub const Node000_Tutu: string = "tutu";
+pub const Node001_Tutu_Move: string = "tutu_move";
+pub const Node002_Right_Door03: string = "Right_door03";
+pub const Node003_Left_Door03: string = "left_door03";
+pub const Node004_Right_Door02: string = "Right_door02";
+pub const Node005_Left_Door02: string = "left_door02";

@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 48fea919d54476e4151d666e98bb5517f32cd1e1e693fe35b086b237792a7fac
+pub const Node000_Point01: string = "Point01";
+pub const Node001_Tuta01_Bone01: string = "tuta01_bone01";
+pub const Node002_Tuta01_Bone02: string = "tuta01_bone02";
+pub const Node003_Tuta01_Bone03: string = "tuta01_bone03";
+pub const Node004_Tuta01_Bone04: string = "tuta01_bone04";
+pub const Node005_Tuta01_Bone05: string = "tuta01_bone05";
+pub const Node006_Tuta01_Bone06: string = "tuta01_bone06";
+pub const Node007_Tuta01_Bone07: string = "tuta01_bone07";
+pub const Node008_Tuta01_Bone08: string = "tuta01_bone08";

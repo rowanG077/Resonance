@@ -1,0 +1,5 @@
+script library;
+// Skeleton: fc125b47dc5b2e785f1f22e508bcc0cce201e680c1a38ec398d0c83deaac5245
+pub const Node000_Kk01_Be13_01: string = "kk01_be13_01";
+pub const Node001_Ef00_Bone01_L: string = "ef00_Bone01_L";
+pub const Node002_Ef00_Bone01_R: string = "ef00_Bone01_R";

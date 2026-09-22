@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 4cdf467cc681a33bd51c928cc2af363a6a82d6abc3c0f71485fe58b9d204d42b
+pub const Node000_Number0000: string = "0000";
+pub const Node001_Number0000_Chair: string = "0000_chair";
+pub const Node002_Number0000_Kabe: string = "0000_kabe";
+pub const Node003_Number0100: string = "0100";
+pub const Node004_Number0200: string = "0200";
+pub const Node005_Number0100_2: string = "0100_2";

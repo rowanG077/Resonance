@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 9e91374432ffb961e13252f370fab597a6c4287d29fdb50e48c0541ff6843c2e
+pub const Node000_Flower01: string = "flower01";
+pub const Node001_Enkei_Ki01: string = "enkei_ki01 ";
+pub const Node002_Enkei_Ki02: string = "enkei_ki02";
+pub const Node003_Enkei_Ki03: string = "enkei_ki03";
+pub const Node004_Enkei_Ki04: string = "enkei_ki04";
+pub const Node005_Enkei_Ki05: string = "enkei_ki05";
+pub const Node006_Enkei_Ki06: string = "enkei_ki06";
+pub const Node007_Enkei_Ki07: string = "enkei_ki07";
+pub const Node008_Flower02: string = "flower02";
+pub const Node009_Flower03: string = "flower03";
+pub const Node010_Door_Kage: string = "door_kage";

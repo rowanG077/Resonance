@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 6fda917e1418f18813c7769bee0fbaa31460b074b807a584b3404089a1589a3c
+pub const Node000_Mokugyo: string = "mokugyo";

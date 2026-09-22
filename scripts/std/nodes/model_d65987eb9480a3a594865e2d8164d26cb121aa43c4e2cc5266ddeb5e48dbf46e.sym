@@ -1,0 +1,6 @@
+script library;
+// Skeleton: d65987eb9480a3a594865e2d8164d26cb121aa43c4e2cc5266ddeb5e48dbf46e
+pub const Node000_Tikuonki_D: string = "tikuonki_d";
+pub const Node001_Tikuonki_B: string = "tikuonki_b";
+pub const Node002_Tikuonki_A: string = "tikuonki_a";
+pub const Node003_Tikuonki_C: string = "tikuonki_c";

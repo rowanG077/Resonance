@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 9baa2c618d9140f0ec4ebde8c0e8d87d36ff2d7e4ab6d71af7e4613e7e57d377
+pub const Node000_Container00: string = "container00";
+pub const Node001_Container01: string = "container01";
+pub const Node002_Container02: string = "container02";
+pub const Node003_Container03: string = "container03";
+pub const Node004_Container04: string = "container04";
+pub const Node005_Container05: string = "container05";
+pub const Node006_Container06: string = "container06";
+pub const Node007_Container07: string = "container07";
+pub const Node008_Container08: string = "container08";
+pub const Node009_Container09: string = "container09";
+pub const Node010_Container10: string = "container10";
+pub const Node011_Container11: string = "container11";
+pub const Node012_Container12: string = "container12";
+pub const Node013_Container13: string = "container13";
+pub const Node014_Container14: string = "container14";

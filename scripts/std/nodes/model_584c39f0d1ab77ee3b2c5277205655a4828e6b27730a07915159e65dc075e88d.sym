@@ -1,0 +1,12 @@
+script library;
+// Skeleton: 584c39f0d1ab77ee3b2c5277205655a4828e6b27730a07915159e65dc075e88d
+pub const Node000_Gnome_Fuuin: string = "Gnome_Fuuin";
+pub const Node001_Center_01: string = "center_01";
+pub const Node002_Mid_01: string = "mid_01";
+pub const Node003_Outer_01: string = "outer_01";
+pub const Node004_Center_08: string = "center_08";
+pub const Node005_Mid_08: string = "mid_08";
+pub const Node006_Outer_08: string = "outer_08";
+pub const Node007_Center_02: string = "center_02";
+pub const Node008_Outer_02: string = "outer_02";
+pub const Node009_Mid_02: string = "mid_02";

@@ -1,0 +1,7 @@
+script library;
+// Skeleton: cd1345eb9da85823afb4ab690984ee749b5c430777621b7a8039197ba525952e
+pub const Node000_Baku: string = "Baku";
+pub const Node001_Slot01: string = "slot01";
+pub const Node002_Slot03: string = "slot03";
+pub const Node003_Toriger: string = "toriger";
+pub const Node004_Slot02: string = "slot02";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 03c632964eade26a98dc59430b629740ca5e2a2129de9c03d689b3eb2f766376
+pub const Node000_Cylinder01: string = "Cylinder01";
+pub const Node001_Obj_Fab_Wave_Red: string = "obj_fab_wave_red";

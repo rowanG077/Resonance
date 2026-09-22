@@ -1,0 +1,20 @@
+script library;
+// Skeleton: 170272c8b3fbc2405062df87609a3d7b7c271d405db3310f3ea051c67f29a0ef
+pub const Node000_Floor_C: string = "floor_c";
+pub const Node001_Door_1f_Right: string = "door_1f_right";
+pub const Node002_Door_1f_Left: string = "door_1f_left";
+pub const Node003_Door_15f_Right: string = "door_15f_right";
+pub const Node004_Door_15f_Left: string = "door_15f_left";
+pub const Node005_Door_2f_Left: string = "door_2f_left";
+pub const Node006_Door_2f_Right: string = "door_2f_right";
+pub const Node007_Door_3f_Right: string = "door_3f_right";
+pub const Node008_Door_3f_Left: string = "door_3f_left";
+pub const Node009_Door_3f_Left01: string = "door_3f_left01";
+pub const Node010_Door_3f_Right01: string = "door_3f_right01";
+pub const Node011_Door_4f_Right: string = "door_4f_right";
+pub const Node012_Door_4f_Eft: string = "door_4f_eft";
+pub const Node013_Door_5f_Left: string = "door_5f_left";
+pub const Node014_Door_5f_Right: string = "door_5f_right";
+pub const Node015_Floor_A: string = "floor_a";
+pub const Node016_Floor_B: string = "floor_b";
+pub const Node017_Fit_D05_Elv: string = "fit_d05_elv";

@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 41ad88fc6ffb0743b9c9f6ed33cf8f984d22d6f238b0a7b44d8342cb39288bd8
+pub const Node000_Mizu02: string = "mizu02";
+pub const Node001_Mizu03: string = "mizu03";

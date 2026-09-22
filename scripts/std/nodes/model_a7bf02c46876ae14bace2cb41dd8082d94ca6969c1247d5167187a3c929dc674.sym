@@ -1,0 +1,4 @@
+script library;
+// Skeleton: a7bf02c46876ae14bace2cb41dd8082d94ca6969c1247d5167187a3c929dc674
+pub const Node000_Thunder_Cloud: string = "thunder_cloud";
+pub const Node001_Box13: string = "Box13";

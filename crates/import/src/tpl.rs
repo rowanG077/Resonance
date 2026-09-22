@@ -1,4 +1,6 @@
 //! GameCube TPL textures decoded into ordinary RGBA images.
+pub(crate) use resonance_content::texture::{Filter, Sampler, TextureLod};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum TextureError {
@@ -16,6 +18,74 @@ pub(crate) struct TplTexture {
     pub(crate) palette_format: u32,
     pub(crate) wrap: [u32; 2],
     pub(crate) filter: [u32; 2],
+    pub(crate) lod: TextureLod,
+}
+
+pub(crate) fn filter(value: u32) -> Result<Filter, TextureError> {
+    Ok(match value {
+        0 => Filter::Nearest,
+        1 => Filter::Linear,
+        2 => Filter::NearestMipmapNearest,
+        3 => Filter::LinearMipmapNearest,
+        4 => Filter::NearestMipmapLinear,
+        5 => Filter::LinearMipmapLinear,
+        _ => return Err(TextureError::Tpl(format!("invalid texture filter {value}"))),
+    })
+}
+
+pub(crate) fn wrap(value: u32) -> Result<resonance_content::TextureWrap, TextureError> {
+    Ok(match value {
+        0 => resonance_content::TextureWrap::Clamp,
+        1 => resonance_content::TextureWrap::Repeat,
+        2 => resonance_content::TextureWrap::Mirror,
+        _ => return Err(TextureError::Tpl(format!("invalid texture wrap {value}"))),
+    })
+}
+
+impl TplTexture {
+    pub(crate) fn sampler(&self) -> Result<Sampler, TextureError> {
+        if self.filter[1] > 1 || !self.lod.bias.is_finite() || self.lod.min > self.lod.max {
+            return Err(TextureError::Tpl("invalid texture sampler".into()));
+        }
+        Ok(Sampler {
+            wrap: [wrap(self.wrap[0])?, wrap(self.wrap[1])?],
+            min_filter: filter(self.filter[0])?,
+            mag_filter: filter(self.filter[1])?,
+            lod: self.lod,
+        })
+    }
+
+    /// Authored levels are contiguous GX blocks, including padding in each level.
+    pub(crate) fn levels(&self, data: &[u8]) -> Result<Vec<Self>, TextureError> {
+        if self.width == 0 || self.height == 0 || self.width > 4096 || self.height > 4096 {
+            return Err(TextureError::Tpl("invalid texture mip dimensions".into()));
+        }
+        let (bw, bh, size, _) = Format::from_code(self.format)?.block();
+        let mut image = self.clone();
+        let mut levels = Vec::new();
+        // Equal LOD bounds disable mip storage in the source loader. Active
+        // chains stop at 1x1 even when the sampler permits a larger LOD.
+        let last = if self.lod.min == self.lod.max {
+            0
+        } else {
+            u32::from(self.lod.max).min(self.width.max(self.height).ilog2())
+        };
+        for _ in 0..=last {
+            let size = usize::from(image.width).div_ceil(bw)
+                * usize::from(image.height).div_ceil(bh)
+                * size;
+            let end = image
+                .data_offset
+                .checked_add(size)
+                .filter(|end| *end <= data.len())
+                .ok_or_else(|| TextureError::Tpl("texture mip data exceeds file".into()))?;
+            levels.push(image.clone());
+            image.data_offset = end;
+            image.width = (image.width / 2).max(1);
+            image.height = (image.height / 2).max(1);
+        }
+        Ok(levels)
+    }
 }
 
 pub(crate) fn parse_tpl(data: &[u8]) -> Result<Vec<TplTexture>, TextureError> {
@@ -90,13 +160,20 @@ pub(crate) fn parse_tpl(data: &[u8]) -> Result<Vec<TplTexture>, TextureError> {
                 read_u32(data, texture_offset + 20).unwrap(),
                 read_u32(data, texture_offset + 24).unwrap(),
             ],
+            lod: TextureLod {
+                bias: f32::from_bits(read_u32(data, texture_offset + 28).unwrap()),
+                edge: data[texture_offset + 32] != 0,
+                min: data[texture_offset + 33],
+                max: data[texture_offset + 34],
+            },
         });
     }
     Ok(out)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Format {
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Format {
     I4,
     I8,
     Ia4,
@@ -110,7 +187,7 @@ enum Format {
     Cmpr,
 }
 impl Format {
-    fn from_code(code: u32) -> Result<Self, TextureError> {
+    pub(crate) fn from_code(code: u32) -> Result<Self, TextureError> {
         Ok(match code {
             0 => Self::I4,
             1 => Self::I8,
@@ -125,7 +202,7 @@ impl Format {
             14 => Self::Cmpr,
             _ => {
                 return Err(TextureError::Tpl(format!(
-                    "texture format {code} is not implemented (raw TPL is still preserved)"
+                    "texture format {code} is not implemented"
                 )));
             }
         })
@@ -149,10 +226,79 @@ impl Format {
         match self {
             Self::Ci4 => Some(16),
             Self::Ci8 => Some(256),
-            Self::Ci14 => Some(usize::MAX),
+            Self::Ci14 => Some(16384),
             _ => None,
         }
     }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PaletteFormat {
+    Ia8,
+    Rgb565,
+    Rgb5a3,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct Palette {
+    pub format: PaletteFormat,
+    pub colors: Vec<[u8; 4]>,
+}
+
+/// Preserve the complete palette, including colors unused by visible texels.
+pub(crate) fn palette(data: &[u8], texture: &TplTexture) -> Result<Option<Palette>, TextureError> {
+    let Some(offset) = texture.palette_offset else {
+        return Ok(None);
+    };
+    let format = match texture.palette_format {
+        0 => PaletteFormat::Ia8,
+        1 => PaletteFormat::Rgb565,
+        2 => PaletteFormat::Rgb5a3,
+        value => {
+            return Err(TextureError::Tpl(format!(
+                "unsupported palette format {value}"
+            )));
+        }
+    };
+    let entries = texture.palette_entries;
+    if entries == 0
+        || entries > 16384
+        || offset
+            .checked_add(entries * 2)
+            .is_none_or(|end| end > data.len())
+    {
+        return Err(TextureError::Tpl("invalid texture palette".into()));
+    }
+    Ok(Some(Palette {
+        format,
+        colors: (0..entries)
+            .map(|index| palette_pixel(read_u16(data, offset + index * 2).unwrap(), format))
+            .collect(),
+    }))
+}
+
+/// Effect bindings move the palette base without reducing its entry count.
+/// A window can therefore reach the following data in the same resource.
+#[cfg(test)]
+fn decode_palette_window(
+    data: &[u8],
+    texture: &TplTexture,
+    first_color: usize,
+) -> Result<Vec<u8>, TextureError> {
+    palette(data, texture)?
+        .ok_or_else(|| TextureError::Tpl("indexed texture has no palette".into()))?;
+    let capacity = Format::from_code(texture.format)?
+        .palette_limit()
+        .ok_or_else(|| TextureError::Tpl("palette window requires indexed texture".into()))?;
+    let mut window = texture.clone();
+    window.palette_offset = texture.palette_offset.and_then(|base| {
+        first_color
+            .checked_mul(2)
+            .and_then(|offset| base.checked_add(offset))
+    });
+    window.palette_entries = texture.palette_entries.min(capacity);
+    decode_texture(data, &window)
 }
 
 pub(crate) fn decode_texture(data: &[u8], texture: &TplTexture) -> Result<Vec<u8>, TextureError> {
@@ -167,29 +313,12 @@ pub(crate) fn decode_texture(data: &[u8], texture: &TplTexture) -> Result<Vec<u8
     let (block_width, block_height, block_bytes, label) = format.block();
     let mut palette = Vec::new();
     if let Some(limit) = format.palette_limit() {
-        let offset = texture
-            .palette_offset
-            .ok_or_else(|| TextureError::Tpl(format!("{label} texture has no palette")))?;
-        let entries = texture.palette_entries;
-        if entries == 0
-            || entries > 16384
-            || entries
-                .checked_mul(2)
-                .and_then(|size| offset.checked_add(size))
-                .is_none_or(|end| end > data.len())
-        {
-            return Err(TextureError::Tpl(format!("invalid {label} palette")));
-        }
+        palette = self::palette(data, texture)?
+            .ok_or_else(|| TextureError::Tpl(format!("{label} texture has no palette")))?
+            .colors;
         // Shared tables may contain several palettes. An image's index width
         // selects the first palette; later colors do not change its pixels.
-        palette = (0..entries.min(limit))
-            .map(|index| {
-                palette_pixel(
-                    read_u16(data, offset + index * 2).unwrap(),
-                    texture.palette_format,
-                )
-            })
-            .collect();
+        palette.truncate(limit);
     }
     let columns = width.div_ceil(block_width);
     let rows = height.div_ceil(block_height);
@@ -214,6 +343,10 @@ pub(crate) fn decode_texture(data: &[u8], texture: &TplTexture) -> Result<Vec<u8
         for pixel in 0..block_width * block_height {
             let x = pixel % block_width;
             let y = pixel / block_width;
+            // Padding texels have no authored image meaning and may contain junk indices.
+            if left + x >= width || top + y >= height {
+                continue;
+            }
             let color = match format {
                 Format::I4 => [expand4(u16::from(nibble(block, pixel))); 4],
                 Format::I8 => [block[pixel]; 4],
@@ -226,9 +359,15 @@ pub(crate) fn decode_texture(data: &[u8], texture: &TplTexture) -> Result<Vec<u8
                         expand4(u16::from(block[pixel] >> 4)),
                     ]
                 }
-                Format::Ia8 => palette_pixel(read_u16(block, pixel * 2).unwrap(), 0),
-                Format::Rgb565 => palette_pixel(read_u16(block, pixel * 2).unwrap(), 1),
-                Format::Rgb5a3 => palette_pixel(read_u16(block, pixel * 2).unwrap(), 2),
+                Format::Ia8 => {
+                    palette_pixel(read_u16(block, pixel * 2).unwrap(), PaletteFormat::Ia8)
+                }
+                Format::Rgb565 => {
+                    palette_pixel(read_u16(block, pixel * 2).unwrap(), PaletteFormat::Rgb565)
+                }
+                Format::Rgb5a3 => {
+                    palette_pixel(read_u16(block, pixel * 2).unwrap(), PaletteFormat::Rgb5a3)
+                }
                 // RGBA8 stores separate alpha/red and green/blue planes per tile.
                 Format::Rgba8 => [
                     block[pixel * 2 + 1],
@@ -242,7 +381,7 @@ pub(crate) fn decode_texture(data: &[u8], texture: &TplTexture) -> Result<Vec<u8
                         Format::Ci8 => usize::from(block[pixel]),
                         _ => usize::from(read_u16(block, pixel * 2).unwrap() & 0x3fff),
                     };
-                    palette.get(index).copied().unwrap_or([0; 4])
+                    *palette.get(index).ok_or_else(|| TextureError::Tpl(format!("{label} texel references palette index {index}, but only {} colors are declared", palette.len())))?
                 }
                 Format::Cmpr => {
                     // An 8×8 tile contains four compressed 4×4 subtiles.
@@ -252,7 +391,8 @@ pub(crate) fn decode_texture(data: &[u8], texture: &TplTexture) -> Result<Vec<u8
                     compressed.as_ref().unwrap()[sub][index as usize]
                 }
             };
-            put_pixel(&mut rgba, width, height, left + x, top + y, color);
+            let at = ((top + y) * width + left + x) * 4;
+            rgba[at..at + 4].copy_from_slice(&color);
         }
     }
     Ok(rgba)
@@ -267,8 +407,8 @@ fn nibble(data: &[u8], pixel: usize) -> u8 {
 }
 
 fn dxt_colors(c0: u16, c1: u16) -> [[u8; 4]; 4] {
-    let a = palette_pixel(c0, 1);
-    let b = palette_pixel(c1, 1);
+    let a = palette_pixel(c0, PaletteFormat::Rgb565);
+    let b = palette_pixel(c1, PaletteFormat::Rgb565);
     if c0 > c1 {
         [a, b, mix(a, b, 5, 3), mix(a, b, 3, 5)]
     } else {
@@ -286,10 +426,10 @@ fn mix(a: [u8; 4], b: [u8; 4], na: u16, nb: u16) -> [u8; 4] {
     ]
 }
 
-fn palette_pixel(value: u16, format: u32) -> [u8; 4] {
+fn palette_pixel(value: u16, format: PaletteFormat) -> [u8; 4] {
     match format {
-        0 => [value as u8, value as u8, value as u8, (value >> 8) as u8],
-        2 => {
+        PaletteFormat::Ia8 => [value as u8, value as u8, value as u8, (value >> 8) as u8],
+        PaletteFormat::Rgb5a3 => {
             if value & 0x8000 != 0 {
                 [
                     expand5((value >> 10) & 0x1f),
@@ -306,7 +446,7 @@ fn palette_pixel(value: u16, format: u32) -> [u8; 4] {
                 ]
             }
         }
-        _ => [
+        PaletteFormat::Rgb565 => [
             expand5((value >> 11) & 0x1f),
             expand6((value >> 5) & 0x3f),
             expand5(value & 0x1f),
@@ -315,11 +455,6 @@ fn palette_pixel(value: u16, format: u32) -> [u8; 4] {
     }
 }
 
-fn put_pixel(out: &mut [u8], width: usize, height: usize, x: usize, y: usize, pixel: [u8; 4]) {
-    if x < width && y < height {
-        out[(y * width + x) * 4..(y * width + x + 1) * 4].copy_from_slice(&pixel);
-    }
-}
 fn expand3(v: u16) -> u8 {
     ((v << 5) | (v << 2) | (v >> 1)) as u8
 }
@@ -377,7 +512,135 @@ mod tests {
             palette_format: 0,
             wrap: [0; 2],
             filter: [1; 2],
+            lod: TextureLod::default(),
         }
+    }
+
+    #[test]
+    fn authored_mips_keep_block_padding_and_independent_pixels() {
+        let mut descriptor = texture(1);
+        descriptor.width = 16;
+        descriptor.height = 4;
+        descriptor.lod.max = 3;
+        let mut data = vec![1; 64];
+        for value in 2..=4 {
+            data.extend([value; 32]);
+        }
+        let levels = descriptor.levels(&data).unwrap();
+        assert_eq!(
+            levels
+                .iter()
+                .map(|level| (level.width, level.height, level.data_offset))
+                .collect::<Vec<_>>(),
+            [(16, 4, 0), (8, 2, 64), (4, 1, 96), (2, 1, 128)]
+        );
+        for (index, level) in levels.iter().enumerate() {
+            assert!(
+                decode_texture(&data, level)
+                    .unwrap()
+                    .iter()
+                    .all(|value| *value == index as u8 + 1)
+            );
+        }
+        data.pop();
+        assert!(descriptor.levels(&data).is_err());
+        assert!(decode_texture(&data, &descriptor).is_ok());
+        descriptor.lod.min = 3;
+        assert_eq!(descriptor.levels(&data[..64]).unwrap().len(), 1);
+        descriptor.width = 2;
+        descriptor.height = 1;
+        descriptor.lod.min = 0;
+        descriptor.lod.max = 10;
+        let levels = descriptor.levels(&data[..64]).unwrap();
+        assert_eq!(levels.len(), 2);
+        assert_eq!((levels[1].width, levels[1].height), (1, 1));
+        assert_eq!(descriptor.sampler().unwrap().lod.max, 10);
+        assert!(descriptor.levels(&data[..63]).is_err());
+    }
+
+    #[test]
+    fn tpl_sampler_keeps_authored_lod_and_filter_modes() {
+        let mut bytes = vec![0; 96];
+        for (offset, value) in [
+            (0, 0x20_af30_u32),
+            (4, 1),
+            (8, 12),
+            (12, 20),
+            (20, 0x0008_0008),
+            (28, 64),
+            (32, 2),
+            (36, 1),
+            (40, 5),
+            (44, 1),
+            (48, (-1.25_f32).to_bits()),
+        ] {
+            bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
+        }
+        bytes[52..55].copy_from_slice(&[1, 1, 3]);
+        let descriptor = parse_tpl(&bytes).unwrap().remove(0);
+        let sampler = serde_json::to_value(descriptor.sampler().unwrap()).unwrap();
+        assert_eq!(sampler["wrap"], serde_json::json!(["mirror", "repeat"]));
+        assert_eq!(sampler["min_filter"], "linear_mipmap_linear");
+        assert_eq!(
+            sampler["lod"],
+            serde_json::json!({"bias": -1.25, "min": 1, "max": 3, "edge": true})
+        );
+        bytes[4..8].fill(0);
+        assert!(parse_tpl(&bytes[..12]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn palette_checks_visible_indices_and_preserves_unused_colors() {
+        let mut descriptor = texture(8);
+        descriptor.palette_offset = Some(32);
+        descriptor.palette_entries = 2;
+        descriptor.palette_format = 2;
+        let mut data = vec![255; 32];
+        data.extend([255, 255, 252, 0]);
+        assert!(decode_texture(&data, &descriptor).is_err());
+        data[0] = 0x0f; // Only the first texel is visible; tile padding is ignored.
+        assert_eq!(decode_texture(&data, &descriptor).unwrap(), [255; 4]);
+        assert_eq!(
+            palette(&data, &descriptor).unwrap().unwrap().colors,
+            [[255; 4], [255, 0, 0, 255]]
+        );
+        descriptor.palette_format = 3;
+        assert!(decode_texture(&data, &descriptor).is_err());
+        descriptor.palette_format = 2;
+        data.pop();
+        assert!(palette(&data, &descriptor).is_err());
+    }
+
+    #[test]
+    fn shifted_palette_keeps_index_capacity_and_reads_actual_following_colors() {
+        let mut descriptor = texture(9);
+        descriptor.width = 2;
+        descriptor.palette_offset = Some(32);
+        descriptor.palette_entries = 256;
+        descriptor.palette_format = 1;
+        let mut data = vec![0; 32 + (256 + 32) * 2];
+        data[..2].copy_from_slice(&[0, 255]);
+        data[32 + 32 * 2..34 + 32 * 2].copy_from_slice(&0xf800_u16.to_be_bytes());
+        data[32 + 287 * 2..34 + 287 * 2].copy_from_slice(&0x07e0_u16.to_be_bytes());
+        assert_eq!(
+            decode_palette_window(&data, &descriptor, 32).unwrap(),
+            [255, 0, 0, 255, 0, 255, 0, 255]
+        );
+        assert!(decode_palette_window(&data, &descriptor, 256).is_err());
+        data.pop();
+        assert!(decode_texture(&data, &descriptor).is_ok());
+        assert!(decode_palette_window(&data, &descriptor, 32).is_err());
+        // The native binding shifts the base without bounding it by the first
+        // palette's count. A complete following palette is independently valid.
+        data.resize(32 + 512 * 2, 0);
+        data[32 + 256 * 2..34 + 256 * 2].copy_from_slice(&0xf800_u16.to_be_bytes());
+        data[32 + 511 * 2..34 + 511 * 2].copy_from_slice(&0x07e0_u16.to_be_bytes());
+        assert_eq!(
+            decode_palette_window(&data, &descriptor, 256).unwrap(),
+            [255, 0, 0, 255, 0, 255, 0, 255]
+        );
+        assert!(decode_palette_window(&data, &descriptor, 512).is_err());
+        assert!(decode_palette_window(&data, &descriptor, usize::MAX).is_err());
     }
 
     #[test]

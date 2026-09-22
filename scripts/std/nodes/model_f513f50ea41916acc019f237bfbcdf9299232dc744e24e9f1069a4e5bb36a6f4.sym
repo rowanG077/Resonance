@@ -1,0 +1,3 @@
+script library;
+// Skeleton: f513f50ea41916acc019f237bfbcdf9299232dc744e24e9f1069a4e5bb36a6f4
+pub const Node000_Mdl_Bar_I00_01_LGta: string = "mdl_bar_i00_01_l.gta ";

@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 21c9451178b94c1eed88e96e27e8311799caf46265bdf3b77f34cc7556b145fa
+pub const Node000_Liner_Baria: string = "liner_baria";

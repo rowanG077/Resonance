@@ -1,0 +1,13 @@
+script library;
+// Skeleton: bbe31f0380293457688ce346a1fcf3a3ca60fb3a50e686531cb61cb512671d21
+pub const Node000_Hasi: string = "hasi";
+pub const Node001_Mdl_Vmh_D01_Iwa: string = "mdl_vmh_d01_iwa";
+pub const Node002_Ki_R01: string = "ki_R01";
+pub const Node003_Henahena05: string = "henahena05";
+pub const Node004_D01: string = "D01";
+pub const Node005_Kawazoko2: string = "kawazoko2";
+pub const Node006_Nami_Plane03: string = "nami_Plane03";
+pub const Node007_Yunkeru_Ki_02: string = "yunkeru_ki_02";
+pub const Node008_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node009_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node010_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";

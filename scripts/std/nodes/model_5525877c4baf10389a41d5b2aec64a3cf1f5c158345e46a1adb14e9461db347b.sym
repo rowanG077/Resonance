@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 5525877c4baf10389a41d5b2aec64a3cf1f5c158345e46a1adb14e9461db347b
+pub const Node000_Panel_1: string = "panel_1";
+pub const Node001_Panel_2: string = "panel_2";
+pub const Node002_Panel_3: string = "panel_3";
+pub const Node003_Panel_4: string = "panel_4";
+pub const Node004_Panel_5: string = "panel_5";
+pub const Node005_Panel_6: string = "panel_6";
+pub const Node006_Iwa1: string = "iwa1";
+pub const Node007_Iwa2: string = "iwa2";

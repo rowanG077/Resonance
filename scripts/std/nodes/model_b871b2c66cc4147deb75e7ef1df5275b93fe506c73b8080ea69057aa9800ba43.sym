@@ -1,0 +1,10 @@
+script library;
+// Skeleton: b871b2c66cc4147deb75e7ef1df5275b93fe506c73b8080ea69057aa9800ba43
+pub const Node000_T02_P03: string = "T02_P03";
+pub const Node001_T02_P01: string = "T02_P01";
+pub const Node002_Ta02_G01_Inf: string = "Ta02_G01_Inf";
+pub const Node003_T02_Sky: string = "T02_Sky";
+pub const Node004_T02_G01: string = "T02_G01";
+pub const Node005_Door_R: string = "Door_R";
+pub const Node006_Door_L: string = "Door_L";
+pub const Node007_T02_P02: string = "T02_P02";

@@ -495,50 +495,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_animation"
-version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc513aac5cda673fb138236e969b4514e0a9b9f93fd33288111f147baa8af623"
-dependencies = [
- "bevy_animation_macros",
- "bevy_app",
- "bevy_asset",
- "bevy_color",
- "bevy_derive",
- "bevy_ecs",
- "bevy_math",
- "bevy_mesh",
- "bevy_platform",
- "bevy_reflect",
- "bevy_time",
- "bevy_transform",
- "bevy_utils",
- "blake3",
- "derive_more",
- "downcast-rs 2.0.2",
- "either",
- "petgraph",
- "ron",
- "serde",
- "smallvec",
- "thiserror 2.0.20",
- "thread_local",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "bevy_animation_macros"
-version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eed2910d9ca5c3b48968a54c4571789e4e81935cf3c823383fcac34ca28e2b0e"
-dependencies = [
- "bevy_macro_utils",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "bevy_app"
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -880,7 +836,6 @@ checksum = "0d17df73b26adfb8be89f0716b8667c60660bdd2d589863b8901caca58c99841"
 dependencies = [
  "async-lock",
  "base64",
- "bevy_animation",
  "bevy_app",
  "bevy_asset",
  "bevy_camera",
@@ -978,7 +933,6 @@ checksum = "4ba99ca2e501f14f4af3322d66ae41b5c5b6ebd3aac4d00cda47dea4c00290ae"
 dependencies = [
  "bevy_a11y",
  "bevy_android",
- "bevy_animation",
  "bevy_app",
  "bevy_asset",
  "bevy_camera",
@@ -1252,7 +1206,6 @@ dependencies = [
  "glam",
  "indexmap",
  "inventory",
- "petgraph",
  "serde",
  "smallvec",
  "smol_str",
@@ -4062,8 +4015,6 @@ dependencies = [
  "fixedbitset",
  "hashbrown 0.15.5",
  "indexmap",
- "serde",
- "serde_derive",
 ]
 
 [[package]]
@@ -4382,6 +4333,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "resonance-asset-writer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hound",
+ "ktx2",
+ "serde_json",
+ "structured-zstd",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "resonance-audio"
 version = "0.1.0"
 dependencies = [
@@ -4399,6 +4362,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "resonance-audio",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 
@@ -4431,6 +4396,7 @@ dependencies = [
  "serde",
  "serde_json",
  "symphonia-script",
+ "symphonia-script-compiler",
  "symphonia-script-vm",
 ]
 
@@ -4445,6 +4411,8 @@ dependencies = [
  "serde_json",
  "sha2",
  "symphonia-script",
+ "symphonia-script-compiler",
+ "symphonia-script-tools",
  "symphonia-script-vm",
 ]
 
@@ -4462,18 +4430,22 @@ dependencies = [
  "hound",
  "image",
  "ktx2",
+ "matroska-demuxer",
  "nod",
- "png",
+ "resonance-asset-writer",
  "resonance-audio",
  "resonance-audio-cook",
  "resonance-content",
  "resonance-media",
+ "resonance-model-behavior",
+ "resonance-script-content",
  "ruzstd",
  "serde",
  "serde_json",
  "sha2",
- "structured-zstd",
  "symphonia-script",
+ "symphonia-script-compiler",
+ "symphonia-script-tools",
  "tempfile",
  "thiserror 2.0.20",
 ]
@@ -4496,6 +4468,7 @@ dependencies = [
  "codec_ffv1",
  "ffv1",
  "flacenc",
+ "h4m",
  "hound",
  "matroska-demuxer",
  "resonance-audio-device",
@@ -4505,6 +4478,18 @@ dependencies = [
  "serde_json",
  "sha2",
  "symphonia",
+]
+
+[[package]]
+name = "resonance-model-behavior"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "resonance-content",
+ "symphonia-script",
+ "symphonia-script-compiler",
+ "symphonia-script-tools",
+ "symphonia-script-vm",
 ]
 
 [[package]]
@@ -4554,14 +4539,32 @@ dependencies = [
  "resonance-events",
  "resonance-game",
  "resonance-media",
+ "resonance-model-behavior",
  "resonance-persistence",
  "resonance-playback",
  "serde",
  "serde_json",
  "sha2",
  "symphonia-script",
+ "symphonia-script-tools",
  "time",
 ]
+
+[[package]]
+name = "resonance-script"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "resonance-events",
+ "resonance-model-behavior",
+ "symphonia-script-compiler",
+ "symphonia-script-tools",
+]
+
+[[package]]
+name = "resonance-script-content"
+version = "0.1.0"
 
 [[package]]
 name = "ron"
@@ -4986,6 +4989,24 @@ dependencies = [
  "encoding_rs",
  "serde",
  "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "symphonia-script-compiler"
+version = "0.1.0"
+dependencies = [
+ "symphonia-script",
+ "symphonia-script-vm",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "symphonia-script-tools"
+version = "0.1.0"
+dependencies = [
+ "symphonia-script",
+ "symphonia-script-compiler",
  "thiserror 2.0.20",
 ]
 

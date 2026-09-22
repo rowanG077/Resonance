@@ -1,0 +1,5 @@
+script library;
+// Skeleton: 68fcd27f52a9902948d3fb1d35d91500d9af4381524d9cb7f6a5bb506911d8a4
+pub const Node000_Kiri01: string = "Kiri01";
+pub const Node001_Kiri02: string = "Kiri02";
+pub const Node002_Kiri03: string = "Kiri03";

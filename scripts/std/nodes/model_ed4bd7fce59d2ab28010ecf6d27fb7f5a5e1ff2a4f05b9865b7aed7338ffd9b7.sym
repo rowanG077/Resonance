@@ -1,0 +1,20 @@
+script library;
+// Skeleton: ed4bd7fce59d2ab28010ecf6d27fb7f5a5e1ff2a4f05b9865b7aed7338ffd9b7
+pub const Node000_Birdtop: string = "birdtop";
+pub const Node001_EFFE: string = "EFFE";
+pub const Node002_Efe00_0: string = "efe00_0";
+pub const Node003_Efe01_0: string = "efe01_0";
+pub const Node004_Efe01_1: string = "efe01_1";
+pub const Node005_Efe00_1: string = "efe00_1";
+pub const Node006_Birdtop01: string = "birdtop01";
+pub const Node007_EFFE03: string = "EFFE03";
+pub const Node008_Efe00_06: string = "efe00_06";
+pub const Node009_Efe01_06: string = "efe01_06";
+pub const Node010_Efe01_07: string = "efe01_07";
+pub const Node011_Efe00_07: string = "efe00_07";
+pub const Node012_Birdtop02: string = "birdtop02";
+pub const Node013_EFFE04: string = "EFFE04";
+pub const Node014_Efe00_08: string = "efe00_08";
+pub const Node015_Efe01_08: string = "efe01_08";
+pub const Node016_Efe01_09: string = "efe01_09";
+pub const Node017_Efe00_09: string = "efe00_09";

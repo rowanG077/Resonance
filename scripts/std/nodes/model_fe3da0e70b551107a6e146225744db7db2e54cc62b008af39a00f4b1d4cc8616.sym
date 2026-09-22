@@ -1,0 +1,4 @@
+script library;
+// Skeleton: fe3da0e70b551107a6e146225744db7db2e54cc62b008af39a00f4b1d4cc8616
+pub const Node000_Sphere02: string = "Sphere02";
+pub const Node001_Cylinder14: string = "Cylinder14";

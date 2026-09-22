@@ -158,10 +158,13 @@ impl StandardReverb {
     }
 }
 
-/// Mix stereo voice buses and retain the audible effect tail. Two decay periods
-/// cover a 120 dB decay from the bounded PCM16 inputs; keep pre-delay and bus
-/// latency as well, then remove only trailing frames that are exactly zero.
-pub fn mix_studio(buses: &[Vec<i16>; 3], parameters: [[f32; 5]; 2]) -> Result<Vec<i16>> {
+/// Mix stereo voice buses and retain their effect tail. PCM16 uses two decay
+/// periods (120 dB); wider buses add 60 dB periods for their extra headroom.
+/// Keep pre-delay and bus latency, then trim only exactly silent trailing frames.
+pub fn mix_studio<S: Copy + Into<i32>>(
+    buses: &[Vec<S>; 3],
+    parameters: [[f32; 5]; 2],
+) -> Result<Vec<i16>> {
     let length = buses[0].len();
     ensure!(
         length.is_multiple_of(2) && buses.iter().all(|bus| bus.len() == length),
@@ -171,15 +174,25 @@ pub fn mix_studio(buses: &[Vec<i16>; 3], parameters: [[f32; 5]; 2]) -> Result<Ve
     let tail_seconds = parameters
         .into_iter()
         .enumerate()
-        .filter(|(bus, _)| buses[bus + 1].iter().any(|sample| *sample != 0))
-        .map(|(_, p)| 2.0 * p[2] + p[4])
+        .filter_map(|(bus, p)| {
+            let peak = buses[bus + 1]
+                .iter()
+                .map(|sample| (*sample).into().unsigned_abs())
+                .max()
+                .unwrap_or(0);
+            (peak != 0).then(|| {
+                let headroom = (f64::from(peak) / 32768.).max(1.).log10() as f32 / 3.;
+                (2.0 + headroom) * p[2] + p[4]
+            })
+        })
         .fold(0.0f32, f32::max);
     let frames = length / 2 + (tail_seconds * 32000.0).ceil() as usize + 320;
     let mut output = Vec::with_capacity(frames * 2);
     for frame in 0..frames {
         let input = buses.each_ref().map(|bus| {
             std::array::from_fn(|channel| {
-                i32::from(bus.get(frame * 2 + channel).copied().unwrap_or(0))
+                bus.get(frame * 2 + channel)
+                    .map_or(0, |sample| (*sample).into())
             })
         });
         output.extend(
@@ -218,6 +231,64 @@ mod tests {
             tail += usize::from(studio.process([[0; 2]; 3]) != [0; 2]);
         }
         assert!(tail > 100, "effect tail disappeared with its source");
+        let mut buses = [vec![0i32; 642], vec![0; 642], vec![0; 642]];
+        buses[1][..2].fill(100000);
+        buses[0][640..].fill(-30000);
+        let mixed = mix_studio(&buses, [[1., 0.5, 1., 0.8, 0.01]; 2]).unwrap();
+        assert_eq!(
+            &mixed[640..642],
+            &[0, 0],
+            "bus clipping lost headroom before summation"
+        );
+        assert!(
+            mixed[642..].iter().any(|&v| v != 0),
+            "offline tail was truncated"
+        );
+    }
+
+    #[test]
+    fn offline_tail_matches_long_render_with_wide_bus_headroom() {
+        let parameters = [[0.7, 1., 0.4, 0.6, 0.01]; 2];
+        // Independent fixed six-second capture: no production drain bound.
+        let render = |peak| {
+            let mut studio = Studio::new(parameters).unwrap();
+            let mut pcm = Vec::new();
+            for frame in 0..32000 * 6 {
+                let input = if frame == 0 { peak } else { 0 };
+                pcm.extend(
+                    studio
+                        .process([[0; 2], [input; 2], [0; 2]])
+                        .map(|v| v.clamp(i16::MIN as i32, i16::MAX as i32) as i16),
+                );
+            }
+            let end = pcm
+                .iter()
+                .rposition(|&v| v != 0)
+                .map_or(2, |i| (i / 2 + 1) * 2);
+            pcm.truncate(end);
+            pcm
+        };
+        let ordinary = [vec![0i16; 2], vec![i16::MAX; 2], vec![0; 2]];
+        assert_eq!(
+            mix_studio(&ordinary, parameters).unwrap(),
+            render(i16::MAX as i32)
+        );
+        let old_end = ((2.0 * parameters[0][2] + parameters[0][4]) * 32000.0).ceil() as usize + 321;
+        for peak in [64 * i16::MAX as i32, i32::MAX, i32::MIN] {
+            let expected = render(peak);
+            if peak.unsigned_abs() > 64 * i16::MAX as u32 {
+                assert!(
+                    expected.len() > old_end * 2,
+                    "fixture did not exceed the old tail bound"
+                );
+            }
+            let buses = [vec![0; 2], vec![peak; 2], vec![0; 2]];
+            assert_eq!(
+                mix_studio(&buses, parameters).unwrap(),
+                expected,
+                "peak {peak}"
+            );
+        }
     }
 
     #[test]

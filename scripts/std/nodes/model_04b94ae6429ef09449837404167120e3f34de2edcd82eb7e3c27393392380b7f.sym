@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 04b94ae6429ef09449837404167120e3f34de2edcd82eb7e3c27393392380b7f
+pub const Node000_Tubo: string = "tubo";

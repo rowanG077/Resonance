@@ -72,6 +72,7 @@ impl Decodable for MovieAudio {
 pub(super) struct Playback {
     pub active: bool,
     pub completed_naturally: bool,
+    pub resource: Option<u32>,
     pub asset: Option<MovieAsset>,
     pub presented_frame: Option<u32>,
     pub presented_timestamp: Option<Duration>,
@@ -145,6 +146,7 @@ impl Playback {
     /// audio queues belong to this playback; the token belongs to the scene.
     pub(super) fn start_script_movie(
         &mut self,
+        resource: u32,
         prepared: Prepared,
         asset: MovieAsset,
         completion: resonance_events::Operation,
@@ -165,6 +167,7 @@ impl Playback {
             .data = Some(vec![0; WIDTH as usize * HEIGHT as usize * 4]);
         *self = Self {
             active: true,
+            resource: Some(resource),
             asset: Some(asset),
             decoder: Some(prepared.decoder),
             pending_events: prepared.events,
@@ -184,8 +187,8 @@ impl Playback {
             return Ok(Self::default());
         }
         let asset: MovieAsset =
-            serde_json::from_slice(&fs::read(root.join("intro.json")).context(
-                "missing opening movie; run resonance-import cook-intro or use --skip-intro",
+            serde_json::from_slice(&fs::read(root.join("movies/0.json")).context(
+                "missing opening movie; run resonance-import cook-all or use --skip-intro",
             )?)?;
         asset.validate()?;
         let path = root.join(&asset.path);
@@ -199,6 +202,7 @@ impl Playback {
         };
         Ok(Self {
             active: true,
+            resource: Some(0),
             asset: Some(asset),
             decoder,
             captured,
@@ -489,6 +493,18 @@ fn advance(
 }
 
 impl Playback {
+    pub(super) fn wait_for_audio(&self, frames: u64) -> Result<()> {
+        if self.is_presenting() {
+            // The offline mixer pulls exactly these native stereo frames;
+            // source attachment rejects other rates, so no resampler lookahead.
+            self.stream
+                .as_ref()
+                .context("presenting movie has no decoder stream")?
+                .wait_for_audio(frames, Duration::from_secs(30))?;
+        }
+        Ok(())
+    }
+
     /// Authored subtitle cues retain their original frame numbers, but advance
     /// from media time even when the renderer is holding an older video frame.
     pub(super) fn timeline_frame(&self, position: Option<Duration>) -> Option<u32> {

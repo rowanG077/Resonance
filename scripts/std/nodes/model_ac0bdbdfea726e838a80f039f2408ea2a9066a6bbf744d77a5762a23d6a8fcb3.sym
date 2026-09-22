@@ -1,0 +1,21 @@
+script library;
+// Skeleton: ac0bdbdfea726e838a80f039f2408ea2a9066a6bbf744d77a5762a23d6a8fcb3
+pub const Node000_Group05: string = "Group05";
+pub const Node001_D_Shadow: string = "d_shadow";
+pub const Node002_D_Shadow01: string = "d_shadow01";
+pub const Node003_D023_Ll: string = "d023_ll";
+pub const Node004_L02: string = "L02";
+pub const Node005_L01: string = "L01";
+pub const Node006_L05: string = "L05";
+pub const Node007_L04: string = "L04";
+pub const Node008_L03: string = "L03";
+pub const Node009_L07: string = "L07";
+pub const Node010_L06: string = "L06";
+pub const Node011_L14: string = "L14";
+pub const Node012_L15: string = "L15";
+pub const Node013_L09: string = "L09";
+pub const Node014_L08: string = "L08";
+pub const Node015_L10: string = "L10";
+pub const Node016_L11: string = "L11";
+pub const Node017_L13: string = "L13";
+pub const Node018_L12: string = "L12";

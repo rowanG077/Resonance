@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 574c4c809a292452bb67938f69265003aa5a3e97e7728e3308e216c8077e0a0d
+pub const Node000_Alpha_A: string = "alpha_a";
+pub const Node001_Door_Shadow_A: string = "door_shadow_a";
+pub const Node002_Hikarigoke_A: string = "hikarigoke_a";
+pub const Node003_Kirakira: string = "kirakira";
+pub const Node004_Gl04: string = "gl04";
+pub const Node005_Gl03: string = "gl03";
+pub const Node006_Gl02: string = "gl02";
+pub const Node007_Spark: string = "spark";

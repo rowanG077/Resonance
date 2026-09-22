@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 2fba3ece128d85953cbeb9a3d08cafc16ea5344f18e912302432875d28412cef
+pub const Node000_Hontai: string = "hontai";
+pub const Node001_Kuro: string = "kuro";

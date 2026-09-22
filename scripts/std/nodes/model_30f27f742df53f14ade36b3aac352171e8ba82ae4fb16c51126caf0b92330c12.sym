@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 30f27f742df53f14ade36b3aac352171e8ba82ae4fb16c51126caf0b92330c12
+pub const Node000_Five: string = "five";

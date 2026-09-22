@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 83bc8518ad8875086e27e5eaed89f7b3886be534b20904d4d674ef36aaea806b
+pub const Node000_Jump06: string = "jump06";

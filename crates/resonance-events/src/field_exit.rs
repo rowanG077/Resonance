@@ -55,8 +55,9 @@ impl GameWorld {
             let resource = DOOR_MOTION_RESOURCE_BASE + actor.resource;
             let slot = if door.pull { 24 } else { 20 };
             if resources
-                .model(resource)
-                .and_then(|m| m.clips.get(&slot))
+                .animations
+                .get(&resource)
+                .and_then(|clips| clips.get(&slot))
                 .is_none()
             {
                 return Err(format!(
@@ -132,8 +133,9 @@ impl GameWorld {
             Phase::StartAnimation => {
                 let resource = DOOR_MOTION_RESOURCE_BASE + actor.resource;
                 let slot = if exit.door.pull { 24 } else { 20 };
-                let clip = &resources.models[&resource].clips[&slot];
+                let clip = &resources.animations[&resource][&slot];
                 let mut animation = Animation::new(resource, slot, clip.duration_ticks, self.tick);
+                animation.source = crate::animation::AnimationSource::Resource;
                 animation.blend_ticks = 1;
                 animation.repeat = false;
                 actor.animation = Some(animation);
@@ -168,7 +170,7 @@ impl GameWorld {
                 scenery.appearance.bone_adjustments.insert(
                     HINGE_ADJUSTMENT,
                     BoneAdjustment {
-                        bone: exit.door.bone.clone(),
+                        bone: crate::BoneTarget::Index(exit.door.bone),
                         angles: [0., 0., angle],
                         from: [0., 0., angle],
                         duration_ticks: 1,

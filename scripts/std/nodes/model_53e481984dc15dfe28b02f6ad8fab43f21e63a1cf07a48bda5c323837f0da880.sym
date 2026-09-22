@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 53e481984dc15dfe28b02f6ad8fab43f21e63a1cf07a48bda5c323837f0da880
+pub const Node000_Mado_Light_Front: string = "mado_light_front";
+pub const Node001_Light01: string = "light01";
+pub const Node002_Light02: string = "light02";
+pub const Node003_Light03: string = "light03";

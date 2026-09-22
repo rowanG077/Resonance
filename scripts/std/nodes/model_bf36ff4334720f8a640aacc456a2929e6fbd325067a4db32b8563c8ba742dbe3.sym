@@ -1,0 +1,9 @@
+script library;
+// Skeleton: bf36ff4334720f8a640aacc456a2929e6fbd325067a4db32b8563c8ba742dbe3
+pub const Node000_Bg: string = "bg";
+pub const Node001_Tube22: string = "Tube22";
+pub const Node002_Tube23: string = "Tube23";
+pub const Node003_Box132: string = "Box132";
+pub const Node004_Jimen: string = "jimen";
+pub const Node005_Obj00: string = "obj00";
+pub const Node006_Asc01: string = "asc01";

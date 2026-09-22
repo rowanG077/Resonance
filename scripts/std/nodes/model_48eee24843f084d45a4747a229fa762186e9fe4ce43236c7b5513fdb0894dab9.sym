@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 48eee24843f084d45a4747a229fa762186e9fe4ce43236c7b5513fdb0894dab9
+pub const Node000_Lloyd: string = "lloyd";

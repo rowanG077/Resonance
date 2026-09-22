@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 7f89eb8f298cc2bb54c53d34f4494bc381cc7b70fa000ba6553b5a6a84b9b35a
+pub const Node000_Doom: string = "doom";
+pub const Node001_Pane: string = "pane";
+pub const Node002_Q01: string = "q01";
+pub const Node003_Doom01: string = "doom01";
+pub const Node004_Doom02: string = "doom02";
+pub const Node005_Doom03: string = "doom03";
+pub const Node006_Cylinder04: string = "Cylinder04";
+pub const Node007_Cylinder28: string = "Cylinder28";

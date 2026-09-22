@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 2c0cacc7d3953c9911c442aa2a09f9385c488555b1d9cdbefc9e8e33082ee54c
+pub const Node000_Gpl_Node_000: string = "gpl_node_000";

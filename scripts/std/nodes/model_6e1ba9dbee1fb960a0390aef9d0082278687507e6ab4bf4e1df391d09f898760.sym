@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 6e1ba9dbee1fb960a0390aef9d0082278687507e6ab4bf4e1df391d09f898760
+pub const Node000_Water_Yuumasi: string = "water_yuumasi";

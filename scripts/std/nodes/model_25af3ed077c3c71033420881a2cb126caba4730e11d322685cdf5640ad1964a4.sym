@@ -1,0 +1,13 @@
+script library;
+// Skeleton: 25af3ed077c3c71033420881a2cb126caba4730e11d322685cdf5640ad1964a4
+pub const Node000_House: string = "house";
+pub const Node001_HousePole08: string = "house-pole-08";
+pub const Node002_Gear01: string = "gear01";
+pub const Node003_Gear02: string = "gear02";
+pub const Node004_Furiko01: string = "furiko01";
+pub const Node005_Gear05: string = "gear05";
+pub const Node006_Gear04: string = "gear04";
+pub const Node007_Gear06: string = "gear06";
+pub const Node008_Kakuhan02: string = "kakuhan02";
+pub const Node009_Gear03: string = "gear03";
+pub const Node010_Room_Kage: string = "room_kage";

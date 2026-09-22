@@ -1,0 +1,10 @@
+script library;
+// Skeleton: 42fa47d22f6d61cb19e16959051712f7a5b4aa048df917e355f4c615bb6c5448
+pub const Node000_Kuro: string = "kuro";
+pub const Node001_Hako01: string = "hako01";
+pub const Node002_D05: string = "d05";
+pub const Node003_Tuta_A: string = "tuta_A";
+pub const Node004_Tutaobj: string = "tutaobj";
+pub const Node005_Rankan: string = "rankan";
+pub const Node006_Duct_Cover: string = "duct_cover";
+pub const Node007_Fdh: string = "fdh";

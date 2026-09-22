@@ -1,0 +1,16 @@
+script library;
+// Skeleton: ea7b0d7ec3360a5bf07ef978f6343ee3a901ce2d9607f1b9f84b7ce4be69b736
+pub const Node000_I01yuka: string = "i01yuka";
+pub const Node001_Plate01: string = "plate01";
+pub const Node002_Plate02: string = "plate02";
+pub const Node003_Piller: string = "piller";
+pub const Node004_Wall: string = "wall";
+pub const Node005_GateB: string = "gateB";
+pub const Node006_Plate11: string = "plate11";
+pub const Node007_Plate14: string = "plate14";
+pub const Node008_Plate21: string = "plate21";
+pub const Node009_Plate22: string = "plate22";
+pub const Node010_Plate23: string = "plate23";
+pub const Node011_Plate24: string = "plate24";
+pub const Node012_Right_Door01: string = "Right_door01";
+pub const Node013_Left_Door01: string = "left_door01";

@@ -11,7 +11,7 @@ pub fn prepare_checkpoint_fixture(
     let mut cache = loading::Cache::default();
     let package = new_game::FieldPackage::prepare(root, checkpoint.map_id, &mut cache, || false)?;
     let session =
-        new_game::Session::load_prepared(root, package.files, Some(checkpoint), &mut cache.audio)?;
+        new_game::Session::load_prepared(root, package.files, Some(checkpoint), &mut cache)?;
     let state = session.field.checkpoint()?;
     let header = Header {
         identity: session.identity,

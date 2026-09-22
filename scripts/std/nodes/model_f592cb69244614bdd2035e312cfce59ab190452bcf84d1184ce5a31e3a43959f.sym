@@ -1,0 +1,4 @@
+script library;
+// Skeleton: f592cb69244614bdd2035e312cfce59ab190452bcf84d1184ce5a31e3a43959f
+pub const Node000_Box03: string = "Box03";
+pub const Node001_Door: string = "door";

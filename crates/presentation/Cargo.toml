@@ -4,12 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [dependencies]
+resonance-model-behavior.workspace = true
 resonance-playback.workspace = true
 resonance-audio-device.workspace = true
 bevy.workspace = true
 resonance-content.workspace = true
 resonance-game.workspace = true
 symphonia-script.workspace = true
+symphonia-script-tools.workspace = true
 resonance-persistence.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true

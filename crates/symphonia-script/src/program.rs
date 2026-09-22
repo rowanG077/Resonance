@@ -30,6 +30,20 @@ pub enum Op {
     BranchFalse(u32),
     Native(u8),
     End,
+    LoadLocal(u16),
+    StoreLocal(u16),
+    LoadLocalIndexed { base: u16, len: u16 },
+    StoreLocalIndexed { base: u16, len: u16 },
+    Pop,
+    ArgumentValue,
+    BranchFalseStack(u32),
+    CallFunction(u16),
+    SpawnFunction(u16),
+    JoinTask { results: u16 },
+    ReturnValues(u16),
+    Unary(crate::authored::UnaryOp),
+    Binary(crate::authored::BinaryOp),
+    Convert(crate::authored::Conversion),
 }
 
 /// Immutable, validated code shared by all instances of an event resource.
@@ -39,6 +53,7 @@ pub struct Program {
     events: BTreeMap<(u32, u32), u32>,
     code: BTreeMap<u32, (Op, u32)>,
     auxiliary: Vec<u8>,
+    authored: Option<crate::authored::Module>,
 }
 
 #[derive(Debug, Error)]
@@ -138,7 +153,116 @@ impl Program {
             } else {
                 bytes[header.auxiliary_offset()..].to_vec()
             },
+            authored: None,
         })
+    }
+
+    /// PCs in authored modules are instruction indices, independent of legacy bytes.
+    pub fn from_authored(module: crate::authored::Module) -> Result<Self, ProgramError> {
+        let invalid = |message: &str| ProgramError::Invalid(message.into());
+        if module.functions.is_empty() && !module.code.is_empty() {
+            return Err(invalid(
+                "authored module has instructions without functions",
+            ));
+        }
+        let entry = module.functions.first().map_or(0, |first| first.entry);
+        if module.strings.len() > i32::MAX as usize
+            || module
+                .strings
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != module.strings.len()
+        {
+            return Err(invalid(
+                "authored strings must have unique, representable indices",
+            ));
+        }
+        let valid_pc = |pc: u32| (pc as usize) < module.code.len();
+        let mut entries = std::collections::BTreeSet::new();
+        let mut names = std::collections::BTreeSet::new();
+        for function in &module.functions {
+            function
+                .parameter_layout
+                .validate()
+                .map_err(ProgramError::Invalid)?;
+            if !valid_pc(function.entry)
+                || function.parameters > function.locals
+                || function.parameter_layout.slots() != Some(usize::from(function.parameters))
+                || usize::from(function.locals) > crate::authored::LOCAL_SLOT_LIMIT
+                || usize::from(function.results) > crate::authored::VALUE_SLOT_LIMIT
+                || function.parameters > 64
+                || !entries.insert(function.entry)
+                || !names.insert(&function.name)
+            {
+                return Err(invalid(
+                    "invalid, duplicate, or oversized authored function",
+                ));
+            }
+        }
+        crate::authored::validate_natives(&module.natives).map_err(ProgramError::Invalid)?;
+        let natives: std::collections::BTreeSet<_> =
+            module.natives.iter().map(|native| native.opcode).collect();
+        for (&index, template) in &module.templates {
+            use crate::authored::{MAX_MESSAGE_ARGUMENTS, MessagePart, Type};
+            let mut parameters = std::collections::BTreeSet::new();
+            if index as usize >= module.texts.len()
+                || template.parameters.len() > MAX_MESSAGE_ARGUMENTS
+                || template.parameters.iter().any(|parameter| {
+                    !matches!(parameter.ty, Type::I32 | Type::TextReference { .. })
+                        || !parameters.insert(&parameter.name)
+                })
+                || template.parts.iter().any(|part| matches!(part, MessagePart::Argument(index) if usize::from(*index) >= template.parameters.len()))
+            {
+                return Err(invalid("invalid authored message template"));
+            }
+        }
+        for (pc, op) in module.code.iter().enumerate() {
+            match *op {
+                Op::Jump(target) | Op::BranchFalseStack(target) if !valid_pc(target) => {
+                    return Err(invalid("authored jump targets missing instruction"));
+                }
+                Op::CallFunction(index) | Op::SpawnFunction(index)
+                    if usize::from(index) >= module.functions.len() =>
+                {
+                    return Err(invalid("authored call targets missing function"));
+                }
+                Op::SpawnFunction(index) if !module.functions[usize::from(index)].is_task => {
+                    return Err(invalid("spawn targets a synchronous function"));
+                }
+                Op::Native(opcode) if !natives.contains(&opcode) => {
+                    return Err(invalid("authored native lacks declaration"));
+                }
+                Op::Load(..)
+                | Op::Argument
+                | Op::Calculate(_)
+                | Op::Call(_)
+                | Op::Return
+                | Op::BranchFalse(_) => {
+                    return Err(invalid("legacy instruction in authored module"));
+                }
+                _ => {}
+            }
+            if pc + 1 == module.code.len()
+                && !matches!(op, Op::End | Op::ReturnValues(_) | Op::Jump(_))
+            {
+                return Err(invalid("authored code falls past module end"));
+            }
+        }
+        if module.locations.keys().any(|pc| !valid_pc(*pc)) {
+            return Err(invalid("source location targets missing instruction"));
+        }
+        Ok(Self {
+            entry,
+            events: BTreeMap::new(),
+            code: BTreeMap::new(),
+            auxiliary: Vec::new(),
+            authored: Some(module),
+        })
+    }
+
+    pub fn authored(&self) -> Option<&crate::authored::Module> {
+        self.authored.as_ref()
     }
     pub fn entry(&self) -> u32 {
         self.entry
@@ -147,6 +271,9 @@ impl Program {
         self.events.get(&(kind, key)).copied()
     }
     pub fn instruction(&self, pc: u32) -> Option<(Op, u32)> {
+        if let Some(module) = &self.authored {
+            return module.code.get(pc as usize).copied().map(|op| (op, pc + 1));
+        }
         self.code.get(&pc).copied()
     }
     /// Strings use the resource's auxiliary offset table, not host pointers.

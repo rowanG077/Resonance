@@ -1,0 +1,9 @@
+script library;
+// Skeleton: ea56b2ceafb152f427623b991290cc61f1ef5b5b85254c8f92a7a9633d9e56e5
+pub const Node000_KabeBox01: string = "kabeBox01";
+pub const Node001_Ruin_9_17convertObj732: string = "ruin_9_17convert.obj732";
+pub const Node002_Kami00: string = "kami00";
+pub const Node003_Kami01: string = "kami01";
+pub const Node004_Kami02: string = "kami02";
+pub const Node005_Kami03: string = "kami03";
+pub const Node006_Kami04: string = "kami04";

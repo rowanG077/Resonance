@@ -97,6 +97,7 @@
               ./rust-toolchain.toml
               ./apps
               ./crates
+              ./scripts
               ./tools/oracle
             ];
           };

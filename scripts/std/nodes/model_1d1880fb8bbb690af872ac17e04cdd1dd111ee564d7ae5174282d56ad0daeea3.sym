@@ -1,0 +1,6 @@
+script library;
+// Skeleton: 1d1880fb8bbb690af872ac17e04cdd1dd111ee564d7ae5174282d56ad0daeea3
+pub const Node000_Obj_Gen000_Buki: string = "obj_gen000_buki";
+pub const Node001_Obj_Gen000_Tama: string = "obj_gen000_tama";
+pub const Node002_Obj_Gen000_Tama_Outline: string = "obj_gen000_tama_outline";
+pub const Node003_Obj_Gen000_Buki_Outline: string = "obj_gen000_buki_outline";

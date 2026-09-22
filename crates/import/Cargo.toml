@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+resonance-model-behavior.workspace = true
+resonance-script-content.workspace = true
+symphonia-script-tools.workspace = true
+symphonia-script-compiler.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -14,20 +18,20 @@ resonance-content.workspace = true
 resonance-audio-cook.workspace = true
 resonance-audio.workspace = true
 resonance-media.workspace = true
+resonance-asset-writer.workspace = true
+matroska-demuxer = "=0.8.1"
 h4m = "=0.4.0"
 ahx-rs = "=0.1.0"
 nod = "=2.0.0-alpha.9"
 thiserror = "2"
 cab = "0.6"
-png = "0.18"
 glam = "0.32"
 symphonia-script.workspace = true
 hound = "3.5"
 encoding_rs = "0.8"
 ktx2 = "=0.5.0"
-structured-zstd = { version = "=0.0.54", default-features = false, features = ["kernel-scalar"] }
+ruzstd = "=0.8.3"
 
 [dev-dependencies]
-ruzstd = "=0.8.3"
 bevy_image = { version = "=0.19.1", default-features = false, features = ["ktx2", "zstd_rust"] }
 tempfile = "3"

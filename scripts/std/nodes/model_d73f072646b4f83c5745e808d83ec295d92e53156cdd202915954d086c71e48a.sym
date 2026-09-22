@@ -1,0 +1,18 @@
+script library;
+// Skeleton: d73f072646b4f83c5745e808d83ec295d92e53156cdd202915954d086c71e48a
+pub const Node000_D02_Obj_Off: string = "d02_obj_off";
+pub const Node001_Nabi_01_Off: string = "nabi_01_off";
+pub const Node002_Nabi_02_Off: string = "nabi_02_off";
+pub const Node003_Nabi_00_Off: string = "nabi_00_off";
+pub const Node004_D02_11_Off: string = "d02_11_off";
+pub const Node005_D02_00_Off: string = "d02_00_off";
+pub const Node006_D02_01_Off: string = "d02_01_off";
+pub const Node007_D02_02_Off: string = "d02_02_off";
+pub const Node008_D02_03_Off: string = "d02_03_off";
+pub const Node009_D02_04_Off: string = "d02_04_off";
+pub const Node010_D02_05_Off: string = "d02_05_off";
+pub const Node011_D02_06_Off: string = "d02_06_off";
+pub const Node012_D02_07_Off: string = "d02_07_off";
+pub const Node013_D02_08_Off: string = "d02_08_off";
+pub const Node014_D02_09_Off: string = "d02_09_off";
+pub const Node015_D02_10_Off: string = "d02_10_off";

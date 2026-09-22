@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 2d44e7bbd8922e01bce001bcaeca9cde4e4946fc68b3f1b608d9a3ce8a0491fb
+pub const Node000_Number0002: string = "0002";
+pub const Node001_Number0001: string = "0001";
+pub const Node002_Number0003: string = "0003";
+pub const Node003_Number0003_B1: string = "0003_b1";
+pub const Node004_Number0002_1: string = "0002_1";
+pub const Node005_Number0002_2: string = "0002_2";
+pub const Node006_Number0002_3: string = "0002_3";
+pub const Node007_Number0002_Rotar: string = "0002_rotar";
+pub const Node008_X_0002_4: string = "x_0002_4";

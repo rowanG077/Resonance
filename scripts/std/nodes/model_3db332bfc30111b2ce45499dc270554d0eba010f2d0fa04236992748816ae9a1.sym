@@ -1,0 +1,18 @@
+script library;
+// Skeleton: 3db332bfc30111b2ce45499dc270554d0eba010f2d0fa04236992748816ae9a1
+pub const Node000_B: string = "B";
+pub const Node001_Moa_D00_Rev: string = "moa_d00_rev";
+pub const Node002_Moa_D00_Rift: string = "moa_d00_rift";
+pub const Node003_Moa_D00_Rel: string = "moa_d00_rel";
+pub const Node004_Bg01: string = "bg01";
+pub const Node005_Obj01: string = "obj01";
+pub const Node006_Bg00: string = "bg00";
+pub const Node007_Bg02: string = "bg02";
+pub const Node008_Moa_D00_Erv: string = "moa_d00_erv";
+pub const Node009_Moa_D00_DoorL: string = "moa_d00_doorL";
+pub const Node010_Moa_D00_DoorR: string = "moa_d00_doorR";
+pub const Node011_Obj00: string = "obj00";
+pub const Node012_Dodai: string = "dodai";
+pub const Node013_Hyousiki: string = "hyousiki";
+pub const Node014_Ring_01: string = "ring_01";
+pub const Node015_Ring_Renz: string = "ring_renz";

@@ -1,0 +1,11 @@
+script library;
+// Skeleton: 74719403afaef6f97c8791342332b3172c7bb16d07737470025afad3ae188d10
+pub const Node000_Tt_Tree125: string = "tt_Tree125";
+pub const Node001_Tt_Tree120: string = "tt_Tree120";
+pub const Node002_Tt_Tree115: string = "tt_Tree115";
+pub const Node003_Tt_Tree110: string = "tt_Tree110";
+pub const Node004_Tt_Tree105: string = "tt_Tree105";
+pub const Node005_Tt_Door_TraNs200: string = "tt_door_Tra ns200";
+pub const Node006_Tt_Mesh100: string = "tt_mesh100";
+pub const Node007_Tt_Glass180: string = "tt_Glass180";
+pub const Node008_Tt_Glass190: string = "tt_Glass190";

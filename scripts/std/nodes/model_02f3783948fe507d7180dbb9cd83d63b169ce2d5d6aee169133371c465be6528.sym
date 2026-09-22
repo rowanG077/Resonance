@@ -1,0 +1,28 @@
+script library;
+// Skeleton: 02f3783948fe507d7180dbb9cd83d63b169ce2d5d6aee169133371c465be6528
+pub const Node000_Slanting_WallA_02: string = "Slanting_wallA_02";
+pub const Node001_Slanting_WallA_03: string = "Slanting_wallA_03";
+pub const Node002_Slanting_WallA_04: string = "Slanting_wallA_04";
+pub const Node003_Wall: string = "wall";
+pub const Node004_Piller: string = "piller";
+pub const Node005_CoverB: string = "coverB";
+pub const Node006_Plate21: string = "plate21";
+pub const Node007_Plate22: string = "plate22";
+pub const Node008_Plate: string = "plate";
+pub const Node009_Plate01: string = "plate01";
+pub const Node010_Plate02: string = "plate02";
+pub const Node011_Plate03: string = "plate03";
+pub const Node012_Plate04: string = "plate04";
+pub const Node013_Plate08: string = "plate08";
+pub const Node014_Plate09: string = "plate09";
+pub const Node015_Plate10: string = "plate10";
+pub const Node016_Plate11: string = "plate11";
+pub const Node017_Stairs3: string = "stairs3";
+pub const Node018_Left_Door02: string = "left_door02";
+pub const Node019_Right_Door02: string = "Right_door02";
+pub const Node020_Left_Door01: string = "left_door01";
+pub const Node021_Right_Door01: string = "Right_door01";
+pub const Node022_CoverB01: string = "coverB01";
+pub const Node023_CoverB02: string = "coverB02";
+pub const Node024_Right_Door03: string = "Right_door03";
+pub const Node025_Left_Door03: string = "left_door03";

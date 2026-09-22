@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 81acff845c6c01f3b5c1f267922593debf51cecacabc84d87bbbd2c18f186892
+pub const Node000_Wil_D03_Waku01: string = "wil_d03_waku01";

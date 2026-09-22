@@ -1,0 +1,4 @@
+script library;
+// Skeleton: 689cc57ea791f21791f926c5aa823dc38384dec92919b66328e03683415183e7
+pub const Node000_Gyp: string = "gyp";
+pub const Node001_Gyp_Obj: string = "gyp_obj";

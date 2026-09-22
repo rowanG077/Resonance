@@ -1,0 +1,26 @@
+script library;
+// Skeleton: 285492d5effeb736bff8ef4014e0bd72f621b4a12048ff223965b4aaad348d5e
+pub const Node000_Wall: string = "wall";
+pub const Node001_Minka: string = "minka";
+pub const Node002_Doctor: string = "Doctor";
+pub const Node003_DOOR02: string = "DOOR02";
+pub const Node004_DOOR03: string = "DOOR03";
+pub const Node005_Kyoukai: string = "kyoukai";
+pub const Node006_Light_Paul: string = "Light_paul";
+pub const Node007_Parts_All: string = "parts_all";
+pub const Node008_Kabe: string = "kabe";
+pub const Node009_Flag02: string = "flag02";
+pub const Node010_Flag03: string = "flag03";
+pub const Node011_Flag04: string = "flag04";
+pub const Node012_Flag01: string = "flag01";
+pub const Node013_Flag05: string = "flag05";
+pub const Node014_Flag06: string = "flag06";
+pub const Node015_DOOR01_AUTO_S_PUSH_W175e861: string = "DOOR01_AUTO_S_PUSH_W175e861";
+pub const Node016_Jimen: string = "jimen";
+pub const Node017_Yane: string = "yane";
+pub const Node018_Cylinder01: string = "Cylinder01";
+pub const Node019_Lump_Trns: string = "lump_trns";
+pub const Node020_Object01: string = "ｵﾌﾞｼﾞｪｸﾄ01";
+pub const Node021_Object02: string = "ｵﾌﾞｼﾞｪｸﾄ02";
+pub const Node022_Object03: string = "ｵﾌﾞｼﾞｪｸﾄ03";
+pub const Node023_In_Kyou: string = "in_kyou";

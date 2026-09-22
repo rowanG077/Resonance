@@ -70,6 +70,86 @@ fn model(slots: impl IntoIterator<Item = u16>, duration_ticks: u32) -> ModelReso
 }
 
 #[test]
+fn sparse_attachments_emit_each_tick_with_affine_parents_fractional_rate_and_pose_delay() {
+    use resonance_content::animation::{Bone, Motion, Skeleton, Transform, TransformChannels};
+    let skeleton = Arc::new(Skeleton {
+        bones: [("parent", None), ("attachment", Some(0))]
+            .into_iter()
+            .map(|(name, parent)| Bone {
+                name: name.into(),
+                parent,
+                bind_channels: TransformChannels(0),
+                bind: Transform::default(),
+            })
+            .collect(),
+    });
+    let motion: Motion = serde_json::from_value(serde_json::json!({
+        "duration_frames":2., "tracks":[
+            {"bone":0,"bind_channels":0,"period_frames":2.,"times":[0.],
+             "matrices":[[2.,0.5,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.]]},
+            {"bone":1,"bind_channels":0,"period_frames":2.,"times":[0.,2.],
+             "translation":{"interpolation":"linear","values":[[0.,1.,3.],[8.,1.,3.]]}}
+        ]
+    }))
+    .unwrap();
+    let motion = Arc::new(Motion::decode(&motion.encode().unwrap()).unwrap());
+    let mut model = model([12], 4);
+    model.names = vec!["parent".into(), "attachment".into()];
+    model.attachment_pose_delay = 1;
+    model.clips.get_mut(&12).unwrap().attachments =
+        Some(AttachmentPose::new(skeleton, motion).unwrap());
+    let resources = ResourceLibrary {
+        models: [(1, model)].into(),
+        particles: [(10, ParticleKind::Glow)].into(),
+        ..Default::default()
+    };
+    let mut actor = Actor::new(1, [1.9, -1.9, 0.]);
+    let mut animation = Animation::new(1, 12, 4, 0);
+    animation.rate = 0.5;
+    actor.animation = Some(animation);
+    actor.scripted_animation = true;
+    let mut world = GameWorld::default();
+    world.actors.insert(1, actor);
+    let mut code = Vec::new();
+    for _ in 0..5 {
+        native(&mut code, Call::ReadActorAttachment, &[1, 1]);
+        for value in [10, 20] {
+            arg(&mut code, value);
+        }
+        for axis in 0..3 {
+            native(&mut code, Call::ReadCoordinateRegister, &[axis]);
+            code.extend([0x3000, 0x4000]);
+        }
+        for value in [0, 0, 0, 25, 255, 0, 0, 0] {
+            arg(&mut code, value);
+        }
+        code.extend([0x2000 | Call::CreateParticle as u16, 0x3000]);
+        native(&mut code, Call::YieldCommand, &[0, 1]);
+    }
+    code.push(0x20ff);
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    // Startup and catch-up run the VM independently of rendered frames.
+    for _ in 0..4 {
+        events.step().unwrap();
+    }
+    assert_eq!(
+        events
+            .world
+            .particles
+            .iter()
+            .map(|p| (p.born, p.position))
+            .collect::<Vec<_>>(),
+        [
+            (0, [2., 0., 3.]),
+            (1, [2., 0., 3.]),
+            (2, [4., 0., 3.]),
+            (3, [6., 0., 3.]),
+            (4, [8., 0., 3.])
+        ]
+    );
+}
+
+#[test]
 fn explicit_party_selection_recreates_the_actor_but_alias_and_query_preserve_it() {
     for selection in [-1, CONTROLLED_ACTOR, 1, 10] {
         let mut resources = ResourceLibrary::default();
@@ -186,11 +266,12 @@ fn ambient_origin_accepts_an_uninitialized_idle_pose_before_action_selection() {
 fn ambient_origin_preserves_the_existing_scripted_clip_binding() {
     let mut resources = ResourceLibrary::default();
     resources.models.insert(2, model([12], 20));
-    resources.models.insert(0x4002f, model([12], 64));
+    resources.animations.insert(0x4002f, model([12], 64).clips);
     let mut actor = Actor::new(2, [-73., -134., 0.]);
     actor.autonomy = Some(Autonomy::new(Behavior::Stationary, 0., actor.position));
     actor.scripted_animation = true;
     actor.animation = Some(Animation {
+        source: animation::AnimationSource::Resource,
         repeat: false,
         ..Animation::new(0x4002f, 12, 64, 0)
     });
@@ -209,6 +290,7 @@ fn ambient_origin_preserves_the_existing_scripted_clip_binding() {
     events.apply_actor_origin(2, &origin).unwrap();
     let animation = events.world.actors[&2].animation.as_ref().unwrap();
     assert_eq!(animation.resource, 0x4002f);
+    assert_eq!(animation.source, animation::AnimationSource::Resource);
     assert_eq!(animation.sample(0, 0, 64.), 64.);
     origin.animation_slot = Some(36);
     assert!(events.apply_actor_origin(2, &origin).is_err());
@@ -853,11 +935,18 @@ fn observed_resource_waits_only_suspend_the_requesting_script() {
     native(&mut main, Call::SetEventBit, &[43]);
     main.push(0x20ff);
     let child = script(&[(Call::YieldCommand, &[0, 3]), (Call::SetEventBit, &[42])]);
-    for pc in [None, Some(wait_pc), Some(wrong_pc)] {
+    for (kind, pc) in [ResourceKind::Model, ResourceKind::Animation]
+        .into_iter()
+        .flat_map(|kind| [None, Some(wait_pc), Some(wrong_pc)].map(|pc| (kind, pc)))
+    {
         let mut resources = ResourceLibrary::default();
-        resources
-            .bindings
-            .insert(resource, (ResourceKind::Model, 1));
+        if kind == ResourceKind::Animation {
+            resources
+                .animations
+                .insert(resource as u32, Default::default());
+        } else {
+            resources.bindings.insert(resource, (kind, 1));
+        }
         let mut world = GameWorld::default();
         world.input_enabled = true;
         world.controlled_actor = 1;
@@ -1216,6 +1305,83 @@ fn event_control_selects_the_leaders_idle_without_overriding_other_actors() {
         events.step().unwrap();
         assert_eq!(events.world.actors[&3].animation.as_ref().unwrap().slot, 12);
     }
+}
+
+#[test]
+fn loaded_motion_and_party_model_keep_their_own_resource_namespaces() {
+    use animation::AnimationSource;
+    let mut resources = ResourceLibrary::default();
+    resources.models.insert(8, model([12], 20));
+    resources.bindings.insert(8, (ResourceKind::Model, 8));
+    resources.animations.insert(8, model([12], 60).clips);
+    let code = script(&[
+        (Call::ResolveScriptResource, &[8]),
+        (Call::ConfigureActorAnimation, &[80, 8, 12, 0, 8]),
+        (
+            Call::ConfigureActorAnimation,
+            &[81, 0xffff0000_u32 as i32, 12, 0, 8],
+        ),
+    ]);
+    let mut world = GameWorld::default();
+    for id in [80, 81] {
+        world.actors.insert(id, Actor::new(8, [0.; 3]));
+    }
+    let events = runtime(program(&code, &[0x20ff]), resources, world);
+    for (id, source, duration) in [
+        (80, AnimationSource::Model, 20),
+        (81, AnimationSource::Resource, 60),
+    ] {
+        let animation = events.world.actors[&id].animation.as_ref().unwrap();
+        assert_eq!((animation.resource, animation.source), (8, source));
+        assert_eq!(animation.duration_ticks, duration);
+    }
+}
+
+#[test]
+fn caller_palette_geometry_rejects_actor_instantiation_through_direct_and_loaded_handles() {
+    let resource = 0xffee0000_u32;
+    for handle in [resource as i32, 0xffff0000_u32 as i32] {
+        let mut resources = ResourceLibrary::default();
+        resources
+            .bindings
+            .insert(resource as i32, (ResourceKind::UnboundGeometry, resource));
+        let code = script(&[
+            (Call::ResolveScriptResource, &[resource as i32]),
+            (Call::SpawnActor, &[80, 0, 0, 0, 0, handle, 0, 0]),
+        ]);
+        let error = match EventRuntime::new(program(&code, &[0x20ff]), Arc::new(resources)) {
+            Ok(_) => panic!("geometry instantiated without its caller's palette"),
+            Err(error) => error,
+        };
+        assert!(format!("{error:#}").contains("requires caller-supplied textures"));
+    }
+}
+
+#[test]
+fn repeated_native_animation_bindings_remain_observable_after_replacing_the_clip() {
+    let mut code = Vec::new();
+    native(&mut code, Call::YieldCommand, &[0, 1]);
+    native(&mut code, Call::ConfigureActorAnimation, &[2, -1, 12, 8, 8]);
+    native(&mut code, Call::ConfigureActorAnimation, &[2, 0, 0, 0, 0]);
+    native(&mut code, Call::ConfigureActorAnimation, &[2, -1, 12, 8, 8]);
+    native(&mut code, Call::YieldCommand, &[0, 1]);
+    native(&mut code, Call::ConfigureActorAnimation, &[2, -1, 12, 8, 8]);
+    code.push(0x20ff);
+    let mut resources = ResourceLibrary::default();
+    resources.models.insert(2, model([12], 32));
+    let mut world = GameWorld::default();
+    world.actors.insert(2, Actor::new(2, [0.; 3]));
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    events.step().unwrap();
+    assert_eq!(
+        events.world.actors[&2].animation_bindings,
+        (events.tick(), 2)
+    );
+    events.step().unwrap();
+    assert_eq!(
+        events.world.actors[&2].animation_bindings,
+        (events.tick(), 1)
+    );
 }
 
 #[test]
@@ -2009,7 +2175,7 @@ fn door_exit_owns_control_and_finishes_its_pose_sound_and_hinge_before_handoff()
     let mut resources = ResourceLibrary {
         fields: [340].into(),
         doors: vec![Door {
-            bone: "hinge".into(),
+            bone: 0,
             position: [0.; 3],
             approach: [12., 0., 0.],
             heading: 90.,
@@ -2019,8 +2185,8 @@ fn door_exit_owns_control_and_finishes_its_pose_sound_and_hinge_before_handoff()
         ..Default::default()
     };
     resources
-        .models
-        .insert(DOOR_MOTION_RESOURCE_BASE + 1, model([20], 56));
+        .animations
+        .insert(DOOR_MOTION_RESOURCE_BASE + 1, model([20], 56).clips);
     resources.models.insert(
         1,
         model([slot::IDLE, slot::EVENT_IDLE, slot::EVENT_WALK], 60),
@@ -2095,6 +2261,7 @@ fn door_exit_owns_control_and_finishes_its_pose_sound_and_hinge_before_handoff()
             );
             let hinge = &events.world.actors[&999_996].appearance.bone_adjustments[&255];
             assert_eq!(hinge.angles, [0., 0., -30.]);
+            assert!(matches!(hinge.bone, resonance_events::BoneTarget::Index(0)));
             let operation = request.operation.clone();
             events.cancel();
             assert_eq!(operation.progress().outcome, Some(Outcome::Cancelled));
@@ -2246,4 +2413,122 @@ fn dialogue_names_use_cooked_companion_names_and_saved_renames_but_reject_unknow
         error.contains("message character name 11 is not cooked"),
         "{error}"
     );
+}
+
+#[test]
+fn sprite_overlay_handles_and_properties_preserve_independent_draw_state() {
+    let mut code = Vec::new();
+    let id = 77;
+    let handle = 0xffff0000u32 as i32;
+    native(&mut code, Call::ResolveScriptResource, &[38]);
+    native(
+        &mut code,
+        Call::CreateOverlay,
+        &[id, handle, 320, 240, -1, 72, 30, 255, 128, 0, 200, 0, 12],
+    );
+    native(&mut code, Call::ReleaseScriptResource, &[handle]);
+    for (slot, (call, args)) in [
+        (Call::GetActorProperty, &[id, 62][..]),
+        (Call::SetActorProperty, &[id, 62, 258][..]),
+        (Call::GetActorProperty, &[id, 62][..]),
+        (Call::SetActorProperty, &[id, 30, 150][..]),
+        (Call::SetActorProperty, &[id, 31, -50][..]),
+        (Call::SetActorProperty, &[id, 32, 200][..]),
+        (Call::SetActorProperty, &[id, 37, -45][..]),
+        (Call::SetActorProperty, &[id, 42, 300][..]),
+        (Call::SetActorProperty, &[id, 43, -1][..]),
+        (Call::SetActorProperty, &[id, 44, 64][..]),
+        (Call::SetActorProperty, &[id, 8, 0][..]),
+        (Call::SetActorProperty, &[id, 4, 180][..]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        native(&mut code, call, args);
+        code.extend([
+            0x3000,
+            0x1200,
+            0x100 + slot as u16 * 4,
+            0x1200,
+            0x20,
+            0x3010,
+            0x3000,
+        ]);
+    }
+    native(&mut code, Call::YieldCommand, &[0, 2]);
+    native(&mut code, Call::DespawnActor, &[id]);
+    code.push(0x20ff);
+    let mut resources = ResourceLibrary::default();
+    resources.bindings.insert(38, (ResourceKind::Overlay, 900));
+    let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
+    for (slot, previous) in [0, 0, 2, 100, 100, 100, 30, 255, 128, 0, 0, -45]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            events
+                .memory()
+                .read(0x100 + slot as u16 * 4, Width::S32)
+                .unwrap(),
+            previous
+        );
+    }
+    let overlay = &events.world.overlays[&id];
+    let OverlayKind::Sprite(sprite) = &overlay.kind else {
+        panic!()
+    };
+    assert_eq!(
+        (sprite.image, sprite.depth, sprite.scale),
+        (2, 12, [1.5, -0.5, 2.])
+    );
+    assert_eq!(overlay.rgba, [44, 255, 64, 0]);
+    assert_eq!(overlay.size, [-1, 72]);
+    assert_eq!(events.world.actors[&id].resource, 900);
+    events.step().unwrap();
+    let actor = &events.world.actors[&id];
+    assert_eq!((actor.heading, actor.target_heading), (-45., 180.));
+    assert!(actor.visible);
+    assert_eq!(events.world.overlays[&id].alpha(events.world.tick), 200);
+    events.step().unwrap();
+    assert!(!events.world.overlays.contains_key(&id));
+    assert!(!events.world.actors.contains_key(&id));
+}
+
+#[test]
+fn sprite_overlay_fades_advance_on_ticks_and_stop_without_removing_the_actor() {
+    let id = 77;
+    let code = script(&[
+        (
+            Call::CreateOverlay,
+            &[id, 38, 0, 0, -1, -1, 0, 255, 255, 255, 120, 4, 0],
+        ),
+        (Call::YieldCommand, &[0, 4]),
+        (Call::SetActorProperty, &[id, 15, -40]),
+        (Call::YieldCommand, &[0, 5]),
+        (Call::SetActorProperty, &[id, 8, 60]),
+        (Call::SetActorProperty, &[id, 15, 30]),
+    ]);
+    let mut resources = ResourceLibrary::default();
+    resources.bindings.insert(38, (ResourceKind::Overlay, 900));
+    let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
+    for (tick, alpha) in [0, 0, 30, 60, 90, 120, 80, 40, 0, 0, 0, 30, 60]
+        .into_iter()
+        .enumerate()
+    {
+        if tick > 0 {
+            events.step().unwrap();
+        }
+        let overlay = &events.world.overlays[&id];
+        // Rendering repeatedly, including at a future timestamp, never advances a fade.
+        assert_eq!(overlay.alpha(events.world.tick), alpha);
+        assert_eq!(overlay.alpha(events.world.tick + 1000), alpha);
+        let OverlayKind::Sprite(sprite) = &overlay.kind else {
+            panic!()
+        };
+        if matches!(tick, 8 | 12) {
+            assert_eq!(sprite.alpha_step, 0.);
+        }
+    }
+    assert!(events.world.actors[&id].visible);
+    assert_eq!(events.world.overlays[&id].rgba[3], 60);
 }

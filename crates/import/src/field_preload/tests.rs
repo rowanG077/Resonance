@@ -87,9 +87,15 @@ fn fixture() -> Fixture {
         "shade_top":vec![0;4],"shade_bottom":vec![0;4],"selection":vec![0;4]});
     for (path, bytes) in [
         ("fields/test/events.ssb", script()),
+        (
+            "scripts/preview.sym",
+            b"script model; pub fn idle() {}".to_vec(),
+        ),
         ("fields/test/messages.json", b"[]".to_vec()),
         ("fields/test/room.glb", b"fixture mesh".to_vec()),
         ("fields/test/optional.glb", b"hidden actor mesh".to_vec()),
+        ("clips/idle.motion", b"idle curves".to_vec()),
+        ("clips/walk.motion", b"walk curves".to_vec()),
         ("textures/shared.ktx2", b"fixture texture".to_vec()),
         ("textures/refraction.ktx2", b"displacement texture".to_vec()),
     ] {
@@ -97,12 +103,13 @@ fn fixture() -> Fixture {
     }
     let hash = "0".repeat(64);
     let ui_texture = json!({"path":"textures/shared.ktx2", "width":16, "height":16});
-    let preview = json!({"scale":1.,"elevation":0.,"hidden_geometry":[],"node_scales":[],"parts":[{
+    let preview = json!({"scale":1.,"elevation":0.,"hidden_geometry":[],"behavior":null,"parts":[{
         "scene":{"resource":0,"mesh":"monsters/model.glb","textures":[],"materials":[],
             "translation":[0.,0.,0.],"clips":[],"autoplay":false,"texture_animations":[],"bone_names":[]},
         "attached_to":null,"additive":false}]});
     let mut menu_texture = ui_texture.clone();
     menu_texture["repeat"] = json!(true);
+    menu_texture["opaque"] = json!(false);
     for (path, value) in [
         (
             "ui/menu.json",
@@ -141,11 +148,11 @@ fn fixture() -> Fixture {
                     "activation_labels":(["constant","chance","battle_end","other"]).into_iter().map(|k|(k,"A")).collect::<BTreeMap<_,_>>(),
                     "labels":resonance_content::menu_data::EX_LABELS.into_iter().map(|k|(k,"A")).collect::<BTreeMap<_,_>>()},
                 "figurines":{"title":"A","records":(0..resonance_content::figurine::FIGURINE_COUNT).map(|id|json!({
-                    "version":1,"id":id,"name":"A","preview":preview})).collect::<Vec<_>>()},
+                    "version":resonance_content::figurine::FIGURINE_VERSION,"id":id,"name":"A","preview":preview})).collect::<Vec<_>>()},
                 "manual":{"title":"A","chapters":(1..=9).map(|flag|json!({"name":"A","topics":[{
                     "name":"A","learned_flag":flag,"paragraphs":[{"lines":[[{"kind":"text","text":"A","color":9}]]}]}]})).collect::<Vec<_>>()},
                 "monsters":{"records":(0..resonance_content::monster::MONSTER_COUNT).map(|id|json!({
-                    "version":1,"id":id,"name":"A","location":"A","category":"A",
+                    "version":resonance_content::monster::MONSTER_VERSION,"id":id,"name":"A","location":"A","category":"A",
                     "statistics":[{"hp":1,"tp":0,"attack":0,"defense":0,"experience":0,"gald":0}],
                     "drops":[null,null],"steal":null,"attack_element":null,"weaknesses":[],"resistances":[],
                     "preview":preview})).collect::<Vec<_>>(),
@@ -171,12 +178,12 @@ fn fixture() -> Fixture {
         ),
         (
             "effects/test.json",
-            json!({"version":3,
+            json!({"version":5,
             "sprites":{"0":{"texture":"textures/shared.ktx2","uv":[0.,0.,1.,1.],"additive":false},
                 "10":{"texture":"textures/shared.ktx2","uv":[0.,0.,1.,1.],"additive":true}},
             "refraction":{"sprite":{"texture":"textures/refraction.ktx2","uv":[0.,0.,1.,1.],"additive":false},"displacement":[1.,1.]},
             "emote_texture":"textures/shared.ktx2","status_texture":"textures/shared.ktx2",
-            "paralysis":{"anchor":"head","intro":[],"cycle":vec![vec![json!({
+            "paralysis":{"anchor":"head","missing_anchor_offset":[0.,0.,0.],"rotation":{"clock":"fixed"},"intro":[],"cycle":vec![vec![json!({
                 "offset":[0.,0.,0.],"size":[1.,1.],"uv":[0.,0.,1.,1.],"rotation":0.
             })];2]},"emotes":{},"mouth_cycle":[0]}),
         ),
@@ -185,21 +192,32 @@ fn fixture() -> Fixture {
     }
     let part = json!({"resource":0,"mesh":"fields/test/room.glb","textures":["textures/shared.ktx2"],
         "materials":[{"color":{"texture":0,"wrap_u":"repeat","wrap_v":"clamp","nearest_min":false,"nearest_mag":true},
-            "multiply":null,"blend":false,"depth_write":true,"draw_order":0}],
-        "translation":[0.,0.,0.],"clips":[{"resource_slot":12,"duration_seconds":1.},{"resource_slot":13,"duration_seconds":1.}],
+            "multiply":null,"blend":false,"depth_write":true,"vertex_color":true,"draw_order":0}],
+        "translation":[0.,0.,0.],"clips":[{"resource_slot":12,"motion":"clips/idle.motion","duration_seconds":1.},{"resource_slot":13,"motion":"clips/walk.motion","duration_seconds":1.}],
         "autoplay":false,"texture_animations":[],"bone_names":["root"]});
     let mut actor_part = part.clone();
     actor_part["mesh"] = json!("fields/test/optional.glb");
-    let field = json!({"version":7,"map_id":123,"source_sha256":hash,"doors":[],
+    let field = json!({"version":resonance_content::field::FIELD_VERSION,"map_id":123,"source_sha256":hash,"doors":[],"overlays":{},"unbound_geometry":[],"resource_catalogue":null,
         "blink":{"frames":[0],"initial_tick":0,"initial_spread":1},
         "script":{"path":"fields/test/events.ssb","sha256":files["fields/test/events.ssb"]},
         "messages":"fields/test/messages.json", "parts":[part],
-        "actors":[{"resource":700,"model_sha256":hash,"animation_sha256":hash,"parts":[actor_part],"hidden_nodes":[0]}],
+        "actors":[{"resource":700,"parts":[actor_part],"hidden_nodes":[0]}],
         "ground":[{"surface":0,"vertices":[[0.,0.,0.],[1.,0.,0.],[0.,1.,0.]],"triangles":[[0,1,2]]}],"regions":[],
         "contact_shadow":{"texture":"textures/shared.ktx2","uv_size":[1.,1.],"half_size":1.,"height_offset":0.,"alpha":255,"anchor_node":0},
         "toon_ramp":"textures/shared.ktx2","effects":"effects/test.json","files":files});
     fixture.json("fields/test.json", &field);
     fixture
+}
+
+#[test]
+fn field_inventory_accepts_the_full_library_without_a_fixed_file_cap() {
+    let fixture = fixture();
+    let mut field: FieldAssets =
+        serde_json::from_slice(&fs::read(fixture.0.join("fields/test.json")).unwrap()).unwrap();
+    field
+        .files
+        .extend((0..4097).map(|index| (format!("scripts/extra/{index}.sym"), "0".repeat(64))));
+    field.validate().unwrap();
 }
 
 #[test]
@@ -236,7 +254,15 @@ fn complete_field_includes_hidden_actors_all_clips_and_deduplicates_files() {
     assert_eq!(first.scenes[1].material_indices, [0]);
     assert!(first.features.contains(&Feature::Billboards));
     assert!(first.features.contains(&Feature::Choices));
-    assert_eq!(first.files.len(), 12); // Shared sprite texture, menu definitions and displacement.
+    assert_eq!(first.files.len(), 15); // Shared textures, curves, scripts and menu definitions.
+    assert!(
+        first.files["scripts/preview.sym"]
+            .roles
+            .contains(&Role::Script)
+    );
+    assert_eq!(first.scripts.len(), 1); // Native-call analysis applies to original bytecode.
+    assert!(first.files.contains_key("clips/idle.motion"));
+    assert!(first.files.contains_key("clips/walk.motion"));
     assert!(
         first.files["textures/refraction.ktx2"]
             .roles
@@ -256,6 +282,48 @@ fn complete_field_includes_hidden_actors_all_clips_and_deduplicates_files() {
     let mut invalid = roundtrip;
     invalid.total_file_bytes += 1;
     assert!(invalid.validate().is_err());
+
+    // Unselected palette pages must be resident before an overlay can appear.
+    let page = "textures/overlay-unused.ktx2";
+    let page_hash = root.write(page, b"unused palette");
+    let overlay = "fields/test/overlay.json";
+    let overlay_hash = root.json(
+        overlay,
+        &json!({"textures":[{
+        "images":[{"path":"textures/shared.ktx2","width":16,"height":16},
+            {"path":page,"width":16,"height":16}],
+        "sampler":{"wrap":["clamp","clamp"],"min_filter":"linear","mag_filter":"linear",
+            "lod":{"bias":0.,"min":0,"max":0,"edge":false}}}],"caption":null}),
+    );
+    let mut field: Value =
+        serde_json::from_slice(&fs::read(root.0.join("fields/test.json")).unwrap()).unwrap();
+    // Every source image is resident, including images unused by current recipes.
+    let expression = "textures/skit-unused.ktx2";
+    root.write(expression, b"unused portrait expression");
+    let skits = "game/skits.json";
+    let skit_hash = root.json(
+        skits,
+        &json!({"version":2,"skits":[],"portrait_recipes":[],"portraits":{
+            "851968":{"size":[16,16],"images":[
+                {"texture":"textures/shared.ktx2","size":[16,16]},
+                {"texture":expression,"size":[8,8]}
+            ]}
+        }}),
+    );
+    field["overlays"] = json!({"38":overlay});
+    field["files"][overlay] = json!(overlay_hash);
+    field["files"][page] = json!(page_hash);
+    field["files"][skits] = json!(skit_hash);
+    root.json("fields/test.json", &field);
+    let prepared = cook(&root.0, root.inputs()).unwrap();
+    assert_eq!(prepared.files.len(), first.files.len() + 4);
+    assert!(prepared.files[page].roles.contains(&Role::Texture));
+    assert!(prepared.files[expression].roles.contains(&Role::Texture));
+    fs::remove_file(root.0.join(expression)).unwrap();
+    assert!(cook(&root.0, root.inputs()).is_err());
+    root.write(expression, b"unused portrait expression");
+    fs::remove_file(root.0.join(page)).unwrap();
+    assert!(cook(&root.0, root.inputs()).is_err());
 }
 
 #[test]
@@ -268,7 +336,7 @@ fn missing_media_is_explicit_then_closes_when_cooked() {
     assert!(!missing.is_complete());
     assert_eq!(missing.missing_inputs.len(), 2);
     let hash = root.write("movies/test.mkv", b"movie fixture");
-    root.json("movies/test.json", &json!({"version":1,"path":"movies/test.mkv","sha256":hash,
+    root.json("movies/test.json", &json!({"version":2,"audio_track":0,"path":"movies/test.mkv","sha256":hash,
         "width":640,"height":480,"frames":30,"frame_micros":33333,"sample_rate":32000,"channels":2,"audio_frames":32000}));
     root.json(
         "audio/test.json",
@@ -308,6 +376,7 @@ fn audio_package(root: &Fixture) -> String {
         )]
         .into(),
         score: Score {
+            origin: resonance_audio::data::ScoreOrigin::Sequence,
             initial_bpm_1024: 120 * 1024,
             loop_start_tick: 0,
             end_tick: 100,
@@ -325,6 +394,7 @@ fn audio_package(root: &Fixture) -> String {
                 volume_16_scale: 1.,
                 controller_14_scale: 1.,
                 pan_16_scale: 1.,
+                spatial: None,
             },
             pitch: pitch::Tables {
                 up: [1.; 128],
@@ -364,7 +434,20 @@ fn audio_closure_includes_samples_shared_packages_and_voices() {
     let mut inputs = root.inputs();
     inputs.audio.insert("audio/test.json".into());
     let manifest = build(&root.0, inputs.clone()).unwrap();
-    assert_eq!(manifest.files.len(), 16);
+    assert_eq!(
+        manifest
+            .files
+            .keys()
+            .filter(|p| p.starts_with("audio/"))
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "audio/package.json",
+            "audio/sample.wav",
+            "audio/test.json",
+            "audio/voice.wav"
+        ]
+    );
     assert!(
         manifest.files["audio/sample.wav"]
             .roles
@@ -387,13 +470,13 @@ fn audio_closure_includes_samples_shared_packages_and_voices() {
 #[test]
 fn rejects_stale_inventory_missing_payload_and_unsafe_paths() {
     let root = fixture();
-    root.write("textures/shared.ktx2", b"modified");
-    assert!(
-        build(&root.0, root.inputs())
-            .unwrap_err()
-            .to_string()
-            .contains("hash differs")
-    );
+    for path in ["scripts/preview.sym", "textures/shared.ktx2"] {
+        let original = fs::read(root.0.join(path)).unwrap();
+        root.write(path, b"modified");
+        let error = build(&root.0, root.inputs()).unwrap_err().to_string();
+        assert!(error.contains("hash differs") && error.contains(path));
+        root.write(path, &original);
+    }
     fs::remove_file(root.0.join("fields/test/optional.glb")).unwrap();
     assert!(build(&root.0, root.inputs()).is_err());
     let mut inputs = root.inputs();
@@ -411,55 +494,24 @@ fn malformed_existing_media_is_not_treated_as_uncooked() {
 }
 
 #[test]
-fn recipe_refresh_backfills_both_fields_after_later_media_cooks() {
+fn typed_field_handoff_preserves_manifest_and_checks_published_digest() {
     let root = fixture();
-    let mut field: Value =
-        serde_json::from_slice(&fs::read(root.0.join("fields/test.json")).unwrap()).unwrap();
-    for (name, id) in [("iselia-classroom", 340), ("new-game-setup", 5)] {
-        field["map_id"] = json!(id);
-        root.json(&format!("fields/{name}.json"), &field);
-    }
-    let read = |name| -> Manifest {
-        serde_json::from_slice(
-            &fs::read(root.0.join(format!("fields/{name}.preload.json"))).unwrap(),
-        )
-        .unwrap()
-    };
-    crate::field::refresh_preloads(&root.0).unwrap();
-    assert_eq!(read("iselia-classroom").missing_inputs.len(), 1);
-    assert_eq!(read("new-game-setup").missing_inputs.len(), 2);
-    root.json(
-        "fields/iselia-classroom-audio.json",
-        &json!({"version":resonance_content::field_audio::FieldAudio::VERSION,
-            "voice_gains":(0..128).map(|v| v as f32 / 127.).collect::<Vec<_>>(),
-            "music":{},"sounds":{},"voices":{},"recipe":{}}),
-    );
-    crate::field::refresh_preloads(&root.0).unwrap();
-    assert!(read("iselia-classroom").is_complete());
-    assert!(!read("new-game-setup").is_complete());
-    let hash = root.write("movies/story.mkv", b"movie fixture");
-    root.json("story-intro.json", &json!({"version":1,"path":"movies/story.mkv","sha256":hash,
-        "width":640,"height":480,"frames":30,"frame_micros":33333,"sample_rate":32000,"channels":2,"audio_frames":32000}));
-    crate::field::refresh_preloads(&root.0).unwrap();
-    assert!(read("new-game-setup").is_complete());
-    let classroom = read("iselia-classroom");
-    assert_eq!(classroom.map_id, 340);
-    assert!(!classroom.files.contains_key("movies/story.mkv"));
-
-    let setup = "fields/new-game-setup.json";
-    let path = "fields/iselia-classroom.json";
-    let mut field: Value = serde_json::from_slice(&fs::read(root.0.join(path)).unwrap()).unwrap();
-    field["files"][setup] = json!(crate::media::hash_file(&root.0.join(setup)).unwrap());
-    root.json(path, &field);
-    let texture = "textures/shared.ktx2";
-    let hash = root.write(texture, b"recooked texture");
-    assert!(crate::field::refresh_preloads(&root.0).is_err());
-    crate::field::refresh_shared(&root.0, &[texture.into()]).unwrap();
-    for name in ["iselia-classroom", "new-game-setup"] {
-        assert_eq!(read(name).files[texture].sha256, hash);
-    }
+    let inputs = root.inputs();
+    let bytes = fs::read(root.0.join(&inputs.field)).unwrap();
+    let field: FieldAssets = serde_json::from_slice(&bytes).unwrap();
+    let expected = build(&root.0, inputs.clone()).unwrap();
+    let actual = cook_field(&root.0, inputs.clone(), &field, &digest(&bytes)).unwrap();
     assert_eq!(
-        read("iselia-classroom").files[setup].sha256,
-        crate::media::hash_file(&root.0.join(setup)).unwrap()
+        serde_json::to_value(actual).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+    let mut changed = bytes.clone();
+    changed.push(b'\n');
+    root.write(&inputs.field, &changed);
+    assert!(
+        cook_field(&root.0, inputs, &field, &digest(&bytes))
+            .unwrap_err()
+            .to_string()
+            .contains("preload asset hash differs")
     );
 }

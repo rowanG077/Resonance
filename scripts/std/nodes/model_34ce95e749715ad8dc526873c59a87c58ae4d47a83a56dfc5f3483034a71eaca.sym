@@ -1,0 +1,3 @@
+script library;
+// Skeleton: 34ce95e749715ad8dc526873c59a87c58ae4d47a83a56dfc5f3483034a71eaca
+pub const Node000_Kusa_B_11: string = "kusa_B_11";

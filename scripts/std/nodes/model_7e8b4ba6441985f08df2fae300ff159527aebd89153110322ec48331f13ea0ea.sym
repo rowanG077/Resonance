@@ -1,0 +1,24 @@
+script library;
+// Skeleton: 7e8b4ba6441985f08df2fae300ff159527aebd89153110322ec48331f13ea0ea
+pub const Node000_Group06: string = "Group06";
+pub const Node001_Bokasi03: string = "bokasi03";
+pub const Node002_Shadow_Dor: string = "shadow_dor";
+pub const Node003_Kusa_Front: string = "kusa_front";
+pub const Node004_Ami04: string = "ami04";
+pub const Node005_Ami01: string = "ami01";
+pub const Node006_Hana03: string = "hana03";
+pub const Node007_Hana02: string = "hana02";
+pub const Node008_Kusa_Back: string = "kusa_back";
+pub const Node009_Hana01: string = "hana01";
+pub const Node010_Ami02: string = "ami02";
+pub const Node011_Gyoami04: string = "gyoami04";
+pub const Node012_Ami03: string = "ami03";
+pub const Node013_Nawa01: string = "nawa01";
+pub const Node014_Bone01: string = "Bone01";
+pub const Node015_Bone02: string = "Bone02";
+pub const Node016_Bone03: string = "Bone03";
+pub const Node017_Bone04: string = "Bone04";
+pub const Node018_Bone05: string = "Bone05";
+pub const Node019_Bone06: string = "Bone06";
+pub const Node020_Tree: string = "tree";
+pub const Node021_Jimen02: string = "jimen02";

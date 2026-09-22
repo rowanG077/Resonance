@@ -1,0 +1,8 @@
+script library;
+// Skeleton: 49952b68456152df5367fb4cc1f074ccfb26d1d6002b9b2afffaf3fe3b5e822d
+pub const Node000_Box: string = "box";
+pub const Node001_All: string = "all";
+pub const Node002_Air_Rock_Kabe: string = "air_rock_kabe";
+pub const Node003_Door_R: string = "door_R";
+pub const Node004_Door_L: string = "door_L";
+pub const Node005_Shutter: string = "shutter";

@@ -1,0 +1,8 @@
+script library;
+// Skeleton: dab7ee2e1620aed6829d718b17f69fd7a5f0f7fc31d2d16fea7d74ec0ad747b8
+pub const Node000_Doragon: string = "doragon";
+pub const Node001_DOOR02_AUTO_PUSH_W175e000: string = "DOOR02_AUTO_PUSH_W175e000";
+pub const Node002_DOOR00_AUTO_PUSH_W175e000: string = "DOOR00_AUTO_PUSH_W175e000";
+pub const Node003_DOOR01_AUTO_PUSH_W175e000: string = "DOOR01_AUTO_PUSH_W175e000";
+pub const Node004_Obj1: string = "obj1";
+pub const Node005_Heya: string = "heya";

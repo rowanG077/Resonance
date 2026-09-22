@@ -1,0 +1,5 @@
+script library;
+// Skeleton: dbf1b9a80496b15b1cd21dc76d206cc710e1c28ac3650c9470b3941bc9ab181e
+pub const Node000_IventShip: string = "IventShip";
+pub const Node001_Wave01: string = "wave01";
+pub const Tail: string = "tail";

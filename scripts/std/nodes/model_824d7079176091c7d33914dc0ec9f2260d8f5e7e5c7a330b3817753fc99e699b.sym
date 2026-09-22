@@ -1,0 +1,17 @@
+script library;
+// Skeleton: 824d7079176091c7d33914dc0ec9f2260d8f5e7e5c7a330b3817753fc99e699b
+pub const Arm: string = "arm";
+pub const Node000_Plane08: string = "Plane08";
+pub const Node001_Plane02: string = "Plane02";
+pub const Node002_Plane04: string = "Plane04";
+pub const Node003_Plane06: string = "Plane06";
+pub const Node004_Plane03: string = "Plane03";
+pub const Node005_Ground: string = "ground";
+pub const Node006_Back_Wall: string = "back_wall";
+pub const Node007_Front_Wall: string = "front_wall";
+pub const Node009_Center_Door_Right: string = "Center_door_right";
+pub const Node010_Center_Door_Left: string = "Center_door_left";
+pub const Node011_Right_Door_Right: string = "right_door_right";
+pub const Node012_Left_Door_Right: string = "left_door_right";
+pub const Node013_Right_Door_Left: string = "right_door_left";
+pub const Node014_Left_Door_Left: string = "left_door_left";
