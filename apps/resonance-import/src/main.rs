@@ -167,7 +167,7 @@ fn main() -> anyhow::Result<()> {
                     coefficients: &coefficients,
                 })?;
             println!(
-                "{} conversion units, {} reused resources, {} deferred battle resources, {} failures",
+                "{} conversion units, {} duplicate resources, {} deferred battle resources, {} failures",
                 report.cooked,
                 report.duplicates,
                 report.deferred.len(),
@@ -176,7 +176,7 @@ fn main() -> anyhow::Result<()> {
             anyhow::ensure!(
                 report.failures.is_empty(),
                 "some assets could not be cooked; see {}",
-                output.join("failures.json").display()
+                output.join("coverage.json").display()
             );
             Ok(())
         }

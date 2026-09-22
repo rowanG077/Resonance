@@ -108,12 +108,12 @@ fn original_exclusions_identify_metadata_native_containers_and_deferred_battle()
     let cooked = std::env::var_os("RESONANCE_COOKED")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.join("all-assets"));
-    let excluded: BTreeMap<String, String> =
-        serde_json::from_slice(&fs::read(cooked.join("excluded.json"))?)?;
+    let coverage: serde_json::Value =
+        serde_json::from_slice(&fs::read(cooked.join("coverage.json"))?)?;
+    let excluded: BTreeMap<String, String> = serde_json::from_value(coverage["excluded"].clone())?;
     let sources: BTreeMap<String, Vec<String>> =
         serde_json::from_slice(&fs::read(cooked.join("sources.json"))?)?;
-    let deferred: Vec<serde_json::Value> =
-        serde_json::from_slice(&fs::read(cooked.join("deferred.json"))?)?;
+    let deferred: Vec<serde_json::Value> = serde_json::from_value(coverage["deferred"].clone())?;
     let check_deferred = |source: &str, bytes: &[u8]| -> Result<()> {
         let entry = deferred
             .iter()

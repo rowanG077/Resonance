@@ -2,17 +2,22 @@
 use crate::{digest, dol, write_atomic};
 use anyhow::{Context, Result, ensure};
 use resonance_content::session::{CharacterDefinition, ItemDefinition, SessionData, StatGrowth};
-use std::{collections::BTreeMap, fs, path::Path};
+#[cfg(test)]
+use std::fs;
+use std::{collections::BTreeMap, path::Path};
 
 /// Localized display text stays separate from save-compatible item statistics.
-pub(crate) fn cook_text(extracted: &Path, output: &Path) -> Result<String> {
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let defaults = crate::character_data::read(&executable)?;
+pub(crate) fn cook_text(
+    executable: &[u8],
+    menu: &crate::menu::Inputs,
+    output: &Path,
+) -> Result<String> {
+    let defaults = &menu.characters;
     let characters = (1..=10)
         .map(|id| {
             let name = if id == 10 {
                 // The companion's name is initialized separately from party records.
-                dol::text(&executable, 0x8035bb80)?
+                dol::text(executable, 0x8035bb80)?
             } else {
                 defaults.definitions[(id - 1) as usize].name.clone()
             };
@@ -24,16 +29,16 @@ pub(crate) fn cook_text(extracted: &Path, output: &Path) -> Result<String> {
         })
         .collect::<Result<BTreeMap<_, _>>>()?;
     let mut names = BTreeMap::new();
-    for (id, row) in crate::item::read(&executable)?.into_iter().enumerate() {
-        let name = row.name.context("missing item name")?;
+    for (id, row) in menu.items.iter().enumerate() {
+        let name = row.name.as_ref().context("missing item name")?;
         ensure!(
             !name.chars().any(char::is_control),
             "invalid item name {id}"
         );
-        names.insert(id as u16, name);
+        names.insert(id as u16, name.clone());
     }
     let mut titles = BTreeMap::new();
-    let catalogue = crate::all_assets::title_catalogue::read(&executable)?;
+    let catalogue = &menu.titles;
     for character in 1..=9 {
         let entries = catalogue.for_character(character)?;
         ensure!(
@@ -90,13 +95,12 @@ fn expand_equipment_owners(raw: u8, kratos_only: bool) -> u16 {
     if kratos_only { mask & !0x20 } else { mask }
 }
 
-pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let arte_catalogue = crate::arte::read(&executable)?;
-    let defaults = crate::character_data::read(&executable)?;
-    let items = crate::item::read(&executable)?;
-    let owners = equipment_owners(&executable, &items)?;
-    let titles = crate::all_assets::title_catalogue::read(&executable)?;
+pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path) -> Result<String> {
+    let arte_catalogue = &menu.arte;
+    let defaults = &menu.characters;
+    let items = &menu.items;
+    let owners = equipment_owners(executable, items)?;
+    let titles = &menu.titles;
     let items = items
         .iter()
         .enumerate()
@@ -185,10 +189,10 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
     let data = SessionData {
         ex_skills: None,
         version: 1,
-        executable_sha256: digest(&executable),
+        executable_sha256: digest(executable),
         items,
         characters,
-        experience: defaults.experience,
+        experience: defaults.experience.clone(),
     };
     data.validate()?;
     let path = "game/session-data.json";
@@ -211,9 +215,11 @@ mod owner_tests {
         for disc in [1, 2] {
             let extracted = local.join(format!("extracted/disc{disc}"));
             let source = crate::cooked::Source::open(&frozen, disc, "sys/main.dol")?;
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            let menu = crate::menu::Inputs::read(&executable)?;
             for path in [
-                cook(&extracted, output.path())?,
-                cook_text(&extracted, output.path())?,
+                cook(&executable, &menu, output.path())?,
+                cook_text(&executable, &menu, output.path())?,
             ] {
                 let actual: serde_json::Value =
                     serde_json::from_slice(&fs::read(output.path().join(&path))?)?;
@@ -233,7 +239,8 @@ mod owner_tests {
             for disc in [1, 2] {
                 let source = extracted.join(format!("disc{disc}"));
                 let executable = fs::read(source.join("sys/main.dol"))?;
-                let path = cook(&source, &output)?;
+                let menu = crate::menu::Inputs::read(&executable)?;
+                let path = cook(&executable, &menu, &output)?;
                 let data: SessionData = serde_json::from_slice(&fs::read(output.join(path))?)?;
                 assert_eq!(data.characters.len(), 9);
                 for (index, character) in data.characters.iter().enumerate() {

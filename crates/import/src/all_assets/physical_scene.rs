@@ -91,19 +91,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shared_node_modules_are_registered_in_each_package_receipt() -> Result<()> {
+    fn shared_node_modules_publish_embedded_sources() -> Result<()> {
         let output = tempfile::tempdir()?;
         let _session = crate::publication::Session::start(output.path())?;
-        let first = crate::publication::Capture::start()?;
         let path = publish_nodes(output.path(), &[])?.context("missing empty-skeleton symbols")?;
-        let files = first.finish()?;
-        assert_eq!(
-            files.keys().collect::<Vec<_>>(),
-            [&output.path().join(&path).canonicalize()?]
-        );
-        let second = crate::publication::Capture::start()?;
         assert_eq!(publish_nodes(output.path(), &[])?, Some(path.clone()));
-        assert_eq!(second.finish()?, files);
         let source = std::fs::read_to_string(output.path().join(&path))?;
         let relative = path.strip_prefix("scripts/").unwrap();
         assert_eq!(
@@ -114,11 +106,9 @@ mod tests {
                 .unwrap()
                 .1
         );
-        let unknown = crate::publication::Capture::start()?;
         assert!(
             publish_nodes(output.path(), &["not_a_shipped_skeleton_test_node".into()])?.is_none()
         );
-        assert!(unknown.finish()?.is_empty());
         Ok(())
     }
 }

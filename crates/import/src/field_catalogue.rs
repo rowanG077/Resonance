@@ -9,20 +9,9 @@ const TABLE: u32 = 0x801e4060;
 const COUNT: usize = 547;
 const STRIDE: usize = 24;
 
-/// Physical files assigned the field role by this disc's executable.
-/// The catalogue also names fields shipped only on the other disc.
+#[cfg(test)]
 pub(crate) fn map_paths(extracted: &Path) -> Result<BTreeSet<String>> {
-    let files = extracted.join("files");
-    let mut paths = BTreeSet::new();
-    for phase in read(&fs::read(extracted.join("sys/main.dol"))?)?.records {
-        if let Some(resource) = phase.resource
-            && let Some(path) = map_path(&files, &resource)
-                .with_context(|| format!("invalid field {} resource {resource:?}", phase.id))?
-        {
-            paths.insert(path);
-        }
-    }
-    Ok(paths)
+    read(&fs::read(extracted.join("sys/main.dol"))?)?.map_paths(extracted)
 }
 
 fn map_path(files: &Path, resource: &str) -> Result<Option<String>> {
@@ -42,6 +31,23 @@ pub(crate) struct Phases {
     /// Item Finder chooses a pool, then chooses an item within that pool.
     pub item_finder_pools: Vec<Vec<u16>>,
     pub records: Vec<Phase>,
+}
+
+impl Phases {
+    /// Files present on this disc; some declarations belong only to the other disc.
+    pub(crate) fn map_paths(&self, extracted: &Path) -> Result<BTreeSet<String>> {
+        let files = extracted.join("files");
+        let mut paths = BTreeSet::new();
+        for phase in &self.records {
+            if let Some(resource) = &phase.resource
+                && let Some(path) = map_path(&files, resource)
+                    .with_context(|| format!("invalid field {} resource {resource:?}", phase.id))?
+            {
+                paths.insert(path);
+            }
+        }
+        Ok(paths)
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -198,7 +204,7 @@ mod tests {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         for disc in [1, 2] {
             let extracted = local.join(format!("disc{disc}"));
-            let paths = map_paths(&extracted)?;
+            let paths = read(&fs::read(extracted.join("sys/main.dol"))?)?.map_paths(&extracted)?;
             assert!(!paths.is_empty());
             assert!(
                 paths

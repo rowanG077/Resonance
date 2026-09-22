@@ -50,6 +50,7 @@ impl Scanner {
                         &self.output,
                         None,
                         geometry::Input::File,
+                        &mut crate::scene::decoded::Package::default(),
                         &mut |child, result| {
                             complete &= result.is_ok();
                             report(child, result);

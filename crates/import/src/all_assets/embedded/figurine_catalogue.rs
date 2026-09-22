@@ -6,8 +6,10 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::path::Path;
 
+#[cfg(test)]
 const FAMILY: &str = "figurine-catalogue";
 const RECORDS: u32 = 0x802280c0;
 const COUNT: usize = 328;
@@ -121,6 +123,7 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     })
 }
 
+#[cfg(test)]
 pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
     crate::embedded::write(file, output, FAMILY, &read(executable)?)
 }

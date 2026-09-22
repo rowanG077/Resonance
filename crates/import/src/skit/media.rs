@@ -142,7 +142,7 @@ mod tests {
                 )?;
                 requested.extend(
                     read_script(&extracted.join("files").join(path))?
-                        .receipt
+                        .binding
                         .requested_media,
                 );
             }

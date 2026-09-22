@@ -93,7 +93,6 @@ pub struct FieldAudio {
     /// Linear PCM gain for each saved dialogue-volume setting (0..=127).
     #[serde(default)]
     pub voice_gains: Vec<f32>,
-    pub recipe: serde_json::Value,
 }
 impl FieldAudio {
     pub const VERSION: u32 = 3;

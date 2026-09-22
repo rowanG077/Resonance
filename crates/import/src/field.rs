@@ -171,7 +171,7 @@ pub(crate) fn prepare(
     output: &Path,
     physical: &crate::scene::binding::Map<'_>,
     shared: &crate::shared::Prepared,
-    recovered: &crate::scene::recovered::RecoveredModels,
+    recovered: &crate::scene::decoded::Package,
     declared: &crate::field_resources::Declarations,
 ) -> Result<FieldAssets> {
     use resonance_content::ScriptAsset;
@@ -179,7 +179,7 @@ pub(crate) fn prepare(
     let mut resources =
         crate::field_resources::binding::Resources::decoded(&shared.catalogue, recovered);
     let mut declared_assets = crate::character::Sources::read(&mut resources, &declared.resources)?;
-    declared_assets.include_field(physical, Some(recovered))?;
+    declared_assets.include_field(physical, recovered)?;
     let (parts, doors) = physical.layers(&declared_assets.animations)?;
     let messages = physical.messages()?;
     crate::font::validate_messages(&shared.font, &messages)?;
@@ -266,53 +266,27 @@ pub(crate) fn audio_path(map_id: u32) -> String {
     resonance_content::field::audio_path(map_id)
 }
 
-fn for_each_field(
-    output: &Path,
-    mut visit: impl FnMut(String, FieldAssets, String) -> Result<()>,
-) -> Result<()> {
-    let directory = output.join("fields");
-    if !directory.exists() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let Some(id) = name
-            .to_str()
-            .and_then(|name| name.strip_prefix("map-"))
-            .and_then(|name| name.strip_suffix(".json"))
-        else {
-            continue;
-        };
-        if id.parse::<u32>().is_err() {
-            continue;
-        }
-        let path = format!("fields/{}", name.to_string_lossy());
-        let bytes = fs::read(entry.path())?;
-        let assets =
-            serde_json::from_slice(&bytes).with_context(|| format!("invalid field {path}"))?;
-        visit(path, assets, digest(&bytes))?;
-    }
-    Ok(())
-}
-
 fn publish_field(output: &Path, path: &str, field: &FieldAssets) -> Result<String> {
     let bytes = serde_json::to_vec_pretty(field)?;
     write_atomic(&output.join(path), &bytes)?;
     Ok(digest(&bytes))
 }
 
-pub(crate) fn finish(output: &Path) -> Result<()> {
-    for_each_field(output, |path, assets, hash| {
-        let manifest = preload(output, path, &assets, &hash)?;
+pub(crate) fn finish(output: &Path, ids: impl IntoIterator<Item = u32>) -> Result<()> {
+    for id in ids {
+        let path = resonance_content::field::metadata_path(id);
+        let bytes = fs::read(output.join(&path))?;
+        let assets: FieldAssets =
+            serde_json::from_slice(&bytes).with_context(|| format!("invalid field {path}"))?;
+        let manifest = preload(output, path, &assets, &digest(&bytes))?;
         ensure!(
             manifest.missing_inputs.is_empty(),
             "field {} has missing inputs: {:?}",
             assets.map_id,
             manifest.missing_inputs
         );
-        Ok(())
-    })
+    }
+    Ok(())
 }
 
 fn preload(
@@ -356,6 +330,19 @@ pub(crate) fn collision(bytes: &[u8]) -> Result<Vec<resonance_content::field::Co
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finalization_uses_current_field_ids() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        fs::create_dir(root.path().join("fields"))?;
+        fs::write(
+            root.path().join("fields/map-42.json"),
+            b"stale invalid metadata",
+        )?;
+        finish(root.path(), [])?;
+        assert!(finish(root.path(), [42]).is_err());
+        Ok(())
+    }
 
     #[test]
     fn archive_uses_its_payload_name_and_rejects_ambiguity() {

@@ -7,79 +7,56 @@ use std::path::Path;
 mod data;
 pub(crate) use data::text::source as source_text;
 pub(crate) use data::world_map::cook as world_map;
-pub(crate) use data::{Inputs, Source, assemble};
+pub(crate) use data::{Inputs, Source, Tables, assemble};
 mod artwork;
 mod recipe;
 mod shops;
 pub use shops::{ShopInventoryCheck, ShopInventoryValidation, ShopItemCheck, validate_shops};
 
-/// Reuse only complete final menu assets, never decoded preparation records.
-pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<bool> {
-    let executable = std::fs::read(extracted.join("sys/main.dol"))?;
-    let mut tables = data::read(&executable)?;
-    let files = extracted.join("files");
-    let sources = crate::source_assets::Sources::read_with(extracted, &executable)?;
-    let figurines = crate::all_assets::figurine_catalogue::read(&executable)?;
-    let font = crate::font_directory::Directory::read(&executable)?;
-    // Resolve every declaration before reuse, retaining missing-source diagnostics.
-    let paths = ["sys/main.dol".to_owned(), "sys/boot.bin".to_owned()]
-        .into_iter()
-        .chain(
-            [
-                crate::field_resources::resolve_path(&files, "US_r_Top2Btl.rel")?,
-                sources.usual,
-                sources.enemy,
-                crate::all_assets::roles::declared_path(&files, figurines.text(figurines.archive))?,
-                crate::all_assets::roles::declared_path(&files, &tables.artwork.portraits)?,
-                crate::field_resources::resolve_path(&files, &font.startup)?,
-            ]
-            .into_iter()
-            .map(|path| format!("files/{path}")),
-        );
-    let dependencies = paths
-        .map(|path| {
-            Ok((
-                path.clone(),
-                crate::media::hash_file(&extracted.join(path))?,
-            ))
-        })
-        .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
-    crate::disc_number(extracted)?;
-    crate::all_assets::reuse::cook(
+pub(crate) fn cook(
+    extracted: &Path,
+    output: &Path,
+    executable: &[u8],
+    catalogues: &crate::all_assets::Catalogues,
+) -> Result<()> {
+    let mut tables = catalogues.menu()?;
+    tables.data.monsters = crate::monsters::prepare(
+        extracted,
         output,
-        &("player-menu", crate::texture::RECIPE, dependencies),
-        &["game/menu-data.json", "ui/menu.json"],
-        || {
-            tables.data.monsters = crate::monsters::prepare(extracted, output, &executable)?;
-            tables.data.figurines = crate::figurines::prepare(extracted, output, &executable)?;
-            tables.data.validate()?;
-            let sources: std::collections::BTreeMap<_, _> = resonance_script_content::MODULES
-                .iter()
-                .map(|&(module, source)| (module.to_owned(), source.to_owned()))
-                .collect();
-            let mut cache = symphonia_script_tools::PreparationCache::default();
-            for preview in tables
-                .data
-                .monsters
-                .records
-                .iter()
-                .map(|row| &row.preview)
-                .chain(tables.data.figurines.records.iter().map(|row| &row.preview))
-            {
-                if let Some(binding) = &preview.behavior {
-                    resonance_model_behavior::PreparedBehavior::prepare(
-                        &mut cache, &sources, binding, preview,
-                    )?;
-                }
-            }
-            crate::model_behavior::publish(output)?;
-            write_atomic(
-                &output.join("game/menu-data.json"),
-                &serde_json::to_vec_pretty(&tables.data)?,
+        executable,
+        &catalogues.monsters,
+        &catalogues.menu.inventory,
+    )?;
+    tables.data.figurines = crate::figurines::prepare(extracted, output, &catalogues.figurines)?;
+    tables.data.validate()?;
+    let sources: std::collections::BTreeMap<_, _> = resonance_script_content::MODULES
+        .iter()
+        .map(|&(module, source)| (module.to_owned(), source.to_owned()))
+        .collect();
+    let mut preparation = symphonia_script_tools::PreparationCache::default();
+    for preview in tables
+        .data
+        .monsters
+        .records
+        .iter()
+        .map(|row| &row.preview)
+        .chain(tables.data.figurines.records.iter().map(|row| &row.preview))
+    {
+        if let Some(binding) = &preview.behavior {
+            resonance_model_behavior::PreparedBehavior::prepare(
+                &mut preparation,
+                &sources,
+                binding,
+                preview,
             )?;
-            cook_art(extracted, output, &executable, tables.artwork)
-        },
-    )
+        }
+    }
+    crate::model_behavior::publish(output)?;
+    write_atomic(
+        &output.join("game/menu-data.json"),
+        &serde_json::to_vec_pretty(&tables.data)?,
+    )?;
+    cook_art(extracted, output, executable, tables.artwork)
 }
 
 fn cook_art(

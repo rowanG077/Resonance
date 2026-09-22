@@ -17,35 +17,17 @@ enum Layout {
         rows: [[f32; 4]; 3],
     },
     Components {
-        scale: Vector,
-        rotation: Rotation,
-        translation: Vector,
-        /// These slots belong to the matrix union and have no TRS consumer.
-        unused_matrix_tail: [u32; 2],
+        scale: Option<[f32; 3]>,
+        rotation: Option<Rotation>,
+        translation: Option<[f32; 3]>,
     },
-}
-
-#[derive(Serialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-enum Vector {
-    Active([f32; 3]),
-    /// Inactive union storage is retained bit-for-bit, including non-finite values.
-    Inactive([u32; 3]),
 }
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum Rotation {
-    Quaternion {
-        xyzw: [f32; 4],
-    },
-    EulerDegrees {
-        xyz: [f32; 3],
-        unused_quaternion_w: u32,
-    },
-    Inactive {
-        words: [u32; 4],
-    },
+    Quaternion { xyzw: [f32; 4] },
+    EulerDegrees { xyz: [f32; 3] },
 }
 
 fn floats<const N: usize>(words: &[u32]) -> Result<[f32; N]> {
@@ -77,32 +59,25 @@ impl Transform {
                 ],
             }
         } else {
-            let vector = |mask, at| -> Result<Vector> {
-                let words = &words[at..at + 3];
-                Ok(if flags & mask != 0 {
-                    Vector::Active(floats(words)?)
-                } else {
-                    Vector::Inactive(words.try_into().unwrap())
-                })
+            let vector = |mask, at| {
+                (flags & mask != 0)
+                    .then(|| floats(&words[at..at + 3]))
+                    .transpose()
             };
             Layout::Components {
                 scale: vector(1, 1)?,
                 rotation: if flags & 4 != 0 {
-                    Rotation::Quaternion {
+                    Some(Rotation::Quaternion {
                         xyzw: floats(&words[4..8])?,
-                    }
+                    })
                 } else if flags & 2 != 0 {
-                    Rotation::EulerDegrees {
+                    Some(Rotation::EulerDegrees {
                         xyz: floats(&words[4..7])?,
-                        unused_quaternion_w: words[7],
-                    }
+                    })
                 } else {
-                    Rotation::Inactive {
-                        words: words[4..8].try_into().unwrap(),
-                    }
+                    None
                 },
                 translation: vector(8, 8)?,
-                unused_matrix_tail: words[11..13].try_into().unwrap(),
             }
         };
         Ok(Some(Self {
@@ -118,7 +93,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn authored_transform_preserves_union_layout_and_inactive_storage() -> Result<()> {
+    fn authored_transform_reads_only_active_channels() -> Result<()> {
         let mut words: [u32; 13] = std::array::from_fn(|index| (index as f32).to_bits());
         for (flags, rotation) in [
             (0x0b_u8, "euler_degrees"),
@@ -129,18 +104,10 @@ mod tests {
             let value = serde_json::to_value(Transform::read(&words)?)?;
             assert_eq!(value["metadata"], serde_json::json!([1, 35, 69]));
             assert_eq!(value["rotation"]["kind"], rotation);
-            assert_eq!(value["scale"]["value"], serde_json::json!([1., 2., 3.]));
-            assert_eq!(
-                value["translation"]["value"],
-                serde_json::json!([8., 9., 10.])
-            );
-            assert_eq!(
-                value["unused_matrix_tail"],
-                serde_json::json!([words[11], words[12]])
-            );
+            assert_eq!(value["scale"], serde_json::json!([1., 2., 3.]));
+            assert_eq!(value["translation"], serde_json::json!([8., 9., 10.]));
             if flags == 0x0b {
                 assert_eq!(value["rotation"]["xyz"], serde_json::json!([4., 5., 6.]));
-                assert_eq!(value["rotation"]["unused_quaternion_w"], words[7]);
             } else {
                 assert_eq!(
                     value["rotation"]["xyzw"],
@@ -158,8 +125,7 @@ mod tests {
         words[0] = 0;
         words[1] = 0x7fc00001;
         let value = serde_json::to_value(Transform::read(&words)?)?;
-        assert_eq!(value["scale"]["kind"], "inactive");
-        assert_eq!(value["scale"]["value"][0], words[1]);
+        assert!(value["scale"].is_null());
         words[0] = 0x01000000;
         assert!(Transform::read(&words).is_err());
         assert!(Transform::read(&[])?.is_none());

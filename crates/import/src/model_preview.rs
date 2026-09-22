@@ -1,5 +1,5 @@
 //! Bind original preview layers and sparse curves in the shared source-model DAG.
-use crate::scene::recovered::RecoveredModels;
+use crate::scene::decoded::Package;
 use crate::{
     animation::{AuthoredAnimation, ModelBindings},
     character::Clip,
@@ -10,7 +10,6 @@ use resonance_content::{CullFace, SceneClip, ScenePart, model_preview::PreviewPa
 use std::{collections::BTreeSet, ops::Range, path::Path};
 
 pub(crate) struct Layer<'a> {
-    pub recovered: Option<&'a RecoveredModels>,
     pub model: &'a [u8],
     pub outline: Option<&'a [u8]>,
     pub animation: Option<&'a AuthoredAnimation>,
@@ -57,9 +56,13 @@ impl<'a> PointerMembers<'a> {
             .transpose()
     }
 
-    pub(crate) fn animation(&self, field: usize) -> Result<Option<AuthoredAnimation>> {
+    pub(crate) fn animation(
+        &self,
+        field: usize,
+        decoded: &mut Package,
+    ) -> Result<Option<std::sync::Arc<AuthoredAnimation>>> {
         self.model(field)?
-            .map(crate::animation::read_member)
+            .map(|bytes| decoded.decode_animation(bytes, || crate::animation::read_member(bytes)))
             .transpose()
     }
 }
@@ -69,8 +72,9 @@ pub(crate) fn layers(
     parts: &mut Vec<PreviewPart>,
     name: &str,
     output: &Path,
+    decoded: &mut Package,
 ) -> Result<()> {
-    layers_with_clips(layer, parts, name, &[], output)
+    layers_with_clips(layer, parts, name, &[], output, decoded)
 }
 
 pub(crate) fn layers_with_clips(
@@ -79,25 +83,13 @@ pub(crate) fn layers_with_clips(
     name: &str,
     clips: &[Clip<'_>],
     output: &Path,
+    decoded: &mut Package,
 ) -> Result<()> {
-    let models = source_layers(&layer, parts.len(), name, clips, output)?;
-    parts.extend(
-        models
-            .finish()?
-            .into_iter()
-            .map(|cooked| layer.part(cooked.part)),
-    );
-    Ok(())
-}
-
-pub(crate) fn source_layers<'a>(
-    layer: &Layer<'a>,
-    first_resource: usize,
-    name: &str,
-    clips: &'a [Clip<'a>],
-    output: &'a Path,
-) -> Result<Models<'a>> {
-    let mut models = Models::with_recovered(output, layer.recovered);
+    for original in [Some(layer.model), layer.outline].into_iter().flatten() {
+        decoded.decode_model(original, layer.model, output)?;
+    }
+    let first_resource = parts.len();
+    let mut models = Models::new(output, decoded);
     for (index, (outline, original)) in [(false, Some(layer.model)), (true, layer.outline)]
         .into_iter()
         .enumerate()
@@ -130,7 +122,13 @@ pub(crate) fn source_layers<'a>(
             },
         )?;
     }
-    Ok(models)
+    parts.extend(
+        models
+            .finish()
+            .into_iter()
+            .map(|cooked| layer.part(cooked.part)),
+    );
+    Ok(())
 }
 
 impl Layer<'_> {

@@ -3,8 +3,11 @@ use super::text::{TextPool, TextRef};
 use crate::{dol, read::u32 as word};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
+#[cfg(test)]
+use std::path::Path;
 
+#[cfg(test)]
 const FAMILY: &str = "monster-catalogue";
 const RECORDS: u32 = 0x802113f4;
 const RECORD_COUNT: usize = 251;
@@ -115,6 +118,7 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     })
 }
 
+#[cfg(test)]
 pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
     crate::embedded::write(file, output, FAMILY, &read(executable)?)
 }

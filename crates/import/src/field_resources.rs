@@ -588,9 +588,18 @@ done:
                         unknown.iter().all(|pc| !finite.contains_key(pc)),
                         "guessed viewer input"
                     );
+                    let declared = declarations(script)?;
                     ensure!(
-                        declarations(script).is_err(),
-                        "admitted interactive viewer input"
+                        declared.dynamic == unknown,
+                        "lost interactive viewer inputs"
+                    );
+                    ensure!(
+                        declared.resources
+                            == arguments
+                                .values()
+                                .filter_map(|args| args[0].map(|id| id as u32))
+                                .collect(),
+                        "invented interactive viewer resources"
                     );
                     if name == "testfield_02.bin" {
                         let inputs = call_arguments(&program, &analysis, NativeCall::Unknown71, 5)?;

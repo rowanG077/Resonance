@@ -7,10 +7,9 @@ pub(super) fn voices(
     executable: &[u8],
     additional: Option<&Path>,
     ids: &BTreeSet<u32>,
-) -> Result<(BTreeMap<u32, Voice>, BTreeMap<u32, serde_json::Value>)> {
+) -> Result<BTreeMap<u32, Voice>> {
     let directory = crate::voice_directory::Directory::read(executable)?;
     let mut voices = BTreeMap::new();
-    let mut sources = BTreeMap::new();
     for group in ids
         .iter()
         .map(|id| id & 0xffff_0000)
@@ -30,13 +29,8 @@ pub(super) fn voices(
             }
             voices.insert(id, voice);
         }
-        sources.insert(
-            group,
-            json!({"game":"GQSEAF", "revision":0, "disc":archive.disc,
-            "path":source,"sha256":archive.index.source_sha256}),
-        );
     }
-    Ok((voices, sources))
+    Ok(voices)
 }
 
 #[cfg(test)]
@@ -101,11 +95,9 @@ mod tests {
         assert_eq!(owners.values().filter(|&&disc| disc == 1).count(), 8);
         assert_eq!(owners.values().filter(|&&disc| disc == 2).count(), 5);
         let workspace = Workspace::open(&primary, &cooked)?;
-        let (bound, sources) = voices(&workspace, &executable, Some(&additional), &ids)?;
+        let bound = voices(&workspace, &executable, Some(&additional), &ids)?;
         assert_eq!(bound.len(), 26);
         for (&id, voice) in &bound {
-            let group = id & 0xffff_0000;
-            assert_eq!(sources[&group]["disc"], owners[&group]);
             assert_eq!(voice.sample_rate, 32028);
             let (name, hash, rate, frames) = &expected[&id];
             assert_eq!(&voice.source_name, name);
@@ -121,8 +113,7 @@ mod tests {
         assert!(voices(&workspace, &executable, None, &disc_two_ids).is_err());
         drop(workspace);
         let workspace = Workspace::open(&additional, &cooked)?;
-        let (direct, sources) = voices(&workspace, &executable, None, &disc_two_ids)?;
-        assert!(sources.values().all(|source| source["disc"] == 2));
+        let direct = voices(&workspace, &executable, None, &disc_two_ids)?;
         for (id, voice) in direct {
             assert_eq!(
                 serde_json::to_value(voice)?,

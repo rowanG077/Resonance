@@ -1,5 +1,5 @@
 use super::*;
-use crate::scene::recovered::RecoveredModels;
+use crate::scene::decoded::Package;
 use crate::{
     model_preview::{Layer, PointerMembers, layers, layers_with_clips},
     read::{f32 as float, u16 as half},
@@ -62,8 +62,8 @@ pub(crate) fn from_package(
     id: u8,
     clips: &[u16],
     output: &Path,
-    recovered: Option<&RecoveredModels>,
 ) -> Result<ModelPreview> {
+    let mut decoded = Package::default();
     let members = PointerMembers::new(bytes, 0x18..0x1e8)?;
     let animations = clips
         .iter()
@@ -71,7 +71,7 @@ pub(crate) fn from_package(
             Ok((
                 slot,
                 members
-                    .animation(0x20 + usize::from(slot) * 4)?
+                    .animation(0x20 + usize::from(slot) * 4, &mut decoded)?
                     .context("missing enemy animation")?,
             ))
         })
@@ -88,18 +88,17 @@ pub(crate) fn from_package(
     let clips = &bound;
     let mut parts = Vec::new();
     let idle = if clips.is_empty() {
-        members.animation(0x20)?
+        members.animation(0x20, &mut decoded)?
     } else {
         None
     };
     layers_with_clips(
         Layer {
-            recovered,
             model: members
                 .model(0x18)?
                 .context("missing enemy primary model")?,
             outline: members.model(0x1c)?,
-            animation: idle.as_ref(),
+            animation: idle.as_deref(),
             attached_to: None,
             additive: false,
         },
@@ -107,6 +106,7 @@ pub(crate) fn from_package(
         name,
         clips,
         output,
+        &mut decoded,
     )?;
     let bones = parts[0].scene.bone_names.clone();
     let bone = |prefix: &str| -> Result<String> {
@@ -119,18 +119,17 @@ pub(crate) fn from_package(
     let flags = half(metadata, 0xb4)?;
     if flags & 0x8400 != 0 {
         let idle = if clips.is_empty() {
-            members.animation(0x20 + usize::from(metadata[0xbd]) * 4)?
+            members.animation(0x20 + usize::from(metadata[0xbd]) * 4, &mut decoded)?
         } else {
             None
         };
         layers_with_clips(
             Layer {
-                recovered,
                 model: members
                     .model(0x180)?
                     .context("missing enemy secondary model")?,
                 outline: members.model(0x198)?,
-                animation: idle.as_ref(),
+                animation: idle.as_deref(),
                 attached_to: (flags & 0x8000 != 0).then(|| bone("pa00")).transpose()?,
                 additive: false,
             },
@@ -138,6 +137,7 @@ pub(crate) fn from_package(
             name,
             clips,
             output,
+            &mut decoded,
         )?;
     }
     let count = usize::from(metadata[0x1e4]);
@@ -155,7 +155,6 @@ pub(crate) fn from_package(
         if let Some(model) = primary {
             layers(
                 Layer {
-                    recovered,
                     model,
                     outline: None,
                     animation: None,
@@ -165,6 +164,7 @@ pub(crate) fn from_package(
                 &mut parts,
                 name,
                 output,
+                &mut decoded,
             )?;
         }
         extra = extra.or_else(|| additional.cloned());
@@ -172,7 +172,6 @@ pub(crate) fn from_package(
     if let Some(model) = extra {
         layers(
             Layer {
-                recovered,
                 model,
                 outline: None,
                 animation: None,
@@ -182,6 +181,7 @@ pub(crate) fn from_package(
             &mut parts,
             name,
             output,
+            &mut decoded,
         )?;
     }
     Ok(ModelPreview {

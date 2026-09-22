@@ -16,8 +16,11 @@ use std::{
     path::Path,
 };
 
-pub(crate) fn prepare(extracted: &Path, output: &Path, executable: &[u8]) -> Result<FigurineBook> {
-    let catalogue = crate::all_assets::figurine_catalogue::read(executable)?;
+pub(crate) fn prepare(
+    extracted: &Path,
+    output: &Path,
+    catalogue: &Catalogue,
+) -> Result<FigurineBook> {
     ensure!(
         catalogue.records.len() >= FIGURINE_COUNT,
         "incomplete figurine catalogue"
@@ -54,7 +57,7 @@ pub(crate) fn prepare(extracted: &Path, output: &Path, executable: &[u8]) -> Res
             version: FIGURINE_VERSION,
             id: id as u16,
             name: catalogue.required_text(row.name)?.into(),
-            preview: preview(model, row, &catalogue, &mut behaviors)?,
+            preview: preview(model, row, catalogue, &mut behaviors)?,
         };
         record
             .validate()
@@ -151,16 +154,20 @@ fn model(root: &Path, package: &[u8]) -> Result<Model> {
     };
     let primary = member(0).context("missing figurine mesh")?;
     // The final package member is not part of the native idle search.
+    let mut decoded = crate::scene::decoded::Package::default();
     let animation = (2..sections.len().saturating_sub(1))
         .find_map(member)
-        .map(crate::animation::read_member)
+        .map(|bytes| decoded.decode_animation(bytes, || crate::animation::read_member(bytes)))
         .transpose()?;
     let mut model = Model {
         parts: Vec::new(),
         appearance: Vec::new(),
         rows: 0,
     };
-    let mut models = Models::new(root);
+    for source in [Some(primary), member(1)].into_iter().flatten() {
+        decoded.decode_model(source, primary, root)?;
+    }
+    let mut models = Models::new(root, &decoded);
     for (index, source) in [Some(primary), member(1)].into_iter().enumerate() {
         let Some(source) = source else {
             continue;
@@ -178,7 +185,7 @@ fn model(root: &Path, package: &[u8]) -> Result<Model> {
             move |geometry, _, scene, glb| {
                 scene.resource = index as u16;
                 for material in &mut scene.materials {
-                    material.draw_order += index as u32 * 65536;
+                    material.draw_order += index as u32 * resonance_content::field::MODEL_DRAW_SPAN;
                     if index == 1 {
                         material.cull = CullFace::Front;
                         material.blend = true;
@@ -198,7 +205,7 @@ fn model(root: &Path, package: &[u8]) -> Result<Model> {
         )?;
     }
     model.parts = models
-        .finish()?
+        .finish()
         .into_iter()
         .map(|layer| PreviewPart {
             animation: animation.as_ref().map(|_| 0),

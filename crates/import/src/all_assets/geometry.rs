@@ -1,5 +1,5 @@
 //! Physical resources convert independently of events, actors and runtime support.
-use crate::scene::recovered::RecoveredModels;
+use crate::scene::decoded::Package;
 #[path = "skin.rs"]
 mod skin;
 #[path = "transform.rs"]
@@ -48,45 +48,12 @@ struct SkeletonNode {
 
 #[derive(serde::Serialize)]
 struct ModelMetadata<'a> {
-    source_size: usize,
     name: Option<&'a str>,
     root_geometry: Option<u16>,
     name_table_metadata: u32,
     unknown_04: u16,
     unknown_08: u32,
     unknown_16: u16,
-    /// Blob-relative storage outside the decoded structures; its meaning is unknown.
-    unreferenced_storage: Vec<Storage<'a>>,
-}
-
-#[derive(serde::Serialize)]
-struct ModelContainer<'a> {
-    source_size: usize,
-    /// Wrapper-relative extents; model.json offsets are relative to this skeleton.
-    skeleton: Option<std::ops::Range<usize>>,
-    skin: Option<std::ops::Range<usize>>,
-    /// Nonzero gaps retain their complete bytes; other uncovered bytes are zero.
-    unreferenced_storage: Vec<Storage<'a>>,
-}
-
-#[derive(serde::Serialize)]
-struct Storage<'a> {
-    offset: usize,
-    bytes: &'a [u8],
-}
-
-fn storage<'a>(bytes: &'a [u8], ranges: &[std::ops::Range<usize>]) -> Result<Vec<Storage<'a>>> {
-    ranges
-        .iter()
-        .map(|range| {
-            Ok(Storage {
-                offset: range.start,
-                bytes: bytes
-                    .get(range.clone())
-                    .context("unreferenced model storage exceeds its source")?,
-            })
-        })
-        .collect()
 }
 
 fn skeleton_nodes(model: &crate::model::Model) -> Result<Vec<SkeletonNode>> {
@@ -143,44 +110,27 @@ pub(crate) fn model_selectors(bytes: &[u8], image_count: u32) -> Result<[Option<
 
 /// Names are relative output namespaces. Every failed child is reported and siblings continue.
 /// False means the root is not a recognized geometry/archive resource.
-pub(crate) fn cook<F: FnMut(&str, Result<()>)>(
-    bytes: &[u8],
-    name: &str,
-    output: &Path,
-    audio: Option<&audio::Cooker>,
-    input: Input,
-    report: &mut F,
-) -> bool {
-    Walker {
-        output,
-        audio,
-        report,
-        recovered: None,
-    }
-    .visit(bytes, name, None, 0, input)
-}
-
 struct Walker<'a, 'r, F> {
     output: &'a Path,
     audio: Option<&'a audio::Cooker>,
     report: &'r mut F,
-    recovered: Option<&'r mut RecoveredModels>,
+    decoded: &'r mut Package,
 }
 
-pub(crate) fn cook_recovered(
+pub(crate) fn cook(
     bytes: &[u8],
     name: &str,
     output: &Path,
     audio: Option<&audio::Cooker>,
     input: Input,
-    recovered: &mut RecoveredModels,
+    decoded: &mut Package,
     report: &mut impl FnMut(&str, Result<()>),
 ) -> bool {
     Walker {
         output,
         audio,
         report,
-        recovered: Some(recovered),
+        decoded,
     }
     .visit(bytes, name, None, 0, input)
 }
@@ -273,11 +223,9 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
                         Input::Member => crate::animation::read_member(bytes),
                         Input::Field => unreachable!("field inputs were dispatched above"),
                     };
-                    match &mut self.recovered {
-                        Some(recovered) => recovered.decode_animation(bytes, decode),
-                        None => decode().map(std::sync::Arc::new),
-                    }
-                    .and_then(|motion| self.json(name, "animation", motion.as_ref()))
+                    self.decoded
+                        .decode_animation(bytes, decode)
+                        .and_then(|motion| self.json(name, "animation", motion.as_ref()))
                 } else {
                     self.skeleton(bytes, name)
                 };
@@ -554,12 +502,6 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
             (self.report)(&format!("{name}/skeleton"), Err(error));
         }
         let skin = skin::model(bytes, end)?;
-        self.model_container(
-            bytes,
-            name,
-            skeleton,
-            skin.as_ref().map(|(_, range)| range.clone()),
-        )?;
         let normalized = crate::character::texture_palette(palette.unwrap_or(bytes), bytes)?;
         // Texture recovery must not depend on successful mesh/material conversion.
         let tpl = normalized
@@ -569,62 +511,17 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
             .is_none()
             .then(|| texture_selectors(bytes, word(tpl, 4)?))
             .transpose()?;
-        let mut recovered_textures = self
-            .recovered
-            .as_ref()
-            .map(|recovered| recovered.decode_textures(tpl))
-            .transpose()?;
-        if let Some(decoded) = &mut recovered_textures {
-            let name = format!("{name}/palettes");
-            let catalogue = match std::sync::Arc::get_mut(decoded) {
-                Some(decoded) => decoded.publish_as(self.output, &name, &mut self.report)?,
-                None => decoded.publish_alias(self.output, &name, &mut self.report)?,
-            };
-            self.json(&name, "textures", &catalogue)?;
-            (self.report)(&format!("{name}/textures"), Ok(()));
-        } else {
-            self.textures(tpl, &format!("{name}/palettes"))?;
+        self.textures(tpl, &format!("{name}/palettes"))?;
+        let model = self
+            .decoded
+            .decode_model(bytes, palette.unwrap_or(bytes), self.output)?;
+        let mut scene = model.geometry.scene.clone();
+        model.mesh.share(&self.output.join(&scene.mesh))?;
+        if let super::physical_scene::TextureSource::Local { catalogue } = &mut scene.textures {
+            *catalogue = format!("{name}/palettes/textures.json");
         }
-        let textures = if word(bytes, 0)? == 0 && word(tpl, 4)? == 0 {
-            super::physical_scene::TextureSource::Caller
-        } else {
-            super::physical_scene::TextureSource::Local {
-                catalogue: format!("{name}/palettes/textures.json"),
-            }
-        };
-        // A malformed secondary mip/palette still has its own diagnostic; preserve
-        // the physical reader's independent base-image geometry recovery.
-        let alpha = recovered_textures
-            .as_ref()
-            .and_then(|textures| textures.base_alpha().ok());
-        if let Some(model) = self
-            .recovered
-            .as_ref()
-            .and_then(|recovered| recovered.get(&normalized))
-        {
-            let scene = super::physical_scene::Scene {
-                textures,
-                ..model.geometry.scene.clone()
-            };
-            if let Some(mesh) = &model.mesh {
-                mesh.share(&self.output.join(&scene.mesh))?;
-            }
-            self.nodes(name, &scene.bone_names)?;
-            self.json(name, "scene", &scene)?;
-        } else {
-            let (decoded, publication) =
-                super::physical_scene::cook_decoded(&normalized, self.output, textures, alpha)?;
-            self.nodes(name, &decoded.scene.bone_names)?;
-            self.json(name, "scene", &decoded.scene)?;
-            if let Some(recovered) = &mut self.recovered {
-                recovered.remember(
-                    &normalized,
-                    decoded,
-                    recovered_textures.unwrap(),
-                    Some(publication),
-                );
-            }
-        }
+        super::physical_scene::publish_nodes(self.output, &scene.bone_names)?;
+        self.json(name, "scene", &scene)?;
         if let Some((recipe, _)) = &skin {
             self.json(name, "skin", recipe)?;
         } else if let Some(selectors) = selectors.filter(|slots| slots.iter().any(Option::is_some))
@@ -640,36 +537,12 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
         Ok(())
     }
 
-    fn model_container(
-        &self,
-        bytes: &[u8],
-        name: &str,
-        skeleton: Option<std::ops::Range<usize>>,
-        skin: Option<std::ops::Range<usize>>,
-    ) -> Result<()> {
-        let mut covered = vec![0..skeleton.as_ref().map_or(bytes.len(), |range| range.end)];
-        if let Some(range) = &skin {
-            covered.push(range.clone());
-        }
-        let unused = crate::read::unreferenced_ranges(bytes, covered);
-        self.json(
-            name,
-            "model-container",
-            &ModelContainer {
-                source_size: bytes.len(),
-                skeleton,
-                skin,
-                unreferenced_storage: storage(bytes, &unused)?,
-            },
-        )
-    }
-
     fn skeleton(&self, bytes: &[u8], name: &str) -> Result<()> {
         let model = crate::model::Model::parse(bytes)?;
         let nodes = skeleton_nodes(&model)?;
         self.json(name, "skeleton", &nodes)?;
-        self.nodes(
-            name,
+        super::physical_scene::publish_nodes(
+            self.output,
             &nodes.into_iter().map(|node| node.name).collect::<Vec<_>>(),
         )?;
         self.json(
@@ -681,30 +554,13 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
             name,
             "model",
             &ModelMetadata {
-                source_size: bytes.len(),
                 name: model.name.as_deref(),
                 root_geometry: (model.root_geometry != u16::MAX).then_some(model.root_geometry),
                 name_table_metadata: model.name_table_metadata,
                 unknown_04: model.field4,
                 unknown_08: model.field8,
                 unknown_16: model.field16,
-                unreferenced_storage: storage(bytes, &model.unreferenced_ranges)?,
             },
-        )
-    }
-
-    fn nodes(&self, name: &str, bones: &[String]) -> Result<()> {
-        let Some(path) = super::physical_scene::publish_nodes(self.output, bones)? else {
-            return Ok(());
-        };
-        let module = path
-            .trim_start_matches("scripts/")
-            .trim_end_matches(".sym")
-            .replace('/', "::");
-        let root = "../".repeat(name.split('/').count());
-        write_atomic(
-            &self.output.join(name).join("nodes.md"),
-            format!("Model `{name}` uses [{}]({root}{path}).\n\nImport with `use {module};`. The source lists each node's original name and ordinal.\n", module).as_bytes(),
         )
     }
 
@@ -716,16 +572,10 @@ impl<F: FnMut(&str, Result<()>)> Walker<'_, '_, F> {
     }
 
     fn textures(&mut self, bytes: &[u8], name: &str) -> Result<()> {
-        let catalogue = if let Some(recovered) = &mut self.recovered {
-            let mut decoded = recovered.decode_textures(bytes)?;
-            let catalogue = match std::sync::Arc::get_mut(&mut decoded) {
-                Some(decoded) => decoded.publish_as(self.output, name, &mut self.report)?,
-                None => decoded.publish_alias(self.output, name, &mut self.report)?,
-            };
-            recovered.remember_textures(decoded);
-            catalogue
-        } else {
-            crate::texture::cook_catalogue(bytes, name, self.output, &mut self.report)?
+        let decoded = self.decoded.decode_textures(bytes)?;
+        let catalogue = match std::sync::Arc::get_mut(decoded) {
+            Some(decoded) => decoded.publish_as(self.output, name, &mut self.report)?,
+            None => decoded.publish_alias(self.output, name, &mut self.report)?,
         };
         self.json(name, "textures", &catalogue)?;
         (self.report)(&format!("{name}/textures"), Ok(()));
@@ -769,11 +619,19 @@ mod tests {
         let output = crate::temporary_path(&std::env::temp_dir().join("generic-cabinet"));
         let run = |bytes: &[u8], name: &str, input| {
             let mut errors = Vec::new();
-            assert!(cook(bytes, name, &output, None, input, &mut |_, result| {
-                if let Err(error) = result {
-                    errors.push(error);
+            assert!(cook(
+                bytes,
+                name,
+                &output,
+                None,
+                input,
+                &mut Package::default(),
+                &mut |_, result| {
+                    if let Err(error) = result {
+                        errors.push(error);
+                    }
                 }
-            }));
+            ));
             errors
         };
         let result = (|| -> Result<()> {
@@ -873,10 +731,7 @@ mod tests {
         assert_eq!((nodes[0].node_flags, nodes[1].node_flags), (0x4105, 0x0801));
         let transform = serde_json::to_value(&nodes[0].transform)?;
         assert_eq!(transform["flags"], 8);
-        assert_eq!(
-            transform["translation"]["value"],
-            serde_json::json!([2., 0., 0.])
-        );
+        assert_eq!(transform["translation"], serde_json::json!([2., 0., 0.]));
         Ok(())
     }
 
@@ -901,6 +756,7 @@ mod tests {
                 &output,
                 None,
                 Input::File,
+                &mut Package::default(),
                 &mut |_, result| {
                     result.unwrap();
                     reports += 1;
@@ -909,7 +765,6 @@ mod tests {
             assert_eq!(reports, 1);
             let header: serde_json::Value =
                 serde_json::from_slice(&fs::read(output.join(disc).join("model.json"))?)?;
-            assert_eq!(header["source_size"], bytes.len());
             for (field, at) in [("unknown_04", 4), ("unknown_16", 22)] {
                 assert_eq!(header[field], crate::read::u16(bytes, at)?);
             }
@@ -917,7 +772,6 @@ mod tests {
                 assert_eq!(header[field], word(bytes, at)?);
             }
             assert_eq!(header["name"], "llo000.gpl");
-            assert_eq!(header["unreferenced_storage"], serde_json::json!([]));
             assert_eq!(header["root_geometry"], crate::read::u16(bytes, 20)?);
             let nodes: serde_json::Value =
                 serde_json::from_slice(&fs::read(output.join(disc).join("skeleton.json"))?)?;
@@ -944,10 +798,10 @@ mod tests {
                         let words = &source.data_words[start..start + 3];
                         if flags & mask != 0 {
                             let values: [f32; 3] =
-                                serde_json::from_value(transform[channel]["value"].clone())?;
+                                serde_json::from_value(transform[channel].clone())?;
                             assert_eq!(values.map(f32::to_bits).as_slice(), words);
                         } else {
-                            assert_eq!(transform[channel]["value"], serde_json::json!(words));
+                            assert!(transform[channel].is_null());
                         }
                     }
                     if flags & 4 != 0 {
@@ -959,117 +813,9 @@ mod tests {
                             &source.data_words[4..8]
                         );
                     }
-                    assert_eq!(
-                        transform["unused_matrix_tail"],
-                        serde_json::json!(&source.data_words[11..13])
-                    );
                 }
                 assert_eq!(source.node_id, index as u16);
                 assert_eq!(source.transform_kind, 1);
-            }
-            // The native readers stop at the referenced structures, regardless of tail values.
-            for tail in [b"unexplained\0".as_slice(), &[0; 16]] {
-                let mut extended = bytes.to_vec();
-                extended.extend_from_slice(tail);
-                let mut failures = Vec::new();
-                assert!(cook(
-                    &extended,
-                    disc,
-                    &output,
-                    None,
-                    Input::File,
-                    &mut |_, result| {
-                        if let Err(error) = result {
-                            failures.push(error.to_string());
-                        }
-                    },
-                ));
-                assert!(failures.is_empty(), "{failures:?}");
-                let header: serde_json::Value =
-                    serde_json::from_slice(&fs::read(output.join(disc).join("model.json"))?)?;
-                assert_eq!(header["source_size"], extended.len());
-                let ranges = crate::model::Model::parse(&extended)?.unreferenced_ranges;
-                assert_eq!(
-                    ranges.len(),
-                    usize::from(tail.iter().any(|&byte| byte != 0))
-                );
-                let saved = header["unreferenced_storage"]
-                    .as_array()
-                    .context("missing model storage")?;
-                assert_eq!(saved.len(), ranges.len());
-                for (saved, range) in saved.iter().zip(&ranges) {
-                    assert_eq!(saved["offset"], range.start);
-                    assert_eq!(saved["bytes"], serde_json::json!(&extended[range.clone()]));
-                }
-                assert!(output.join(disc).join("skeleton.json").is_file());
-                assert!(output.join(disc).join("motion-bindings.json").is_file());
-            }
-        }
-        fs::remove_dir_all(output)?;
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "requires both original discs; reads one bounded enemy package per disc"]
-    fn original_model_trailer_preserves_every_source_byte() -> Result<()> {
-        use std::io::{Seek, SeekFrom};
-
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
-        let output = crate::temporary_path(&std::env::temp_dir().join("model-container"));
-        let writer = Walker {
-            output: &output,
-            audio: None,
-            recovered: None,
-            report: &mut |_: &str, _: Result<()>| {},
-        };
-        for disc in ["disc1", "disc2"] {
-            let extracted = root.join(disc);
-            let sources = crate::source_assets::Sources::read(&extracted)?;
-            let files = extracted.join("files");
-            let usual = fs::read(files.join(sources.usual))?;
-            let directory = &usual[sections(&usual)?[10].clone().context("enemy directory")?];
-            let start = word(directory, 218 * 4)?;
-            let end = word(directory, 219 * 4)?;
-            let mut source = fs::File::open(files.join(sources.enemy))?;
-            source.seek(SeekFrom::Start(u64::from(start)))?;
-            let mut packed = vec![0; (end - start) as usize];
-            source.read_exact(&mut packed)?;
-            let package = compression::decode(&packed)?;
-            let model = package
-                .get(word(&package, 0x18)? as usize..word(&package, 0x1c)? as usize)
-                .context("primary enemy model")?;
-            let skeleton = crate::geometry::skeleton_range(model)?;
-            let end = skeleton.end;
-            assert!(skin::model(model, end)?.is_none());
-            let ranges = crate::read::unreferenced_ranges(model, vec![0..end]);
-            assert_eq!(ranges, [24704..24736]);
-            assert_eq!(&model[end + 3..end + 10], b"bh03.h\0");
-            assert!(storage(model, &[end..model.len() + 1]).is_err());
-            let mut extended = model.to_vec();
-            extended.extend([0; 16]);
-            let mut zero_tail = model.to_vec();
-            zero_tail[end..].fill(0);
-            for bytes in [model, extended.as_slice(), zero_tail.as_slice()] {
-                writer.model_container(bytes, disc, Some(skeleton.clone()), None)?;
-                let receipt: serde_json::Value = serde_json::from_slice(&fs::read(
-                    output.join(disc).join("model-container.json"),
-                )?)?;
-                assert_eq!(receipt["source_size"], bytes.len());
-                assert_eq!(receipt["skeleton"], serde_json::json!(skeleton));
-                assert!(receipt["skin"].is_null());
-                let storage: Vec<crate::read::Storage> =
-                    serde_json::from_value(receipt["unreferenced_storage"].clone())?;
-                let mut restored = vec![0; receipt["source_size"].as_u64().unwrap() as usize];
-                for span in &storage {
-                    assert!(span.offset >= end);
-                    restored[span.offset..span.offset + span.bytes.len()]
-                        .copy_from_slice(&span.bytes);
-                }
-                assert_eq!(restored[end..], bytes[end..]);
-                assert_eq!(
-                    storage.is_empty(),
-                    bytes[end..].iter().all(|&byte| byte == 0)
-                );
             }
         }
         fs::remove_dir_all(output)?;
@@ -1084,9 +830,17 @@ mod tests {
         }
         let output = crate::temporary_path(&std::env::temp_dir().join("broken-actor-directory"));
         let mut reports = 0;
-        let recognized = cook(&bytes, "actor", &output, None, Input::File, &mut |_, _| {
-            reports += 1;
-        });
+        let recognized = cook(
+            &bytes,
+            "actor",
+            &output,
+            None,
+            Input::File,
+            &mut Package::default(),
+            &mut |_, _| {
+                reports += 1;
+            },
+        );
         if output.exists() {
             fs::remove_dir_all(output)?;
         }
@@ -1124,6 +878,7 @@ mod tests {
             &output,
             None,
             Input::File,
+            &mut Package::default(),
             &mut |_, result| {
                 if let Err(error) = result {
                     errors.push(error);
@@ -1145,6 +900,7 @@ mod tests {
             &output,
             None,
             Input::File,
+            &mut Package::default(),
             &mut |_, result| {
                 result.unwrap();
                 reports += 1;
@@ -1166,6 +922,7 @@ mod tests {
             &output,
             None,
             Input::File,
+            &mut Package::default(),
             &mut |_, result| {
                 if let Err(error) = result {
                     errors.push(error);
@@ -1208,16 +965,16 @@ mod tests {
                     Walker {
                         output: &output,
                         audio: None,
-                        recovered: None,
+                        decoded: &mut Package::default(),
                         report: &mut |_: &str, outcome| result = outcome,
                     }
                     .member(source, &name, None, 1, Input::Member);
                     result.with_context(|| name.clone())?;
-                    let cooked: serde_json::Value = serde_json::from_slice(&fs::read(
-                        output.join(&name).join("animation.json"),
-                    )?)?;
+                    let cooked: crate::animation::AuthoredAnimation = serde_json::from_slice(
+                        &fs::read(output.join(&name).join("animation.json"))?,
+                    )?;
                     ensure!(
-                        cooked == crate::animation::unbound_indexed(source)?,
+                        serde_json::to_value(cooked)? == crate::animation::unbound_indexed(source)?,
                         "{name}: cooked animation differs from source"
                     );
                     members += 1;
@@ -1324,7 +1081,7 @@ mod tests {
             Walker {
                 output: &output,
                 audio: None,
-                recovered: None,
+                decoded: &mut Package::default(),
                 report: &mut report,
             }
             .model(bytes, name, None)?;

@@ -13,7 +13,7 @@ use resonance_content::{SceneClip, ScenePart};
 use serde::de::DeserializeOwned;
 #[cfg(test)]
 use std::fs;
-use std::{path::Path, sync::Arc};
+use std::{borrow::Cow, path::Path, sync::Arc};
 
 // Background, secondary background, foreground and translucent scenery, in draw order.
 const FIELD_LAYERS: [usize; 4] = [0, 10, 12, 2];
@@ -23,7 +23,7 @@ pub(crate) struct Map<'a> {
     directory: String,
     sections: FieldDirectory,
     archive: Arc<crate::field::MapArchive>,
-    recovered: Option<&'a super::recovered::RecoveredModels>,
+    pub(crate) decoded: Cow<'a, super::decoded::Package>,
     pub(crate) source_sha256: String,
 }
 
@@ -179,25 +179,28 @@ pub(crate) fn bindings(root: &Path, directory: &str, part: &ScenePart) -> Result
 
 impl<'a> Map<'a> {
     pub(crate) fn open(root: &'a Path, source: &Path) -> Result<Self> {
-        Self::new(
+        let archive = Arc::new(crate::field::MapArchive::open(source)?);
+        let decoded = super::decoded::Package::cook(
+            &archive.bytes,
+            &format!("assets/{}/{}", archive.source_sha256, archive.member),
             root,
-            Arc::new(crate::field::MapArchive::open(source)?),
-            None,
-        )
+            crate::all_assets::geometry::Input::Field,
+        )?;
+        Self::new(root, archive, Cow::Owned(decoded))
     }
 
     pub(crate) fn from_archive(
         root: &'a Path,
         archive: Arc<crate::field::MapArchive>,
-        recovered: &'a super::recovered::RecoveredModels,
+        decoded: &'a super::decoded::Package,
     ) -> Result<Self> {
-        Self::new(root, archive, Some(recovered))
+        Self::new(root, archive, Cow::Borrowed(decoded))
     }
 
     fn new(
         root: &'a Path,
         archive: Arc<crate::field::MapArchive>,
-        recovered: Option<&'a super::recovered::RecoveredModels>,
+        decoded: Cow<'a, super::decoded::Package>,
     ) -> Result<Self> {
         let sections = FieldDirectory::new(&archive.bytes, &archive.sections);
         sections.validate()?;
@@ -207,7 +210,7 @@ impl<'a> Map<'a> {
             source_sha256: archive.source_sha256.clone(),
             sections,
             archive,
-            recovered,
+            decoded,
         })
     }
 
@@ -301,7 +304,7 @@ impl<'a> Map<'a> {
             .optional_section(index + 1)
             .map(|bytes| self.read_animation(bytes))
             .transpose()?;
-        let mut models = super::source::Models::with_recovered(self.root, self.recovered);
+        let mut models = super::source::Models::new(self.root, &self.decoded);
         models.add(
             &format!("field/{index}"),
             source,
@@ -332,7 +335,7 @@ impl<'a> Map<'a> {
             },
         )?;
         let layer = models
-            .finish()?
+            .finish()
             .pop()
             .context("missing prepared field layer")?;
         Ok((layer.part, layer.glb))
@@ -370,7 +373,7 @@ impl<'a> Map<'a> {
             }
             member(0)?
         };
-        let mut models = super::source::Models::with_recovered(self.root, self.recovered);
+        let mut models = super::source::Models::new(self.root, &self.decoded);
         models.add(
             &format!("title/{index}"),
             model,
@@ -394,7 +397,7 @@ impl<'a> Map<'a> {
             },
         )?;
         let layer = models
-            .finish()?
+            .finish()
             .pop()
             .context("missing prepared title layer")?;
         Ok((layer.part, layer.glb))
@@ -422,7 +425,7 @@ impl<'a> Map<'a> {
     }
 
     fn read_animation(&self, bytes: &[u8]) -> Result<Arc<AuthoredAnimation>> {
-        super::recovered::animation(bytes, self.recovered)
+        self.decoded.animation(bytes)
     }
 }
 
@@ -523,10 +526,6 @@ mod tests {
                     }));
                 }
             }
-            assert!(
-                !output.path().join("assets").exists(),
-                "scenery transformation published an intermediate resource"
-            );
             let [script, messages] = map.publish_script()?;
             assert_eq!(
                 fs::read(output.path().join(script))?,
@@ -554,7 +553,6 @@ mod tests {
             library.join("sources.json"),
             stage.path().join("sources.json"),
         )?;
-        std::os::unix::fs::symlink(library.join("assets"), stage.path().join("assets"))?;
         Ok(stage)
     }
 
@@ -608,12 +606,18 @@ mod tests {
         for disc in [1, 2] {
             let extracted = local.join(format!("extracted/disc{disc}"));
             let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
-            let mut resources =
-                crate::field_resources::binding::Resources::open(&extracted, &catalogue)?;
             for id in [330, 340] {
                 let source = crate::field::source_for_id(&extracted, id)?;
                 let map = crate::field::MapArchive::open(&source)?;
                 let declarations = crate::field_resources::declarations(map.section(6)?)?;
+                let decoded = super::super::decoded::Package::field_dependencies(
+                    &extracted,
+                    cooked,
+                    &catalogue,
+                    &declarations.resources,
+                )?;
+                let mut resources =
+                    crate::field_resources::binding::Resources::decoded(&catalogue, &decoded);
                 let sources =
                     crate::character::Sources::read(&mut resources, &declarations.resources)?;
                 let clips = &sources.animations;

@@ -1,7 +1,4 @@
-use super::{
-    PLAYBACK_RATE, SAMPLE_RATE, Workspace, hash_file, json_file, valid_asset, wav_frames,
-    write_json,
-};
+use super::{PLAYBACK_RATE, SAMPLE_RATE, Workspace, hash_file, wav_frames, write_json};
 use anyhow::Result;
 use resonance_asset_writer::wav::write_pcm16;
 use resonance_audio::cue::package::{Asset, Manifest, Sample};
@@ -19,26 +16,7 @@ pub(crate) fn prepare_title_sounds(workspace: Workspace, coefficients: &Path) ->
     let auxiliary_reverbs = super::music::title_reverbs(&executable_bytes)?;
     let ids = [("navigate", 1), ("confirm", 2), ("back", 3), ("error", 4)];
     let pools = crate::media::library::Pools::read(&workspace.extracted)?;
-    let recipe = json!({"version": 9, "bank_sha256": hash_file(&bank_path)?,
-        "executable_sha256": hash_file(&executable)?, "bank_pool_sha256":pools.fingerprint()?, "auxiliary_reverbs": auxiliary_reverbs,
-        "renderer": "resonance-audio-cook",
-        "rust_renderer_sha256": hash_file(&std::env::current_exe()?)?,
-        "coefficients_sha256":hash_file(coefficients)?,
-        "ids": ids.into_iter().collect::<BTreeMap<_,_>>(), "synthesis_rate": SAMPLE_RATE, "sample_rate": PLAYBACK_RATE});
     let metadata = workspace.output.join("title-sounds.json");
-    if let Some(previous) = json_file(&metadata)
-        && previous["version"] == 3
-        && previous["recipe"] == recipe
-        && previous["path"] == "audio/menu-cues.json"
-        && valid_asset(&workspace.output, &previous)
-        && serde_json::from_value::<resonance_content::TitleSounds>(previous).is_ok_and(|sounds| {
-            sounds.validate().is_ok()
-                && Manifest::load(&workspace.output, &sounds.path, &sounds.sha256).is_ok()
-        })
-    {
-        println!("Title sounds are current");
-        return Ok(());
-    }
     let bytes = fs::read(&bank_path)?;
     let bank = pools.bank(&bytes)?;
     let coefficients = fs::read(coefficients)?;
@@ -123,7 +101,7 @@ pub(crate) fn prepare_title_sounds(workspace: Workspace, coefficients: &Path) ->
     Manifest::load(&workspace.output, path, &sha256)?;
     write_json(
         &metadata,
-        &json!({"version": 3, "recipe": recipe, "path": path, "sha256":sha256, "previews": previews}),
+        &json!({"version": 3, "path": path, "sha256":sha256, "previews": previews}),
     )?;
     println!(
         "Cooked {} menu cues with live controls and isolated previews",

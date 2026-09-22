@@ -26,7 +26,6 @@ enum Status {
 pub(crate) struct Client {
     root: PathBuf,
     events: Sender<Event>,
-    receipt: Option<Sender<(PathBuf, String)>>,
 }
 
 thread_local! {
@@ -46,60 +45,6 @@ impl Drop for Scope {
     fn drop(&mut self) {
         CURRENT.replace(self.0.take());
     }
-}
-
-pub(crate) fn without_capture() -> Scope {
-    let client = current().map(|mut client| {
-        client.receipt = None;
-        client
-    });
-    inherit(client)
-}
-
-pub(crate) struct Capture {
-    scope: Scope,
-    events: Receiver<(PathBuf, String)>,
-}
-
-impl Capture {
-    pub(crate) fn start() -> Result<Self> {
-        let mut client = current().context("publication capture needs a session")?;
-        let (sender, events) = mpsc::channel();
-        client.receipt = Some(sender);
-        Ok(Self {
-            scope: inherit(Some(client)),
-            events,
-        })
-    }
-
-    pub(crate) fn finish(self) -> Result<BTreeMap<PathBuf, String>> {
-        drop(self.scope);
-        let mut files = BTreeMap::new();
-        loop {
-            match self.events.try_recv() {
-                Ok((path, hash)) => {
-                    files.insert(path, hash);
-                }
-                Err(mpsc::TryRecvError::Disconnected) => break,
-                Err(mpsc::TryRecvError::Empty) => {
-                    anyhow::bail!("publication worker outlived its package")
-                }
-            }
-        }
-        // Only a completed child forwards its outputs to the enclosing receipt.
-        for (path, hash) in &files {
-            record(path, hash);
-        }
-        Ok(files)
-    }
-}
-
-fn record(path: &Path, hash: &str) {
-    CURRENT.with_borrow(|client| {
-        if let Some(sender) = client.as_ref().and_then(|client| client.receipt.as_ref()) {
-            let _ = sender.send((path.to_owned(), hash.to_owned()));
-        }
-    });
 }
 
 pub(crate) struct Session {
@@ -134,7 +79,6 @@ impl Session {
             scope: Some(inherit(Some(Client {
                 root,
                 events: events.clone(),
-                receipt: None,
             }))),
             events,
             worker: Some(worker),
@@ -223,7 +167,7 @@ impl Drop for Permit {
 }
 
 impl Client {
-    fn claim(&self, path: &Path, hash: &str) -> Result<(PathBuf, Option<Permit>)> {
+    fn claim(&self, path: &Path, hash: &str) -> Result<Option<Permit>> {
         // Resolve existing parents, including aliases, before the final file exists.
         let path = path
             .parent()
@@ -251,10 +195,9 @@ impl Client {
             .recv()
             .context("publication coordinator stopped")?
             .map_err(anyhow::Error::msg)?;
-        let permit = owner.then(|| Permit {
-            owner: Some((self.events.clone(), path.clone())),
-        });
-        Ok((path, permit))
+        Ok(owner.then(|| Permit {
+            owner: Some((self.events.clone(), path)),
+        }))
     }
 }
 
@@ -262,22 +205,15 @@ impl Client {
 /// acquire another destination or schedule dependent work inside `install`.
 pub(crate) fn publish(path: &Path, hash: &str, install: impl FnOnce() -> Result<()>) -> Result<()> {
     if let Some(client) = current() {
-        let (path, permit) = client.claim(path, hash)?;
-        if let Some(permit) = permit {
+        if let Some(permit) = client.claim(path, hash)? {
             let result = install();
             permit.finish(&result);
             result?;
         }
-        record(&path, hash);
     } else {
         install()?;
     }
     Ok(())
-}
-
-/// Register a final file whose hash was already verified, including cache hits.
-pub(crate) fn verified(path: &Path, hash: &str) -> Result<()> {
-    publish(path, hash, || Ok(()))
 }
 
 /// A completed final file, valid for this cooking session. No encoded payload is retained.
@@ -292,9 +228,6 @@ impl File {
         fs::create_dir_all(path.parent().context("path has no parent")?)?;
         let hash = crate::digest(bytes);
         publish(path, &hash, || {
-            if fs::read(path).is_ok_and(|existing| existing == bytes) {
-                return Ok(());
-            }
             let temporary = crate::temporary_path(path);
             let result = (|| -> Result<()> {
                 let mut file = fs::File::create(&temporary)?;
@@ -317,9 +250,7 @@ impl File {
     /// Install another final name without invoking its encoder or asset reader.
     pub(crate) fn share(&self, destination: &Path) -> Result<Self> {
         let destination = std::path::absolute(destination)?;
-        if destination == self.path {
-            verified(&destination, &self.hash)?;
-        } else {
+        if destination != self.path {
             fs::create_dir_all(destination.parent().context("path has no parent")?)?;
             let temporary = crate::temporary_path(&destination);
             let linked =
@@ -368,14 +299,11 @@ mod tests {
     fn completed_files_share_atomic_destinations_without_reencoding() -> Result<()> {
         let root = tempfile::tempdir()?;
         let _session = Session::start(root.path())?;
-        let outer = Capture::start()?;
         let source = root.path().join("source");
         let target = root.path().join("aliases/target");
-        let nested = Capture::start()?;
         let file = File::write(&source, b"encoded asset")?;
         file.share(&source)?;
         file.share(&target)?;
-        let expected = nested.finish()?;
         assert_eq!(fs::read(&target)?, b"encoded asset");
         #[cfg(unix)]
         {
@@ -384,15 +312,6 @@ mod tests {
         }
         assert!(File::write(&target, b"conflict").is_err());
         assert_eq!(fs::read_dir(target.parent().unwrap())?.count(), 1);
-        let abandoned = Capture::start()?;
-        File::write(&root.path().join("abandoned"), b"not a completed package")?;
-        drop(abandoned);
-        let unfinished = Capture::start()?;
-        File::write(&root.path().join("unfinished"), b"worker still alive")?;
-        let worker = current();
-        assert!(unfinished.finish().is_err());
-        drop(worker);
-        assert_eq!(outer.finish()?, expected);
         Ok(())
     }
 
@@ -448,7 +367,7 @@ mod tests {
         let session = Session::start(&root)?;
         let client = current().unwrap();
         let target = root.join("failed");
-        let owner = client.claim(&target, "hash")?.1.unwrap();
+        let owner = client.claim(&target, "hash")?.unwrap();
         let (reply, waiter) = mpsc::channel();
         client
             .events

@@ -1,9 +1,8 @@
 //! Relocatable models: a fixed node table, a linked hierarchy and packed labels.
 
-use crate::read::{u16 as half, u32 as word, unreferenced_ranges};
+use crate::read::{u16 as half, u32 as word};
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
-use std::ops::Range;
 
 const HEADER_SIZE: usize = 0x20;
 const NODE_SIZE: usize = 0x1c;
@@ -40,8 +39,6 @@ pub(crate) struct Model {
     /// Packed labels and nodes share the native depth-first construction order.
     pub names: Option<Vec<String>>,
     pub nodes: Vec<Node>,
-    /// Nonzero storage outside the structures read by the model API, blob-relative.
-    pub unreferenced_ranges: Vec<Range<usize>>,
 }
 
 impl Model {
@@ -58,7 +55,6 @@ impl Model {
             names_offset == 0 || name_table_metadata != 0,
             "model names offset has no relocation metadata"
         );
-        let mut covered = vec![0..end];
         let node_index = |pointer: u32| -> Result<usize> {
             let offset = pointer as usize;
             ensure!(
@@ -81,7 +77,6 @@ impl Model {
                 let data = bytes
                     .get(start..end)
                     .context("model transform exceeds resource")?;
-                covered.push(start..end);
                 data.chunks_exact(4)
                     .map(|word| u32::from_be_bytes(word.try_into().unwrap()))
                     .collect()
@@ -127,9 +122,8 @@ impl Model {
             nodes.len() == count,
             "model hierarchy has unreachable nodes"
         );
-        let name =
-            names(bytes, name_offset as usize, 1, &mut covered)?.and_then(|mut names| names.pop());
-        let names = names(bytes, names_offset as usize, count, &mut covered)?;
+        let name = names(bytes, name_offset as usize, 1)?.and_then(|mut names| names.pop());
+        let names = names(bytes, names_offset as usize, count)?;
         Ok(Self {
             field4: half(bytes, 4)?,
             field8: word(bytes, 8)?,
@@ -142,17 +136,11 @@ impl Model {
             name,
             names,
             nodes,
-            unreferenced_ranges: unreferenced_ranges(bytes, covered),
         })
     }
 }
 
-fn names(
-    bytes: &[u8],
-    offset: usize,
-    count: usize,
-    covered: &mut Vec<Range<usize>>,
-) -> Result<Option<Vec<String>>> {
+fn names(bytes: &[u8], offset: usize, count: usize) -> Result<Option<Vec<String>>> {
     if offset == 0 {
         return Ok(None);
     }
@@ -160,7 +148,6 @@ fn names(
     let names = (0..count)
         .map(|_| label(&mut remaining))
         .collect::<Result<_>>()?;
-    covered.push(offset..bytes.len() - remaining.len());
     Ok(Some(names))
 }
 
@@ -222,20 +209,19 @@ mod tests {
 
     #[test]
     fn names_keep_empty_entries_and_reject_truncated_present_tables() -> Result<()> {
-        let mut covered = Vec::new();
         assert_eq!(
-            names(b"x\0\0tail\0", 1, 3, &mut covered)?,
+            names(b"x\0\0tail\0", 1, 3)?,
             Some(vec!["".into(), "".into(), "tail".into()])
         );
-        assert_eq!(names(b"unused", 0, 3, &mut covered)?, None);
-        assert!(names(b"unused", 6, 3, &mut covered).is_err());
-        assert!(names(b"x\0tail", 1, 2, &mut covered).is_err());
-        assert!(names(b"x\0", 1, 2, &mut covered).is_err());
+        assert_eq!(names(b"unused", 0, 3)?, None);
+        assert!(names(b"unused", 6, 3).is_err());
+        assert!(names(b"x\0tail", 1, 2).is_err());
+        assert!(names(b"x\0", 1, 2).is_err());
         Ok(())
     }
 
     #[test]
-    fn coverage_keeps_unreferenced_data_and_merges_shared_storage() -> Result<()> {
+    fn names_and_transforms_can_alias() -> Result<()> {
         let mut bytes = vec![0; 160];
         for (at, value) in [
             (0, 0x007b_7960u32),
@@ -258,10 +244,6 @@ mod tests {
         assert_eq!(model.name.as_deref(), Some(r"ｵ\\"));
         assert_eq!(model.names.as_ref().unwrap(), &[r"ｵ\\", "ab"]);
         assert_eq!(model.nodes[0].data_words, model.nodes[1].data_words);
-        assert_eq!(model.unreferenced_ranges, [88..96, 154..160]);
-        bytes[90] = 0;
-        bytes[158] = 0;
-        assert!(Model::parse(&bytes)?.unreferenced_ranges.is_empty());
         Ok(())
     }
 }

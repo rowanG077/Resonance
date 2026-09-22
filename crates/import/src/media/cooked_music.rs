@@ -1,4 +1,4 @@
-use super::{PLAYBACK_RATE, Workspace, hash_file, json_file, valid_asset, write_json};
+use super::{PLAYBACK_RATE, Workspace, hash_file, write_json};
 use anyhow::Result;
 use resonance_asset_writer::wav::write_pcm16;
 use resonance_audio::{package::Package, sequence, volume};
@@ -12,28 +12,13 @@ pub(crate) fn prepare_title_audio(workspace: Workspace, coefficients: &Path) -> 
     let pools = crate::media::library::Pools::read(&workspace.extracted)?;
     let package =
         super::music_library::package(&workspace, &executable, &coefficients, &pools, 1, None)?;
-    let recipe = json!({"version":6,"compiler":"resonance-audio-cook",
-        "compiler_sha256":hash_file(&std::env::current_exe()?)?,
-        "package_sha256":crate::digest(&serde_json::to_vec(&package)?),
-        "sample_rate":PLAYBACK_RATE,"setup":1,"package_version":resonance_audio::package::VERSION});
     let metadata = workspace.output.join("title-audio.json");
-    if let Some(previous) = json_file(&metadata)
-        && previous["recipe"] == recipe
-        && previous["version"] == 3
-        && previous["path"] == "audio/title-music.json"
-        && valid_asset(&workspace.output, &previous)
-        && Package::load(&workspace.output, "audio/title-music.json").is_ok()
-    {
-        println!("Title music package is current");
-        return Ok(());
-    }
     let path = workspace.output.join("audio/title-music.json");
     super::field_audio::write_package(&workspace, "audio/title-music.json", &package)?;
     write_json(
         &metadata,
         &json!({"version":3,"path":"audio/title-music.json",
-        "sha256":hash_file(&path)?,"sample_rate":PLAYBACK_RATE,"channels":2,
-        "recipe_sha256":crate::digest(&serde_json::to_vec(&recipe)?),"recipe":recipe}),
+        "sha256":hash_file(&path)?,"sample_rate":PLAYBACK_RATE,"channels":2}),
     )?;
     println!(
         "Bound {} instrument programs and {} shared samples, without playback",

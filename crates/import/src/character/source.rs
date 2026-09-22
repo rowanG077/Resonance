@@ -31,18 +31,15 @@ pub(super) fn unbound(
     output: &Path,
     resource: u32,
     package: &[u8],
-    recovered: Option<&crate::scene::recovered::RecoveredModels>,
+    decoded: &crate::scene::decoded::Package,
     files: &mut std::collections::BTreeSet<String>,
 ) -> Result<Option<resonance_content::field::UnboundGeometry>> {
-    let Some(recovered) = recovered else {
-        return Ok(None);
-    };
     let layers = layers(package)?;
     let models = layers
         .iter()
         .map(|layer| {
             let normalized = super::texture_palette(layers[0], layer)?;
-            recovered
+            decoded
                 .get(&normalized)
                 .context("field geometry was not supplied by its decode job")
         })
@@ -64,11 +61,11 @@ pub(crate) fn cook_parts(
     name: &str,
     package: &[u8],
     clips: &[Clip<'_>],
-    recovered: Option<&crate::scene::recovered::RecoveredModels>,
+    decoded: &crate::scene::decoded::Package,
 ) -> Result<Vec<ScenePart>> {
     let layers = layers(package)?;
     let primary = layers[0];
-    let mut models = Models::with_recovered(output, recovered);
+    let mut models = Models::new(output, decoded);
     for (index, original) in layers.into_iter().enumerate() {
         models.add(
             &format!("{name}/{index}"),
@@ -97,7 +94,7 @@ pub(crate) fn cook_parts(
         )?;
     }
     Ok(models
-        .finish()?
+        .finish()
         .into_iter()
         .map(|layer| layer.part)
         .collect())
@@ -127,16 +124,16 @@ fn original_party_geometry_dag_never_reopens_cooked_intermediates() -> Result<()
             .context("missing representative party animation")?;
         let clip = super::decode_clip(&bank[range])?;
         let actual_root = tempfile::tempdir()?;
-        let mut recovered = crate::scene::recovered::RecoveredModels::default();
+        let mut decoded = crate::scene::decoded::Package::default();
         for (name, bytes) in [("body", bytes.as_slice()), ("motion", bank.as_slice())] {
             let mut failures = Vec::new();
-            assert!(geometry::cook_recovered(
+            assert!(geometry::cook(
                 bytes,
                 name,
                 actual_root.path(),
                 None,
                 geometry::Input::File,
-                &mut recovered,
+                &mut decoded,
                 &mut |path, result| {
                     if let Err(error) = result {
                         failures.push(format!("{path}: {error:#}"));
@@ -145,10 +142,10 @@ fn original_party_geometry_dag_never_reopens_cooked_intermediates() -> Result<()
             ));
             assert!(failures.is_empty(), "{}", failures.join("\n"));
         }
-        let authored = recovered.animation(&clip)?;
+        let authored = decoded.animation(&clip)?;
         assert!(std::sync::Arc::ptr_eq(
             &authored,
-            &recovered.animation(&clip)?
+            &decoded.animation(&clip)?
         ));
         let clips = [Clip {
             slot: (4 + slot * 4).try_into()?,
@@ -156,13 +153,7 @@ fn original_party_geometry_dag_never_reopens_cooked_intermediates() -> Result<()
             animation: &authored,
         }];
         let expected_root = tempfile::tempdir()?;
-        let actual = cook_parts(
-            actual_root.path(),
-            "party",
-            &bytes,
-            &clips,
-            Some(&recovered),
-        )?;
+        let actual = cook_parts(actual_root.path(), "party", &bytes, &clips, &decoded)?;
         assert!(!actual_root.path().join("assets").exists());
         let mut failures = Vec::new();
         assert!(geometry::cook(
@@ -171,6 +162,7 @@ fn original_party_geometry_dag_never_reopens_cooked_intermediates() -> Result<()
             expected_root.path(),
             None,
             geometry::Input::File,
+            &mut crate::scene::decoded::Package::default(),
             &mut |path, result| {
                 if let Err(error) = result {
                     failures.push(format!("{path}: {error:#}"));
@@ -221,15 +213,15 @@ fn original_caller_palettes_remain_explicit_without_discarding_geometry() -> Res
         let archive =
             crate::field::MapArchive::open(&crate::field::source_for_id(&extracted, id)?)?;
         let package = archive.section(16)?;
-        let mut recovered = crate::scene::recovered::RecoveredModels::default();
+        let mut decoded = crate::scene::decoded::Package::default();
         let mut failures = Vec::new();
-        assert!(geometry::cook_recovered(
+        assert!(geometry::cook(
             package,
             "source",
             output.path(),
             None,
             geometry::Input::Member,
-            &mut recovered,
+            &mut decoded,
             &mut |path, result| {
                 if let Err(error) = result {
                     failures.push(format!("{path}: {error:#}"));
@@ -238,14 +230,8 @@ fn original_caller_palettes_remain_explicit_without_discarding_geometry() -> Res
         ));
         assert!(failures.is_empty(), "{}", failures.join("\n"));
         let mut files = BTreeSet::new();
-        let geometry = unbound(
-            output.path(),
-            0xffee0000,
-            package,
-            Some(&recovered),
-            &mut files,
-        )?
-        .context("caller palette requirement was lost")?;
+        let geometry = unbound(output.path(), 0xffee0000, package, &decoded, &mut files)?
+            .context("caller palette requirement was lost")?;
         assert_eq!(geometry.scenes.len(), 1);
         let scene: Scene =
             serde_json::from_slice(&fs::read(output.path().join(&geometry.scenes[0]))?)?;

@@ -34,7 +34,7 @@ unchanged by model behavior.
 
 The entire standard library lives in `std/`, including readable model node
 constants and an index linking monster and figurine records to shared node modules.
-Cooking copies these files unchanged. Physical packages link known modules through
-`nodes.md`; new model layouts do not require a library entry to cook or run.
+Cooking copies these files unchanged. New model layouts do not require a library
+entry to cook or run.
 The checker uses checked-in sources by default. With `--assets`, and at runtime,
 `std::` comes exclusively from cooked resources, ignoring any local replacements.

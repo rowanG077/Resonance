@@ -23,7 +23,7 @@ pub(crate) mod title_catalogue;
 pub(crate) mod ui_style;
 pub(crate) mod world_map;
 
-use super::{geometry, pool};
+use super::geometry;
 use crate::{dol, read::u32 as word, tpl, write_atomic};
 use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeMap, fs, path::Path};
@@ -44,16 +44,14 @@ macro_rules! ordered {
 }
 pub(crate) use ordered;
 
-/// Shared for every extracted source in one cook. Changed inputs retain their
-/// own namespace instead of replacing an earlier source's named publications.
+/// Share identical disc resources within this cook; preserve changed variants.
 #[derive(Default)]
-pub(crate) struct Cache {
-    first: BTreeMap<String, String>,
-    completed: BTreeMap<(String, String), Sources>,
+pub(crate) struct Publications {
+    completed: BTreeMap<String, Vec<(String, Sources)>>,
     pub hits: usize,
 }
 
-impl Cache {
+impl Publications {
     fn cook(
         &mut self,
         name: &str,
@@ -61,16 +59,12 @@ impl Cache {
         output: &Path,
         cook: impl FnOnce(&Path) -> Result<Sources>,
     ) -> Result<Sources> {
-        let identity = (name.to_owned(), key.clone());
-        if let Some(sources) = self.completed.get(&identity) {
+        let variants = self.completed.entry(name.to_owned()).or_default();
+        if let Some((_, sources)) = variants.iter().find(|(hash, _)| *hash == key) {
             self.hits += 1;
             return Ok(sources.clone());
         }
-        let first = self
-            .first
-            .entry(name.to_owned())
-            .or_insert_with(|| key.clone());
-        let prefix = if *first == key {
+        let prefix = if variants.is_empty() {
             String::new()
         } else {
             format!("variants/{key}/")
@@ -79,7 +73,7 @@ impl Cache {
         for path in sources.values_mut().flatten() {
             path.insert_str(0, &prefix);
         }
-        self.completed.insert(identity, sources.clone());
+        variants.push((key, sources.clone()));
         Ok(sources)
     }
 }
@@ -91,7 +85,7 @@ fn fingerprint(parts: &[String]) -> Result<String> {
 #[test]
 fn shared_cook_reuses_sources_and_keeps_changed_dependencies_separate() -> Result<()> {
     let output = crate::temporary_path(&std::env::temp_dir().join("shared-embedded"));
-    let mut cache = Cache::default();
+    let mut cache = Publications::default();
     let mut calls = 0;
     let mut results = Vec::new();
     for dependency in ["first", "first", "changed", "changed"] {
@@ -127,120 +121,101 @@ fn font_file(name: &str) -> bool {
     name.ends_with("fontb0.dat") || name.ends_with("fontb1.dat")
 }
 
-/// Publish independent tables, then assemble the menu from its completed inputs.
+pub(crate) struct Catalogues {
+    pub menu: crate::menu::Inputs,
+    pub resources: crate::resource::Catalogue,
+    pub figurines: figurine_catalogue::Catalogue,
+    pub monsters: monster_catalogue::Catalogue,
+    menu_source: crate::menu::Source,
+}
+
+impl Catalogues {
+    pub(crate) fn read(executable: &[u8]) -> Result<Self> {
+        Ok(Self {
+            menu: crate::menu::Inputs::read(executable)?,
+            resources: crate::resource::read(executable)?,
+            figurines: figurine_catalogue::read(executable)?,
+            monsters: monster_catalogue::read(executable)?,
+            menu_source: crate::menu::Source::read(executable)?,
+        })
+    }
+
+    pub(crate) fn field_phases(&self) -> &crate::field_catalogue::Phases {
+        &self.menu_source.phases
+    }
+
+    pub(crate) fn menu(&self) -> Result<crate::menu::Tables> {
+        crate::menu::assemble(&self.menu_source, &self.menu)
+    }
+}
+
 pub(crate) fn cook_tables(
     dol: &Path,
     executable: &[u8],
+    catalogues: &Catalogues,
     output: &Path,
-    workers: usize,
     report: &mut impl FnMut(&str, Result<()>),
 ) -> Result<Vec<String>> {
-    // Conservative bounds for these fixed executable tables, including decoded
-    // strings and serialization scratch; the borrowed executable is caller-owned.
-    const MEMORY_BUDGET: usize = 512 * 1024 * 1024;
-    const RECEIPT_BYTES: usize = 4096;
-    let table_bytes = executable
-        .len()
-        .checked_mul(4)
-        .context("table memory estimate overflow")?;
     let source_hash = crate::digest(executable);
-    let mut dag = pool::Dag::new();
-    let source = dag.add("decode/menu", [], |_, _| {
-        crate::menu::Source::read(executable)
-    });
-    dag.estimate(source, table_bytes, table_bytes)?;
     let module = dol
         .file_name()
         .and_then(|name| name.to_str())
         .context("invalid executable filename")?;
-    let mut publications = Vec::new();
-    macro_rules! menu_inputs {
-        ($($field:ident: $family:literal => $reader:path),+ $(,)?) => {{
-            $(let $field = dag.add(concat!("decode/", $family), [], |_, _| $reader(executable));
-            dag.estimate($field, table_bytes, table_bytes)?;
-            let publication = dag.add($family, [$field.dependency()], {
-                let source_hash = &source_hash;
-                move |_, inputs| crate::embedded::write_source(
-                    module, source_hash, output, $family, inputs.get($field)?.as_ref(),
-                )
-            });
-            dag.estimate(publication, RECEIPT_BYTES, table_bytes)?;
-            publications.push(publication);)+
-            dag.add("assemble/menu", [source.dependency(), $($field.dependency()),+], move |_, resolver| {
-                $(let $field = resolver.get($field)?;)+
-                crate::menu::assemble(resolver.get(source)?.as_ref(), crate::menu::Inputs { $($field: &$field),+ })
-            })
-        }};
-    }
-    let menu = menu_inputs! {
-        arte: "arte-catalogue" => crate::arte::read,
-        items: "item-catalogue" => crate::item::read,
-        characters: "character-catalogue" => crate::character_data::read,
-        inventory: "inventory-ui" => inventory_ui::read,
-        technique: "technique-ui" => technique_ui::read,
-        status: "status-ui" => status_ui::read,
-        strategy: "strategy-ui" => strategy_ui::read,
-        cooking: "cooking-ui" => cooking_ui::read,
-        options: "options-ui" => options_ui::read,
-        ex_skills: "ex-skills" => ex_skills::read,
-        rename: "rename-ui" => rename_ui::read,
-        synopsis: "synopsis-manual" => synopsis::read,
-        world: "world-map" => world_map::read,
-        titles: "title-catalogue" => title_catalogue::read,
-        save: "save-menu" => save_menu::read,
-        shop: "shop-ui" => shop_ui::read,
-        style: "ui-style" => ui_style::read,
+    let mut paths = Vec::new();
+    let mut publish = |family: &str, result: Result<Vec<String>>| {
+        report(
+            &format!("sys/main.dol/{family}"),
+            result.map(|outputs| paths.extend(outputs)),
+        );
     };
-    dag.estimate(menu, table_bytes, table_bytes)?;
-    let publication = dag.add("menu", [menu.dependency()], move |_, inputs| {
-        let path = "embedded/menu/tables.json";
-        write_atomic(
-            &output.join(path),
-            &serde_json::to_vec(inputs.get(menu)?.as_ref())?,
-        )?;
-        Ok(vec![path.into()])
-    });
-    dag.estimate(publication, RECEIPT_BYTES, table_bytes)?;
-    publications.push(publication);
+    macro_rules! tables {
+        ($($family:literal => $table:expr),+ $(,)?) => {
+            $(publish($family, crate::embedded::write_source(
+                module, &source_hash, output, $family, $table,
+            ));)+
+        };
+    }
+    let menu = &catalogues.menu;
+    tables! {
+        "arte-catalogue" => &menu.arte,
+        "item-catalogue" => &menu.items,
+        "character-catalogue" => &menu.characters,
+        "inventory-ui" => &menu.inventory,
+        "technique-ui" => &menu.technique,
+        "status-ui" => &menu.status,
+        "strategy-ui" => &menu.strategy,
+        "cooking-ui" => &menu.cooking,
+        "options-ui" => &menu.options,
+        "ex-skills" => &menu.ex_skills,
+        "rename-ui" => &menu.rename,
+        "synopsis-manual" => &menu.synopsis,
+        "world-map" => &menu.world,
+        "title-catalogue" => &menu.titles,
+        "save-menu" => &menu.save,
+        "shop-ui" => &menu.shop,
+        "ui-style" => &menu.style,
+        "resource-catalogue" => &catalogues.resources,
+        "figurine-catalogue" => &catalogues.figurines,
+        "monster-catalogue" => &catalogues.monsters,
+        "field-catalogue" => catalogues.field_phases(),
+    }
     let independent: &[(&str, DolPublisher)] = &[
-        ("resource-catalogue", crate::resource::cook),
         ("sound-test", sound_test::cook),
         ("grade-shop", grade_shop::cook),
         ("crafting", crafting::cook),
-        ("figurine-catalogue", figurine_catalogue::cook),
-        ("monster-catalogue", monster_catalogue::cook),
         ("record-screen", record_screen::cook),
         ("credits-resources", super::credits::cook_resources),
     ];
     for &(name, cook) in independent {
-        let publication = dag.add(name, [], move |_, _| cook(dol, executable, output));
-        dag.estimate(publication, RECEIPT_BYTES, table_bytes)?;
-        publications.push(publication);
+        publish(name, cook(dol, executable, output));
     }
-    let mut paths = Vec::new();
-    dag.run_bounded(
-        workers,
-        MEMORY_BUDGET,
-        || (),
-        |completion| {
-            for &publication in &publications {
-                if let Some(result) = completion.get(publication) {
-                    report(
-                        &format!("sys/main.dol/{}", completion.name),
-                        result.map(|outputs| paths.extend(outputs.iter().cloned())),
-                    );
-                    break;
-                }
-            }
-        },
-    )?;
     paths.sort();
     Ok(paths)
 }
 
 #[test]
 #[ignore = "requires an extracted executable; no media conversion"]
-fn failed_publication_does_not_block_in_memory_menu_assembly() -> Result<()> {
+fn failed_table_publication_does_not_block_other_catalogues() -> Result<()> {
     let file =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1/sys/main.dol");
     let executable = fs::read(&file)?;
@@ -250,14 +225,21 @@ fn failed_publication_does_not_block_in_memory_menu_assembly() -> Result<()> {
     // Force just the item publisher to fail, without corrupting other inputs.
     fs::write(output.join("embedded/item-catalogue"), b"not a directory")?;
     let mut failures = BTreeMap::new();
-    let paths = cook_tables(&file, &executable, output, 4, &mut |label, result| {
-        if let Err(error) = result {
-            failures.insert(label.to_owned(), format!("{error:#}"));
-        }
-    })?;
+    let catalogues = Catalogues::read(&executable)?;
+    let paths = cook_tables(
+        &file,
+        &executable,
+        &catalogues,
+        output,
+        &mut |label, result| {
+            if let Err(error) = result {
+                failures.insert(label.to_owned(), format!("{error:#}"));
+            }
+        },
+    )?;
     assert_eq!(failures.len(), 1, "{failures:#?}");
     assert!(failures.contains_key("sys/main.dol/item-catalogue"));
-    assert!(output.join("embedded/menu/tables.json").is_file());
+    catalogues.menu()?;
     assert!(
         paths
             .iter()
@@ -270,17 +252,17 @@ fn failed_publication_does_not_block_in_memory_menu_assembly() -> Result<()> {
 fn cook_dol(
     extracted: &Path,
     executable: &[u8],
+    catalogues: &Catalogues,
     title: &crate::scene::title::Recipe,
     output: &Path,
-    workers: usize,
     report: &mut impl FnMut(&str, Result<()>),
 ) -> Result<Sources> {
     let mut sources = Sources::new();
     let mut dol_outputs = cook_tables(
         &extracted.join("sys/main.dol"),
         executable,
+        catalogues,
         output,
-        workers,
         report,
     )?;
     for (family, result) in [
@@ -363,24 +345,24 @@ fn cook_dol(
 pub(crate) fn cook(
     extracted: &Path,
     output: &Path,
-    workers: usize,
-    cache: &mut Cache,
+    catalogues: &Catalogues,
+    executable: &[u8],
+    publications: &mut Publications,
     report: &mut impl FnMut(&str, Result<()>),
     source_hashes: &BTreeMap<String, String>,
 ) -> Result<Sources> {
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
     let file_root = extracted.join("files");
-    let directory = crate::font_directory::Directory::read(&executable)?;
+    let directory = crate::font_directory::Directory::read(executable)?;
     let startup = crate::field_resources::resolve_path(&file_root, &directory.startup)?;
-    let executable_hash = crate::digest(&executable);
-    let title = crate::scene::title::Recipe::read(extracted, &executable)?;
+    let executable_hash = crate::digest(executable);
+    let title = crate::scene::title::Recipe::read(extracted, executable)?;
     let dol_key = fingerprint(&[
         executable_hash.clone(),
         crate::media::hash_file(&file_root.join(startup))?,
         serde_json::to_string(&title)?,
     ])?;
-    let mut sources = cache.cook("dol", dol_key, output, |output| {
-        cook_dol(extracted, &executable, &title, output, workers, report)
+    let mut sources = publications.cook("dol", dol_key, output, |output| {
+        cook_dol(extracted, executable, catalogues, &title, output, report)
     })?;
     let palette = crate::digest(
         &directory
@@ -422,8 +404,8 @@ pub(crate) fn cook(
                 let bytes = fs::read(&file)?;
                 let key = fingerprint(&[crate::digest(&bytes), palette.clone()])?;
                 let group = format!("font/{key}");
-                let mut cooked = cache.cook(&group, key.clone(), output, |output| {
-                    let paths = font_atlas(&bytes, &key, &executable, output, report)?;
+                let mut cooked = publications.cook(&group, key.clone(), output, |output| {
+                    let paths = font_atlas(&bytes, &key, executable, output, report)?;
                     Ok(Sources::from([("font".into(), paths)]))
                 })?;
                 Ok(Sources::from([(
@@ -470,7 +452,7 @@ pub(crate) fn cook(
                     continue;
                 }
             };
-            let result = cache.cook(&source, key, output, |destination| {
+            let result = publications.cook(&source, key, output, |destination| {
                 let mut variant_cabinets = cabinets::Scanner::new(destination);
                 let cabinets = if destination == output {
                     &mut cabinets
@@ -537,7 +519,7 @@ pub(crate) fn cook(
                 for (family, result) in [
                     (
                         "long-range-unlocks",
-                        super::field_unlocks::cook(&file, &executable, output),
+                        super::field_unlocks::cook(&file, executable, output),
                     ),
                     (
                         "overworld-tiles",
@@ -603,6 +585,7 @@ fn scan_tpls(
             output,
             None,
             geometry::Input::File,
+            &mut crate::scene::decoded::Package::default(),
             &mut |child, result| {
                 produced |= result.is_ok();
                 report(child, result);
@@ -635,6 +618,7 @@ fn item_pictures(
                     output,
                     None,
                     geometry::Input::File,
+                    &mut crate::scene::decoded::Package::default(),
                     &mut |path, result| {
                         produced |= result.is_ok();
                         report(path, result);
