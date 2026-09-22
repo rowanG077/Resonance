@@ -212,11 +212,17 @@ pub(crate) struct Function {
     pub result: Option<TypeRef>,
     pub body: Vec<Statement>,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BindingKind {
+    Constant,
+    Asset,
+    State,
+}
 #[derive(Clone, Debug)]
 pub(crate) struct Binding {
     pub name: String,
     pub public: bool,
-    pub asset: bool,
+    pub kind: BindingKind,
     pub ty: Option<TypeRef>,
     pub value: Expr,
 }
@@ -231,7 +237,7 @@ pub(crate) struct Record {
 pub(crate) struct Enumeration {
     pub name: String,
     pub public: bool,
-    pub variants: Vec<(String, Vec<TypeRef>)>,
+    pub variants: Vec<(String, Vec<TypeRef>, Option<String>)>,
     pub at: Location,
 }
 #[derive(Clone, Debug)]
@@ -386,10 +392,12 @@ impl Parser {
             } else if self.token().is("const")
                 || self.token().is("asset")
                 || self.token().is("message")
+                || self.token().is("state")
             {
-                let asset = self.take("asset");
-                let message = !asset && self.take("message");
-                if !asset && !message {
+                let state = self.take("state");
+                let asset = !state && self.take("asset");
+                let message = !asset && !state && self.take("message");
+                if !state && !asset && !message {
                     self.expect("const")?;
                 }
                 let name = self.name()?;
@@ -429,8 +437,8 @@ impl Parser {
                 } else {
                     None
                 };
-                if asset && ty.is_none() {
-                    return Err(at.error("asset declarations require a type"));
+                if (asset || state) && ty.is_none() {
+                    return Err(at.error("asset and state declarations require a type"));
                 }
                 self.expect("=")?;
                 let value = self.expr(0)?;
@@ -438,7 +446,13 @@ impl Parser {
                 module.bindings.push(Binding {
                     name,
                     public,
-                    asset,
+                    kind: if state {
+                        BindingKind::State
+                    } else if asset {
+                        BindingKind::Asset
+                    } else {
+                        BindingKind::Constant
+                    },
                     ty,
                     value,
                 });
@@ -477,7 +491,17 @@ impl Parser {
                             }
                         }
                     }
-                    variants.push((variant, payload));
+                    let tag = if self.take("=") {
+                        let negative = self.take("-");
+                        let Kind::Number(value) = self.token().kind.clone() else {
+                            return Err(self.token().at.error("expected integer discriminant"));
+                        };
+                        self.index += 1;
+                        Some(if negative { format!("-{value}") } else { value })
+                    } else {
+                        None
+                    };
+                    variants.push((variant, payload, tag));
                     if !self.take(",") {
                         self.expect("}")?;
                         break;

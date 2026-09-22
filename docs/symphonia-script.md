@@ -64,7 +64,8 @@ Implemented language constructs:
 - `let`, `let mut`, assignment, arithmetic, bitwise and Boolean expressions.
 - `if`/`else`, `while`, `for` over integer ranges, fixed arrays or host collections,
   `break`, `continue`.
-- Fixed-layout structs, tuple-payload enums, fixed arrays and `Option<T>`.
+- Fixed-layout structs, enums with optional integer discriminants and tuple payloads,
+  fixed arrays and `Option<T>`.
 - Exhaustive statement `match`, including payload bindings and wildcard arms.
 - `i32`, `f32`, `bool`, `string`, `Ticks`, `Message`, and native-declared handles/assets.
 - Explicit `i32(...)`, `f32(...)` and `ticks(...)` conversions. `20ticks` is a
@@ -72,11 +73,44 @@ Implemented language constructs:
 - Literal/array constants, named messages and typed logical asset declarations.
 - Typed message templates with named number, character-name and item-name substitutions.
 
+Enums declare numeric identities directly: `enum Model { Portal = 1, Caravan = 11 }`.
+Omitted discriminants start at zero or increment the previous value. Discriminants
+must be unique signed 32-bit integers. A fieldless enum converts explicitly with
+`i32(value)`; integers cannot be cast into enums. Different enum types remain
+incompatible even when their discriminants coincide.
+
 Records and arrays have value semantics and compile to fixed local slots. They can
 be passed to and returned from functions. Fields and array elements can be mutated
 only through mutable locals. General dynamic lists, string manipulation,
-script-defined persistent globals, closures and recursion are not supported.
+closures and recursion are not supported.
 Nested dynamic indexing currently requires an intermediate local.
+
+Persistent variables are declared in source with an explicit type and default:
+
+```rust
+enum Stop { Triet = 54, Hima = 55 }
+state stop: Stop = Stop::Triet;
+
+pub fn move_caravan() {
+    stop = Stop::Hima;
+}
+```
+
+`state` supports `i32`, `f32`, `bool`, `Ticks` and fieldless enums. Reads and
+assignments use the declared type, including across imported library functions.
+Defaults apply to missing values; reads and writes validate saved scalar domains
+and enum discriminants. A state's qualified declaration name is its save key,
+independent of the caller's compiled program or VM instance. Names and enum
+discriminants define the saved representation; save compatibility is not guaranteed
+during pre-alpha.
+Strings, runtime handles, assets and aggregate values cannot be persisted this way.
+State is private unless exported with `pub`; it cannot initialize a constant.
+
+Game hosts preserve these values through field/world transitions and save/load.
+The VM delegates storage through `Host::load_state` and `Host::store_state`, without
+knowing game-specific variables. Hosts without persistent storage reject state
+access; the overworld's presentation refresh exposes it read-only. World entry
+hooks commit their state changes only after the complete hook succeeds.
 
 Resource names are ordinary constants, scoped by their module:
 
@@ -214,7 +248,11 @@ such as `game::text::Character`, resolve through ordinary imports.
 
 Native settings and tables can use fixed layouts: `Type::Record { name, fields }`
 declares named `NativeField { name, ty }` members, and
-`Type::Array { element, len }` declares a fixed array. Records and arrays may nest.
+`Type::Array { element, len }` declares a fixed array. `Type::Enum { name, variants }`
+uses `NativeVariant { name, tag, payload }` to expose an ADT directly. These types
+may nest. Enum values contain the declared tag, the selected payload, then zero
+padding to the widest payload. Invalid tags, payload types and padding fail at
+both host and script boundaries.
 Scripts use their ordinary value syntax, such as `settings.rows[index].age`,
 and can copy, edit and pass these values to source functions or native calls.
 Every boundary validates flattened slot counts and the nested scalar domains;
