@@ -54,8 +54,6 @@ mod tests {
         let mut bindings = CostumeBindings {
             titles: [[-1; MEMBERS]; 3],
             variants: [1, 2, 4],
-            title_storage: -2,
-            variant_storage: 255,
         };
         bindings.titles[0][0] = 2;
         bindings.titles[1][6] = 6;

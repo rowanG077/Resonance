@@ -1,5 +1,5 @@
 //! Complete synopsis records and the training manual's fixed topic grid.
-use super::text::{TextPool, TextRef, TextSource};
+use super::text::{TextPool, TextRef};
 use crate::{
     dol,
     read::{u16 as half, u32 as word},
@@ -7,7 +7,6 @@ use crate::{
 use anyhow::{Context, Result};
 use resonance_content::menu_data::{MANUAL_CHAPTERS, SYNOPSIS_COUNT};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 #[cfg(test)]
 use std::path::Path;
 
@@ -63,8 +62,6 @@ pub(crate) struct Formats {
 pub(crate) struct Manual {
     pub(crate) title: Option<TextRef>,
     pub(crate) chapters: [Chapter; MANUAL_CHAPTERS],
-    pub(crate) count_storage: [u8; 3],
-    pub(crate) flag_storage: [u8; 3],
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -86,36 +83,23 @@ pub(crate) struct Topic {
 fn paragraphs(
     texts: &mut TextPool,
     executable: &[u8],
-    start: u32,
-    bodies: &mut BTreeMap<u32, u32>,
+    mut address: u32,
 ) -> Result<Option<Vec<TextRef>>> {
-    if start == 0 {
+    if address == 0 {
         return Ok(None);
     }
-    let mut address = start;
     let mut paragraphs = Vec::new();
     loop {
-        let reference = texts.required(executable, address)?;
-        let source = &texts.sources[reference.0];
-        address = source
-            .address
-            .checked_add(source.source_size)
-            .context("manual text address overflow")?;
+        let (reference, next) = texts.read(executable, address)?;
+        address = next;
         paragraphs.push(reference);
         if dol::slice(executable, address, 1)? == [0] {
-            bodies.insert(
-                start,
-                address
-                    .checked_add(1)
-                    .context("manual text address overflow")?
-                    - start,
-            );
             return Ok(Some(paragraphs));
         }
     }
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>, Vec<TextSource>)> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut texts = TextPool::default();
     let entries = dol::slice(executable, ENTRIES, SYNOPSIS_COUNT * 24)?
         .chunks_exact(24)
@@ -134,10 +118,9 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>, Vec<TextSourc
         })
         .collect::<Result<_>>()?;
     let names = texts.array::<MANUAL_CHAPTERS>(executable, CHAPTERS)?;
-    let counts = dol::slice(executable, COUNTS, 12)?;
-    let flags = dol::slice(executable, FLAGS, 48)?;
+    let counts = dol::slice(executable, COUNTS, MANUAL_CHAPTERS)?;
+    let flags = dol::slice(executable, FLAGS, MANUAL_CHAPTERS * TOPICS_PER_CHAPTER)?;
     let topics = dol::slice(executable, TOPICS, MANUAL_CHAPTERS * TOPICS_PER_CHAPTER * 8)?;
-    let mut bodies = BTreeMap::new();
     let chapters = names
         .into_iter()
         .enumerate()
@@ -149,7 +132,7 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>, Vec<TextSourc
                     Ok(Topic {
                         name: texts.reference(executable, word(row, 0)?)?,
                         learned_flag: flags[index],
-                        paragraphs: paragraphs(&mut texts, executable, word(row, 4)?, &mut bodies)?,
+                        paragraphs: paragraphs(&mut texts, executable, word(row, 4)?)?,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?
@@ -164,70 +147,27 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>, Vec<TextSourc
         .collect::<Result<Vec<_>>>()?
         .try_into()
         .unwrap();
-    Ok((
-        Catalogue {
-            entries,
-            headings: texts.array(executable, 0x8035d8f8)?,
-            months: texts.array(executable, 0x801df814)?,
-            formats: Formats {
-                date: texts.required(executable, 0x801df844)?,
-                level: texts.required(executable, 0x8035d9a4)?,
-                position: texts.required(executable, 0x8035d9ac)?,
-            },
-            manual: Manual {
-                title: texts
-                    .reference(executable, word(dol::slice(executable, 0x8019d6f0, 4)?, 0)?)?,
-                chapters,
-                count_storage: counts[MANUAL_CHAPTERS..].try_into()?,
-                flag_storage: flags[MANUAL_CHAPTERS * TOPICS_PER_CHAPTER..].try_into()?,
-            },
-            texts: texts.values,
+    Ok(Catalogue {
+        entries,
+        headings: texts.array(executable, 0x8035d8f8)?,
+        months: texts.array(executable, 0x801df814)?,
+        formats: Formats {
+            date: texts.required(executable, 0x801df844)?,
+            level: texts.required(executable, 0x8035d9a4)?,
+            position: texts.required(executable, 0x8035d9ac)?,
         },
-        texts.sources,
-        bodies
-            .into_iter()
-            .map(|(address, source_size)| TextSource {
-                address,
-                source_size,
-            })
-            .collect(),
-    ))
-}
-
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
-    Ok(parse(executable)?.0)
-}
-
-#[cfg(test)]
-pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
-    let (catalogue, _, _) = parse(executable)?;
-    crate::embedded::write(file, output, FAMILY, &catalogue)
+        manual: Manual {
+            title: texts.reference(executable, word(dol::slice(executable, 0x8019d6f0, 4)?, 0)?)?,
+            chapters,
+        },
+        texts: texts.values,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::{collections::BTreeSet, fs};
-
-    fn original_text(text: &str) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        let mut chars = text.chars();
-        while let Some(ch) = chars.next() {
-            if matches!(ch, '\u{b}' | '\u{c}') {
-                bytes.extend([
-                    ch as u8,
-                    u8::try_from(chars.next().unwrap() as u32).unwrap(),
-                ]);
-            } else {
-                let text = ch.to_string();
-                let (encoded, _, invalid) = encoding_rs::SHIFT_JIS.encode(&text);
-                assert!(!invalid);
-                bytes.extend(encoded.as_ref());
-            }
-        }
-        bytes.push(0);
-        bytes
-    }
 
     #[test]
     #[ignore = "requires both extracted discs; only publishes JSON tables"]
@@ -239,9 +179,9 @@ mod tests {
             for disc in [1, 2] {
                 let file = local.join(format!("disc{disc}/sys/main.dol"));
                 let mut executable = fs::read(&file)?;
-                let (catalogue, sources, bodies) = parse(&executable)?;
+                let catalogue = read(&executable)?;
                 let destination = output.join(format!("disc{disc}"));
-                let paths = cook(&file, &executable, &destination)?;
+                let paths = crate::embedded::write(&file, &destination, FAMILY, &catalogue)?;
                 let restored: Catalogue =
                     serde_json::from_slice(&fs::read(destination.join(&paths[0]))?)?;
                 assert_eq!(restored, catalogue);
@@ -251,103 +191,23 @@ mod tests {
                 assert_eq!(provenance["source_sha256"], crate::digest(&executable));
                 payloads.insert(paths[0].clone());
 
-                let pointer = |reference: Option<TextRef>| {
-                    reference.map_or(0, |r| sources[r.0].address).to_be_bytes()
-                };
-                let entries: Vec<_> = restored
-                    .entries
-                    .iter()
-                    .flat_map(|row| {
-                        row.storage
-                            .to_be_bytes()
-                            .into_iter()
-                            .chain(row.location.to_be_bytes())
-                            .chain(
-                                [row.heading, row.title]
-                                    .into_iter()
-                                    .chain(row.text)
-                                    .flat_map(pointer),
-                            )
-                    })
-                    .collect();
+                assert_eq!(restored.entries.len(), SYNOPSIS_COUNT);
                 assert_eq!(
-                    entries,
-                    dol::slice(&executable, ENTRIES, SYNOPSIS_COUNT * 24)?
+                    restored
+                        .manual
+                        .chapters
+                        .iter()
+                        .map(|c| c.topic_count)
+                        .sum::<u8>(),
+                    30
                 );
-                for (address, references) in [
-                    (0x8035d8f8, restored.headings.to_vec()),
-                    (0x801df814, restored.months.to_vec()),
-                    (0x8019d6f0, vec![restored.manual.title]),
-                    (
-                        CHAPTERS,
-                        restored.manual.chapters.iter().map(|c| c.name).collect(),
-                    ),
-                ] {
-                    let bytes: Vec<_> = references.iter().copied().flat_map(pointer).collect();
-                    assert_eq!(
-                        bytes,
-                        dol::slice(&executable, address, references.len() * 4)?
-                    );
-                }
-                let counts: Vec<_> = restored
-                    .manual
-                    .chapters
-                    .iter()
-                    .map(|c| c.topic_count)
-                    .chain(restored.manual.count_storage)
-                    .collect();
-                assert_eq!(counts, dol::slice(&executable, COUNTS, 12)?);
                 let topics: Vec<_> = restored
                     .manual
                     .chapters
                     .iter()
-                    .flat_map(|c| &c.topics)
+                    .flat_map(|chapter| &chapter.topics)
                     .collect();
-                assert_eq!(topics.len(), 45);
-                let flags: Vec<_> = topics
-                    .iter()
-                    .map(|t| t.learned_flag)
-                    .chain(restored.manual.flag_storage)
-                    .collect();
-                assert_eq!(flags, dol::slice(&executable, FLAGS, 48)?);
-                let bindings: Vec<_> = topics
-                    .iter()
-                    .flat_map(|t| {
-                        pointer(t.name)
-                            .into_iter()
-                            .chain(pointer(t.paragraphs.as_ref().map(|p| p[0])))
-                    })
-                    .collect();
-                assert_eq!(bindings, dol::slice(&executable, TOPICS, 45 * 8)?);
-                for (source, text) in sources.iter().zip(&restored.texts) {
-                    assert_eq!(
-                        original_text(text),
-                        dol::slice(&executable, source.address, source.source_size as usize)?
-                    );
-                }
-                for topic in &topics {
-                    if let Some(paragraphs) = &topic.paragraphs {
-                        let start = sources[paragraphs[0].0].address;
-                        let source = bodies.iter().find(|b| b.address == start).unwrap();
-                        let bytes: Vec<_> = paragraphs
-                            .iter()
-                            .flat_map(|&r| original_text(restored.text(r)))
-                            .chain([0])
-                            .collect();
-                        assert_eq!(
-                            bytes,
-                            dol::slice(&executable, start, source.source_size as usize)?
-                        );
-                    }
-                }
-                for (reference, address) in [
-                    (restored.formats.date, 0x801df844),
-                    (restored.formats.level, 0x8035d9a4),
-                    (restored.formats.position, 0x8035d9ac),
-                ] {
-                    assert_eq!(sources[reference.0].address, address);
-                }
-                assert_eq!(counts[..MANUAL_CHAPTERS].iter().copied().sum::<u8>(), 30);
+                assert_eq!(topics.len(), MANUAL_CHAPTERS * TOPICS_PER_CHAPTER);
                 assert_eq!(
                     restored.manual.chapters[2].name,
                     restored.manual.chapters[2].topics[0].name
@@ -382,21 +242,17 @@ mod tests {
                 for (address, bytes) in [
                     (ENTRIES, vec![0xab, 0xcd, 0xff, 0xff]),
                     (COUNTS, vec![255]),
-                    (COUNTS + 9, vec![71, 72, 73]),
                     (FLAGS + 42, vec![255]),
-                    (FLAGS + 45, vec![81, 82, 83]),
                     (TOPICS + 42 * 8, vec![0; 8]),
                 ] {
                     let source = dol::slice(&executable, address, bytes.len())?;
                     let offset = source.as_ptr() as usize - executable.as_ptr() as usize;
                     executable[offset..offset + bytes.len()].copy_from_slice(&bytes);
                 }
-                let changed = parse(&executable)?.0;
+                let changed = read(&executable)?;
                 assert_eq!(changed.entries[0].storage, 0xabcd);
                 assert_eq!(changed.entries[0].location, 0xffff);
                 assert_eq!(changed.manual.chapters[0].topic_count, 255);
-                assert_eq!(changed.manual.count_storage, [71, 72, 73]);
-                assert_eq!(changed.manual.flag_storage, [81, 82, 83]);
                 let hidden = &changed.manual.chapters[8].topics[2];
                 assert_eq!(hidden.learned_flag, 255);
                 assert!(hidden.name.is_none() && hidden.paragraphs.is_none());

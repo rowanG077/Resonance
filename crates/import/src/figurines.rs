@@ -23,8 +23,7 @@ pub(crate) fn prepare(extracted: &Path, output: &Path, executable: &[u8]) -> Res
         "incomplete figurine catalogue"
     );
     let files = extracted.join("files");
-    let path =
-        crate::all_assets::roles::declared_path(&files, catalogue.text(catalogue.archive.text))?;
+    let path = crate::all_assets::roles::declared_path(&files, catalogue.text(catalogue.archive))?;
     let bytes = fs::read(files.join(path))?;
     let archive = crate::all_assets::archive_entries(&bytes).context("invalid NPC archive")?;
     let mut models = BTreeMap::new();
@@ -85,7 +84,7 @@ fn preview(
     catalogue: &Catalogue,
     behaviors: &mut crate::model_behavior::Bindings,
 ) -> Result<ModelPreview> {
-    let hidden_prefix = catalogue.text(catalogue.preview.hidden_prefix.text);
+    let hidden_prefix = catalogue.text(catalogue.preview.hidden_prefix);
     let mut parts = model.parts.clone();
     let bones = &parts[0].scene.bone_names;
     let mut hidden: BTreeSet<_> = bones

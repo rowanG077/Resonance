@@ -234,47 +234,6 @@ fn duration_conversion_and_arithmetic_fault_before_invalid_values_escape() {
 }
 
 #[test]
-fn checked_in_vector_helpers_use_normal_imports_values_and_arithmetic() {
-    let sources: BTreeMap<String, String> = BTreeMap::from([
-        (
-            "math::vec3".into(),
-            include_str!("../../../scripts/math/vec3.sym").into(),
-        ),
-        (
-            "main".into(),
-            r#"
-        script field;
-            use math::vec3;
-            pub fn main() -> [f32; 7] {
-                let a = vec3::Vec3 { x: 1.0, y: 2.0, z: 3.0 };
-                let b = vec3::Vec3 { x: 4.0, y: 6.0, z: 8.0 };
-                let perpendicular = vec3::cross(a, b);
-                let middle = vec3::lerp(a, b, 0.5);
-                return [perpendicular.x, perpendicular.y, perpendicular.z,
-                    vec3::dot(a, b), middle.x, middle.y, middle.z];
-            }
-        "#
-            .into(),
-        ),
-    ]);
-    assert_eq!(
-        format("math::vec3", &sources["math::vec3"]).unwrap(),
-        sources["math::vec3"]
-    );
-    let program = Arc::new(compile("main", &sources, &[]).unwrap().program);
-    let mut vm = Vm::new(program.clone(), program.entry()).unwrap();
-    vm.run(&mut TestHost::default(), &mut Memory::default(), 1000)
-        .unwrap();
-    let result: Vec<_> = vm
-        .result()
-        .unwrap()
-        .into_iter()
-        .map(|word| f32::from_bits(word as u32))
-        .collect();
-    assert_eq!(result, [-2.0, 4.0, -2.0, 40.0, 2.5, 4.0, 5.5]);
-}
-
-#[test]
 fn records_arrays_enums_and_options_have_value_semantics() {
     let (_, result) = execute(
         r#"

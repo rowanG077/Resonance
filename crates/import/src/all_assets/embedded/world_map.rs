@@ -1,5 +1,5 @@
 //! Complete world locations, shop declarations and exploration requirement tables.
-use super::text::{TextPool, TextRef, TextSource};
+use super::text::{TextPool, TextRef};
 use crate::{
     dol,
     read::{f32 as float, u16 as half, u32 as word},
@@ -193,7 +193,7 @@ fn shop_list(executable: &[u8], address: u32) -> Result<Option<Vec<u8>>> {
     ))
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut text = TextPool::default();
     let locations = LOCATIONS
         .into_iter()
@@ -286,29 +286,22 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
             })
         })
         .collect::<Result<_>>()?;
-    Ok((
-        Catalogue {
-            texts: text.values,
-            locations,
-            world_tables,
-            shops,
-            shop_lists,
-            shop_bindings,
-            story_shops,
-            item_rewards,
-            party_requirements,
-        },
-        text.sources,
-    ))
-}
-
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
-    Ok(parse(executable)?.0)
+    Ok(Catalogue {
+        texts: text.values,
+        locations,
+        world_tables,
+        shops,
+        shop_lists,
+        shop_bindings,
+        story_shops,
+        item_rewards,
+        party_requirements,
+    })
 }
 
 #[cfg(test)]
 pub(crate) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
-    let (catalogue, _) = parse(executable)?;
+    let catalogue = read(executable)?;
     crate::embedded::write(file, output, FAMILY, &catalogue)
 }
 
@@ -345,7 +338,7 @@ mod tests {
         for disc in [1, 2] {
             let file = local.join(format!("disc{disc}/sys/main.dol"));
             let mut executable = fs::read(&file)?;
-            let (catalogue, _) = parse(&executable)?;
+            let catalogue = read(&executable)?;
             assert_eq!(catalogue.locations.each_ref().map(Vec::len), [100, 83]);
             assert_eq!(catalogue.shops.len(), 52);
             assert_eq!(catalogue.shop_lists.len(), 18);

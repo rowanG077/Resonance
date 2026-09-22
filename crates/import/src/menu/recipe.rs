@@ -114,7 +114,7 @@ pub(super) fn assemble(
     let colors = &options.defaults.colors;
     let cursor = &style.cursor;
     let cursor_step = cursor.phase_scale.finite()? / cursor.phase_divisor.finite()?;
-    let equipped = style.text(style.symbols.equipped.text);
+    let equipped = style.text(style.symbols.equipped);
     ensure!(equipped.len() == 1, "equipped marker is not a single glyph");
     let mut recipe = Recipe {
         banks: source.banks.clone(),

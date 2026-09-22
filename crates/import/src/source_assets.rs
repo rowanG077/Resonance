@@ -58,26 +58,12 @@ pub(crate) fn enemy_package(path: &Path, usual: &[u8], id: u16) -> Result<Vec<u8
 }
 
 pub(crate) fn section(bytes: &[u8], index: usize) -> Result<&[u8]> {
-    let count = word(bytes, 0)? as usize;
-    ensure!(
-        count < 4096 && index < count,
-        "invalid resource table member {index}"
-    );
-    let start = word(bytes, 4 + index * 4)? as usize;
-    ensure!(
-        start >= 4 + count * 4,
-        "missing resource table member {index}"
-    );
-    let end = (0..count)
-        .map(|i| word(bytes, 4 + i * 4).map(|v| v as usize))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|&v| v > start)
-        .min()
-        .unwrap_or(bytes.len());
-    bytes
-        .get(start..end)
-        .context("resource table member outside archive")
+    let range = crate::field::sections(bytes)?
+        .get(index)
+        .cloned()
+        .flatten()
+        .with_context(|| format!("missing resource table member {index}"))?;
+    Ok(&bytes[range])
 }
 
 /// Skip null, end and alias table entries; each physical byte range is cooked once.

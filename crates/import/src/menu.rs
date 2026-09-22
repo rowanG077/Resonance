@@ -29,10 +29,7 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<bool> {
                 crate::field_resources::resolve_path(&files, "US_r_Top2Btl.rel")?,
                 sources.usual,
                 sources.enemy,
-                crate::all_assets::roles::declared_path(
-                    &files,
-                    figurines.text(figurines.archive.text),
-                )?,
+                crate::all_assets::roles::declared_path(&files, figurines.text(figurines.archive))?,
                 crate::all_assets::roles::declared_path(&files, &tables.artwork.portraits)?,
                 crate::field_resources::resolve_path(&files, &font.startup)?,
             ]

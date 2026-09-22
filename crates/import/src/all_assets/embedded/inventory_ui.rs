@@ -1,5 +1,5 @@
-//! Complete equipment and inventory/book text tables, including aliases and storage.
-use super::text::{FixedText, TextPool, TextRef, TextSource};
+//! Equipment and inventory/book text tables.
+use super::text::{TextPool, TextRef};
 use crate::dol;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -21,10 +21,9 @@ pub(crate) struct Catalogue {
     pub(crate) detail_attributes: [Option<TextRef>; 9],
     pub(crate) inventory_categories: [Option<TextRef>; 9],
     pub(crate) item_categories: Vec<Option<TextRef>>,
-    pub(crate) preview_loading: FixedText,
+    pub(crate) preview_loading: TextRef,
     pub(crate) inventory_formats: InventoryFormats,
     pub(crate) fallback_icons: [i8; 6],
-    pub(crate) fallback_icon_storage: [u8; 2],
 }
 
 impl Catalogue {
@@ -74,7 +73,6 @@ pub(crate) struct Equipment {
     pub(crate) comparison: Comparison,
     /// Native sort selector order: alphabetical, parameter.
     pub(crate) ordering: [TextRef; 2],
-    pub(crate) storage: Option<TextRef>,
 }
 
 super::text::record! {
@@ -86,29 +84,15 @@ super::text::record! {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct InventoryFormats {
-    pub empty_count: FixedText,
-    pub selected_count: FixedText,
-    pub total_count: FixedText,
-    pub quantity: FixedText,
-    pub party_position: FixedText,
-    pub empty_collection: FixedText,
-    pub collection_percent: FixedText,
-}
-
-#[cfg(test)]
-impl InventoryFormats {
-    fn slots(&self) -> [&FixedText; 7] {
-        [
-            &self.empty_count,
-            &self.selected_count,
-            &self.total_count,
-            &self.quantity,
-            &self.party_position,
-            &self.empty_collection,
-            &self.collection_percent,
-        ]
+super::text::record! {
+    pub(crate) struct InventoryFormats(r: TextRef) {
+        pub empty_count: TextRef => r[0],
+        pub selected_count: TextRef => r[1],
+        pub total_count: TextRef => r[2],
+        pub quantity: TextRef => r[3],
+        pub party_position: TextRef => r[4],
+        pub empty_collection: TextRef => r[5],
+        pub collection_percent: TextRef => r[6],
     }
 }
 
@@ -201,169 +185,64 @@ super::text::record! {
     }
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut texts = TextPool::default();
-    let mut equipment = texts.table(executable, EQUIPMENT, 24)?;
-    let storage = equipment.pop().unwrap();
-    let e = equipment
-        .into_iter()
-        .map(|r| r.context("null required inventory UI text"))
-        .collect::<Result<Vec<_>>>()?;
+    let e = texts.required_table(executable, EQUIPMENT, 23)?;
     let i = texts.required_table(executable, INVENTORY, 74)?;
     // Numeric formats are separately aligned strings, not a pointer array.
-    let f = [0x8035cee4, 0x8035cee8, 0x8035cef0, 0x8035cef8]
+    let f = [
+        (0x8035cee4, 4),
+        (0x8035cee8, 8),
+        (0x8035cef0, 8),
+        (0x8035cef8, 8),
+    ]
+    .into_iter()
+    .map(|(address, size)| texts.fixed(executable, address, size))
+    .collect::<Result<Vec<_>>>()?;
+    let inventory_formats = INVENTORY_FORMATS
         .into_iter()
-        .map(|address| texts.required(executable, address))
+        .map(|(address, size)| texts.fixed(executable, address, size))
         .collect::<Result<Vec<_>>>()?;
-    Ok((
-        Catalogue {
-            equipment: Equipment {
-                title: e[0],
-                slots: Slots::from_refs(&e[1..7]),
-                optimal: e[7],
-                remove: e[8],
-                change_order: e[9],
-                optimal_selection: e[10],
-                attack_preference: [e[11], e[12]],
-                comparison: Comparison::from_refs(&e[13..21]),
-                ordering: [e[21], e[22]],
-                storage,
-            },
-            inventory: Inventory::from_refs(&i),
-            formats: EquipmentFormats::from_refs(&f),
-            detail_attributes: texts.array(executable, DETAILS)?,
-            inventory_categories: texts.array(executable, DETAILS + 9 * 4)?,
-            item_categories: texts.table(executable, CATEGORIES, 48)?,
-            preview_loading: texts.fixed(executable, 0x801aa9f8, 32)?,
-            inventory_formats: {
-                let mut slots = INVENTORY_FORMATS
-                    .into_iter()
-                    .map(|(address, size)| texts.fixed(executable, address, size));
-                InventoryFormats {
-                    empty_count: slots.next().unwrap()?,
-                    selected_count: slots.next().unwrap()?,
-                    total_count: slots.next().unwrap()?,
-                    quantity: slots.next().unwrap()?,
-                    party_position: slots.next().unwrap()?,
-                    empty_collection: slots.next().unwrap()?,
-                    collection_percent: slots.next().unwrap()?,
-                }
-            },
-            fallback_icons: dol::slice(executable, 0x8035d310, 6)?
-                .try_into()
-                .map(|v: [u8; 6]| v.map(|v| v as i8))?,
-            fallback_icon_storage: dol::slice(executable, 0x8035d316, 2)?.try_into()?,
-            texts: texts.values,
+    Ok(Catalogue {
+        equipment: Equipment {
+            title: e[0],
+            slots: Slots::from_refs(&e[1..7]),
+            optimal: e[7],
+            remove: e[8],
+            change_order: e[9],
+            optimal_selection: e[10],
+            attack_preference: [e[11], e[12]],
+            comparison: Comparison::from_refs(&e[13..21]),
+            ordering: [e[21], e[22]],
         },
-        texts.sources,
-    ))
-}
-
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
-    Ok(parse(executable)?.0)
+        inventory: Inventory::from_refs(&i),
+        formats: EquipmentFormats::from_refs(&f),
+        detail_attributes: texts.array(executable, DETAILS)?,
+        inventory_categories: texts.array(executable, DETAILS + 9 * 4)?,
+        item_categories: texts.table(executable, CATEGORIES, 48)?,
+        preview_loading: texts.fixed(executable, 0x801aa9f8, 32)?,
+        inventory_formats: InventoryFormats::from_refs(&inventory_formats),
+        fallback_icons: dol::slice(executable, 0x8035d310, 6)?
+            .try_into()
+            .map(|v: [u8; 6]| v.map(|v| v as i8))?,
+        texts: texts.values,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::read::u32 as word;
     use std::fs;
-
-    fn slot_refs(s: &Slots) -> [TextRef; 6] {
-        [
-            s.weapon,
-            s.body,
-            s.head,
-            s.arm,
-            s.accessories[0],
-            s.accessories[1],
-        ]
-    }
-
-    fn comparison_refs(s: &Comparison) -> [TextRef; 8] {
-        [
-            s.slash,
-            s.thrust,
-            s.defense,
-            s.accuracy,
-            s.evasion,
-            s.intelligence,
-            s.luck,
-            s.attack,
-        ]
-    }
-
-    fn ordered_refs(catalogue: &Catalogue) -> (Vec<Option<TextRef>>, Vec<TextRef>) {
-        let e = &catalogue.equipment;
-        let mut equipment = vec![e.title];
-        equipment.extend(slot_refs(&e.slots));
-        equipment.extend([e.optimal, e.remove, e.change_order, e.optimal_selection]);
-        equipment.extend(e.attack_preference);
-        equipment.extend(comparison_refs(&e.comparison));
-        equipment.extend(e.ordering);
-        let equipment = equipment.into_iter().map(Some).chain([e.storage]).collect();
-        let i = &catalogue.inventory;
-        let mut inventory = vec![i.title, i.discard, i.transformed, i.discarded];
-        inventory.extend(comparison_refs(&i.comparison));
-        inventory.extend(slot_refs(&i.slots));
-        let a = &i.attributes;
-        inventory.extend([
-            a.strength,
-            a.slash,
-            a.thrust,
-            a.defense,
-            a.luck,
-            a.accuracy,
-            a.evasion,
-            a.intelligence,
-        ]);
-        let a = &i.actions;
-        inventory.extend([
-            a.confirm_discard,
-            a.yes,
-            a.no,
-            a.select_item,
-            a.remaining_format,
-            a.select_target,
-            a.use_hint,
-            a.equip_target,
-            a.transform_full,
-            a.transform_empty,
-            a.holy_aura,
-            a.dark_aura,
-        ]);
-        inventory.extend(i.worlds);
-        inventory.extend([i.books.training_manual, i.books.figurines, i.books.list]);
-        let m = &i.monster;
-        inventory.push(m.title);
-        inventory.extend(m.categories);
-        inventory.extend(m.difficulties);
-        inventory.extend([
-            m.attack,
-            m.experience,
-            m.gald,
-            m.defense,
-            m.drops,
-            m.steal,
-            m.location,
-            m.attack_element,
-            m.weak,
-            m.strong,
-            m.hide_notes,
-            m.display_notes,
-            m.battle_rank,
-            i.books.collectors_book,
-        ]);
-        (equipment, inventory)
-    }
 
     #[test]
     #[ignore = "requires both extracted discs; no media conversion or playback"]
-    fn original_inventory_ui_preserves_all_pointers_aliases_and_control_text() -> Result<()> {
+    fn original_inventory_ui_preserves_labels_and_control_text() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
         let mut first = None;
         for disc in [1, 2] {
             let mut executable = fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
-            let (catalogue, sources) = parse(&executable)?;
+            let catalogue = read(&executable)?;
             let encoded = serde_json::to_vec(&catalogue)?;
             let restored: Catalogue = serde_json::from_slice(&encoded)?;
             assert_eq!(restored, catalogue);
@@ -372,77 +251,10 @@ mod tests {
             } else {
                 first = Some(encoded);
             }
-            let pointer_bytes = |references: Vec<Option<TextRef>>| {
-                references
-                    .into_iter()
-                    .flat_map(|reference| {
-                        reference
-                            .map_or(0, |id| sources[id.0].address)
-                            .to_be_bytes()
-                    })
-                    .collect::<Vec<_>>()
-            };
-            let (equipment, inventory) = ordered_refs(&restored);
-            assert_eq!(
-                pointer_bytes(equipment),
-                dol::slice(&executable, EQUIPMENT, 24 * 4)?
-            );
-            assert_eq!(
-                pointer_bytes(inventory.into_iter().map(Some).collect()),
-                dol::slice(&executable, INVENTORY, 74 * 4)?
-            );
-            assert_eq!(
-                pointer_bytes(
-                    restored
-                        .detail_attributes
-                        .into_iter()
-                        .chain(restored.inventory_categories)
-                        .collect()
-                ),
-                dol::slice(&executable, DETAILS, 18 * 4)?
-            );
-            assert_eq!(
-                pointer_bytes(restored.item_categories.clone()),
-                dol::slice(&executable, CATEGORIES, 48 * 4)?
-            );
-            for (source, text) in sources.iter().zip(&restored.texts) {
-                let (bytes, _, invalid) = encoding_rs::SHIFT_JIS.encode(text);
-                assert!(!invalid, "cannot reconstruct original text");
-                let terminated = [bytes.as_ref(), &[0]].concat();
-                assert_eq!(terminated.len() as u32, source.source_size);
-                assert_eq!(
-                    terminated,
-                    dol::slice(&executable, source.address, source.source_size as usize)?
-                );
-            }
-            for (slot, (address, size)) in restored
-                .inventory_formats
-                .slots()
-                .into_iter()
-                .zip(INVENTORY_FORMATS)
-                .chain([(&restored.preview_loading, (0x801aa9f8, 32))])
-            {
-                let (bytes, _, invalid) = encoding_rs::SHIFT_JIS.encode(restored.text(slot.text));
-                assert!(!invalid);
-                assert_eq!(
-                    [bytes.as_ref(), &[0], &slot.storage].concat(),
-                    dol::slice(&executable, address, size)?
-                );
-            }
-            assert_eq!(
-                restored
-                    .fallback_icons
-                    .map(|v| v as u8)
-                    .into_iter()
-                    .chain(restored.fallback_icon_storage)
-                    .collect::<Vec<_>>(),
-                dol::slice(&executable, 0x8035d310, 8)?
-            );
             let i = &restored.inventory;
             assert_eq!(i.comparison.slash, i.attributes.slash);
             assert_eq!(i.comparison.defense, i.monster.defense);
             assert_eq!(i.attributes.strength, i.monster.strong);
-            assert!(restored.equipment.storage.is_none());
             assert_eq!(restored.text(i.books.list), "List");
             assert_eq!(restored.text(i.monster.hide_notes), "Hide Notes");
             assert_eq!(restored.text(i.monster.display_notes), "Display Notes");
@@ -451,21 +263,15 @@ mod tests {
             assert_eq!(restored.text(restored.formats.empty_position), "-/%d");
             assert_eq!(restored.text(restored.formats.stat_arrow), "→");
 
-            // Preserve a non-null storage cell and zero-valued control operands.
-            let remaining = sources[i.actions.remaining_format.0].address;
-            let use_hint = sources[i.actions.use_hint.0].address;
+            let pointer = |index: u32| word(dol::slice(&executable, INVENTORY + index * 4, 4)?, 0);
+            let remaining = pointer(30)?;
+            let use_hint = pointer(32)?;
+            let title = pointer(0)?;
             for (address, replacement) in [
-                (
-                    EQUIPMENT + 23 * 4,
-                    sources[i.title.0].address.to_be_bytes().to_vec(),
-                ),
                 (remaining, b"Remaining:\x0c\0%d\0".to_vec()),
                 (use_hint, b"\x0b\0 : Use\0".to_vec()),
                 (DETAILS, 0u32.to_be_bytes().to_vec()),
-                (
-                    CATEGORIES,
-                    sources[i.title.0].address.to_be_bytes().to_vec(),
-                ),
+                (CATEGORIES, title.to_be_bytes().to_vec()),
             ] {
                 let source = dol::slice(&executable, address, replacement.len())?;
                 let offset = source.as_ptr() as usize - executable.as_ptr() as usize;
@@ -474,7 +280,6 @@ mod tests {
             let changed = read(&executable)?;
             assert_eq!(changed.detail_attributes[0], None);
             assert_eq!(changed.item_categories[0], Some(changed.inventory.title));
-            assert_eq!(changed.equipment.storage, Some(changed.inventory.title));
             assert_eq!(
                 changed.text(changed.inventory.actions.remaining_format),
                 "Remaining:\x0c\0%d"

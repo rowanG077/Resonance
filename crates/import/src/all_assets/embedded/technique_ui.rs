@@ -1,5 +1,5 @@
 //! Technique, unison and party labels, menu routes and controller glyph bindings.
-use super::text::{TextPool, TextRef, TextSource};
+use super::text::{TextPool, TextRef};
 use crate::{
     dol,
     read::{Field, u16 as half, u32 as word},
@@ -182,7 +182,7 @@ fn assignment<const N: usize>(
     })
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut texts = TextPool::default();
     // The remainder of the 0xa8-byte symbol consists of controller halfwords.
     let t = texts.required_table(executable, TECHNIQUE, 33)?;
@@ -227,118 +227,25 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
         number: texts.required(executable, 0x8035d5dc)?,
         player: texts.required(executable, 0x8035d5e0)?,
     };
-    Ok((
-        Catalogue {
-            technique: Technique::from_refs(&t),
-            party: Party::from_refs(&p),
-            routes: routes.try_into().unwrap(),
-            controls: Controls {
-                unison_assignment: assignment(executable, UNISON_ASSIGNMENT, UNISON_PAIR)?,
-                technique_assignment: assignment(executable, TECHNIQUE_ASSIGNMENT, TECHNIQUE_PAIR)?,
-                unison_menu: assignment(executable, UNISON_MENU, UNISON_MENU_PAIR)?,
-                players,
-            },
-            unison_formats,
-            texts: texts.values,
+    Ok(Catalogue {
+        technique: Technique::from_refs(&t),
+        party: Party::from_refs(&p),
+        routes: routes.try_into().unwrap(),
+        controls: Controls {
+            unison_assignment: assignment(executable, UNISON_ASSIGNMENT, UNISON_PAIR)?,
+            technique_assignment: assignment(executable, TECHNIQUE_ASSIGNMENT, TECHNIQUE_PAIR)?,
+            unison_menu: assignment(executable, UNISON_MENU, UNISON_MENU_PAIR)?,
+            players,
         },
-        texts.sources,
-    ))
-}
-
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
-    Ok(parse(executable)?.0)
+        unison_formats,
+        texts: texts.values,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
-
-    fn text_bytes(text: &str) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        let mut chars = text.chars();
-        while let Some(c) = chars.next() {
-            if matches!(c, '\x0b' | '\x0c') {
-                bytes.extend([c as u8, u8::try_from(chars.next().unwrap() as u32).unwrap()]);
-            } else {
-                let text = c.to_string();
-                let (encoded, _, invalid) = encoding_rs::SHIFT_JIS.encode(&text);
-                assert!(!invalid, "unrepresentable source character {c:?}");
-                bytes.extend_from_slice(&encoded);
-            }
-        }
-        bytes.push(0);
-        bytes
-    }
-
-    fn refs(c: &Catalogue) -> ([TextRef; 33], [TextRef; 15]) {
-        let t = &c.technique;
-        let a = &t.attributes;
-        let p = &c.party;
-        (
-            [
-                t.title,
-                t.tp_cost,
-                t.usage,
-                t.remove,
-                t.auto,
-                t.execute,
-                t.forget,
-                t.unison_settings,
-                t.control_type,
-                t.manual,
-                t.semi_auto,
-                t.auto_mode,
-                t.select,
-                t.shortcut,
-                t.unison_setting,
-                a.strength,
-                a.slash,
-                a.thrust,
-                a.defense,
-                a.luck,
-                a.accuracy,
-                a.evasion,
-                a.intelligence,
-                a.attack,
-                t.target,
-                t.target_all,
-                t.cannot_forget,
-                t.related,
-                t.forget_warning,
-                t.forget_confirm,
-                t.confirmation[0],
-                t.confirmation[1],
-                t.unison_title,
-            ],
-            [
-                p.gald,
-                p.time,
-                p.encounters,
-                p.combo,
-                p.next,
-                p.slash,
-                p.thrust,
-                p.attack,
-                p.defense,
-                p.luck,
-                p.accuracy,
-                p.evasion,
-                p.exchange_target,
-                p.display_change,
-                p.exchange,
-            ],
-        )
-    }
-
-    fn glyph_bytes<const N: usize>(glyphs: &Glyphs<[u16; N]>) -> Vec<u8> {
-        glyphs
-            .normal
-            .iter()
-            .chain(&glyphs.highlight)
-            .flat_map(|v| v.to_be_bytes())
-            .collect()
-    }
 
     #[test]
     #[ignore = "requires both extracted discs; no media conversion or playback"]
@@ -347,7 +254,7 @@ mod tests {
         let mut first = None;
         for disc in [1, 2] {
             let mut executable = fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
-            let (catalogue, sources) = parse(&executable)?;
+            let catalogue = read(&executable)?;
             let encoded = serde_json::to_vec(&catalogue)?;
             let restored: Catalogue = serde_json::from_slice(&encoded)?;
             assert_eq!(restored, catalogue);
@@ -356,60 +263,23 @@ mod tests {
             } else {
                 first = Some(encoded);
             }
-            let pointers = |references: &[TextRef]| {
-                references
-                    .iter()
-                    .flat_map(|id| sources[id.0].address.to_be_bytes())
-                    .collect::<Vec<_>>()
-            };
-            let (technique, party) = refs(&restored);
-            assert_eq!(
-                pointers(&technique),
-                dol::slice(&executable, TECHNIQUE, 132)?
-            );
-            assert_eq!(pointers(&party), dol::slice(&executable, PARTY, 60)?);
-            let routes: Vec<_> = restored
-                .routes
-                .iter()
-                .flat_map(|route| {
-                    sources[route.label.0]
-                        .address
-                        .to_be_bytes()
-                        .into_iter()
-                        .chain((route.selection as u16).to_be_bytes())
-                        .chain((route.destination as u16).to_be_bytes())
-                })
-                .collect();
-            assert_eq!(routes, dol::slice(&executable, ROUTES, 80)?);
-            for (source, text) in sources.iter().zip(&restored.texts) {
-                let bytes = text_bytes(text);
-                assert_eq!(bytes.len() as u32, source.source_size);
-                assert_eq!(
-                    bytes,
-                    dol::slice(&executable, source.address, source.source_size as usize)?
-                );
-            }
             let c = &restored.controls;
-            for (address, bytes) in [
-                (UNISON_ASSIGNMENT, glyph_bytes(&c.unison_assignment.single)),
-                (
-                    TECHNIQUE_ASSIGNMENT,
-                    glyph_bytes(&c.technique_assignment.single),
-                ),
-                (UNISON_MENU, glyph_bytes(&c.unison_menu.single)),
-                (UNISON_PAIR, glyph_bytes(&c.unison_assignment.paired)),
-                (TECHNIQUE_PAIR, glyph_bytes(&c.technique_assignment.paired)),
-                (UNISON_MENU_PAIR, glyph_bytes(&c.unison_menu.paired)),
-                (
-                    PLAYERS,
-                    c.players
-                        .highlight
-                        .iter()
-                        .flat_map(|v| v.to_be_bytes())
-                        .collect(),
-                ),
+            for assignment in [&c.unison_assignment, &c.unison_menu] {
+                assert_eq!(assignment.single.normal, [0, 1, 2]);
+                assert_eq!(assignment.single.highlight, [0, 33, 34]);
+            }
+            assert_eq!(c.technique_assignment.single.normal, [0, 1, 2, 32, 25, 26]);
+            assert_eq!(
+                c.technique_assignment.single.highlight,
+                [0, 33, 34, 32, 37, 38]
+            );
+            for pair in [
+                &c.unison_assignment.paired,
+                &c.technique_assignment.paired,
+                &c.unison_menu.paired,
             ] {
-                assert_eq!(bytes, dol::slice(&executable, address, bytes.len())?);
+                assert_eq!(pair.normal, [4, 3]);
+                assert_eq!(pair.highlight, [35, 36]);
             }
             assert_eq!(c.players.normal, [5, 7, 9, 11]);
             assert_eq!(c.players.highlight, [6, 8, 10, 12]);
@@ -431,31 +301,38 @@ mod tests {
             assert_eq!(restored.text(restored.unison_formats.player), "%dP");
             assert_eq!(restored.routes[0].selection, Selection::Character);
             assert_eq!(restored.routes[9].selection, Selection::System);
+            assert_eq!(
+                restored
+                    .routes
+                    .each_ref()
+                    .map(|route| route.destination as u16),
+                [1, 11, 2, 8, 9, 6, 7, 3, 4, 5]
+            );
 
-            // Pool by source address, preserve zero-valued color operands and
-            // apply the native u16 arithmetic even to the boundary glyph value.
+            // Text control operands can be zero; unselected glyphs wrap as u16.
+            let title = word(dol::slice(&executable, TECHNIQUE, 4)?, 0)?;
+            let tp_cost = word(dol::slice(&executable, TECHNIQUE + 4, 4)?, 0)?;
             for (address, replacement) in [
-                (
-                    TECHNIQUE + 2 * 4,
-                    sources[restored.technique.title.0]
-                        .address
-                        .to_be_bytes()
-                        .to_vec(),
-                ),
-                (
-                    sources[restored.technique.tp_cost.0].address,
-                    b"TP : \x0c\0%d\0".to_vec(),
-                ),
+                (TECHNIQUE + 2 * 4, title.to_be_bytes().to_vec()),
+                (tp_cost, b"TP : \x0c\0%d\0".to_vec()),
                 (PLAYERS, 0u16.to_be_bytes().to_vec()),
             ] {
                 let slice = dol::slice(&executable, address, replacement.len())?;
                 let offset = slice.as_ptr() as usize - executable.as_ptr() as usize;
                 executable[offset..offset + replacement.len()].copy_from_slice(&replacement);
             }
-            let changed = parse(&executable)?.0;
+            let changed = read(&executable)?;
             assert_eq!(changed.technique.title, changed.technique.usage);
             assert_eq!(changed.text(changed.technique.tp_cost), "TP : \x0c\0%d");
             assert_eq!(changed.controls.players.normal[0], u16::MAX);
+            for address in [ROUTES + 4, ROUTES + 6] {
+                let at = dol::slice(&executable, address, 2)?.as_ptr() as usize
+                    - executable.as_ptr() as usize;
+                let original = [executable[at], executable[at + 1]];
+                executable[at..at + 2].copy_from_slice(&u16::MAX.to_be_bytes());
+                assert!(read(&executable).is_err());
+                executable[at..at + 2].copy_from_slice(&original);
+            }
         }
         Ok(())
     }

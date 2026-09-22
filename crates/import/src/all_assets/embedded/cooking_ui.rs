@@ -1,10 +1,10 @@
 //! Complete recipe records and the menu's authored ingredient/result bindings.
-use super::text::{TextPool, TextRef, TextSource};
+use super::text::{TextPool, TextRef};
 use crate::{
     dol,
     read::{u16 as half, u32 as word},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use resonance_content::menu_data::MealEffect;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -150,7 +150,7 @@ fn item_list(executable: &[u8], address: u32) -> Result<Option<Vec<u16>>> {
     ))
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let mut text = TextPool::default();
     let recipes = dol::slice(executable, RECIPES, RECIPE_COUNT * RECIPE_STRIDE)?
         .chunks_exact(RECIPE_STRIDE)
@@ -223,26 +223,10 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
         .into_iter()
         .zip(text.table(executable, LABELS, 11)?)
         .collect();
-    let locked = text.required(executable, LOCKED)?;
-    let locked_size = text.sources[locked.0].source_size as usize;
-    ensure!(
-        locked_size <= 16,
-        "locked cooking label exceeds fixed extent"
-    );
-    let format_refs: [TextRef; 5] = FORMATS
-        .into_iter()
-        .map(|at| text.required(executable, at))
-        .collect::<Result<Vec<_>>>()?
-        .try_into()
-        .unwrap();
-    ensure!(
-        format_refs
-            .iter()
-            .all(|id| text.sources[id.0].source_size <= 8),
-        "cooking format exceeds fixed extent"
-    );
-    let [item_count, recipe_counter, result_heading, recovery, effect] = format_refs;
-    let catalogue = Catalogue {
+    let locked = text.fixed(executable, LOCKED, 16)?;
+    let [item_count, recipe_counter, result_heading, recovery, effect] =
+        FORMATS.map(|address| text.fixed(executable, address, 8));
+    Ok(Catalogue {
         recipes,
         groups,
         preferences,
@@ -250,20 +234,15 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
         labels,
         locked,
         formats: Formats {
-            item_count,
-            recipe_counter,
-            result_heading,
-            recovery,
-            effect,
+            item_count: item_count?,
+            recipe_counter: recipe_counter?,
+            result_heading: result_heading?,
+            recovery: recovery?,
+            effect: effect?,
         },
         bonus_skill: half(dol::slice(executable, BONUS_SKILL, 2)?, 0)?,
         texts: text.values,
-    };
-    Ok((catalogue, text.sources))
-}
-
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
-    Ok(parse(executable)?.0)
+    })
 }
 
 #[cfg(test)]
@@ -293,7 +272,7 @@ mod tests {
         let mut first = None;
         for disc in [1, 2] {
             let executable = std::fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
-            let (catalogue, _) = parse(&executable)?;
+            let catalogue = read(&executable)?;
             assert_eq!((catalogue.recipes.len(), catalogue.groups.len()), (24, 32));
             assert_eq!(catalogue.label(Label::Title)?, "Cooking");
             assert!(

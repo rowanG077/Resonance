@@ -1,8 +1,0 @@
-script field;
-use game::field;
-// Bind explicitly in fields.json to enable this example on field entry.
-pub task run(show_notice: bool) {
-    if show_notice {
-        await field::notice("Welcome to Iselia.");
-    }
-}

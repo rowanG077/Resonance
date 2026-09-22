@@ -13,11 +13,6 @@ use std::{
     thread,
 };
 
-pub(crate) struct Node<T> {
-    pub job: T,
-    pub dependencies: Vec<usize>,
-}
-
 struct Finished {
     worker: Option<usize>,
     index: usize,
@@ -29,232 +24,6 @@ fn copy_result<T: ?Sized>(result: &Result<Arc<T>>) -> Result<Arc<T>> {
         .as_ref()
         .map(Arc::clone)
         .map_err(|error| anyhow!("{error:#}"))
-}
-
-fn drive<T: Sync, S>(
-    jobs: &[Node<T>],
-    workers: usize,
-    memory: Option<(usize, &[Estimate])>,
-    init: impl Fn() -> S + Sync,
-    execute: impl Fn(&mut S, &T, &[Value]) -> Result<Value> + Sync,
-    mut completed_job: impl FnMut(usize, &Result<Value>),
-) -> Result<Vec<Result<()>>> {
-    ensure!(workers > 0, "asset worker count must be positive");
-    let mut children = vec![Vec::new(); jobs.len()];
-    let mut remaining = Vec::with_capacity(jobs.len());
-    for (index, job) in jobs.iter().enumerate() {
-        let mut seen = HashSet::new();
-        for &parent in &job.dependencies {
-            ensure!(
-                parent < jobs.len(),
-                "asset job {index}: dependency {parent} is out of bounds"
-            );
-            ensure!(parent != index, "asset job {index} depends on itself");
-            ensure!(
-                seen.insert(parent),
-                "asset job {index}: duplicate dependency {parent}"
-            );
-            children[parent].push(index);
-        }
-        remaining.push(job.dependencies.len());
-    }
-    let mut ready: VecDeque<_> = (0..jobs.len())
-        .filter(|&index| remaining[index] == 0)
-        .collect();
-    let mut check = ready.clone();
-    let mut pending = remaining.clone();
-    let mut visited = 0;
-    while let Some(index) = check.pop_front() {
-        visited += 1;
-        for &child in &children[index] {
-            pending[child] -= 1;
-            if pending[child] == 0 {
-                check.push_back(child);
-            }
-        }
-    }
-    ensure!(
-        visited == jobs.len(),
-        "asset job dependencies contain a cycle"
-    );
-    let mut consumers = children.iter().map(Vec::len).collect::<Vec<_>>();
-    let mut memory = memory
-        .map(|(limit, estimates)| MemoryBudget::new(limit, estimates, jobs))
-        .transpose()?;
-
-    thread::scope(|scope| {
-        let (completed, events) = mpsc::channel::<Result<Finished>>();
-        let mut senders = Vec::new();
-        let mut handles = Vec::new();
-        for worker in 0..workers.min(jobs.len()) {
-            let (sender, work) = mpsc::channel::<(usize, Vec<Value>)>();
-            senders.push(sender);
-            let completed = completed.clone();
-            let (init, execute) = (&init, &execute);
-            let publications = super::reuse::current();
-            let publisher = crate::publication::current();
-            handles.push(scope.spawn(move || {
-                let _publications = super::reuse::inherit(publications);
-                let _publisher = crate::publication::inherit(publisher);
-                let outcome = catch_unwind(AssertUnwindSafe(|| {
-                    let mut state = init();
-                    while let Ok((index, dependencies)) = work.recv() {
-                        let result = execute(&mut state, &jobs[index].job, &dependencies);
-                        drop(dependencies);
-                        if completed
-                            .send(Ok(Finished {
-                                worker: Some(worker),
-                                index,
-                                result,
-                            }))
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                }));
-                if let Err(panic) = outcome {
-                    let message = panic
-                        .downcast_ref::<String>()
-                        .map(String::as_str)
-                        .or_else(|| panic.downcast_ref::<&str>().copied())
-                        .unwrap_or("unknown panic");
-                    let error = format!("asset worker {worker} panicked: {message}");
-                    let _ = completed.send(Err(anyhow!("{error}")));
-                    return Err(anyhow!(error));
-                }
-                Ok(())
-            }));
-        }
-        let mut idle = (0..senders.len()).rev().collect::<Vec<_>>();
-        let mut values: Vec<Option<Value>> = (0..jobs.len()).map(|_| None).collect();
-        let mut statuses: Vec<Option<Result<()>>> = (0..jobs.len()).map(|_| None).collect();
-        let mut failed_parent: Vec<Option<usize>> = vec![None; jobs.len()];
-        let mut pending_events = 0;
-        for _ in 0..jobs.len() {
-            while let Some(position) = ready.iter().position(|&index| {
-                failed_parent[index].is_some()
-                    || (!idle.is_empty() && memory.as_ref().is_none_or(|m| m.fits(index)))
-            }) {
-                let index = ready.remove(position).unwrap();
-                let mut dependencies = Vec::with_capacity(jobs[index].dependencies.len());
-                let mut blocked = failed_parent[index].map(|parent| {
-                    let error = statuses[parent].as_ref().unwrap().as_ref().unwrap_err();
-                    anyhow!("asset job {index}: dependency {parent} failed: {error:#}")
-                });
-                if blocked.is_none()
-                    && let Some(memory) = &mut memory
-                {
-                    memory.start(index, &jobs[index].dependencies);
-                }
-                // Consume every edge even if another parent failed, so skipped jobs do
-                // not keep successful siblings alive until the end of the cook.
-                for &parent in &jobs[index].dependencies {
-                    consumers[parent] -= 1;
-                    if blocked.is_some() {
-                        if consumers[parent] == 0 {
-                            values[parent] = None;
-                        }
-                        if let Some(memory) = &mut memory {
-                            memory.release(parent, consumers[parent]);
-                        }
-                        continue;
-                    }
-                    match statuses[parent].as_ref().expect("dependency completed") {
-                        Ok(()) => dependencies.push(if consumers[parent] == 0 {
-                            values[parent].take().expect("dependency retained")
-                        } else {
-                            Arc::clone(values[parent].as_ref().expect("dependency retained"))
-                        }),
-                        Err(error) if blocked.is_none() => {
-                            blocked = Some(anyhow!(
-                                "asset job {index}: dependency {parent} failed: {error:#}"
-                            ))
-                        }
-                        Err(_) => (),
-                    }
-                }
-                let dependencies = match blocked {
-                    Some(error) => Err(error),
-                    None => Ok(dependencies),
-                };
-                pending_events += 1;
-                match dependencies {
-                    Ok(dependencies) => {
-                        let worker = idle.pop().unwrap();
-                        if senders[worker].send((index, dependencies)).is_err() {
-                            break; // The worker's panic diagnostic is on the completion channel.
-                        }
-                    }
-                    Err(error) => completed
-                        .send(Ok(Finished {
-                            worker: None,
-                            index,
-                            result: Err(error),
-                        }))
-                        .map_err(|_| anyhow!("asset completion receiver stopped"))?,
-                }
-            }
-            if pending_events == 0
-                && let Some(memory) = &memory
-            {
-                let index = *ready.front().context("asset graph has no ready work")?;
-                anyhow::bail!(
-                    "asset memory budget exhausted: {} bytes retained, ready job {index} needs {} additional bytes, limit {} bytes",
-                    memory.used,
-                    memory.estimates[index].reservation(),
-                    memory.limit
-                );
-            }
-            let Finished {
-                worker,
-                index,
-                result,
-            } = events.recv().context("asset workers stopped")??;
-            pending_events -= 1;
-            completed_job(index, &result);
-            if worker.is_some()
-                && let Some(memory) = &mut memory
-            {
-                memory.finish(index, &jobs[index].dependencies, &consumers, result.is_ok());
-            }
-            statuses[index] = Some(match result {
-                Ok(value) => {
-                    if consumers[index] > 0 {
-                        values[index] = Some(value);
-                    }
-                    Ok(())
-                }
-                Err(error) => Err(error),
-            });
-            if let Some(worker) = worker {
-                idle.push(worker);
-            }
-            let failed = statuses[index].as_ref().unwrap().is_err();
-            for &child in children[index].iter().rev() {
-                remaining[child] -= 1;
-                if failed_parent[child].is_some() {
-                    continue;
-                }
-                if failed {
-                    failed_parent[child] = Some(index);
-                    ready.push_front(child);
-                } else if remaining[child] == 0 {
-                    ready.push_front(child);
-                }
-            }
-        }
-        drop(senders);
-        for handle in handles {
-            handle
-                .join()
-                .map_err(|_| anyhow!("asset worker panic escaped recovery"))??;
-        }
-        Ok(statuses
-            .into_iter()
-            .map(|result| result.expect("every job completed"))
-            .collect())
-    })
 }
 
 #[derive(Clone, Copy)]
@@ -281,7 +50,11 @@ struct MemoryBudget<'a> {
 }
 
 impl<'a> MemoryBudget<'a> {
-    fn new<T>(limit: usize, estimates: &'a [Estimate], jobs: &[Node<T>]) -> Result<Self> {
+    fn new<S>(
+        limit: usize,
+        estimates: &'a [Estimate],
+        jobs: &[ComputationJob<'_, S>],
+    ) -> Result<Self> {
         ensure!(limit > 0, "asset memory budget must be positive");
         for (index, job) in jobs.iter().enumerate() {
             let estimate = estimates[index];
@@ -291,7 +64,7 @@ impl<'a> MemoryBudget<'a> {
                 .fold(
                     estimate.output.checked_add(estimate.scratch),
                     |total, &parent| {
-                        total.and_then(|size| size.checked_add(estimates[parent].output))
+                        total.and_then(|size| size.checked_add(estimates[parent.index].output))
                     },
                 )
                 .context("asset working-set estimate overflows")?;
@@ -314,12 +87,12 @@ impl<'a> MemoryBudget<'a> {
         self.estimates[index].reservation() <= self.limit - self.used
     }
 
-    fn start(&mut self, index: usize, dependencies: &[usize]) {
+    fn start(&mut self, index: usize, dependencies: &[Dependency]) {
         self.used += self.estimates[index].reservation();
         self.running[index] = true;
         self.resident[index] = true;
-        for &parent in dependencies {
-            self.readers[parent] += 1;
+        for parent in dependencies {
+            self.readers[parent.index] += 1;
         }
     }
 
@@ -337,16 +110,16 @@ impl<'a> MemoryBudget<'a> {
     fn finish(
         &mut self,
         index: usize,
-        dependencies: &[usize],
+        dependencies: &[Dependency],
         consumers: &[usize],
         succeeded: bool,
     ) {
         self.running[index] = false;
         self.used -= self.estimates[index].scratch;
         self.release(index, if succeeded { consumers[index] } else { 0 });
-        for &parent in dependencies {
-            self.readers[parent] -= 1;
-            self.release(parent, consumers[parent]);
+        for parent in dependencies {
+            self.readers[parent.index] -= 1;
+            self.release(parent.index, consumers[parent.index]);
         }
     }
 }
@@ -402,7 +175,7 @@ type Computation<'a, S> = dyn Fn(&mut S, &Resolver<'_>) -> Result<Value> + Sync 
 struct ComputationJob<'a, S> {
     name: String,
     estimate: Option<Estimate>,
-    declarations: Vec<Dependency>,
+    dependencies: Vec<Dependency>,
     execute: Box<Computation<'a, S>>,
 }
 
@@ -435,7 +208,7 @@ impl Completion<'_> {
 /// Outputs own their data; computations may borrow the caller's source context.
 pub(crate) struct Dag<'a, S> {
     id: u64,
-    jobs: Vec<Node<ComputationJob<'a, S>>>,
+    jobs: Vec<ComputationJob<'a, S>>,
 }
 
 impl<'a, S: 'a> Dag<'a, S> {
@@ -465,7 +238,6 @@ impl<'a, S: 'a> Dag<'a, S> {
         dependencies: impl IntoIterator<Item = Dependency>,
         execute: impl Fn(&mut S, &Resolver<'_>) -> Result<Arc<T>> + Sync + 'a,
     ) -> Output<T> {
-        let declarations = dependencies.into_iter().collect::<Vec<_>>();
         let output = Output {
             dependency: Dependency {
                 graph: self.id,
@@ -473,14 +245,11 @@ impl<'a, S: 'a> Dag<'a, S> {
             },
             marker: PhantomData,
         };
-        self.jobs.push(Node {
-            dependencies: declarations.iter().map(|input| input.index).collect(),
-            job: ComputationJob {
-                name: name.into(),
-                estimate: None,
-                declarations,
-                execute: Box::new(move |state, inputs| Ok(execute(state, inputs)?)),
-            },
+        self.jobs.push(ComputationJob {
+            name: name.into(),
+            estimate: None,
+            dependencies: dependencies.into_iter().collect(),
+            execute: Box::new(move |state, inputs| Ok(execute(state, inputs)?)),
         });
         output
     }
@@ -507,7 +276,7 @@ impl<'a, S: 'a> Dag<'a, S> {
             output.dependency.graph == self.id,
             "memory estimate belongs to another asset graph"
         );
-        self.jobs[output.dependency.index].job.estimate = Some(Estimate {
+        self.jobs[output.dependency.index].estimate = Some(Estimate {
             output: output_bytes,
             scratch: scratch_bytes,
         });
@@ -532,54 +301,239 @@ impl<'a, S: 'a> Dag<'a, S> {
         init: impl Fn() -> S + Sync,
         mut complete: impl FnMut(Completion<'_>),
     ) -> Result<Vec<Result<()>>> {
-        for node in &self.jobs {
-            ensure!(
-                node.job
-                    .declarations
-                    .iter()
-                    .all(|input| input.graph == self.id),
-                "asset job '{}': dependency belongs to another graph",
-                node.job.name
-            );
+        let jobs = &self.jobs;
+        ensure!(workers > 0, "asset worker count must be positive");
+        let mut children = vec![Vec::new(); jobs.len()];
+        let mut remaining = Vec::with_capacity(jobs.len());
+        for (index, job) in jobs.iter().enumerate() {
+            let mut seen = HashSet::new();
+            for &parent in &job.dependencies {
+                ensure!(
+                    parent.graph == self.id,
+                    "asset job '{}': dependency belongs to another graph",
+                    job.name
+                );
+                ensure!(
+                    parent.index < index,
+                    "asset job {index}: dependency {} must precede its consumer",
+                    parent.index
+                );
+                ensure!(
+                    seen.insert(parent.index),
+                    "asset job {index}: duplicate dependency {}",
+                    parent.index
+                );
+                children[parent.index].push(index);
+            }
+            remaining.push(job.dependencies.len());
         }
         let estimates = budget
             .map(|_| {
-                self.jobs
-                    .iter()
-                    .map(|node| {
-                        node.job.estimate.with_context(|| {
-                            format!("asset job '{}' needs a memory estimate", node.job.name)
+                jobs.iter()
+                    .map(|job| {
+                        job.estimate.with_context(|| {
+                            format!("asset job '{}' needs a memory estimate", job.name)
                         })
                     })
                     .collect::<Result<Vec<_>>>()
             })
             .transpose()?;
-        drive(
-            &self.jobs,
-            workers,
-            budget.zip(estimates.as_deref()),
-            init,
-            |state, job, values| {
-                (job.execute)(
-                    state,
-                    &Resolver {
-                        declarations: &job.declarations,
-                        values,
-                    },
-                )
-                .with_context(|| format!("asset job '{}'", job.name))
-            },
-            |index, result| {
+        let mut ready: VecDeque<_> = (0..jobs.len())
+            .filter(|&index| remaining[index] == 0)
+            .collect();
+        let mut consumers = children.iter().map(Vec::len).collect::<Vec<_>>();
+        let mut memory = budget
+            .zip(estimates.as_deref())
+            .map(|(limit, estimates)| MemoryBudget::new(limit, estimates, jobs))
+            .transpose()?;
+
+        thread::scope(|scope| {
+            let (completed, events) = mpsc::channel::<Result<Finished>>();
+            let mut senders = Vec::new();
+            let mut handles = Vec::new();
+            for worker in 0..workers.min(jobs.len()) {
+                let (sender, work) = mpsc::channel::<(usize, Vec<Value>)>();
+                senders.push(sender);
+                let completed = completed.clone();
+                let init = &init;
+                let publisher = crate::publication::current();
+                handles.push(scope.spawn(move || {
+                    let _publisher = crate::publication::inherit(publisher);
+                    let outcome = catch_unwind(AssertUnwindSafe(|| {
+                        let mut state = init();
+                        while let Ok((index, dependencies)) = work.recv() {
+                            let job = &jobs[index];
+                            let result = (job.execute)(
+                                &mut state,
+                                &Resolver {
+                                    declarations: &job.dependencies,
+                                    values: &dependencies,
+                                },
+                            )
+                            .with_context(|| format!("asset job '{}'", job.name));
+                            drop(dependencies);
+                            if completed
+                                .send(Ok(Finished {
+                                    worker: Some(worker),
+                                    index,
+                                    result,
+                                }))
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }));
+                    if let Err(panic) = outcome {
+                        let message = panic
+                            .downcast_ref::<String>()
+                            .map(String::as_str)
+                            .or_else(|| panic.downcast_ref::<&str>().copied())
+                            .unwrap_or("unknown panic");
+                        let error = format!("asset worker {worker} panicked: {message}");
+                        let _ = completed.send(Err(anyhow!("{error}")));
+                        return Err(anyhow!(error));
+                    }
+                    Ok(())
+                }));
+            }
+            let mut idle = (0..senders.len()).rev().collect::<Vec<_>>();
+            let mut values: Vec<Option<Value>> = (0..jobs.len()).map(|_| None).collect();
+            let mut statuses: Vec<Option<Result<()>>> = (0..jobs.len()).map(|_| None).collect();
+            let mut failed_parent: Vec<Option<usize>> = vec![None; jobs.len()];
+            let mut pending_events = 0;
+            for _ in 0..jobs.len() {
+                while let Some(position) = ready.iter().position(|&index| {
+                    failed_parent[index].is_some()
+                        || (!idle.is_empty() && memory.as_ref().is_none_or(|m| m.fits(index)))
+                }) {
+                    let index = ready.remove(position).unwrap();
+                    let mut dependencies = Vec::with_capacity(jobs[index].dependencies.len());
+                    let mut blocked = failed_parent[index].map(|parent| {
+                        let error = statuses[parent].as_ref().unwrap().as_ref().unwrap_err();
+                        anyhow!("asset job {index}: dependency {parent} failed: {error:#}")
+                    });
+                    if blocked.is_none()
+                        && let Some(memory) = &mut memory
+                    {
+                        memory.start(index, &jobs[index].dependencies);
+                    }
+                    // Consume every edge even if another parent failed, so skipped jobs do
+                    // not keep successful siblings alive until the end of the cook.
+                    for dependency in &jobs[index].dependencies {
+                        let parent = dependency.index;
+                        consumers[parent] -= 1;
+                        if blocked.is_some() {
+                            if consumers[parent] == 0 {
+                                values[parent] = None;
+                            }
+                            if let Some(memory) = &mut memory {
+                                memory.release(parent, consumers[parent]);
+                            }
+                            continue;
+                        }
+                        match statuses[parent].as_ref().expect("dependency completed") {
+                            Ok(()) => dependencies.push(if consumers[parent] == 0 {
+                                values[parent].take().expect("dependency retained")
+                            } else {
+                                Arc::clone(values[parent].as_ref().expect("dependency retained"))
+                            }),
+                            Err(error) if blocked.is_none() => {
+                                blocked = Some(anyhow!(
+                                    "asset job {index}: dependency {parent} failed: {error:#}"
+                                ))
+                            }
+                            Err(_) => (),
+                        }
+                    }
+                    let dependencies = match blocked {
+                        Some(error) => Err(error),
+                        None => Ok(dependencies),
+                    };
+                    pending_events += 1;
+                    match dependencies {
+                        Ok(dependencies) => {
+                            let worker = idle.pop().unwrap();
+                            if senders[worker].send((index, dependencies)).is_err() {
+                                break; // The worker's panic diagnostic is on the completion channel.
+                            }
+                        }
+                        Err(error) => completed
+                            .send(Ok(Finished {
+                                worker: None,
+                                index,
+                                result: Err(error),
+                            }))
+                            .map_err(|_| anyhow!("asset completion receiver stopped"))?,
+                    }
+                }
+                if pending_events == 0
+                    && let Some(memory) = &memory
+                {
+                    let index = *ready.front().context("asset graph has no ready work")?;
+                    anyhow::bail!(
+                        "asset memory budget exhausted: {} bytes retained, ready job {index} needs {} additional bytes, limit {} bytes",
+                        memory.used,
+                        memory.estimates[index].reservation(),
+                        memory.limit
+                    );
+                }
+                let Finished {
+                    worker,
+                    index,
+                    result,
+                } = events.recv().context("asset workers stopped")??;
+                pending_events -= 1;
                 complete(Completion {
-                    name: &self.jobs[index].job.name,
+                    name: &jobs[index].name,
                     output: Dependency {
                         graph: self.id,
                         index,
                     },
-                    result,
+                    result: &result,
                 });
-            },
-        )
+                if worker.is_some()
+                    && let Some(memory) = &mut memory
+                {
+                    memory.finish(index, &jobs[index].dependencies, &consumers, result.is_ok());
+                }
+                statuses[index] = Some(match result {
+                    Ok(value) => {
+                        if consumers[index] > 0 {
+                            values[index] = Some(value);
+                        }
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                });
+                if let Some(worker) = worker {
+                    idle.push(worker);
+                }
+                let failed = statuses[index].as_ref().unwrap().is_err();
+                for &child in children[index].iter().rev() {
+                    remaining[child] -= 1;
+                    if failed_parent[child].is_some() {
+                        continue;
+                    }
+                    if failed {
+                        failed_parent[child] = Some(index);
+                        ready.push_front(child);
+                    } else if remaining[child] == 0 {
+                        ready.push_front(child);
+                    }
+                }
+            }
+            drop(senders);
+            for handle in handles {
+                handle
+                    .join()
+                    .map_err(|_| anyhow!("asset worker panic escaped recovery"))??;
+            }
+            Ok(statuses
+                .into_iter()
+                .map(|result| result.expect("every job completed"))
+                .collect())
+        })
     }
 }
 
@@ -891,21 +845,15 @@ mod tests {
         let init = || {
             initialized.fetch_add(1, Ordering::SeqCst);
         };
-        for dependencies in [
-            vec![vec![1]],
-            vec![vec![0]],
-            vec![vec![], vec![0, 0]],
-            vec![vec![1], vec![0]],
-        ] {
-            let mut dag = Dag::new();
-            for _ in &dependencies {
-                dag.add("invalid", [], |_, _| Ok(()));
-            }
-            for (node, dependencies) in dag.jobs.iter_mut().zip(dependencies) {
-                node.dependencies = dependencies;
-            }
-            assert!(dag.run(2, init, |_| {}).is_err());
-        }
+        let mut dag = Dag::new();
+        let parent = dag.add("parent", [], |_, _| Ok(()));
+        dag.add(
+            "duplicate",
+            [parent.dependency(), parent.dependency()],
+            |_, _| Ok(()),
+        );
+        let error = dag.run(2, init, |_| {}).unwrap_err();
+        assert!(error.to_string().contains("duplicate dependency"));
         let single = || {
             let mut dag = Dag::new();
             dag.add("single", [], |_, _| Ok(()));

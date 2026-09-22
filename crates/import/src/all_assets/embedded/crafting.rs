@@ -1,5 +1,5 @@
 //! Equipment crafting recipes and the recipes each vendor offers.
-use super::text::{TextPool, TextRef, TextSource};
+use super::text::{TextPool, TextRef};
 use crate::{
     dol,
     read::{u16 as half, u32 as word},
@@ -73,7 +73,7 @@ fn vendor_recipes(row: &[u8]) -> Result<Vec<i16>> {
         .collect())
 }
 
-fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
+fn read(executable: &[u8]) -> Result<Catalogue> {
     let recipes = dol::slice(executable, RECIPES, RECIPE_COUNT * RECIPE_BYTES)?
         .chunks_exact(RECIPE_BYTES)
         .map(recipe)
@@ -88,18 +88,15 @@ fn parse(executable: &[u8]) -> Result<(Catalogue, Vec<TextSource>)> {
             })
         })
         .collect::<Result<_>>()?;
-    Ok((
-        Catalogue {
-            texts: texts.values,
-            recipes,
-            vendors,
-        },
-        texts.sources,
-    ))
+    Ok(Catalogue {
+        texts: texts.values,
+        recipes,
+        vendors,
+    })
 }
 
 pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
-    let (catalogue, _) = parse(executable)?;
+    let catalogue = read(executable)?;
     crate::embedded::write(file, output, FAMILY, &catalogue)
 }
 
@@ -135,7 +132,7 @@ mod tests {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
         for disc in [1, 2] {
             let executable = fs::read(local.join(format!("extracted/disc{disc}/sys/main.dol")))?;
-            let (catalogue, _) = parse(&executable)?;
+            let catalogue = read(&executable)?;
             assert_eq!(
                 (catalogue.recipes.len(), catalogue.vendors.len()),
                 (151, 22)
