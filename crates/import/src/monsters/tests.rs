@@ -63,10 +63,13 @@ fn shared_monster_preparation_preserves_every_catalogue_record_and_preview() -> 
     for disc in [1, 2] {
         let output = tempfile::tempdir()?;
         let extracted = local.join(format!("extracted/disc{disc}"));
+        let executable = fs::read(extracted.join("sys/main.dol"))?;
         let actual = prepare(
             &extracted,
             output.path(),
-            &fs::read(extracted.join("sys/main.dol"))?,
+            &executable,
+            &crate::all_assets::monster_catalogue::read(&executable)?,
+            &inventory_ui::read(&executable)?,
         )?;
         ensure!(
             serde_json::to_value(&actual)? == serde_json::to_value(&expected.monsters)?,

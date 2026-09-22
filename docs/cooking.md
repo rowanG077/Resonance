@@ -41,10 +41,11 @@ through a resolver restricted to its declared dependencies. Transformations use
 copy-on-write; writers publish completed assets. Decoded intermediate models,
 palettes and tables are not serialized and reopened between computations.
 
-Cycles and invalid dependencies fail before execution. A failed producer blocks
-its consumers while independent jobs continue. Ready consumers take priority,
-and decoded payloads retire after their last consumer. Nested model graphs run
-one worker each, keeping `--jobs` a bound on asset conversion concurrency.
+Invalid dependencies fail before execution. A failed producer blocks its
+consumers while independent jobs continue. Ready consumers take priority,
+and decoded payloads retire after their last consumer. Model preparation uses
+ordinary sequential functions inside each package job; only the main graph
+schedules parallel conversion.
 The scheduler also supports estimated scratch and retained-output budgets; these
 estimates are admission controls, not process RSS limits.
 
@@ -54,14 +55,15 @@ content shares a destination; different content at the same path fails. Atomic
 installation prevents partial final files. The coordinator retains identities
 and status, not decoded payloads.
 
-File and voice jobs retain final-output receipts in `.cook-receipts/`. Reuse
-verifies the published files, including shared resources outside a package. Keys
-include original inputs, relevant dependencies, options and the reader executable.
-Changed or missing outputs force conversion. This cache contains final-file
-receipts, not decoder intermediates. Publication supplies each receipt's paths
-and hashes directly; completed nested jobs forward their outputs to the enclosing
-receipt. Embedded database passes still run; movies
-run serially to bound temporary disk use and verify their own final publications.
+Every invocation cooks the complete input again, including media. There are no
+incremental receipts, persistent caches or existing-file shortcuts. Identical
+inputs and outputs share work within the current invocation. Movies run serially
+to bound temporary disk use.
+
+Each distinct executable is parsed into one set of catalogues. Embedded table
+publication, menus and session data consume those same values. Field actors,
+figurines and monster previews bind typed decoded packages through the same
+model path.
 
 ## Library and field preparation
 
@@ -78,11 +80,12 @@ run serially to bound temporary disk use and verify their own final publications
   labels. Runtime story state selects between those alternatives.
 - `sources.json` maps source identities to completed publications. Disc labels
   appear in provenance, not in separate asset trees.
-- `summary.json`, `failures.json`, `excluded.json` and `deferred.json` account for processed,
-  failed and intentionally excluded resources. Unknown formats remain errors.
+- `coverage.json` accounts for processed, failed and intentionally excluded
+  resources. Unknown formats remain errors.
 
-The source index is removed when publication starts and replaced only after the
-run succeeds. A failed cook cannot leave an old index claiming success.
+The previous source index and coverage report are invalidated before discovery.
+The source index is published only after success. Field finalization uses the
+current run's successful field jobs, never a scan of old output directories.
 
 The same `cook-all` run prepares startup, menus, skits and the complete field
 catalogue. Field IDs select source records, not different cooking implementations.
@@ -112,8 +115,7 @@ original sources and existing baseline.
 
 After a format change, rerun `cook-all`. There is no
 compatibility layer for obsolete cooked formats: version mismatches request a
-recook. Editing original assets invalidates their publications and dependent
-prepared manifests.
+recook.
 
 ## Authored events
 
@@ -122,10 +124,8 @@ is checked in as readable source and embedded with `include_str!`. Cooking write
 the maintained model-behavior sources and the entire checked-in `scripts/std`
 library verbatim. It checks entry types without executing behavior. String node
 constants and integer catalogue constants carry native values directly.
-`scripts/std/README.md` links catalogues and shared model node libraries; physical
-packages link known interfaces through `nodes.md`. Unknown model interfaces remain
-cookable without a standard-library entry. Sources are final publications recorded
-by reuse receipts, so incremental cooks retain the same symbol coverage.
+`scripts/std/README.md` links catalogues and shared model node libraries.
+Unknown model interfaces remain cookable without a standard-library entry.
 These are immutable cooked resources;
 their hashes and bytes enter the normal field preload inventory.
 

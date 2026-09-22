@@ -1,4 +1,4 @@
-//! Offline media recipes. Rust owns parsing, validation, caching, and conversion;
+//! Offline media conversion. Rust owns parsing, validation, and conversion;
 //! pure Rust codecs run without opening an audio output device.
 mod cooked_music;
 mod field_audio;
@@ -120,10 +120,6 @@ pub(crate) fn hash_reader(mut file: impl Read) -> Result<String> {
     Ok(format!("{:x}", hash.finalize()))
 }
 
-fn json_file(path: &Path) -> Option<Value> {
-    serde_json::from_slice(&fs::read(path).ok()?).ok()
-}
-
 fn write_json(path: &Path, value: &Value) -> Result<()> {
     let mut data = serde_json::to_vec_pretty(value)?;
     data.push(b'\n');
@@ -157,18 +153,7 @@ pub(crate) fn write_shared_sample(
     let sha256 = hash_file(&temporary)?;
     let path = format!("audio/samples/{sha256}.wav");
     let target = output.join(&path);
-    let result = crate::publication::publish(&target, &sha256, || {
-        match fs::hard_link(&temporary, &target) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                ensure!(hash_file(&target)? == sha256, "corrupt shared audio sample");
-                Ok(())
-            }
-            Err(error) => Err(error).context("publish shared audio sample"),
-        }
-    });
-    fs::remove_file(temporary)?;
-    result?;
+    crate::publication::install(&temporary, &target, &sha256)?;
     Ok(SampleAsset {
         path,
         sha256,
@@ -178,14 +163,6 @@ pub(crate) fn write_shared_sample(
         loop_start: sample.loop_start,
         loop_length: sample.loop_length,
     })
-}
-
-fn valid_asset(output: &Path, asset: &Value) -> bool {
-    let (Some(path), Some(hash)) = (asset["path"].as_str(), asset["sha256"].as_str()) else {
-        return false;
-    };
-    resonance_content::validate_asset_path(path).is_ok()
-        && hash_file(&output.join(path)).is_ok_and(|actual| actual == hash)
 }
 
 fn wav_frames(path: &Path, rate: u32, maximum: u32) -> Result<u32> {
@@ -226,6 +203,36 @@ fn validate_wave(path: &Path, rate: u32, maximum: u32, allow_float: bool) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_samples_replace_previous_cook_outputs() -> Result<()> {
+        let output = tempfile::tempdir()?;
+        let sample = resonance_audio::sample::Sample {
+            key: 60,
+            rate: 32000,
+            loop_start: 0,
+            loop_length: 0,
+            pcm: vec![7, 11, 13],
+            loop_pcm: Vec::new(),
+        };
+        let asset = {
+            let _publications = crate::publication::Session::start_if_needed(output.path())?;
+            write_shared_sample(output.path(), &sample)?
+        };
+        let path = output.path().join(&asset.path);
+        fs::write(&path, b"stale sample")?;
+        let _publications = crate::publication::Session::start_if_needed(output.path())?;
+        let fresh = write_shared_sample(output.path(), &sample)?;
+        assert_eq!(fresh.path, asset.path);
+        assert_eq!(hash_file(&path)?, fresh.sha256);
+        assert_eq!(
+            hound::WavReader::open(path)?
+                .samples::<i16>()
+                .collect::<Result<Vec<_>, _>>()?,
+            sample.pcm
+        );
+        Ok(())
+    }
 
     #[test]
     fn output_session_shares_discs_and_releases_only_its_last_owner() -> Result<()> {

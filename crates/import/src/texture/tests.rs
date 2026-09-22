@@ -1,8 +1,8 @@
-use super::{cook, fingerprint};
+use super::cook;
 use bevy_image::{CompressedImageFormats, ktx2_buffer_to_image};
 use ktx2::{ColorModel, ColorPrimaries, Format, Reader, SupercompressionScheme, TransferFunction};
 use resonance_asset_writer::ktx2::*;
-use std::{fs, io::Read, time::SystemTime};
+use std::{fs, io::Read};
 
 fn verify(width: u32, height: u32, pixels: &[u8]) {
     let encoded = encode_rgba8(width, height, pixels).unwrap();
@@ -154,17 +154,7 @@ fn preserves_authored_mips_in_the_player_image_loader() {
 }
 
 #[test]
-fn cache_identity_includes_recipe_dimensions_and_pixels() {
-    let pixels = [23; 24];
-    let hash = fingerprint(2, 3, &pixels);
-    assert_eq!(hash, fingerprint(2, 3, &pixels));
-    assert_ne!(hash, crate::digest(&pixels)); // Invalidates old portrait cooks.
-    assert_ne!(hash, fingerprint(3, 2, &pixels));
-    assert_ne!(hash, fingerprint(2, 3, &[24; 24]));
-}
-
-#[test]
-fn repeated_cooks_preserve_pixels_and_files() {
+fn recooking_replaces_stale_output_and_failed_encoding_preserves_pixels() {
     let directory = tempfile::tempdir().unwrap();
     let output = directory.path().join("nested/texture.ktx2");
     let pixels = [31, 73, 127, 0, 11, 13, 17, 255];
@@ -173,18 +163,11 @@ fn repeated_cooks_preserve_pixels_and_files() {
         fs::read(&output).unwrap(),
         encode_rgba8(2, 1, &pixels).unwrap()
     );
-    // No sleep or filesystem timestamp-resolution assumption is needed.
-    fs::File::options()
-        .write(true)
-        .open(&output)
-        .unwrap()
-        .set_modified(SystemTime::UNIX_EPOCH)
-        .unwrap();
-    let timestamp = fs::metadata(&output).unwrap().modified().unwrap();
+    fs::write(&output, b"stale texture").unwrap();
     cook(2, 1, &pixels, &output).unwrap();
     assert_eq!(
-        fs::metadata(&output).unwrap().modified().unwrap(),
-        timestamp
+        fs::read(&output).unwrap(),
+        encode_rgba8(2, 1, &pixels).unwrap()
     );
     assert!(cook(2, 1, &pixels[..7], &output).is_err());
     assert_eq!(

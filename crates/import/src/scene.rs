@@ -7,9 +7,9 @@ use resonance_content::{CameraKey, TitleGlow, TitleScene};
 use std::fs;
 use std::path::Path;
 pub(crate) mod binding;
+pub(crate) mod decoded;
 pub(crate) mod glb;
 mod projection;
-pub(crate) mod recovered;
 pub(crate) mod source;
 pub(crate) mod title;
 
@@ -186,6 +186,7 @@ fn original_title_cooks_from_sources_and_preserves_native_clips_and_assets() -> 
                 reference.path(),
                 None,
                 crate::all_assets::geometry::Input::Member,
+                &mut crate::scene::decoded::Package::default(),
                 &mut |path, result| {
                     if let Err(error) = result {
                         failures.push(format!("{path}: {error:#}"));

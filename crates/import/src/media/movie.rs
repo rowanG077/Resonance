@@ -1,7 +1,7 @@
 mod binding;
 pub(crate) use binding::{bind_all_movies, cook_directory};
 
-use super::{Workspace, be_u32, hash_file, json_file, valid_asset, write_json};
+use super::{Workspace, be_u32, hash_file, write_json};
 use crate::dol::slice as dol_slice;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -187,27 +187,7 @@ pub fn cook_movie_file(extracted: &Path, source: &Path, output: &Path) -> Result
     let dol = workspace.extracted.join("sys/main.dol");
     let colors = Colors::from_dol(&fs::read(&dol)?)?;
     let source_sha256 = hash_file(&movie)?;
-    let recipe = json!({"version":5, "movie_sha256":source_sha256,
-        "dol_sha256":hash_file(&dol)?, "video_decoder":"h4m-0.4.0",
-        "audio_decoder":"h4m-0.4.0-ima-pcm16-v1", "video_encoder":"codec_ffv1-0.1.0",
-        "audio_encoder":"flacenc-0.5.1", "muxer":"resonance-matroska-multitrack-v2",
-        "video_codec":"ffv1", "audio_codec":"flac", "color_conversion":"gqseaf-yuv-table-v2",
-        "audio_channel_order":"swap_lr"});
     let metadata = workspace.output.join("movie.json");
-    if let Some(previous) = json_file(&metadata)
-        && previous["version"] == 1
-        && previous["recipe"] == recipe
-        && previous["path"] == "movie.mkv"
-        && previous["source"] == source
-        && valid_asset(&workspace.output, &previous)
-        && let Ok(cooked) = serde_json::from_value::<CookedMovie>(previous)
-        && cooked.audio_tracks.len() == usize::from(header.audio_streams)
-    {
-        verify_mux(&workspace.output.join(&cooked.path), &cooked)?;
-        crate::publication::verified(&workspace.output.join(&cooked.path), &cooked.sha256)?;
-        crate::publication::verified(&metadata, &hash_file(&metadata)?)?;
-        return Ok(cooked);
-    }
     let directory = workspace.output.join("intermediate/movie");
     fs::create_dir_all(&directory)?;
     let yuv = directory.join("video.yuv");
@@ -293,9 +273,7 @@ pub fn cook_movie_file(extracted: &Path, source: &Path, output: &Path) -> Result
     };
     verify_mux(&temporary, &cooked)?;
     crate::publication::install(&temporary, &destination, &cooked.sha256)?;
-    let mut record = json!(cooked);
-    record["recipe"] = recipe;
-    write_json(&metadata, &record)?;
+    write_json(&metadata, &json!(cooked))?;
     drop(waves);
     drop(video);
     fs::remove_dir_all(directory)?;

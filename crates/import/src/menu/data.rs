@@ -24,29 +24,9 @@ mod synopsis;
 pub(super) mod text;
 pub(super) mod world_map;
 
+#[cfg(test)]
 pub(super) fn read(executable: &[u8]) -> Result<Tables> {
-    assemble(
-        &Source::read(executable)?,
-        Inputs {
-            arte: &crate::arte::read(executable)?,
-            items: &crate::item::read(executable)?,
-            characters: &crate::character_data::read(executable)?,
-            inventory: &inventory_ui::read(executable)?,
-            technique: &technique_ui::read(executable)?,
-            status: &status_ui::read(executable)?,
-            strategy: &strategy_ui::read(executable)?,
-            cooking: &cooking_ui::read(executable)?,
-            options: &options_ui::read(executable)?,
-            ex_skills: &crate::all_assets::ex_skills::read(executable)?,
-            rename: &crate::all_assets::rename_ui::read(executable)?,
-            synopsis: &synopsis_catalogue::read(executable)?,
-            world: &crate::all_assets::world_map::read(executable)?,
-            titles: &crate::all_assets::title_catalogue::read(executable)?,
-            save: &crate::all_assets::save_menu::read(executable)?,
-            shop: &crate::all_assets::shop_ui::read(executable)?,
-            style: &crate::all_assets::ui_style::read(executable)?,
-        },
-    )
+    assemble(&Source::read(executable)?, &Inputs::read(executable)?)
 }
 
 #[cfg(test)]
@@ -143,7 +123,7 @@ fn menu_items(definitions: &[crate::item::Definition]) -> Result<Vec<Item>> {
 
 pub(crate) struct Source {
     font: crate::font_directory::Metrics,
-    phases: crate::field_catalogue::Phases,
+    pub(crate) phases: crate::field_catalogue::Phases,
     artwork: super::recipe::Source,
 }
 
@@ -157,45 +137,65 @@ impl Source {
     }
 }
 
-/// Borrowed decoded tables; menu assembly has no filesystem access.
-pub(crate) struct Inputs<'a> {
-    pub arte: &'a crate::arte::Catalogue,
-    pub items: &'a [crate::item::Definition],
-    pub characters: &'a crate::character_data::Catalogue,
-    pub inventory: &'a inventory_ui::Catalogue,
-    pub technique: &'a technique_ui::Catalogue,
-    pub status: &'a status_ui::Catalogue,
-    pub strategy: &'a strategy_ui::Catalogue,
-    pub cooking: &'a cooking_ui::Catalogue,
-    pub options: &'a options_ui::Catalogue,
-    pub ex_skills: &'a crate::all_assets::ex_skills::Catalogue,
-    pub rename: &'a crate::all_assets::rename_ui::Catalogue,
-    pub synopsis: &'a synopsis_catalogue::Catalogue,
-    pub world: &'a crate::all_assets::world_map::Catalogue,
-    pub titles: &'a crate::all_assets::title_catalogue::Catalogue,
-    pub save: &'a crate::all_assets::save_menu::Catalogue,
-    pub shop: &'a crate::all_assets::shop_ui::Catalogue,
-    pub style: &'a crate::all_assets::ui_style::Catalogue,
+pub(crate) struct Inputs {
+    pub arte: crate::arte::Catalogue,
+    pub items: Vec<crate::item::Definition>,
+    pub characters: crate::character_data::Catalogue,
+    pub inventory: inventory_ui::Catalogue,
+    pub technique: technique_ui::Catalogue,
+    pub status: status_ui::Catalogue,
+    pub strategy: strategy_ui::Catalogue,
+    pub cooking: cooking_ui::Catalogue,
+    pub options: options_ui::Catalogue,
+    pub ex_skills: crate::all_assets::ex_skills::Catalogue,
+    pub rename: crate::all_assets::rename_ui::Catalogue,
+    pub synopsis: synopsis_catalogue::Catalogue,
+    pub world: crate::all_assets::world_map::Catalogue,
+    pub titles: crate::all_assets::title_catalogue::Catalogue,
+    pub save: crate::all_assets::save_menu::Catalogue,
+    pub shop: crate::all_assets::shop_ui::Catalogue,
+    pub style: crate::all_assets::ui_style::Catalogue,
+}
+
+impl Inputs {
+    pub(crate) fn read(executable: &[u8]) -> Result<Self> {
+        Ok(Self {
+            arte: crate::arte::read(executable)?,
+            items: crate::item::read(executable)?,
+            characters: crate::character_data::read(executable)?,
+            inventory: inventory_ui::read(executable)?,
+            technique: technique_ui::read(executable)?,
+            status: status_ui::read(executable)?,
+            strategy: strategy_ui::read(executable)?,
+            cooking: cooking_ui::read(executable)?,
+            options: options_ui::read(executable)?,
+            ex_skills: crate::all_assets::ex_skills::read(executable)?,
+            rename: crate::all_assets::rename_ui::read(executable)?,
+            synopsis: synopsis_catalogue::read(executable)?,
+            world: crate::all_assets::world_map::read(executable)?,
+            titles: crate::all_assets::title_catalogue::read(executable)?,
+            save: crate::all_assets::save_menu::read(executable)?,
+            shop: crate::all_assets::shop_ui::read(executable)?,
+            style: crate::all_assets::ui_style::read(executable)?,
+        })
+    }
 }
 
 /// Tables stay typed until publication; preview books are attached during preparation.
-#[derive(serde::Serialize)]
 pub(crate) struct Tables {
-    #[serde(flatten)]
     pub(super) data: MenuData,
     pub(super) artwork: super::recipe::Recipe,
-    phases: crate::field_catalogue::Phases,
 }
 
-pub(crate) fn assemble(source: &Source, inputs: Inputs<'_>) -> Result<Tables> {
-    let ui = inputs.inventory;
-    let technique_ui = inputs.technique;
-    let status_ui = inputs.status;
-    let strategy_ui = inputs.strategy;
-    let cooking_ui = inputs.cooking;
-    let options_ui = inputs.options;
-    let synopsis_catalogue = inputs.synopsis;
-    let items = menu_items(inputs.items)?;
+pub(crate) fn assemble(source: &Source, inputs: &Inputs) -> Result<Tables> {
+    let ui = &inputs.inventory;
+    let technique_ui = &inputs.technique;
+    let status_ui = &inputs.status;
+    let strategy_ui = &inputs.strategy;
+    let cooking_ui = &inputs.cooking;
+    let options_ui = &inputs.options;
+    let synopsis_catalogue = &inputs.synopsis;
+    let items = menu_items(&inputs.items)?;
     let techniques: Vec<Technique> = inputs
         .arte
         .definitions
@@ -242,7 +242,7 @@ pub(crate) fn assemble(source: &Source, inputs: Inputs<'_>) -> Result<Tables> {
             })
         })
         .collect::<Result<_>>()?;
-    let titles = menu_titles(inputs.titles)?;
+    let titles = menu_titles(&inputs.titles)?;
     let full_names: Vec<String> = status_ui
         .full_name_formats
         .iter()
@@ -388,24 +388,23 @@ pub(crate) fn assemble(source: &Source, inputs: Inputs<'_>) -> Result<Tables> {
     ] {
         labels.insert(key.into(), strategy_ui.required_text(reference)?.to_owned());
     }
-    let world = inputs.world;
+    let world = &inputs.world;
     let phases = &source.phases;
     Ok(Tables {
         artwork: super::recipe::assemble(
             &source.artwork,
-            inputs.characters,
+            &inputs.characters,
             technique_ui,
             options_ui,
-            inputs.save,
-            inputs.shop,
-            inputs.style,
+            &inputs.save,
+            &inputs.shop,
+            &inputs.style,
         )?,
-        phases: phases.clone(),
         data: MenuData {
             version: MenuData::VERSION,
             item_group_prompt: text::decode(ui.text(inventory.actions.use_hint), 9)?,
             item_bottle_count: text::decode(ui.text(inventory.actions.remaining_format), 8)?,
-            ex_skills: ex_skills::cook(inputs.ex_skills)?,
+            ex_skills: ex_skills::cook(&inputs.ex_skills)?,
             manual: manual::cook(synopsis_catalogue)?,
             world_map: world_map::cook(world, phases, ui)?,
             status: status::cook(status_ui, &items)?,
@@ -417,7 +416,7 @@ pub(crate) fn assemble(source: &Source, inputs: Inputs<'_>) -> Result<Tables> {
             items,
             titles,
             full_names,
-            rename: rename::cook(inputs.rename, inputs.characters)?,
+            rename: rename::cook(&inputs.rename, &inputs.characters)?,
             labels,
             item_categories: categories(&ui.item_categories)?,
             inventory_categories: categories(&ui.inventory_categories)?,
@@ -476,29 +475,24 @@ fn cooked_catalogues_preserve_prepared_menu() -> Result<()> {
         let file = local.join(format!("extracted/disc{disc}/sys/main.dol"));
         let executable = fs::read(&file)?;
         let mut failures = Vec::new();
-        crate::all_assets::cook_tables(&file, &executable, staging, 4, &mut |label, result| {
-            if let Err(error) = result {
-                failures.push(format!("{label}: {error:#}"));
-            }
-        })?;
+        let catalogues = crate::all_assets::Catalogues::read(&executable)?;
+        crate::all_assets::cook_tables(
+            &file,
+            &executable,
+            &catalogues,
+            staging,
+            &mut |label, result| {
+                if let Err(error) = result {
+                    failures.push(format!("{label}: {error:#}"));
+                }
+            },
+        )?;
         ensure!(failures.is_empty(), "{failures:#?}");
-        for (source, mut actual) in [
-            (
-                "table DAG",
-                serde_json::from_slice::<serde_json::Value>(&fs::read(
-                    staging.join("embedded/menu/tables.json"),
-                )?)?,
-            ),
-            (
-                "original executable",
-                serde_json::to_value(read(&executable)?)?,
-            ),
-        ] {
-            for key in ["figurines", "monsters", "artwork", "phases"] {
-                actual.as_object_mut().unwrap().remove(key);
-            }
-            assert_eq!(actual, expected, "disc {disc}, {source}");
+        let mut actual = serde_json::to_value(catalogues.menu()?.data)?;
+        for key in ["figurines", "monsters"] {
+            actual.as_object_mut().unwrap().remove(key);
         }
+        assert_eq!(actual, expected, "disc {disc}");
     }
     Ok(())
 }

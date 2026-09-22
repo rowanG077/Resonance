@@ -39,7 +39,7 @@ impl Estimate {
     }
 }
 
-/// Accounts for declared working sets, not process RSS or deliberately retained receipts.
+/// Accounts for declared working sets rather than process RSS.
 struct MemoryBudget<'a> {
     limit: usize,
     used: usize,
@@ -179,10 +179,9 @@ struct ComputationJob<'a, S> {
     execute: Box<Computation<'a, S>>,
 }
 
-/// A coordinator-side completion view. Retain final receipts, not decoded inputs.
+/// A coordinator-side completion view; decoded inputs remain owned by the graph.
 pub(crate) struct Completion<'a> {
     pub(crate) name: &'a str,
-    output: Dependency,
     result: &'a Result<Value>,
 }
 
@@ -196,11 +195,6 @@ impl Completion<'_> {
         copy_result(self.result)?
             .downcast()
             .map_err(|_| anyhow!("asset completion type mismatch"))
-    }
-
-    /// None means this completion belongs to another output.
-    pub(crate) fn get<T: Any + Send + Sync>(&self, output: Output<T>) -> Option<Result<Arc<T>>> {
-        (self.output == output.dependency).then(|| self.result())
     }
 }
 
@@ -254,7 +248,7 @@ impl<'a, S: 'a> Dag<'a, S> {
         output
     }
 
-    /// Receipts are observed on the coordinator; returned statuses contain no payloads.
+    /// Results are observed on the coordinator; returned statuses contain no payloads.
     pub(crate) fn run(
         self,
         workers: usize,
@@ -486,10 +480,6 @@ impl<'a, S: 'a> Dag<'a, S> {
                 pending_events -= 1;
                 complete(Completion {
                     name: &jobs[index].name,
-                    output: Dependency {
-                        graph: self.id,
-                        index,
-                    },
                     result: &result,
                 });
                 if worker.is_some()
@@ -670,7 +660,7 @@ mod tests {
             assert!(Arc::ptr_eq(&vertices, &model.vertices));
             Ok(model)
         });
-        let receipt = dag.add("publish", [changed.dependency()], move |_, inputs| {
+        dag.add("publish", [changed.dependency()], move |_, inputs| {
             let model = inputs.get(changed)?;
             Ok((model.name, model.vertices.len()))
         });
@@ -689,14 +679,14 @@ mod tests {
                 || (),
                 |completion| {
                     order.push(completion.name.to_owned());
-                    if let Some(value) = completion.get(source) {
-                        source_lifetime = Arc::downgrade(&value.unwrap());
+                    if completion.name == "source" {
+                        source_lifetime = Arc::downgrade(&completion.result().unwrap());
                     }
-                    if let Some(value) = completion.get(changed) {
-                        changed_lifetime = Arc::downgrade(&value.unwrap());
+                    if completion.name == "changed" {
+                        changed_lifetime = Arc::downgrade(&completion.result().unwrap());
                     }
-                    if let Some(value) = completion.get(receipt) {
-                        published = Some(value.unwrap());
+                    if completion.name == "publish" {
+                        published = Some(completion.result::<(&str, usize)>().unwrap());
                     }
                     if completion.name == "unrelated" {
                         assert!(source_lifetime.upgrade().is_none());
@@ -744,8 +734,8 @@ mod tests {
                 2,
                 || (),
                 |completion| {
-                    if let Some(value) = completion.get(source) {
-                        lifetime = Arc::downgrade(&value.unwrap());
+                    if completion.name == "source" {
+                        lifetime = Arc::downgrade(&completion.result().unwrap());
                     }
                     if completion.name == "skipped" {
                         assert!(lifetime.upgrade().is_none());
@@ -809,7 +799,7 @@ mod tests {
             release.send(())?;
             Ok(20)
         });
-        let joined = dag.add(
+        dag.add(
             "joined",
             [child.dependency(), slow.dependency(), fast.dependency()],
             |state, inputs| {
@@ -826,8 +816,8 @@ mod tests {
                     0
                 },
                 |completion| {
-                    if let Some(value) = completion.get(joined) {
-                        sum = Some(*value.unwrap());
+                    if completion.name == "joined" {
+                        sum = Some(*completion.result::<i32>().unwrap());
                         assert!(completion.result::<String>().is_err());
                     }
                 },

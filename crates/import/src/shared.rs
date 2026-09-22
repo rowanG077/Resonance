@@ -1,7 +1,7 @@
 //! Shared field dependencies prepared once before any field is assembled.
 use anyhow::Result;
 use resonance_content::font::{BitmapFont, TextSpan};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, path::Path};
 
 pub(crate) struct Prepared {
     pub catalogue: crate::resource::Catalogue,
@@ -17,23 +17,24 @@ pub(crate) fn prepare(
     extracted: &Path,
     output: &Path,
     sources: &BTreeMap<String, String>,
+    executable: &[u8],
+    catalogues: &crate::all_assets::Catalogues,
 ) -> Result<Prepared> {
     let crate::font::PreparedDialogue { font, art } = crate::font::prepare(extracted, output)?;
-    crate::menu::cook(extracted, output)?;
-    let session = crate::session::cook(extracted, output)?;
-    let text = crate::session::cook_text(extracted, output)?;
+    crate::menu::cook(extracted, output, executable, catalogues)?;
+    let session = crate::session::cook(executable, &catalogues.menu, output)?;
+    let text = crate::session::cook_text(executable, &catalogues.menu, output)?;
     let skits = crate::skit::cook(extracted, output)?;
     let effects = crate::field_effects::cook(extracted, output)?;
     let toon_ramp = crate::field_lighting::cook(extracted, output)?;
-    let executable = fs::read(extracted.join("sys/main.dol"))?;
-    let catalogue = crate::resource::read(&executable)?;
+    let catalogue = &catalogues.resources;
     let resource_catalogue = "game/resource-catalogue.json".to_owned();
     crate::write_atomic(
         &output.join(&resource_catalogue),
-        &resource_sources(&catalogue, sources)?,
+        &resource_sources(catalogue, sources)?,
     )?;
     let save_point_tutorial =
-        crate::font::system_text(crate::dol::slice(&executable, 0x8017A274, 256)?)?;
+        crate::font::system_text(crate::dol::slice(executable, 0x8017A274, 256)?)?;
     let files = [
         resource_catalogue.clone(),
         "ui/dialogue.json".into(),
@@ -61,7 +62,7 @@ pub(crate) fn prepare(
     .map(|path| Ok((path.clone(), crate::media::hash_file(&output.join(path))?)))
     .collect::<Result<_>>()?;
     Ok(Prepared {
-        catalogue,
+        catalogue: catalogue.clone(),
         resource_catalogue,
         font,
         effects,

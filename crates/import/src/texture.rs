@@ -5,8 +5,6 @@ use anyhow::{Context, Result};
 use resonance_asset_writer::ktx2::encode_rgba8;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
-use sha2::{Digest, Sha256};
-#[cfg(test)]
 use std::fs;
 #[cfg(test)]
 use std::io::Read;
@@ -75,18 +73,6 @@ pub(crate) fn decode_source(bytes: &[u8]) -> Result<Decoded> {
     let decoded = decode(bytes, &format!("textures/{}", crate::digest(bytes)))?;
     decoded.validate()?;
     Ok(decoded)
-}
-
-/// Physical extraction streams one palette page and its mip chain at a time.
-pub(crate) fn cook_catalogue(
-    bytes: &[u8],
-    name: &str,
-    output: &Path,
-    mut report: impl FnMut(&str, Result<()>),
-) -> Result<Catalogue> {
-    decode_pages(bytes, name, |image| {
-        report(&image.name, image.publish(output))
-    })
 }
 
 fn decode_pages(bytes: &[u8], name: &str, mut emit: impl FnMut(Image)) -> Result<Catalogue> {
@@ -441,23 +427,10 @@ pub(crate) fn bind(root: &Path, directory: &str) -> Result<Vec<Texture>> {
         .collect()
 }
 
-// Bump when the encoding profile, encoder version, or compression settings change.
-pub(crate) const RECIPE: &str = "rgba8-linear-ktx2-structured-zstd-0.0.54-level9-v1";
-
 pub(crate) fn cook(width: u32, height: u32, pixels: &[u8], output: &Path) -> Result<()> {
     let bytes = encode_rgba8(width, height, pixels)
         .with_context(|| format!("encode texture {}", output.display()))?;
     crate::write_atomic(output, &bytes)
-}
-
-#[cfg(test)]
-pub(crate) fn fingerprint(width: u32, height: u32, pixels: &[u8]) -> String {
-    let mut hash = Sha256::new();
-    hash.update(RECIPE.as_bytes());
-    hash.update(width.to_le_bytes());
-    hash.update(height.to_le_bytes());
-    hash.update(pixels);
-    format!("{:x}", hash.finalize())
 }
 
 /// Frozen libktx files differ in compressor framing and encoder provenance only.
@@ -671,6 +644,7 @@ mod tests {
                     output.path(),
                     None,
                     Input::File,
+                    &mut crate::scene::decoded::Package::default(),
                     &mut |_, result| {
                         result.unwrap();
                     }

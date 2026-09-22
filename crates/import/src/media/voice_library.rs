@@ -13,7 +13,6 @@ use std::{
 
 pub(crate) struct Archive<'a> {
     root: &'a Path,
-    pub disc: u8,
     pub source: Asset,
     pub index: VoiceArchive,
     file: fs::File,
@@ -51,7 +50,7 @@ impl<'a> Archive<'a> {
     }
 
     pub fn open(root: &'a Path, extracted: &Path, source: &str) -> Result<Self> {
-        let disc = crate::disc_number(extracted)?;
+        crate::disc_number(extracted)?;
         let files = extracted.join("files");
         let path = crate::field_resources::resolve_path(&files, source)?;
         let path = files.join(path);
@@ -63,7 +62,6 @@ impl<'a> Archive<'a> {
         let (index, entries) = directory(&mut file, &source.sha256)?;
         Ok(Self {
             root,
-            disc,
             source,
             index,
             file,
@@ -270,13 +268,15 @@ mod tests {
         let expected = fixture(root, &primary, 1, source, "test.ahx", 32000, &[0; 4])?;
         fixture(root, &additional, 2, source, "test.ahx", 32000, &[0; 8])?;
         let mut archive = Archive::source(root, &primary, Some(&additional), source)?;
-        let secondary = Archive::source(root, &additional, None, source)?;
-        assert_eq!((archive.disc, secondary.disc), (1, 2));
+        let mut secondary = Archive::source(root, &additional, None, source)?;
+        assert_eq!(secondary.voice(0)?.frames, 8);
         let reverse = "EV/first-disc-only.afs";
         fixture(root, &primary, 1, reverse, "first.ahx", 32000, &[0; 4])?;
         assert_eq!(
-            Archive::source(root, &additional, Some(&primary), reverse)?.disc,
-            1
+            Archive::source(root, &additional, Some(&primary), reverse)?
+                .voice(0)?
+                .source_name,
+            "first.ahx"
         );
         assert_ne!(archive.source.sha256, secondary.source.sha256);
         let original = primary.join("files").join(source);
@@ -315,8 +315,10 @@ mod tests {
         assert!(Archive::source(root, &primary, Some(&additional), source).is_err());
         fs::remove_file(&original)?;
         assert_eq!(
-            Archive::source(root, &primary, Some(&additional), source)?.disc,
-            2
+            Archive::source(root, &primary, Some(&additional), source)?
+                .source
+                .sha256,
+            secondary.source.sha256
         );
         assert!(Archive::source(root, &primary, None, source).is_err());
         fs::create_dir(&original)?;

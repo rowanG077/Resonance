@@ -1,11 +1,10 @@
-//! Field audio recipes, using original resource tables and Rust synthesis.
+//! Field audio bindings, using original resource tables and Rust synthesis.
 use super::{Workspace, hash_file, write_json};
 use anyhow::{Context, Result, ensure};
 use resonance_audio::package::Package;
 use resonance_content::field_audio::{Asset, FieldAudio, Voice};
-use serde_json::json;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -32,12 +31,9 @@ pub(crate) struct FieldAudioCooker {
     additional_disc: Option<PathBuf>,
     catalogue: resources::Catalogue,
     pools: super::library::Pools,
-    environment: serde_json::Value,
-    sources: BTreeMap<String, String>,
     music: BTreeMap<u16, Asset>,
     sounds: BTreeMap<(String, u16), Asset>,
     voices: BTreeMap<u32, Voice>,
-    voice_sources: BTreeMap<u32, serde_json::Value>,
     gains: Vec<f32>,
     reverbs: [[f32; 5]; 2],
 }
@@ -50,10 +46,6 @@ impl FieldAudioCooker {
     ) -> Result<Self> {
         let executable = read_file(&workspace.extracted.join("sys/main.dol"))?;
         let pools = super::library::Pools::read(&workspace.extracted)?;
-        let environment = json!({"executable_sha256":crate::digest(&executable),
-            "coefficients_sha256":crate::digest(coefficients),
-            "compiler_sha256":hash_file(&std::env::current_exe()?)?,
-            "bank_pool_sha256":pools.fingerprint()?});
         Ok(Self {
             catalogue: resources::Catalogue::read(&workspace.extracted, &executable)?,
             gains: voice_gains(&executable)?,
@@ -63,12 +55,9 @@ impl FieldAudioCooker {
             coefficients: coefficients.into(),
             additional_disc,
             pools,
-            environment,
-            sources: BTreeMap::new(),
             music: BTreeMap::new(),
             sounds: BTreeMap::new(),
             voices: BTreeMap::new(),
-            voice_sources: BTreeMap::new(),
         })
     }
 
@@ -83,7 +72,7 @@ impl FieldAudioCooker {
             .filter(|id| !self.voices.contains_key(id))
             .copied()
             .collect();
-        let (voices, sources) = binding::voices(
+        let voices = binding::voices(
             &self.workspace,
             &self.executable,
             self.additional_disc.as_deref(),
@@ -91,29 +80,6 @@ impl FieldAudioCooker {
         )
         .with_context(|| format!("bind field {map_id} voices"))?;
         self.voices.extend(voices);
-        self.voice_sources.extend(sources);
-        let mut sources = BTreeMap::new();
-        for id in &resources.music {
-            let path = music_path(&self.executable, *id)?;
-            if !self.sources.contains_key(&path) {
-                self.sources.insert(
-                    path.clone(),
-                    hash_file(&self.workspace.extracted.join("files").join(&path))?,
-                );
-            }
-            sources.insert(path.clone(), self.sources[&path].clone());
-        }
-        let voice_sources: BTreeMap<_, _> = resources
-            .voices
-            .iter()
-            .map(|id| id & 0xffff_0000)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .map(|group| (group, &self.voice_sources[&group]))
-            .collect();
-        let recipe = json!({"version":7,"map_id":map_id,"map_sha256":map.source_sha256,
-            "sound_banks":resources.banks,"environment":self.environment,
-            "sources":sources,"voice_sources":voice_sources,"audio_device":false});
         let metadata = self.workspace.output.join(crate::field::audio_path(map_id));
         let mut music = BTreeMap::new();
         for id in resources.music {
@@ -159,7 +125,6 @@ impl FieldAudioCooker {
                 .map(|id| (id, self.voices[&id].clone()))
                 .collect(),
             voice_gains: self.gains.clone(),
-            recipe,
         };
         manifest.validate()?;
         write_json(&metadata, &serde_json::to_value(manifest)?)

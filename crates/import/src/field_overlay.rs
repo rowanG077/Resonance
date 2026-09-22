@@ -39,7 +39,7 @@ fn bind(
     output: &Path,
     sources: &BTreeMap<u32, Arc<texture::Decoded>>,
 ) -> Result<BTreeMap<i32, OverlayArt>> {
-    let recovered = resources.recovered();
+    let decoded = resources.package();
     let mut textures = sources
         .iter()
         .map(|(&id, decoded)| Ok((id, publish(decoded, output)?)))
@@ -51,8 +51,7 @@ fn bind(
             textures.insert(
                 0xffee0000 | (index as u32 - 16),
                 publish(
-                    crate::scene::recovered::textures(physical.source_section(index)?, recovered)?
-                        .as_ref(),
+                    decoded.textures(physical.source_section(index)?)?.as_ref(),
                     output,
                 )?,
             );

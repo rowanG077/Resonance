@@ -135,7 +135,7 @@ fn named_bindings_resolve_body_and_outline_and_preserve_all_conditions() -> Resu
 }
 
 #[test]
-fn recooking_restores_only_shipped_sources_and_receipts_track_their_bytes() -> Result<()> {
+fn cooking_writes_shipped_sources_and_preserves_unrelated_files() -> Result<()> {
     let root = tempfile::tempdir()?;
     let custom = root.path().join("scripts/custom.sym");
     fs::create_dir_all(custom.parent().unwrap())?;
@@ -144,16 +144,9 @@ fn recooking_restores_only_shipped_sources_and_receipts_track_their_bytes() -> R
         .iter()
         .map(|(path, _)| format!("scripts/{path}"))
         .collect();
-    let paths: Vec<_> = paths.iter().map(String::as_str).collect();
-    let cook = || {
-        crate::all_assets::reuse::cook(root.path(), &"preview-script-defaults", &paths, || {
-            publish(root.path())
-        })
-    };
-    assert!(!cook()?);
-    assert!(cook()?);
-    fs::write(root.path().join(paths[0]), "edited shipped content")?;
-    assert!(!cook()?);
+    fs::create_dir_all(root.path().join(&paths[0]).parent().unwrap())?;
+    fs::write(root.path().join(&paths[0]), "previous output")?;
+    publish(root.path())?;
     for ((_, source), path) in resonance_script_content::FILES.iter().zip(paths) {
         assert_eq!(fs::read_to_string(root.path().join(path))?, *source);
     }

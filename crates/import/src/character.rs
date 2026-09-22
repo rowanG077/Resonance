@@ -187,7 +187,7 @@ impl Prepared {
         extra: &[Clip<'_>],
     ) -> Result<()> {
         if let Some(geometry) =
-            source::unbound(binder.output, id, model, binder.recovered, &mut self.files)?
+            source::unbound(binder.output, id, model, binder.decoded, &mut self.files)?
         {
             self.unbound.push(geometry);
         } else {
@@ -202,7 +202,7 @@ impl Sources {
     pub(crate) fn read(resources: &mut Resources<'_>, declared: &BTreeSet<u32>) -> Result<Self> {
         let mut sources = Self::default();
         for &id in declared {
-            sources.insert(id, resources.resource(id)?, resources.recovered())?;
+            sources.insert(id, resources.resource(id)?, resources.package())?;
         }
         Ok(sources)
     }
@@ -210,10 +210,10 @@ impl Sources {
     pub(crate) fn include_field(
         &mut self,
         field: &crate::scene::binding::Map<'_>,
-        recovered: Option<&crate::scene::recovered::RecoveredModels>,
+        decoded: &crate::scene::decoded::Package,
     ) -> Result<()> {
         for (id, bytes) in field.models()? {
-            self.insert(u32::from(id), bytes.to_vec(), recovered)?;
+            self.insert(u32::from(id), bytes.to_vec(), decoded)?;
         }
         Ok(())
     }
@@ -222,7 +222,7 @@ impl Sources {
         &mut self,
         id: u32,
         bytes: Vec<u8>,
-        recovered: Option<&crate::scene::recovered::RecoveredModels>,
+        decoded: &crate::scene::decoded::Package,
     ) -> Result<()> {
         if word(&bytes, 0)? == 31 || is_model(&bytes) {
             ensure!(
@@ -232,15 +232,14 @@ impl Sources {
         } else if word(&bytes, 0)? == 0x0020af30 {
             ensure!(
                 self.textures
-                    .insert(id, crate::scene::recovered::textures(&bytes, recovered)?)
+                    .insert(id, decoded.textures(&bytes)?)
                     .is_none(),
                 "duplicate texture resource {id:#x}"
             );
         } else {
-            let animation =
-                crate::scene::recovered::animation(&bytes, recovered).with_context(|| {
-                    format!("field resource {id:#x} is not a model, texture or animation")
-                })?;
+            let animation = decoded.animation(&bytes).with_context(|| {
+                format!("field resource {id:#x} is not a model, texture or animation")
+            })?;
             self.animations.push((id, animation));
         }
         Ok(())
@@ -256,10 +255,10 @@ pub(crate) fn cook_field(
     original: &mut Resources<'_>,
     declarations: &crate::field_resources::Declarations,
 ) -> Result<Prepared> {
-    let recovered = original.recovered();
+    let decoded = original.package();
     let binder = Binder {
         output,
-        recovered,
+        decoded,
         shared,
     };
     let resources = original.catalogue;
@@ -284,10 +283,7 @@ pub(crate) fn cook_field(
                     .get((slot - 4) / 4)
                     .and_then(Option::as_ref)
                     .context("missing door animation")?;
-                Ok((
-                    slot as u16,
-                    crate::scene::recovered::animation(&service[range.clone()], recovered)?,
-                ))
+                Ok((slot as u16, decoded.animation(&service[range.clone()])?))
             })
             .collect::<Result<Vec<_>>>()?;
         let extra: Vec<_> = doors
@@ -399,7 +395,7 @@ fn unique_clips<'a>(clips: impl IntoIterator<Item = Clip<'a>>) -> Result<Vec<Cli
 
 struct Binder<'a> {
     output: &'a Path,
-    recovered: Option<&'a crate::scene::recovered::RecoveredModels>,
+    decoded: &'a crate::scene::decoded::Package,
     shared: &'a [(u32, Arc<AuthoredAnimation>)],
 }
 
@@ -414,7 +410,7 @@ impl Binder<'_> {
     ) -> Result<ActorAssets> {
         let Self {
             output,
-            recovered,
+            decoded,
             shared,
         } = *self;
         let sections = if is_model(animation) {
@@ -431,7 +427,8 @@ impl Binder<'_> {
             .map(|(index, range)| {
                 Ok((
                     (4 + index * 4) as u16,
-                    crate::scene::recovered::animation(&animation[range], recovered)
+                    decoded
+                        .animation(&animation[range])
                         .with_context(|| format!("actor {name} animation slot {index}"))?,
                 ))
             })
@@ -451,7 +448,7 @@ impl Binder<'_> {
                     animation,
                 })),
         )?;
-        let parts = cook_source_parts(output, name, model, &clips, recovered)?;
+        let parts = cook_source_parts(output, name, model, &clips, decoded)?;
         println!(
             "Cooked {name}: {} clips across {} mesh layers",
             clips.len(),
@@ -558,19 +555,18 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn field_texture_sources_keep_local_ids_and_share_recovered_palettes() -> Result<()> {
+    fn field_texture_sources_keep_local_ids_and_share_decoded_palettes() -> Result<()> {
         let palette = [0x0020af30_u32, 0, 12]
             .into_iter()
             .flat_map(u32::to_be_bytes)
             .collect::<Vec<_>>();
-        let decoded = Arc::new(crate::texture::decode_source(&palette)?);
-        let mut recovered = crate::scene::recovered::RecoveredModels::default();
-        recovered.remember_textures(Arc::clone(&decoded));
+        let mut decoded = crate::scene::decoded::Package::default();
+        let textures = Arc::clone(decoded.decode_textures(&palette)?);
         let mut sources = Sources::default();
-        sources.insert(330, palette.clone(), Some(&recovered))?;
-        sources.insert(331, palette, Some(&recovered))?;
-        assert!(Arc::ptr_eq(&sources.textures[&330], &decoded));
-        assert!(Arc::ptr_eq(&sources.textures[&331], &decoded));
+        sources.insert(330, palette.clone(), &decoded)?;
+        sources.insert(331, palette, &decoded)?;
+        assert!(Arc::ptr_eq(&sources.textures[&330], &textures));
+        assert!(Arc::ptr_eq(&sources.textures[&331], &textures));
         Ok(())
     }
 
@@ -636,7 +632,14 @@ mod tests {
             let files = root.join("files");
             let catalogue = crate::resource::read(&fs::read(root.join("sys/main.dol"))?)?;
             let declarations = [0x10004, 0x10012, 0x10802, 0x10a20, 0x2000d, 0x30030].into();
-            let mut resources = Resources::open(&root, &catalogue)?;
+            let output = tempfile::tempdir()?;
+            let decoded = crate::scene::decoded::Package::field_dependencies(
+                &root,
+                output.path(),
+                &catalogue,
+                &declarations,
+            )?;
+            let mut resources = Resources::decoded(&catalogue, &decoded);
             let sources = Sources::read(&mut resources, &declarations)?;
             assert_eq!(
                 sources.packages.keys().copied().collect::<Vec<_>>(),
@@ -763,10 +766,16 @@ mod tests {
             let physical = binding::Map::open(output, &source)?;
             let catalogue = crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?;
             let declared = crate::field_resources::declarations(map.section(6)?)?;
-            let mut resources =
-                crate::field_resources::binding::Resources::open(&extracted, &catalogue)?;
+            let mut decoded = crate::scene::decoded::Package::field_dependencies(
+                &extracted,
+                output,
+                &catalogue,
+                &declared.resources,
+            )?;
+            decoded.extend(&physical.decoded);
+            let mut resources = Resources::decoded(&catalogue, &decoded);
             let mut sources = Sources::read(&mut resources, &declared.resources)?;
-            sources.include_field(&physical, None)?;
+            sources.include_field(&physical, &physical.decoded)?;
             let shared = &sources.animations;
             let shared_ids: BTreeSet<_> = shared.iter().map(|(id, _)| *id).collect();
             let actors = cook_field(

@@ -58,13 +58,17 @@ fn book(
     Ok(MonsterBook { labels, records })
 }
 
-pub(crate) fn prepare(extracted: &Path, output: &Path, executable: &[u8]) -> Result<MonsterBook> {
+pub(crate) fn prepare(
+    extracted: &Path,
+    output: &Path,
+    executable: &[u8],
+    catalogue: &Catalogue,
+    ui: &inventory_ui::Catalogue,
+) -> Result<MonsterBook> {
     let sources = crate::source_assets::Sources::read_with(extracted, executable)?;
     let files = extracted.join("files");
     let usual = fs::read(files.join(sources.usual))?;
     let archive = files.join(sources.enemy);
-    let catalogue = crate::all_assets::monster_catalogue::read(executable)?;
-    let ui = inventory_ui::read(executable)?;
     ensure!(
         catalogue.records.len() == MONSTER_COUNT,
         "incomplete monster catalogue"
@@ -87,7 +91,7 @@ pub(crate) fn prepare(extracted: &Path, output: &Path, executable: &[u8]) -> Res
         };
         let item = |id| (id != 0).then_some(id);
         let mut preview = preview::menu(
-            preview::from_package(&bytes, metadata, id, &source::clips(&bytes)?, output, None)?,
+            preview::from_package(&bytes, metadata, id, &source::clips(&bytes)?, output)?,
             metadata,
         )?;
         preview.behavior = behaviors.bind(crate::model_behavior::Subject::Monster(id));
@@ -122,7 +126,7 @@ pub(crate) fn prepare(extracted: &Path, output: &Path, executable: &[u8]) -> Res
         records.push(monster);
     }
     behaviors.finish(crate::model_behavior::Catalogue::Monsters)?;
-    book(&catalogue, &ui, records)
+    book(catalogue, ui, records)
 }
 
 #[cfg(test)]

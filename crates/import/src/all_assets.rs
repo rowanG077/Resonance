@@ -10,9 +10,9 @@ mod embedded;
 #[cfg(test)]
 pub(crate) use embedded::cook_tables;
 pub(crate) use embedded::{
-    cooking_ui, ex_skills, figurine_catalogue, inventory_ui, monster_catalogue, options_ui,
-    rename_ui, save_menu, shop_ui, status_ui, strategy_ui, synopsis, technique_ui, title_catalogue,
-    ui_style, world_map,
+    Catalogues, cooking_ui, ex_skills, figurine_catalogue, inventory_ui, monster_catalogue,
+    options_ui, rename_ui, save_menu, shop_ui, status_ui, strategy_ui, synopsis, technique_ui,
+    title_catalogue, ui_style, world_map,
 };
 mod exclusions;
 mod field;
@@ -25,7 +25,6 @@ mod overworld_encounters;
 pub(crate) mod physical_scene;
 pub(crate) mod pool;
 mod preparation;
-pub(crate) mod reuse;
 pub(crate) mod roles;
 pub(crate) mod skits;
 
@@ -67,13 +66,14 @@ pub struct DeferredAsset {
 #[error("{0}")]
 pub(crate) struct Deferred(pub &'static str);
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct Report {
     pub cooked: usize,
     pub duplicates: usize,
-    pub reused: usize,
+    pub source_files: usize,
     pub failures: Vec<Failure>,
     pub deferred: Vec<DeferredAsset>,
+    pub excluded: BTreeMap<String, Exclusion>,
 }
 
 impl Report {
@@ -98,7 +98,6 @@ impl Report {
     fn merge(&mut self, other: Self) {
         self.cooked += other.cooked;
         self.duplicates += other.duplicates;
-        self.reused += other.reused;
         self.failures.extend(other.failures);
         self.deferred.extend(other.deferred);
     }
@@ -119,11 +118,39 @@ struct File {
 }
 struct Disc<'a> {
     extracted: &'a Path,
+    document: Arc<Document>,
     audio: Result<audio::Cooker>,
     movies: Vec<File>,
     executable_hash: String,
     skit_key: String,
-    reuse_key: Option<String>,
+}
+
+struct Document {
+    executable: Vec<u8>,
+    hash: String,
+    catalogues: embedded::Catalogues,
+}
+
+fn read_documents(discs: &BTreeMap<u8, &Path>) -> Result<BTreeMap<u8, Arc<Document>>> {
+    let mut unique = BTreeMap::<String, Arc<Document>>::new();
+    discs
+        .iter()
+        .map(|(&disc, extracted)| {
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            let hash = crate::digest(&executable);
+            let document = match unique.entry(hash.clone()) {
+                std::collections::btree_map::Entry::Occupied(entry) => Arc::clone(entry.get()),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    Arc::clone(entry.insert(Arc::new(Document {
+                        catalogues: embedded::Catalogues::read(&executable)?,
+                        executable,
+                        hash,
+                    })))
+                }
+            };
+            Ok((disc, document))
+        })
+        .collect()
 }
 enum Job {
     File(File),
@@ -138,20 +165,19 @@ struct CookedJob {
     key: String,
     paths: Vec<String>,
     report: Report,
-    recovered: Arc<crate::scene::recovered::RecoveredModels>,
+    decoded: Arc<crate::scene::decoded::Package>,
 }
 
-impl std::fmt::Debug for CookedJob {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CookedJob")
-            .field("report", &self.report)
-            .finish()
+impl CookedJob {
+    fn require_success(&self) -> Result<()> {
+        ensure!(
+            self.report.failures.is_empty(),
+            "dependency package {} failed",
+            self.key
+        );
+        Ok(())
     }
 }
-
-#[derive(Debug, thiserror::Error)]
-#[error("asset conversion failed")]
-struct FailedJob(CookedJob);
 
 impl Job {
     fn label(&self) -> String {
@@ -159,23 +185,6 @@ impl Job {
             Self::File(file) => file.relative.clone(),
             Self::Voice { member, .. } => member.label.clone(),
         }
-    }
-
-    fn reuse_key(&self, cache: &reuse::Cache, source: &Disc<'_>) -> Result<Option<String>> {
-        let Some(context) = &source.reuse_key else {
-            return Ok(None);
-        };
-        let key = match self {
-            Self::File(file) => cache.key(&(
-                context,
-                "file",
-                &file.hash,
-                &file.relative,
-                file.role.map(|role| role as u8),
-            ))?,
-            Self::Voice { member, hash } => cache.key(&(context, "voice", hash, &member.label))?,
-        };
-        Ok(Some(key))
     }
 
     fn output_key(&self) -> &str {
@@ -186,9 +195,9 @@ impl Job {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum Exclusion {
+pub enum Exclusion {
     NativeCode,
     BuildMetadata,
     DiscMetadata,
@@ -213,22 +222,37 @@ fn source_discs(paths: &[PathBuf]) -> Result<BTreeMap<u8, &Path>> {
 }
 
 pub fn cook(options: &Options<'_>) -> Result<Report> {
-    let discs = source_discs(options.discs)?;
     ensure!(
         (1..=MAX_WORKERS).contains(&options.jobs),
         "worker count must be 1..={MAX_WORKERS}"
     );
+    let discs = source_discs(options.discs)?;
+    let output_session = media::OutputSession::open(options.output)?;
+    let _publications = crate::publication::Session::start_if_needed(options.output)?;
+    let catalogue = options.output.join("sources.json");
+    for path in [&catalogue, &options.output.join("coverage.json")] {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).context("invalidate previous cook result"),
+        }
+    }
+    let documents = read_documents(&discs)?;
     // Workers convert assets in-process; the caller collects results.
     let workers = options.jobs;
     // Resolve roles across both discs before content deduplication. An alias
     // encountered first must get the same reader as its declared resource.
     let mut declared = Vec::new();
-    for extracted in discs.values() {
-        let executable = fs::read(extracted.join("sys/main.dol"))?;
-        let fields = crate::field_catalogue::map_paths(extracted)?
+    for (&disc, &extracted) in &discs {
+        let document = &documents[&disc];
+        let executable = &document.executable;
+        let fields = document
+            .catalogues
+            .field_phases()
+            .map_paths(extracted)?
             .into_iter()
             .map(|path| (path, Role::Field));
-        let fonts = crate::font_directory::Directory::read(&executable)?
+        let fonts = crate::font_directory::Directory::read(executable)?
             .paths(&extracted.join("files"))?
             .into_iter()
             .map(|path| (path, Role::Font));
@@ -236,8 +260,8 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             fields
                 .chain(fonts)
                 .chain(roles::battle_paths(extracted)?)
-                .chain(roles::audio_paths(extracted, &executable)?)
-                .chain([(roles::credits_path(extracted, &executable)?, Role::Credits)])
+                .chain(roles::audio_paths(extracted, executable)?)
+                .chain([(roles::credits_path(extracted, executable)?, Role::Credits)])
                 .map(|(path, role)| (extracted.join("files").join(path), role)),
         );
     }
@@ -270,20 +294,11 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             );
         }
     }
-    let output_session = media::OutputSession::open(options.output)?;
-    let _publications = crate::publication::Session::start_if_needed(options.output)?;
-    let cache = reuse::Cache::open(options.output)?;
-    let catalogue = options.output.join("sources.json");
-    match fs::remove_file(&catalogue) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("invalidate previous source catalogue"),
-    }
     let mut report = Report::default();
     let mut seen = BTreeSet::new();
     let mut tables = BTreeMap::<String, Vec<String>>::new();
     let mut skit_tables = BTreeMap::<String, Vec<String>>::new();
-    let mut embedded_cache = embedded::Cache::default();
+    let mut embedded_publications = embedded::Publications::default();
     let mut sources = BTreeMap::new();
     let mut excluded = BTreeMap::new();
     let mut outputs: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -322,9 +337,10 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 report.record(&path.display().to_string(), Err(error));
             }
         }
-        let executable = fs::read(extracted.join("sys/main.dol"))?;
-        let executable_hash = crate::digest(&executable);
-        let portrait = crate::skit::portrait_path(extracted, &executable)?;
+        let document = &documents[&disc];
+        let executable = &document.executable;
+        let executable_hash = document.hash.clone();
+        let portrait = crate::skit::portrait_path(extracted, executable)?;
         let skit_key = crate::digest(&serde_json::to_vec(&(
             &executable_hash,
             &portrait,
@@ -357,20 +373,8 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         }
         let mut jobs = Vec::new();
         let deferred_sources =
-            crate::source_assets::Sources::read_with(extracted, &executable)?.deferred_paths();
+            crate::source_assets::Sources::read_with(extracted, executable)?.deferred_paths();
         let audio = audio::Cooker::new(extracted, &output_session, options.coefficients, &hashed);
-        // The audio environment covers executable/REL constants, inherited pools,
-        // coefficient contents and song setup aliases. Boot bytes also select text encodings.
-        let reuse_key = audio
-            .as_ref()
-            .ok()
-            .map(|audio| {
-                cache.key(&(
-                    audio.resource_key(&executable_hash),
-                    media::hash_file(&extracted.join("sys/boot.bin"))?,
-                ))
-            })
-            .transpose()?;
         let mut movies = Vec::new();
         for (relative, mut hash) in hashed {
             let source = extracted.join("files").join(&relative);
@@ -487,15 +491,15 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             disc,
             Disc {
                 extracted,
+                document: Arc::clone(document),
                 audio,
                 movies,
                 executable_hash,
                 skit_key,
-                reuse_key,
             },
         );
     }
-    let fields = preparation::discover(&discs, &mut sources, &mut report)?;
+    let fields = preparation::discover(&discs, &documents, &mut sources, &mut report)?;
     let required = fields
         .iter()
         .flat_map(|field| field.dependencies.iter().cloned())
@@ -523,7 +527,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             aliases
         },
     );
-    let primary = *discs.first_key_value().context("no source disc")?.1;
+    let (&primary_disc, &primary) = discs.first_key_value().context("no source disc")?;
     let mut packages = BTreeMap::new();
     eprintln!(
         "Cooking general assets: {} jobs on {workers} workers",
@@ -531,24 +535,36 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
     );
     let started = AtomicUsize::new(0);
     let mut dag = pool::Dag::new();
-    let mut physical_dependencies = Vec::new();
+    let mut physical_packages = Vec::<pool::Output<CookedJob>>::new();
     let mut shared = None;
     for (disc, job) in &all_jobs {
-        let (pending, cache, started, maps, aliases) =
-            (&pending, &cache, &started, &maps, &aliases);
+        let (pending, started, maps, aliases) = (&pending, &started, &maps, &aliases);
         let retain = required.contains(job.output_key());
         if retain && shared.is_none() {
-            let discs = &discs;
+            let documents = &documents;
             let sources = &sources;
+            let inputs = physical_packages.clone();
             let prepared = dag.add(
                 "shared presentation",
-                physical_dependencies.clone(),
-                move |_, _| {
-                    let shared = crate::shared::prepare(primary, options.output, sources)?;
-                    for extracted in discs.values() {
+                inputs
+                    .iter()
+                    .map(|job| job.dependency())
+                    .collect::<Vec<_>>(),
+                move |_, resolver| {
+                    for input in &inputs {
+                        resolver.get(*input)?.require_success()?;
+                    }
+                    let document = &documents[&primary_disc];
+                    let shared = crate::shared::prepare(
+                        primary,
+                        options.output,
+                        sources,
+                        &document.executable,
+                        &document.catalogues,
+                    )?;
+                    for document in documents.values() {
                         ensure!(
-                            crate::resource::read(&fs::read(extracted.join("sys/main.dol"))?)?
-                                == shared.catalogue,
+                            document.catalogues.resources == shared.catalogue,
                             "resource catalogues disagree across source discs"
                         );
                     }
@@ -566,33 +582,12 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 let source = &pending[disc];
                 let extracted = source.extracted;
                 let audio = &source.audio;
-                let reuse_key = job.reuse_key(cache, source)?;
-                if !retain && let Some(key) = &reuse_key {
-                    if let Some(receipt) = cache.restore(key) {
-                        receipt.register(options.output)?;
-                        return Ok(CookedJob {
-                            key: job.output_key().to_owned(),
-                            paths: receipt.paths,
-                            recovered: Arc::default(),
-                            report: Report {
-                                cooked: receipt.units,
-                                reused: 1,
-                                ..Report::default()
-                            },
-                        });
-                    }
-                    cache.invalidate(key)?;
-                }
-                let capture = reuse_key
-                    .as_ref()
-                    .map(|_| crate::publication::Capture::start())
-                    .transpose()?;
                 let count = started.fetch_add(1, Ordering::Relaxed) + 1;
                 if count == 1 || count.is_multiple_of(100) {
                     eprintln!("Starting job {count}/{}", job_count);
                 }
                 let mut local = Report::default();
-                let mut recovered = crate::scene::recovered::RecoveredModels::default();
+                let mut decoded = crate::scene::decoded::Package::default();
                 let paths = match job {
                     Job::Voice { member, .. } => audio
                         .as_ref()
@@ -604,14 +599,15 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                         file,
                         audio,
                         &mut local,
-                        retain.then_some(Recovery {
+                        PackageInput {
                             map: maps.get(&file.hash).map(Arc::as_ref),
-                            models: &mut recovered,
+                            models: &mut decoded,
                             aliases: aliases
                                 .get(&file.hash)
+                                .filter(|_| retain)
                                 .map(Vec::as_slice)
                                 .unwrap_or_default(),
-                        }),
+                        },
                     ) {
                         Ok(paths) => paths,
                         Err(error) => {
@@ -630,23 +626,12 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                 }
                 let succeeded = local.failures.is_empty();
                 local.cooked += usize::from(succeeded && !paths.is_empty());
-                if succeeded
-                    && local.deferred.is_empty()
-                    && let (Some(key), Some(capture)) = (reuse_key, capture)
-                {
-                    cache.publish(&key, &paths, local.cooked, capture.finish()?)?;
-                }
-                let result = CookedJob {
+                Ok(CookedJob {
                     key: job.output_key().to_owned(),
                     paths,
                     report: local,
-                    recovered: Arc::new(recovered),
-                };
-                if succeeded {
-                    Ok(result)
-                } else {
-                    Err(FailedJob(result).into())
-                }
+                    decoded: Arc::new(if retain { decoded } else { Default::default() }),
+                })
             },
         );
         dag.estimate(
@@ -655,7 +640,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             64 * 1024 * 1024,
         )?;
         if !retain {
-            physical_dependencies.push(handle.dependency());
+            physical_packages.push(handle);
         }
         packages.insert(job.output_key().to_owned(), handle);
     }
@@ -666,20 +651,17 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         shared.context("no field preparation jobs")?,
         options.output,
     )?;
+    let mut prepared_fields = BTreeSet::new();
     dag.run_bounded(
         workers,
         2 * 1024 * 1024 * 1024,
         || (),
         |completion| {
             if let Some(error) = completion.error() {
-                if let Some(failure) = error.downcast_ref::<FailedJob>() {
-                    report.merge(failure.0.report.clone());
-                } else {
-                    report.fail(Failure {
-                        path: completion.name.into(),
-                        error: format!("{error:#}"),
-                    });
-                }
+                report.fail(Failure {
+                    path: completion.name.into(),
+                    error: format!("{error:#}"),
+                });
             } else if let Ok(result) = completion.result::<CookedJob>() {
                 outputs
                     .entry(result.key.clone())
@@ -689,21 +671,16 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                     excluded.insert(completion.name.into(), Exclusion::BattleSemantics);
                 }
                 report.merge(result.report.clone());
+            } else if let Ok(field) = completion.result::<preparation::PreparedField>() {
+                prepared_fields.insert(field.0);
             }
         },
-    )?;
-    write_atomic(
-        &options.output.join("progress.json"),
-        &serde_json::to_vec(&serde_json::json!({
-            "finished_asset_queues_for_discs": pending.keys().collect::<Vec<_>>(),
-            "converted_units": report.cooked,
-            "failures": report.failures,
-        }))?,
     )?;
     for (
         disc,
         Disc {
             extracted,
+            document,
             movies,
             executable_hash,
             skit_key,
@@ -746,11 +723,21 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             for (label, result) in [
                 (
                     "session tables",
-                    crate::session::cook(extracted, &table_output).map(|path| vec![path]),
+                    crate::session::cook(
+                        &document.executable,
+                        &document.catalogues.menu,
+                        &table_output,
+                    )
+                    .map(|path| vec![path]),
                 ),
                 (
                     "localized text",
-                    crate::session::cook_text(extracted, &table_output).map(|path| vec![path]),
+                    crate::session::cook_text(
+                        &document.executable,
+                        &document.catalogues.menu,
+                        &table_output,
+                    )
+                    .map(|path| vec![path]),
                 ),
                 ("audio tables", audio_tables::cook(extracted, &table_output)),
                 (
@@ -809,7 +796,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
                     .extend(paths);
             }),
         );
-        let hits = embedded_cache.hits;
+        let hits = embedded_publications.hits;
         let prefix = format!("disc{disc}/");
         let source_hashes = sources
             .iter()
@@ -822,14 +809,15 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         let result = embedded::cook(
             extracted,
             &data,
-            workers,
-            &mut embedded_cache,
+            &document.catalogues,
+            &document.executable,
+            &mut embedded_publications,
             &mut |path, result| {
                 report.record(&format!("disc{}/{path}", disc), result);
             },
             &source_hashes,
         );
-        report.duplicates += embedded_cache.hits - hits;
+        report.duplicates += embedded_publications.hits - hits;
         match result {
             Ok(embedded) => {
                 for (source, paths) in embedded {
@@ -879,32 +867,22 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             }
         }
     }
-    write_atomic(
-        &options.output.join("excluded.json"),
-        &serde_json::to_vec_pretty(&excluded)?,
-    )?;
-    write_atomic(
-        &options.output.join("deferred.json"),
-        &serde_json::to_vec_pretty(&report.deferred)?,
-    )?;
     report.record(
         "runtime preparation",
-        preparation::finish(options, &fields, &output_session, &sources),
+        preparation::finish(
+            options,
+            &fields,
+            &prepared_fields,
+            &output_session,
+            &sources,
+        ),
     );
+    report.source_files = sources.len();
+    report.excluded = excluded;
     write_atomic(
-        &options.output.join("failures.json"),
-        &serde_json::to_vec_pretty(&report.failures)?,
+        &options.output.join("coverage.json"),
+        &serde_json::to_vec_pretty(&report)?,
     )?;
-    write_atomic(
-        &options.output.join("summary.json"),
-        &serde_json::to_vec_pretty(&serde_json::json!({
-            "converted_units": report.cooked, "source_files": sources.len(),
-            "excluded_files": excluded.len(), "duplicates": report.duplicates,
-            "reused_jobs": report.reused, "scope": "general-assets", "deferred": report.deferred.len(),
-            "failures": report.failures.len()
-        }))?,
-    )?;
-    fs::remove_file(options.output.join("progress.json"))?;
     if report.failures.is_empty() {
         write_atomic(&catalogue, &serde_json::to_vec_pretty(&sources)?)?;
     }
@@ -925,45 +903,21 @@ fn read_header(path: &Path) -> std::io::Result<Vec<u8>> {
     Ok(header)
 }
 
-#[cfg(test)]
-pub(crate) fn cook_source(
-    extracted: &Path,
-    output: &Path,
-    relative: &str,
-    role: Option<Role>,
-) -> Result<Vec<String>> {
-    let options = Options {
-        discs: &[],
-        output,
-        coefficients: Path::new("unused"),
-        jobs: 1,
-    };
-    let file = File {
-        relative: relative.into(),
-        hash: media::hash_file(&extracted.join("files").join(relative))?,
-        role,
-    };
-    let mut report = Report::default();
-    let paths = cook_file(
-        &options,
-        extracted,
-        &file,
-        &Err(anyhow::anyhow!("audio not requested")),
-        &mut report,
-        None,
-    )?;
-    ensure!(
-        report.failures.is_empty(),
-        "file cook failed: {:?}",
-        report.failures
-    );
-    Ok(paths)
+struct PackageInput<'a> {
+    map: Option<&'a crate::field::MapArchive>,
+    models: &'a mut crate::scene::decoded::Package,
+    aliases: &'a [String],
 }
 
-struct Recovery<'a> {
-    map: Option<&'a crate::field::MapArchive>,
-    models: &'a mut crate::scene::recovered::RecoveredModels,
-    aliases: &'a [String],
+impl<'a> PackageInput<'a> {
+    #[cfg(test)]
+    fn new(models: &'a mut crate::scene::decoded::Package) -> Self {
+        Self {
+            models,
+            map: None,
+            aliases: &[],
+        }
+    }
 }
 
 fn cook_file(
@@ -972,7 +926,7 @@ fn cook_file(
     file: &File,
     audio: &Result<audio::Cooker>,
     report: &mut Report,
-    mut recovery: Option<Recovery<'_>>,
+    input: PackageInput<'_>,
 ) -> Result<Vec<String>> {
     eprintln!("Cooking {}", file.relative);
     let source = extracted.join("files").join(&file.relative);
@@ -986,9 +940,9 @@ fn cook_file(
     } else {
         Some(Arc::new(fs::read(&source)?))
     };
-    if let (Some(recovery), Some(bytes)) = (&mut recovery, &bytes) {
-        for alias in recovery.aliases {
-            recovery.models.remember_source(alias, Arc::clone(bytes));
+    if let Some(bytes) = &bytes {
+        for alias in input.aliases {
+            input.models.remember_source(alias, Arc::clone(bytes));
         }
     }
     let bytes = bytes.as_deref().map(Vec::as_slice);
@@ -1039,12 +993,12 @@ fn cook_file(
         file.role != Some(Role::Font),
         "font reached ordinary asset queue"
     );
-    let input = if file.role == Some(Role::Field) {
+    let kind = if file.role == Some(Role::Field) {
         geometry::Input::Field
     } else {
         geometry::Input::File
     };
-    let (bytes, child) = if let Some(map) = recovery.as_ref().and_then(|recovery| recovery.map) {
+    let (bytes, child) = if let Some(map) = input.map {
         write_atomic(
             &options.output.join(&name).join("cabinet.json"),
             &serde_json::to_vec(&[&map.member])?,
@@ -1053,29 +1007,20 @@ fn cook_file(
     } else {
         (bytes, name.clone())
     };
+    let previous = report.cooked;
     let mut record =
         |member: &str, result| report.record(&format!("{}/{member}", file.relative), result);
-    let recognized = match recovery {
-        Some(recovery) => geometry::cook_recovered(
-            bytes,
-            &child,
-            options.output,
-            audio.as_ref().ok(),
-            input,
-            recovery.models,
-            &mut record,
-        ),
-        None => geometry::cook(
-            bytes,
-            &child,
-            options.output,
-            audio.as_ref().ok(),
-            input,
-            &mut record,
-        ),
-    };
+    let recognized = geometry::cook(
+        bytes,
+        &child,
+        options.output,
+        audio.as_ref().ok(),
+        kind,
+        input.models,
+        &mut record,
+    );
     ensure!(recognized, "no decoder for this asset format");
-    Ok(if options.output.join(&name).exists() {
+    Ok(if report.cooked > previous {
         vec![name]
     } else {
         Vec::new()
@@ -1203,7 +1148,15 @@ mod tests {
             };
             fs::write(root.join("files").join(&file.relative), &bytes)?;
             let mut report = Report::default();
-            let error = cook_file(&options, &root, &file, &audio, &mut report, None).unwrap_err();
+            let error = cook_file(
+                &options,
+                &root,
+                &file,
+                &audio,
+                &mut report,
+                PackageInput::new(&mut crate::scene::decoded::Package::default()),
+            )
+            .unwrap_err();
             assert!(error.is::<Deferred>());
             assert_eq!(report.cooked, 0);
             assert!(!output.exists());
@@ -1212,9 +1165,22 @@ mod tests {
             file.role = Some(Role::Field);
             file.hash = crate::digest(&[0; 8]);
             fs::write(root.join("files").join(&file.relative), [0; 8])?;
-            assert!(cook_file(&options, &root, &file, &audio, &mut report, None)?.is_empty());
+            let stale = output.join(format!("assets/{}", file.hash));
+            fs::create_dir_all(&stale)?;
+            fs::write(stale.join("previous.json"), b"old output")?;
+            assert!(
+                cook_file(
+                    &options,
+                    &root,
+                    &file,
+                    &audio,
+                    &mut report,
+                    PackageInput::new(&mut crate::scene::decoded::Package::default())
+                )?
+                .is_empty()
+            );
             assert_eq!(report.failures.len(), 1);
-            assert!(!output.join(format!("assets/{}", file.hash)).exists());
+            assert_eq!(fs::read(stale.join("previous.json"))?, b"old output");
             Ok(())
         })();
         fs::remove_dir_all(root)?;
@@ -1275,7 +1241,14 @@ mod tests {
                 fs::write(root.join("files").join(&file.relative), &bytes)?;
                 let mut report = Report::default();
                 let audio = Err(anyhow::anyhow!("banner must not use audio"));
-                let paths = cook_file(&options, &root, &file, &audio, &mut report, None)?;
+                let paths = cook_file(
+                    &options,
+                    &root,
+                    &file,
+                    &audio,
+                    &mut report,
+                    PackageInput::new(&mut crate::scene::decoded::Package::default()),
+                )?;
                 assert_eq!(paths.len(), 2);
                 assert!(paths.iter().all(|path| options.output.join(path).is_file()));
                 let metadata: serde_json::Value =
@@ -1288,10 +1261,17 @@ mod tests {
                     &bytes[..bytes.len() - 1],
                 )?;
                 assert!(
-                    cook_file(&options, &root, &file, &audio, &mut report, None)
-                        .unwrap_err()
-                        .to_string()
-                        .contains("truncated banner metadata")
+                    cook_file(
+                        &options,
+                        &root,
+                        &file,
+                        &audio,
+                        &mut report,
+                        PackageInput::new(&mut crate::scene::decoded::Package::default())
+                    )
+                    .unwrap_err()
+                    .to_string()
+                    .contains("truncated banner metadata")
                 );
             }
             Ok(())
@@ -1314,6 +1294,28 @@ mod tests {
     }
 
     #[test]
+    fn failed_discovery_invalidates_previous_success_markers() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let disc = root.path().join("disc");
+        fs::create_dir_all(disc.join("sys"))?;
+        fs::write(disc.join("sys/boot.bin"), b"GQSEAF\0\0")?;
+        let output = root.path().join("output");
+        fs::create_dir(&output)?;
+        for name in ["sources.json", "coverage.json"] {
+            fs::write(output.join(name), b"previous result")?;
+        }
+        assert!(
+            cook(&Options {
+                discs: &[disc],
+                ..options(&output)
+            })
+            .is_err()
+        );
+        assert!(fs::read_dir(output)?.next().is_none());
+        Ok(())
+    }
+
+    #[test]
     fn action_like_generic_data_does_not_hide_a_format_failure() -> Result<()> {
         let root = tempfile::tempdir()?;
         fs::create_dir(root.path().join("files"))?;
@@ -1333,7 +1335,7 @@ mod tests {
             },
             &Err(anyhow::anyhow!("no audio in fixture")),
             &mut report,
-            None,
+            PackageInput::new(&mut crate::scene::decoded::Package::default()),
         )
         .unwrap_err();
         assert!(!error.is::<Deferred>());

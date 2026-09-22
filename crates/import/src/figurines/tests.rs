@@ -33,7 +33,9 @@ fn shared_previews_bind_every_figurine_and_original_idle() -> Result<()> {
         let actual = prepare(
             &extracted,
             output.path(),
-            &fs::read(extracted.join("sys/main.dol"))?,
+            &crate::all_assets::figurine_catalogue::read(&fs::read(
+                extracted.join("sys/main.dol"),
+            )?)?,
         )?;
         for legacy in ["assets", "data", "sources.json"] {
             ensure!(

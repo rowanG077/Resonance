@@ -1,6 +1,6 @@
 //! Catalogue entries bind shared decoded packages; no field has its own cook recipe.
 use super::{Report, pool};
-use crate::{field::MapArchive, scene::recovered::RecoveredModels};
+use crate::{field::MapArchive, scene::decoded::Package};
 use anyhow::{Context, Result, ensure};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -18,8 +18,11 @@ pub(super) struct Field<'a> {
     pub dependencies: BTreeSet<String>,
 }
 
+pub(super) struct PreparedField(pub u32);
+
 pub(super) fn discover<'a>(
     discs: &BTreeMap<u8, &'a Path>,
+    documents: &BTreeMap<u8, Arc<super::Document>>,
     sources: &mut BTreeMap<String, String>,
     report: &mut Report,
 ) -> Result<Vec<Field<'a>>> {
@@ -38,8 +41,8 @@ pub(super) fn discover<'a>(
     };
     let mut archives = BTreeMap::<String, Arc<MapArchive>>::new();
     for (&disc, &extracted) in discs {
-        let executable = fs::read(extracted.join("sys/main.dol"))?;
-        let catalogue = crate::resource::read(&executable)?;
+        let document = &documents[&disc];
+        let catalogue = &document.catalogues.resources;
         let files = extracted.join("files");
         for name in catalogue
             .standalone
@@ -62,11 +65,11 @@ pub(super) fn discover<'a>(
                 party.insert(source_hash(sources, disc, &files, &path)?);
             }
         }
-        for phase in crate::field_catalogue::read(&executable)?.records {
+        for phase in &document.catalogues.field_phases().records {
             if fields.contains_key(&phase.id) {
                 continue;
             }
-            let Some(name) = phase.resource else {
+            let Some(name) = &phase.resource else {
                 continue;
             };
             let Some(path) = crate::field_resources::find_path(&files, &format!("MAP/{name}"))?
@@ -150,14 +153,16 @@ pub(super) fn add<'a>(
                 .chain([shared.dependency()])
                 .collect::<Vec<_>>(),
             move |_, resolver| {
-                let mut recovered = RecoveredModels::default();
+                let mut decoded = Package::default();
                 for input in &inputs {
-                    recovered.extend(&resolver.get(*input)?.recovered);
+                    let package = resolver.get(*input)?;
+                    package.require_success()?;
+                    decoded.extend(&package.decoded);
                 }
                 let map = crate::scene::binding::Map::from_archive(
                     output,
                     Arc::clone(&field.archive),
-                    &recovered,
+                    &decoded,
                 )?;
                 let shared = resolver.get(shared)?;
                 let assets = crate::field::prepare(
@@ -165,11 +170,11 @@ pub(super) fn add<'a>(
                     output,
                     &map,
                     &shared,
-                    &recovered,
+                    &decoded,
                     &field.declarations,
                 )?;
                 crate::field::publish(output, &assets)?;
-                Ok(())
+                Ok(PreparedField(field.id))
             },
         );
         dag.estimate(task, 0, 64 * 1024 * 1024)?;
@@ -180,6 +185,7 @@ pub(super) fn add<'a>(
 pub(super) fn finish(
     options: &super::Options<'_>,
     fields: &[Field<'_>],
+    prepared: &BTreeSet<u32>,
     session: &Arc<crate::media::OutputSession>,
     sources: &BTreeMap<String, Vec<String>>,
 ) -> Result<()> {
@@ -201,7 +207,10 @@ pub(super) fn finish(
             &coefficients,
             other,
         )?;
-        for field in fields.iter().filter(|field| field.extracted == extracted) {
+        for field in fields
+            .iter()
+            .filter(|field| field.extracted == extracted && prepared.contains(&field.id))
+        {
             audio
                 .cook(field.id, &field.archive)
                 .with_context(|| format!("prepare field {} audio", field.id))?;
@@ -209,7 +218,7 @@ pub(super) fn finish(
     }
     crate::media::prepare_title_audio(session.workspace(primary)?, options.coefficients)?;
     crate::media::prepare_title_sounds(session.workspace(primary)?, options.coefficients)?;
-    crate::field::finish(options.output)?;
+    crate::field::finish(options.output, prepared.iter().copied())?;
     ensure!(
         !fields.is_empty(),
         "field catalogue produced no scripted fields"
@@ -234,9 +243,10 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
     };
     let _publications = crate::publication::Session::start_if_needed(&output)?;
     let discs = super::source_discs(&paths)?;
+    let documents = super::read_documents(&discs)?;
     let mut sources = BTreeMap::new();
     let mut report = Report::default();
-    let fields = discover(&discs, &mut sources, &mut report)?;
+    let fields = discover(&discs, &documents, &mut sources, &mut report)?;
     eprintln!(
         "Preparing {} catalogue fields; {} dependency failures",
         fields.len(),
@@ -252,7 +262,14 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
         .collect::<BTreeMap<_, _>>();
     let mut dag = pool::Dag::new();
     let shared = dag.add("shared presentation", [], |_, _| {
-        crate::shared::prepare(&paths[0], &output, &sources)
+        let document = &documents[&1];
+        crate::shared::prepare(
+            &paths[0],
+            &output,
+            &sources,
+            &document.executable,
+            &document.catalogues,
+        )
     });
     let mut packages = BTreeMap::new();
     for hash in needed {
@@ -279,7 +296,7 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
         };
         let options = &options;
         let package = dag.add(relative, [shared.dependency()], move |_, _| {
-            let mut recovered = RecoveredModels::default();
+            let mut decoded = Package::default();
             let mut report = Report::default();
             let paths = super::cook_file(
                 options,
@@ -287,11 +304,11 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
                 &file,
                 &Err(anyhow::anyhow!("field geometry must not decode audio")),
                 &mut report,
-                Some(super::Recovery {
+                super::PackageInput {
                     map: map.as_deref(),
-                    models: &mut recovered,
+                    models: &mut decoded,
                     aliases: &aliases,
-                }),
+                },
             )?;
             ensure!(
                 report.failures.is_empty(),
@@ -302,7 +319,7 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
                 key: file.hash.clone(),
                 paths,
                 report,
-                recovered: Arc::new(recovered),
+                decoded: Arc::new(decoded),
             })
         });
         packages.insert(hash, package);

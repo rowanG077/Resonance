@@ -316,8 +316,8 @@ It supplies story flags, characters, items, monsters, figurines, locations and
 model node names as ordinary `i32` and `string` constants. Definitions record
 original IDs/names, with readable names for confirmed meanings and explicit
 fallback names for unknown meanings. No symbol manifest or source generator is
-involved. Physical model packages link known node modules through `nodes.md`;
-new models remain cookable without a standard-library entry.
+involved. The standard-library index links known model node modules; new models
+remain cookable without a standard-library entry.
 
 `std::story::SwordDancerTailVisible` is integer 147;
 `std::characters::Lloyd` is canonical actor ID 1, independently of localized

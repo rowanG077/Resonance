@@ -1,12 +1,14 @@
 //! Complete resource declarations, independent of installed files and runtime selection.
 use crate::{
-    dol, embedded,
+    dol,
     read::{c_string, u32 as word},
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+#[cfg(test)]
+use {crate::embedded, std::path::Path};
 
+#[cfg(test)]
 const FAMILY: &str = "resource-catalogue";
 const STANDALONE: u32 = 0x801f85e4;
 const GROUPS: u32 = 0x801f86b8;
@@ -154,6 +156,7 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     })
 }
 
+#[cfg(test)]
 pub(crate) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
     embedded::write(file, output, FAMILY, &read(executable)?)
 }

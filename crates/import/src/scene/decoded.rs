@@ -2,31 +2,11 @@
 use crate::{geometry::DecodedGeometry, texture::Decoded};
 use std::{collections::BTreeMap, sync::Arc};
 
-pub(crate) fn animation(
-    bytes: &[u8],
-    recovered: Option<&RecoveredModels>,
-) -> anyhow::Result<Arc<crate::animation::AuthoredAnimation>> {
-    match recovered {
-        Some(recovered) => recovered.animation(bytes),
-        None => crate::animation::read_member(bytes).map(Arc::new),
-    }
-}
-
-pub(crate) fn textures(
-    bytes: &[u8],
-    recovered: Option<&RecoveredModels>,
-) -> anyhow::Result<Arc<Decoded>> {
-    match recovered {
-        Some(recovered) => recovered.textures(bytes),
-        None => crate::texture::decode_source(bytes).map(Arc::new),
-    }
-}
-
 #[derive(Clone)]
 pub(crate) struct Model {
     pub geometry: Arc<DecodedGeometry>,
     pub textures: Arc<Decoded>,
-    pub mesh: Option<crate::publication::File>,
+    pub mesh: crate::publication::File,
 }
 
 impl Model {
@@ -48,12 +28,8 @@ impl Model {
         output: &std::path::Path,
         files: &mut std::collections::BTreeSet<String>,
     ) -> anyhow::Result<String> {
-        use anyhow::Context;
         let mut scene = self.geometry.scene.clone();
-        self.mesh
-            .as_ref()
-            .context("physical mesh publication is missing")?
-            .share(&output.join(&scene.mesh))?;
+        self.mesh.share(&output.join(&scene.mesh))?;
         files.insert(scene.mesh.clone());
         files.extend(crate::all_assets::physical_scene::publish_nodes(
             output,
@@ -93,15 +69,76 @@ impl Model {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct RecoveredModels {
+#[derive(Clone, Default)]
+pub(crate) struct Package {
     models: BTreeMap<String, Model>,
     palettes: BTreeMap<String, Arc<Decoded>>,
     animations: BTreeMap<String, Arc<crate::animation::AuthoredAnimation>>,
     sources: BTreeMap<String, Arc<Vec<u8>>>,
 }
 
-impl RecoveredModels {
+impl Package {
+    #[cfg(test)]
+    pub(crate) fn field_dependencies(
+        extracted: &std::path::Path,
+        output: &std::path::Path,
+        catalogue: &crate::resource::Catalogue,
+        declarations: &std::collections::BTreeSet<u32>,
+    ) -> anyhow::Result<Self> {
+        use crate::resource::PartyResource;
+        let mut paths = declarations
+            .iter()
+            .map(|&id| catalogue.source(id))
+            .collect::<anyhow::Result<std::collections::BTreeSet<_>>>()?;
+        for id in 1..=catalogue.party_bodies.len() as u8 {
+            paths.insert(catalogue.party(PartyResource::Body, id, 0)?);
+            paths.insert(catalogue.field_motion(id)?);
+            paths.insert(catalogue.field_service(id)?);
+        }
+        let mut package = Self::default();
+        let files = extracted.join("files");
+        for path in paths {
+            let bytes = Arc::new(std::fs::read(
+                files.join(crate::field_resources::resolve_path(&files, path)?),
+            )?);
+            package.extend(&Self::cook(
+                &bytes,
+                &format!("assets/{}", crate::digest(&bytes)),
+                output,
+                crate::all_assets::geometry::Input::File,
+            )?);
+            package.remember_source(path, bytes);
+        }
+        Ok(package)
+    }
+
+    pub(crate) fn cook(
+        bytes: &[u8],
+        name: &str,
+        output: &std::path::Path,
+        input: crate::all_assets::geometry::Input,
+    ) -> anyhow::Result<Self> {
+        let mut package = Self::default();
+        let mut failures = Vec::new();
+        anyhow::ensure!(
+            crate::all_assets::geometry::cook(
+                bytes,
+                name,
+                output,
+                None,
+                input,
+                &mut package,
+                &mut |path, result| {
+                    if let Err(error) = result {
+                        failures.push(format!("{path}: {error:#}"));
+                    }
+                },
+            ),
+            "unrecognized model package {name}"
+        );
+        anyhow::ensure!(failures.is_empty(), "{}", failures.join("\n"));
+        Ok(package)
+    }
     /// Dependency values share their buffers; the DAG controls their lifetime and admission.
     pub(crate) fn extend(&mut self, other: &Self) {
         self.models.extend(other.models.clone());
@@ -148,40 +185,10 @@ impl RecoveredModels {
             .context("animation was not supplied by its decode job")
     }
 
-    pub(crate) fn remember(
-        &mut self,
-        normalized: &[u8],
-        geometry: crate::geometry::DecodedGeometry,
-        textures: Arc<Decoded>,
-        mesh: Option<crate::publication::File>,
-    ) {
-        let key = crate::digest(normalized);
-        if self.models.contains_key(&key) {
-            return;
-        }
-        let textures = self.remember_textures(textures);
-        self.models.insert(
-            key,
-            Model {
-                geometry: Arc::new(geometry),
-                textures,
-                mesh,
-            },
-        );
-    }
-
     pub(crate) fn get(&self, normalized: &[u8]) -> Option<&Model> {
         // Normalization embeds the selected external palette. This map only
         // contains the ordinary physical geometry interpretation, before binding.
         self.models.get(&crate::digest(normalized))
-    }
-
-    pub(crate) fn remember_textures(&mut self, textures: Arc<Decoded>) -> Arc<Decoded> {
-        Arc::clone(
-            self.palettes
-                .entry(textures.source_sha256.clone())
-                .or_insert(textures),
-        )
     }
 
     pub(crate) fn textures(&self, bytes: &[u8]) -> anyhow::Result<Arc<Decoded>> {
@@ -192,42 +199,57 @@ impl RecoveredModels {
             .context("textures were not supplied by their decode job")
     }
 
-    pub(crate) fn decode_textures(&self, bytes: &[u8]) -> anyhow::Result<Arc<Decoded>> {
+    pub(crate) fn decode_textures(&mut self, bytes: &[u8]) -> anyhow::Result<&mut Arc<Decoded>> {
         let hash = crate::digest(bytes);
-        match self.palettes.get(&hash) {
-            Some(textures) => Ok(Arc::clone(textures)),
-            None => Ok(Arc::new(crate::texture::decode(
-                bytes,
-                &format!("textures/{hash}"),
-            )?)),
+        match self.palettes.entry(hash.clone()) {
+            std::collections::btree_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
+            std::collections::btree_map::Entry::Vacant(entry) => Ok(entry.insert(Arc::new(
+                crate::texture::decode(bytes, &format!("textures/{hash}"))?,
+            ))),
         }
     }
 
-    /// A pruned physical writer may still have consumers needing original typed inputs.
-    #[cfg(test)]
-    pub(crate) fn decode(&mut self, original: &[u8], primary: &[u8]) -> anyhow::Result<()> {
+    pub(crate) fn decode_model(
+        &mut self,
+        original: &[u8],
+        primary: &[u8],
+        output: &std::path::Path,
+    ) -> anyhow::Result<&Model> {
         use anyhow::Context;
         let normalized = crate::character::texture_palette(primary, original)?;
-        if self.get(&normalized).is_some() {
-            return Ok(());
+        let key = crate::digest(&normalized);
+        if !self.models.contains_key(&key) {
+            let palette = normalized
+                .get(
+                    crate::read::u32(&normalized, 0)? as usize
+                        ..crate::read::u32(&normalized, 4)? as usize,
+                )
+                .context("model palette exceeds source")?;
+            let textures = Arc::clone(self.decode_textures(palette)?);
+            let source =
+                if crate::read::u32(original, 0)? == 0 && crate::read::u32(palette, 4)? == 0 {
+                    crate::all_assets::physical_scene::TextureSource::Caller
+                } else {
+                    crate::all_assets::physical_scene::TextureSource::Local {
+                        catalogue: format!("textures/{}/textures.json", textures.source_sha256),
+                    }
+                };
+            let (geometry, mesh) = crate::all_assets::physical_scene::cook_decoded(
+                &normalized,
+                output,
+                source,
+                textures.base_alpha().ok(),
+            )?;
+            self.models.insert(
+                key.clone(),
+                Model {
+                    geometry: Arc::new(geometry),
+                    textures,
+                    mesh,
+                },
+            );
         }
-        let palette = normalized
-            .get(
-                crate::read::u32(&normalized, 0)? as usize
-                    ..crate::read::u32(&normalized, 4)? as usize,
-            )
-            .context("model palette exceeds source")?;
-        let textures = self.decode_textures(palette)?;
-        textures.validate()?;
-        let geometry = crate::geometry::decode_section_with_alpha(
-            &normalized,
-            crate::all_assets::physical_scene::TextureSource::Local {
-                catalogue: format!("textures/{}/textures.json", textures.source_sha256),
-            },
-            textures.base_alpha()?,
-        )?;
-        self.remember(&normalized, geometry, textures, None);
-        Ok(())
+        Ok(&self.models[&key])
     }
 }
 
@@ -239,18 +261,6 @@ mod tests {
 
     #[test]
     fn package_dependencies_share_buffers_and_release_inputs() -> Result<()> {
-        let geometry = || DecodedGeometry {
-            scene: crate::all_assets::physical_scene::Scene {
-                mesh: String::new(),
-                bone_names: Vec::new(),
-                draws: Vec::new(),
-                textures: crate::all_assets::physical_scene::TextureSource::Caller,
-            },
-            gltf: serde_json::json!({}),
-            binary: Arc::new(vec![0]),
-            bindings: None,
-            model_name: None,
-        };
         let mut palette = vec![0; 96];
         for (offset, value) in [
             (0, 0x20_af30_u32),
@@ -262,46 +272,24 @@ mod tests {
         ] {
             palette[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
         }
-        let mut recovered = RecoveredModels::default();
-        assert!(recovered.textures(&palette).is_err());
-        let textures = recovered.decode_textures(&palette)?;
-        let pixels = Arc::downgrade(&textures);
-        recovered.remember(
-            b"normalized model and selected palette",
-            geometry(),
-            textures,
-            None,
-        );
-        let shared = recovered.textures(&palette)?;
+        let mut decoded = Package::default();
+        assert!(decoded.textures(&palette).is_err());
+        let textures = decoded.decode_textures(&palette)?;
+        let pixels = Arc::downgrade(textures);
+        let shared = decoded.textures(&palette)?;
         assert!(Arc::ptr_eq(&shared, &pixels.upgrade().unwrap()));
-        recovered.remember(
-            b"different geometry, same palette",
-            geometry(),
-            shared,
-            None,
-        );
-        assert_eq!(recovered.palettes.len(), 1);
+        drop(shared);
+        assert_eq!(decoded.palettes.len(), 1);
         // Identical pixels with a different sampler are a different interpretation.
         palette[35] = 1;
-        let changed = recovered.decode_textures(&palette)?;
-        assert!(!Arc::ptr_eq(&changed, &pixels.upgrade().unwrap()));
-        let model = Arc::downgrade(
-            &recovered
-                .get(b"normalized model and selected palette")
-                .unwrap()
-                .geometry,
-        );
-        assert!(
-            recovered
-                .get(b"normalized model and different palette")
-                .is_none()
-        );
-        let mut dependency = RecoveredModels::default();
-        dependency.extend(&recovered);
-        drop(recovered);
-        assert!(model.upgrade().is_some() && pixels.upgrade().is_some());
+        let changed = decoded.decode_textures(&palette)?;
+        assert!(!Arc::ptr_eq(changed, &pixels.upgrade().unwrap()));
+        let mut dependency = Package::default();
+        dependency.extend(&decoded);
+        drop(decoded);
+        assert!(pixels.upgrade().is_some());
         drop(dependency);
-        assert!(model.upgrade().is_none() && pixels.upgrade().is_none());
+        assert!(pixels.upgrade().is_none());
         Ok(())
     }
 
@@ -324,7 +312,7 @@ mod tests {
         let primary = &bytes[sections[0].clone().context("missing body")?];
         let physical = tempfile::tempdir()?;
         let named = tempfile::tempdir()?;
-        let mut recovered = RecoveredModels::default();
+        let mut decoded = Package::default();
         let mut inputs = Vec::new();
         for (index, section) in sections.iter().take(2).enumerate() {
             let Some(section) = section else { continue };
@@ -332,13 +320,13 @@ mod tests {
             let normalized = crate::character::texture_palette(primary, original)?;
             let mut failures = Vec::new();
             ensure!(
-                crate::all_assets::geometry::cook_recovered(
+                crate::all_assets::geometry::cook(
                     &normalized,
                     &format!("part-{index}"),
                     physical.path(),
                     None,
                     crate::all_assets::geometry::Input::File,
-                    &mut recovered,
+                    &mut decoded,
                     &mut |path, result| {
                         if let Err(error) = result {
                             failures.push(format!("{path}: {error:#}"));
@@ -349,20 +337,19 @@ mod tests {
             );
             ensure!(failures.is_empty(), "{}", failures.join("\n"));
             ensure!(
-                recovered.get(&normalized).is_some(),
+                decoded.get(&normalized).is_some(),
                 "original model was not retained"
             );
             inputs.push((index, original, normalized));
         }
         assert_eq!(inputs.len(), 2, "fixture needs the body and outline");
-        let body = recovered.get(&inputs[0].2).unwrap();
-        let outline = recovered.get(&inputs[1].2).unwrap();
+        let body = decoded.get(&inputs[0].2).unwrap();
+        let outline = decoded.get(&inputs[1].2).unwrap();
         assert!(!Arc::ptr_eq(&body.geometry, &outline.geometry));
         assert!(Arc::ptr_eq(&body.textures, &outline.textures));
-        let mut models =
-            crate::scene::source::Models::with_recovered(named.path(), Some(&recovered));
+        let mut models = crate::scene::source::Models::new(named.path(), &decoded);
         for (index, original, normalized) in &inputs {
-            let expected = Arc::clone(&recovered.get(normalized).unwrap().geometry.binary);
+            let expected = Arc::clone(&decoded.get(normalized).unwrap().geometry.binary);
             models.add(
                 &format!("part-{index}"),
                 original,
@@ -376,9 +363,9 @@ mod tests {
                 },
             )?;
         }
-        let layers = models.finish()?;
+        let layers = models.finish();
         for ((index, _, normalized), layer) in inputs.iter().zip(&layers) {
-            let source = recovered.get(normalized).unwrap();
+            let source = decoded.get(normalized).unwrap();
             assert_eq!(
                 fs::read(named.path().join(&layer.part.mesh))?,
                 fs::read(physical.path().join(&source.geometry.scene.mesh))?
@@ -415,31 +402,23 @@ mod tests {
                 }
             }
         }
-        let mut changed =
-            crate::scene::source::Models::with_recovered(named.path(), Some(&recovered));
+        let mut changed = crate::scene::source::Models::new(named.path(), &decoded);
         changed.add("changed", primary, primary, |_, _, _, glb| {
             glb.json["asset"]["generator"] = "transformed variant".into();
             Ok(())
         })?;
-        assert_ne!(changed.finish()?.remove(0).part.mesh, layers[0].part.mesh);
-        let missing = RecoveredModels::default();
-        let mut strict = crate::scene::source::Models::with_recovered(named.path(), Some(&missing));
+        assert_ne!(changed.finish().remove(0).part.mesh, layers[0].part.mesh);
+        let missing = Package::default();
+        let mut strict = crate::scene::source::Models::new(named.path(), &missing);
         assert!(
             strict
                 .add("missing", primary, primary, |_, _, _, _| Ok(()))
                 .is_err()
         );
-        let geometry = Arc::downgrade(&recovered.get(&inputs[0].2).unwrap().geometry);
-        let textures = Arc::downgrade(&recovered.get(&inputs[0].2).unwrap().textures);
-        drop(recovered);
+        let geometry = Arc::downgrade(&decoded.get(&inputs[0].2).unwrap().geometry);
+        let textures = Arc::downgrade(&decoded.get(&inputs[0].2).unwrap().textures);
+        drop(decoded);
         assert!(geometry.upgrade().is_none() && textures.upgrade().is_none());
-        // A pruned physical writer can supply decoded inputs without a mesh file.
-        let mut empty = RecoveredModels::default();
-        empty.decode(primary, primary)?;
-        assert!(empty.get(&inputs[0].2).unwrap().mesh.is_none());
-        let mut fallback = crate::scene::source::Models::with_recovered(named.path(), Some(&empty));
-        fallback.add("fallback", primary, primary, |_, _, _, _| Ok(()))?;
-        assert_eq!(fallback.finish()?.remove(0).part.mesh, layers[0].part.mesh);
         Ok(())
     }
 }
