@@ -80,6 +80,38 @@ impl Files {
             }
             result.manifests.insert(manifest.map_id, manifest);
         }
+        result.read_inventory(root, inventory, cache, cancelled)?;
+        Ok(result)
+    }
+
+    /// Prepare an independently validated scene inventory (including worlds).
+    pub fn from_inventory(
+        root: &Path,
+        inventory: BTreeMap<String, crate::field_preload::File>,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self> {
+        let mut result = Self::default();
+        result.read_inventory(root, inventory, cache, cancelled)?;
+        Ok(result)
+    }
+
+    fn read_inventory(
+        &mut self,
+        root: &Path,
+        inventory: BTreeMap<String, crate::field_preload::File>,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<()> {
+        for (path, file) in &inventory {
+            crate::validate_asset_path(path)?;
+            ensure!(
+                file.sha256.len() == 64
+                    && file.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    && !file.roles.is_empty(),
+                "invalid prepared dependency {path}"
+            );
+        }
         cache.0.retain(|_, bytes| bytes.strong_count() > 0);
         for (path, entry) in inventory {
             ensure!(!cancelled(), "field preparation cancelled");
@@ -108,7 +140,7 @@ impl Files {
                 if !entry.roles.contains(&Role::Movie) {
                     bytes.extend_from_slice(&buffer[..count]);
                 }
-                result.disk_bytes += count as u64;
+                self.disk_bytes += count as u64;
             }
             ensure!(
                 read == entry.bytes,
@@ -123,16 +155,16 @@ impl Files {
                 // a missing or corrupt payload, even while another field holds it.
                 let bytes: Arc<[u8]> =
                     if let Some(shared) = cache.0.get(&entry.sha256).and_then(Weak::upgrade) {
-                        result.reused_bytes += entry.bytes;
+                        self.reused_bytes += entry.bytes;
                         shared
                     } else {
                         bytes.into()
                     };
                 cache.0.insert(entry.sha256, Arc::downgrade(&bytes));
-                result.bytes.insert(path, bytes);
+                self.bytes.insert(path, bytes);
             }
         }
-        Ok(result)
+        Ok(())
     }
 }
 

@@ -13,6 +13,7 @@ pub mod model_behavior;
 pub mod model_preview;
 pub mod monster;
 pub mod movie;
+pub mod overworld;
 pub mod prepared;
 pub mod secondary_motion;
 pub mod session;
