@@ -325,57 +325,7 @@ impl FieldAssets {
             .iter()
             .chain(self.actors.iter().flat_map(|c| &c.parts))
         {
-            for chain in &part.secondary_motion.chains {
-                chain.validate(part.bone_names.len())?;
-            }
-            ensure!(
-                part.clips
-                    .iter()
-                    .flat_map(|c| &c.secondary_pose_nodes)
-                    .all(|node| usize::from(*node) < part.bone_names.len()),
-                "secondary animation node exceeds skeleton"
-            );
-            ensure!(
-                part.material_nodes.is_empty() || part.material_nodes.len() == part.materials.len(),
-                "field material node mapping is incomplete"
-            );
-            ensure!(
-                part.material_nodes
-                    .iter()
-                    .flatten()
-                    .all(|node| usize::from(*node) < part.bone_names.len()),
-                "field material node index exceeds skeleton"
-            );
-            validate_asset_path(&part.mesh)?;
-            ensure!(
-                self.files.contains_key(&part.mesh),
-                "field mesh is missing from dependency inventory"
-            );
-            for texture in part
-                .textures
-                .iter()
-                .chain(part.clips.iter().map(|clip| &clip.motion))
-            {
-                validate_asset_path(texture)?;
-                ensure!(
-                    self.files.contains_key(texture),
-                    "field texture is missing from dependency inventory"
-                );
-            }
-            ensure!(
-                part.translation.iter().all(|v| v.is_finite()),
-                "invalid field translation"
-            );
-            for material in &part.materials {
-                ensure!(
-                    material
-                        .color
-                        .iter()
-                        .chain(&material.multiply)
-                        .all(|b| b.texture < part.textures.len()),
-                    "invalid field material texture"
-                );
-            }
+            part.validate(|path| self.files.contains_key(path))?;
         }
         for actor in &self.actors {
             ensure!(
@@ -384,6 +334,63 @@ impl FieldAssets {
                     .iter()
                     .all(|node| usize::from(*node) < part.bone_names.len())),
                 "invalid initial actor visibility"
+            );
+        }
+        Ok(())
+    }
+}
+
+impl crate::ScenePart {
+    pub fn validate(&self, available: impl Fn(&str) -> bool) -> Result<()> {
+        for chain in &self.secondary_motion.chains {
+            chain.validate(self.bone_names.len())?;
+        }
+        ensure!(
+            self.clips
+                .iter()
+                .flat_map(|c| &c.secondary_pose_nodes)
+                .all(|node| usize::from(*node) < self.bone_names.len()),
+            "secondary animation node exceeds skeleton"
+        );
+        ensure!(
+            self.material_nodes.is_empty() || self.material_nodes.len() == self.materials.len(),
+            "field material node mapping is incomplete"
+        );
+        ensure!(
+            self.material_nodes
+                .iter()
+                .flatten()
+                .all(|node| usize::from(*node) < self.bone_names.len()),
+            "field material node index exceeds skeleton"
+        );
+        validate_asset_path(&self.mesh)?;
+        ensure!(
+            available(&self.mesh),
+            "field mesh is missing from dependency inventory"
+        );
+        for texture in self
+            .textures
+            .iter()
+            .chain(self.clips.iter().map(|clip| &clip.motion))
+        {
+            validate_asset_path(texture)?;
+            ensure!(
+                available(texture),
+                "field texture is missing from dependency inventory"
+            );
+        }
+        ensure!(
+            self.translation.iter().all(|v| v.is_finite()),
+            "invalid field translation"
+        );
+        for material in &self.materials {
+            ensure!(
+                material
+                    .color
+                    .iter()
+                    .chain(&material.multiply)
+                    .all(|b| b.texture < self.textures.len()),
+                "invalid field material texture"
             );
         }
         Ok(())
