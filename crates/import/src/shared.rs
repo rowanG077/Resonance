@@ -121,6 +121,7 @@ fn resource_sources(
 fn resource_lookup_preserves_ids_aliases_and_absent_original_sources() -> Result<()> {
     let catalogue = crate::resource::Catalogue {
         save_point: "save-point.bin".into(),
+        treasures: std::array::from_fn(|_| "treasure.bin".into()),
         standalone: vec![
             Some("Model.bin".into()),
             None,

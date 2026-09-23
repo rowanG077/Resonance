@@ -179,6 +179,7 @@ impl MenuArt {
             "talk",
             "shop",
             "examine",
+            "rest",
             "go_out",
             "load",
             "customize",
