@@ -49,6 +49,8 @@ pub fn metadata_path(map: u32) -> String {
 pub fn audio_path(map: u32) -> String {
     format!("fields/map-{map}-audio.json")
 }
+/// Native field treasure models: ordinary, reinforced and bag-shaped.
+pub const TREASURE_RESOURCE_BASE: u32 = 0x7fff_0100;
 
 pub fn preload_path(map: u32) -> String {
     format!("fields/map-{map}.preload.json")
@@ -99,6 +101,8 @@ pub struct FieldAssets {
     pub ground: Vec<CollisionGroup>,
     pub regions: Vec<CollisionGroup>,
     pub doors: Vec<Door>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub camera_tracks: BTreeMap<u32, Vec<crate::CameraKey>>,
     #[serde(default)]
     pub actors: Vec<ActorAssets>,
     /// Geometry recipes requiring a caller texture binding before instantiation.
@@ -177,6 +181,21 @@ pub struct UnboundGeometry {
 impl FieldAssets {
     pub fn validate(&self) -> Result<()> {
         ensure!(self.version == FIELD_VERSION, "unsupported field assets");
+        for track in self.camera_tracks.values() {
+            ensure!(
+                track.len() >= 2
+                    && track.len() <= 100_000
+                    && track.iter().all(|key| key.time.is_finite()
+                        && key.time >= 0.
+                        && key
+                            .position
+                            .iter()
+                            .chain(&key.target)
+                            .all(|v| v.is_finite()))
+                    && track.windows(2).all(|keys| keys[0].time < keys[1].time),
+                "invalid field camera track"
+            );
+        }
         for actor in &self.actors {
             ensure!(
                 actor.parts.len() <= 2

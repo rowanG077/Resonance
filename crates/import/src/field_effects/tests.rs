@@ -18,8 +18,20 @@ fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Resul
         let source = crate::cooked::Source::open(&library, disc, "sys/main.dol")?;
         let mut recipe = Recipe::read(&executable)?;
         let frozen: Recipe = source.document("embedded/field-effects.json")?;
+        // The frozen fixture predates the three additional station sprites.
+        // Retain its exact comparison for every previously decoded recipe.
+        let mut previous = serde_json::to_value(&recipe)?;
+        for id in ["4", "7", "22"] {
+            assert!(
+                previous["effects"]["sprites"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove(id)
+                    .is_some()
+            );
+        }
         ensure!(
-            serde_json::to_value(&recipe)? == serde_json::to_value(frozen)?,
+            previous == serde_json::to_value(frozen)?,
             "field effect recipe changed"
         );
         assert_eq!(recipe.catalogue.entries.len(), 79);

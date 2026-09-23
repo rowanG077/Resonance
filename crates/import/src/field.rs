@@ -40,6 +40,22 @@ pub(crate) struct MapArchive {
 }
 
 impl MapArchive {
+    pub(crate) fn camera_tracks(&self) -> Result<BTreeMap<u32, Vec<resonance_content::CameraKey>>> {
+        self.sections
+            .iter()
+            .enumerate()
+            .skip(16)
+            .filter_map(|(index, range)| {
+                let bytes = &self.bytes[range.as_ref()?.clone()];
+                bytes.starts_with(b"CAMM").then(|| {
+                    Ok((
+                        0xffee0000 + (index - 16) as u32,
+                        crate::scene::camera(crate::all_assets::camera(bytes)?)?,
+                    ))
+                })
+            })
+            .collect()
+    }
     pub fn open(source: &Path) -> Result<Self> {
         Self::decode(&fs::read(source)?)
     }
@@ -216,6 +232,7 @@ pub(crate) fn prepare(
             .transpose()?
             .unwrap_or_default(),
         doors,
+        camera_tracks: physical.camera_tracks()?,
         actors: characters.actors,
         unbound_geometry: characters.unbound,
         resource_catalogue: (!declared.dynamic.is_empty())

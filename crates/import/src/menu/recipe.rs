@@ -93,6 +93,7 @@ impl Source {
                 ("talk", 0x8035af1c),
                 ("shop", 0x8035af24),
                 ("examine", 0x8035af2c),
+                ("rest", 0x8035af80),
                 ("go_out", 0x8035af8c),
             ]
             .into_iter()

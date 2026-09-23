@@ -6,6 +6,161 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
+#[test]
+#[ignore = "adds cooked native treasure models and service sounds to disposable RESONANCE_WORLD_ASSETS"]
+fn original_fields_prepare_treasure_services() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let extracted = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
+    let treasures = crate::character::cook_treasure_fixture(&extracted, &root)?;
+    let mut maps = Vec::new();
+    let mut sounds = BTreeMap::new();
+    for entry in fs::read_dir(root.join("fields"))? {
+        let path = entry?.path();
+        if !path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("map-")
+            || !path.to_string_lossy().ends_with(".preload.json")
+        {
+            continue;
+        }
+        let manifest: Manifest = serde_json::from_slice(&fs::read(&path)?)?;
+        for audio in &manifest.inputs.audio {
+            let bank: FieldAudio = serde_json::from_slice(&fs::read(root.join(audio))?)?;
+            for (id, asset) in bank.sounds {
+                if [6, 28, 29].contains(&id) {
+                    sounds.insert(id, asset);
+                }
+            }
+        }
+        maps.push(manifest);
+    }
+    ensure!(
+        sounds.len() == 3,
+        "source fixture is missing treasure sounds"
+    );
+    std::thread::scope(|scope| -> Result<()> {
+        let workers: Vec<_> = maps
+            .chunks(maps.len().div_ceil(4))
+            .map(|maps| {
+                let root = &root;
+                let treasures = &treasures;
+                let sounds = &sounds;
+                scope.spawn(move || -> Result<()> {
+                    for manifest in maps {
+                        let path = root.join(&manifest.inputs.field);
+                        let mut field: FieldAssets = serde_json::from_slice(&fs::read(&path)?)?;
+                        if crate::field_resources::declarations(&fs::read(
+                            root.join(&field.script.path),
+                        )?)?
+                        .treasures
+                        {
+                            for treasure in treasures {
+                                if !field.actors.iter().any(|a| a.resource == treasure.resource) {
+                                    field.actors.push(treasure.clone());
+                                }
+                                for part in &treasure.parts {
+                                    for file in std::iter::once(&part.mesh)
+                                        .chain(&part.textures)
+                                        .chain(part.clips.iter().map(|clip| &clip.motion))
+                                    {
+                                        field
+                                            .files
+                                            .insert(file.clone(), hash_file(&root.join(file))?);
+                                    }
+                                }
+                            }
+                        }
+                        for audio in &manifest.inputs.audio {
+                            let path = root.join(audio);
+                            let mut bank: FieldAudio = serde_json::from_slice(&fs::read(&path)?)?;
+                            bank.sounds.extend(sounds.clone());
+                            write_atomic(&path, &serde_json::to_vec_pretty(&bank)?)?;
+                            field.files.insert(audio.clone(), hash_file(&path)?);
+                        }
+                        write_atomic(&path, &serde_json::to_vec_pretty(&field)?)?;
+                        let prepared = cook(root, manifest.inputs.clone())?;
+                        ensure!(
+                            prepared.missing_inputs.is_empty(),
+                            "treasure inputs missing"
+                        );
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap()?;
+        }
+        Ok(())
+    })
+}
+
+#[test]
+#[ignore = "refreshes ring glows and embedded cameras in disposable RESONANCE_WORLD_ASSETS"]
+fn original_fields_prepare_ring_effects_and_cameras() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let local = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local");
+    let effects = crate::field_effects::cook(&local.join("extracted/disc1"), &root)?;
+    let hashes: BTreeMap<_, _> = effects
+        .files
+        .iter()
+        .chain([&effects.path])
+        .map(|p| Ok((p.clone(), hash_file(&root.join(p))?)))
+        .collect::<Result<_>>()?;
+    let maps = fs::read_dir(root.join("fields"))?
+        .map(|entry| entry.map(|e| e.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    std::thread::scope(|scope| -> Result<()> {
+        let workers: Vec<_> = maps
+            .chunks(maps.len().div_ceil(4))
+            .map(|maps| {
+                let (root, local, hashes) = (&root, &local, &hashes);
+                scope.spawn(move || -> Result<()> {
+                    for path in maps {
+                        let name = path.file_name().unwrap().to_string_lossy();
+                        let Some(map) = name
+                            .strip_prefix("map-")
+                            .and_then(|s| s.strip_suffix(".preload.json"))
+                            .and_then(|s| s.parse::<u32>().ok())
+                        else {
+                            continue;
+                        };
+                        let source =
+                            crate::field::source_for_id(&local.join("extracted/disc1"), map)
+                                .or_else(|_| {
+                                    crate::field::source_for_id(&local.join("extracted/disc2"), map)
+                                })?;
+                        let archive = crate::field::MapArchive::open(&source)?;
+                        let manifest: Manifest = serde_json::from_slice(&fs::read(path)?)?;
+                        let field_path = root.join(&manifest.inputs.field);
+                        let mut field: FieldAssets =
+                            serde_json::from_slice(&fs::read(&field_path)?)?;
+                        field.camera_tracks = archive.camera_tracks()?;
+                        field.files.extend(hashes.clone());
+                        field.validate()?;
+                        write_atomic(&field_path, &serde_json::to_vec_pretty(&field)?)?;
+                        ensure!(
+                            cook(root, manifest.inputs)?.missing_inputs.is_empty(),
+                            "field effects dependencies missing"
+                        );
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap()?;
+        }
+        Ok(())
+    })
+}
+
 struct Fixture(PathBuf);
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -124,7 +279,7 @@ fn fixture() -> Fixture {
                     "numbers":[0,0,1,1],"leader":[0,0,1,1],
                     "number_colors":vec![[[255;4];2];18],"bar_colors":vec![[[255;4];4];3],"names":vec!["Name";9]},
                 "labels":(["tech","unison","strategy","status","synopsis","items",
-                    "ex_skill","equip","cooking","system","save","go_in","talk","shop","examine","go_out","load","customize",
+                    "ex_skill","equip","cooking","system","save","go_in","talk","shop","examine","rest","go_out","load","customize",
                     "empty","time","encounter","combo","next","gald","play_time","encounters","max_combo",
                     "yes","no","confirm_save_a","confirm_save_b","confirm_load_a","confirm_load_b",
                     "confirm_overwrite_a","confirm_overwrite_b"]
@@ -514,4 +669,80 @@ fn typed_field_handoff_preserves_manifest_and_checks_published_digest() {
             .to_string()
             .contains("preload asset hash differs")
     );
+}
+
+#[test]
+#[ignore = "binds embedded field animations in disposable RESONANCE_WORLD_ASSETS"]
+fn original_fields_prepare_embedded_scenery_motions() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let local = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local");
+    let mut count = 0;
+    for entry in fs::read_dir(root.join("fields"))? {
+        let path = entry?.path();
+        let name = path.file_name().unwrap().to_string_lossy();
+        let Some(map) = name
+            .strip_prefix("map-")
+            .and_then(|s| s.strip_suffix(".preload.json"))
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let source = crate::field::source_for_id(&local.join("extracted/disc1"), map)
+            .or_else(|_| crate::field::source_for_id(&local.join("extracted/disc2"), map))?;
+        let archive = crate::field::MapArchive::open(&source)?;
+        let embedded: Vec<_> = archive
+            .sections
+            .iter()
+            .enumerate()
+            .skip(16)
+            .filter_map(|(i, range)| {
+                let bytes = &archive.bytes[range.as_ref()?.clone()];
+                crate::animation::is_animation(bytes).then_some(i)
+            })
+            .collect();
+        if embedded.is_empty() {
+            continue;
+        }
+        let manifest: Manifest = serde_json::from_slice(&fs::read(path)?)?;
+        let field_path = root.join(&manifest.inputs.field);
+        let mut field: FieldAssets = serde_json::from_slice(&fs::read(&field_path)?)?;
+        let physical = crate::scene::binding::Map::open(&root, &source)?;
+        let motions = embedded
+            .iter()
+            .map(|&i| {
+                Ok((
+                    0xffee0000 + (i - 16) as u32,
+                    physical.decoded.animation(physical.source_section(i)?)?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        for part in &mut field.parts {
+            let (bound, _) = physical.part(usize::from(part.resource), &motions)?;
+            for clip in bound
+                .clips
+                .into_iter()
+                .filter(|c| c.animation_resource.is_some())
+            {
+                if !part.clips.iter().any(|c| {
+                    c.animation_resource == clip.animation_resource
+                        && c.resource_slot == clip.resource_slot
+                }) {
+                    field
+                        .files
+                        .insert(clip.motion.clone(), hash_file(&root.join(&clip.motion))?);
+                    part.clips.push(clip);
+                }
+            }
+        }
+        write_atomic(&field_path, &serde_json::to_vec_pretty(&field)?)?;
+        ensure!(
+            cook(&root, manifest.inputs)?.missing_inputs.is_empty(),
+            "embedded motion dependencies missing"
+        );
+        count += 1;
+    }
+    eprintln!("Bound embedded scenery motions in {count} fields");
+    Ok(())
 }
