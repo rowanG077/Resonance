@@ -313,8 +313,35 @@ pub struct Emote {
     pub start_tick: u32,
     pub duration: Option<u32>,
 }
+/// Music requests decoded at the native script boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MusicCommand {
+    Play(u16),
+    PlayJingle(u16),
+    Stop,
+    Suspend,
+    Resume,
+}
+
+impl TryFrom<i16> for MusicCommand {
+    type Error = &'static str;
+
+    fn try_from(command: i16) -> Result<Self, Self::Error> {
+        // Dispatch these wire values before ordinary track IDs.
+        Ok(match command {
+            -1 => Self::Stop,
+            -2 => Self::Suspend,
+            -3 => Self::Resume,
+            97 => Self::PlayJingle(97),
+            0.. => Self::Play(command as u16),
+            _ => return Err("unknown native music command"),
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum AudioCommand {
+    SoundReverb(u8),
     Voice(u32),
     StopVoice,
     SelectBank(u8),
@@ -327,7 +354,7 @@ pub enum AudioCommand {
         slot: u16,
         pan: u8,
     },
-    Music(i16),
+    Music(MusicCommand),
     MusicVolume {
         volume: u8,
         duration_ticks: u32,
@@ -337,6 +364,14 @@ pub enum AudioCommand {
         pan: u8,
         volume: u8,
         slot: Option<u8>,
+    },
+    /// Restart a vehicle engine whenever its original sound program ends.
+    /// StopSound or replacing the owning scene retires this lease.
+    RepeatSound {
+        id: i16,
+        pan: u8,
+        volume: u8,
+        slot: u8,
     },
 }
 #[derive(Debug, Clone)]

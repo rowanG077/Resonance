@@ -18,6 +18,15 @@ impl NativeHost<'_> {
     ) -> Result<NativeResult, String> {
         let mut value = None;
         match op {
+            NativeCall::SetSoundReverb => {
+                self.world
+                    .audio_commands
+                    .push(AudioCommand::SoundReverb(match a[0] as u16 {
+                        2 => 2,
+                        3 => 3,
+                        _ => 1,
+                    }));
+            }
             NativeCall::CreateSavePoint => {
                 let resource = resonance_content::field::SAVE_POINT_RESOURCE;
                 let model = self
@@ -167,7 +176,9 @@ impl NativeHost<'_> {
                         }
                     }
                     NativeCall::SelectAudioBank => AudioCommand::SelectBank((a[0] & 7) as u8),
-                    NativeCall::AudioCommand => AudioCommand::Music(a[0] as i16),
+                    NativeCall::AudioCommand => {
+                        AudioCommand::Music(crate::MusicCommand::try_from(a[0] as i16)?)
+                    }
                     NativeCall::SetAudioFade => AudioCommand::MusicVolume {
                         volume: a[1].clamp(0, 127) as u8,
                         duration_ticks: a[2].max(0) as u32,

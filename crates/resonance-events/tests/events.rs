@@ -2532,3 +2532,41 @@ fn sprite_overlay_fades_advance_on_ticks_and_stop_without_removing_the_actor() {
     assert!(events.world.actors[&id].visible);
     assert_eq!(events.world.overlays[&id].rgba[3], 60);
 }
+
+#[test]
+fn native_music_requests_decode_before_reaching_the_mixer() {
+    let code = script(&[
+        (Call::AudioCommand, &[10]),
+        (Call::AudioCommand, &[-2]),
+        (Call::AudioCommand, &[97]),
+        (Call::AudioCommand, &[-3]),
+        (Call::AudioCommand, &[-1]),
+    ]);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        Default::default(),
+        Default::default(),
+    );
+    let commands: Vec<_> = events
+        .world
+        .audio_commands
+        .iter()
+        .map(|command| {
+            let AudioCommand::Music(command) = command else {
+                panic!("unexpected audio command")
+            };
+            *command
+        })
+        .collect();
+    assert_eq!(
+        commands,
+        [
+            MusicCommand::Play(10),
+            MusicCommand::Suspend,
+            MusicCommand::PlayJingle(97),
+            MusicCommand::Resume,
+            MusicCommand::Stop
+        ]
+    );
+    assert!(MusicCommand::try_from(-4).is_err());
+}
