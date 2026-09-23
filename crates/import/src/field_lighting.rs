@@ -31,7 +31,7 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
         );
     }
     let rgba = tpl::decode_texture(&source, &texture)?;
-    let path = "effects/toon-ramp.ktx2";
+    let path = resonance_content::texture::TOON_RAMP_PATH;
     crate::texture::cook(256, 32, &rgba, &output.join(path))?;
     Ok(path.into())
 }

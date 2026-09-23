@@ -110,6 +110,7 @@ struct Part {
     spec: PreviewPart,
     gltf: Handle<Gltf>,
     textures: Vec<Handle<Image>>,
+    toon: Option<Handle<Image>>,
     root: Option<Entity>,
     materials: Vec<Handle<Surface>>,
     clips: Vec<Handle<crate::sparse_animation::Clip>>,
@@ -376,6 +377,17 @@ fn prepare(
                                 .load(format!("preview://{path}"))
                         })
                         .collect(),
+                    toon: (spec.scene.outline_color.is_none()
+                        && spec.scene.materials.iter().any(|m| m.color.is_some()))
+                    .then(|| {
+                        server
+                            .load_builder()
+                            .with_settings(|s: &mut ImageLoaderSettings| {
+                                s.is_srgb = false;
+                                s.sampler = ImageSampler::linear();
+                            })
+                            .load(resonance_content::texture::TOON_RAMP_PATH)
+                    }),
                     spec: spec.clone(),
                     root: None,
                     materials: Vec::new(),
@@ -395,7 +407,12 @@ fn prepare(
         let mut sampled = std::mem::take(&mut viewer.sampled);
         for part in &mut viewer.parts {
             for id in std::iter::once(part.gltf.id().untyped())
-                .chain(part.textures.iter().map(|h| h.id().untyped()))
+                .chain(
+                    part.textures
+                        .iter()
+                        .chain(part.toon.iter())
+                        .map(|h| h.id().untyped()),
+                )
                 .chain(part.clips.iter().map(|h| h.id().untyped()))
             {
                 if let Some(bevy::asset::LoadState::Failed(error)) = server.get_load_state(id) {
@@ -414,12 +431,16 @@ fn prepare(
                 continue;
             }
             if !part.clips.iter().all(|h| assets.clips.contains(h))
-                || !part.textures.iter().all(|h| assets.images.contains(h.id()))
+                || !part
+                    .textures
+                    .iter()
+                    .chain(part.toon.iter())
+                    .all(|h| assets.images.contains(h.id()))
             {
                 continue;
             }
             if part.root.is_none() {
-                part.instantiate(&mut commands, &mut assets, &context, &record, &mut sampled)?;
+                part.instantiate(&mut commands, &mut assets, &record, &mut sampled)?;
             }
             let root = part.root.unwrap();
             if part.ready || !entities.instantiated.contains(root) {
@@ -507,7 +528,6 @@ impl Part {
         &mut self,
         commands: &mut Commands,
         assets: &mut AssetsForPreview,
-        context: &PreviewContext,
         record: &Record,
         sampled: &mut crate::scene::SampledImages,
     ) -> Result<()> {
@@ -543,18 +563,7 @@ impl Part {
                 tint: scene.outline_color_for(spec).map_or(Vec4::ONE, |c| {
                     Vec4::from_array(c.map(|c| f32::from(c) / 255.))
                 }),
-                toon_ramp: if scene.outline_color.is_none() && spec.color.is_some() {
-                    Some(
-                        context
-                            .art
-                            .as_ref()
-                            .context("missing prepared field artwork")?
-                            .toon_ramp
-                            .clone(),
-                    )
-                } else {
-                    None
-                },
+                toon_ramp: spec.color.is_some().then(|| self.toon.clone()).flatten(),
                 field_light: preview_light(Vec3::new(0., 0., record.preview.elevation)),
                 shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
                 // Fade each surface so overlapping triangles remain visible.

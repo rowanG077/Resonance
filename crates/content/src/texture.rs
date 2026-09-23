@@ -2,6 +2,9 @@
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
+/// Shared lighting lookup used by fields, battles and menu models.
+pub const TOON_RAMP_PATH: &str = "effects/toon-ramp.ktx2";
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct TextureLod {
     pub bias: f32,
