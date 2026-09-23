@@ -554,18 +554,7 @@ impl Part {
                 tint: scene.outline_color_for(spec).map_or(Vec4::ONE, |c| {
                     Vec4::from_array(c.map(|c| f32::from(c) / 255.))
                 }),
-                toon_ramp: if scene.outline_color.is_none() && spec.color.is_some() {
-                    Some(
-                        context
-                            .art
-                            .as_ref()
-                            .context("missing prepared field artwork")?
-                            .toon_ramp
-                            .clone(),
-                    )
-                } else {
-                    None
-                },
+                toon_ramp: spec.color.is_some().then(|| self.toon.clone()).flatten(),
                 field_light: preview_light(Vec3::new(0., 0., record.preview.elevation)),
                 shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
                 // Fade each surface so overlapping triangles remain visible.
