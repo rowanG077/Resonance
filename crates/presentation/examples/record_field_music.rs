@@ -30,7 +30,10 @@ fn main() -> Result<()> {
         Path::new(&output),
         frames,
         &[
-            (0, AudioCommand::Music(music)),
+            (
+                0,
+                AudioCommand::Music(resonance_events::MusicCommand::Play(music)),
+            ),
             (
                 0,
                 AudioCommand::MusicVolume {

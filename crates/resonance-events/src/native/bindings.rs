@@ -50,6 +50,7 @@ impl Host for NativeHost<'_> {
         ChangeField(5) -> () = field;
         ConfigureRendering(2) -> () = dispatch;
         PreloadField(1) -> () = field;
+        SetSoundReverb(1) -> () = field;
         CreateOverlay(13) -> () = dispatch;
         SetEffectSetting(5) -> () = dispatch;
         AudioCommand(1) -> () = field;

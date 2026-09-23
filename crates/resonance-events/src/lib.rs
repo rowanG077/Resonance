@@ -18,8 +18,9 @@ pub use resources::{
 pub use scheduler::{BackgroundWaitOrigin, EventRuntime, ResourceWaitObservation};
 pub use world::{
     Actor, ActorCreation, ActorMotion, Appearance, Attachment, AudioCommand, BoneAdjustment,
-    BoneTarget, CameraTrack, Emote, EventRecord, Face, Fade, FieldTransition, GameWorld, Overlay,
-    OverlayKind, Particle, SavePoint, SpriteOverlay, Trigger, TriggerShape, VoicePlayback,
+    BoneTarget, CameraTrack, Emote, EventRecord, Face, Fade, FieldTransition, GameWorld,
+    MusicCommand, Overlay, OverlayKind, Particle, SavePoint, SpriteOverlay, Trigger, TriggerShape,
+    VoicePlayback,
 };
 mod operation;
 pub use operation::{Operation, Outcome, Progress};

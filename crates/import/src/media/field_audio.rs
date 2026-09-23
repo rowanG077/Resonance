@@ -66,6 +66,10 @@ impl FieldAudioCooker {
             .catalogue
             .resources(map.section(6)?)
             .with_context(|| format!("inventory field {map_id} audio"))?;
+        self.cook_resources(&crate::field::audio_path(map_id), resources)
+    }
+
+    fn cook_resources(&mut self, path: &str, resources: resources::Resources) -> Result<()> {
         let missing = resources
             .voices
             .iter()
@@ -78,9 +82,9 @@ impl FieldAudioCooker {
             self.additional_disc.as_deref(),
             &missing,
         )
-        .with_context(|| format!("bind field {map_id} voices"))?;
+        .with_context(|| format!("bind {path} voices"))?;
         self.voices.extend(voices);
-        let metadata = self.workspace.output.join(crate::field::audio_path(map_id));
+        let metadata = self.workspace.output.join(path);
         let mut music = BTreeMap::new();
         for id in resources.music {
             if !self.music.contains_key(&id) {
