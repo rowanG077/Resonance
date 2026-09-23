@@ -590,11 +590,6 @@ fn action_names(
 }
 
 fn scene(world: &mut World, package: Package) -> Result<Scene> {
-    let path = world
-        .resource::<super::new_game::Session>()
-        .assets
-        .toon_ramp
-        .clone();
     let toon = world
         .resource::<AssetServer>()
         .load_builder()
@@ -602,7 +597,7 @@ fn scene(world: &mut World, package: Package) -> Result<Scene> {
             settings.is_srgb = false;
             settings.sampler = bevy::image::ImageSampler::linear();
         })
-        .load(path);
+        .load(resonance_content::texture::TOON_RAMP_PATH);
     let target = world
         .query_filtered::<&RenderTarget, With<super::FieldCamera>>()
         .single(world)?
