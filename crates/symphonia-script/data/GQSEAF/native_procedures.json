@@ -153,20 +153,23 @@
     },
     {
       "opcode": 15,
-      "name": "native_0f",
+      "name": "start_enemy_battle",
       "handler": "fn_80050820",
       "arguments": [
-        "arg0",
-        "arg1"
+        "actor_id",
+        "defeat_policy"
       ],
       "argument_types": [
-        "i32",
+        "actor_id",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-medium",
       "source": "src/game/fn_80050820.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "shared-battle-wait-completion"
     },
     {
       "opcode": 16,
@@ -351,7 +354,7 @@
     },
     {
       "opcode": 24,
-      "name": "native_18",
+      "name": "move_actor_relative",
       "handler": "fn_800579C4",
       "arguments": [
         "arg0",
@@ -395,20 +398,21 @@
     },
     {
       "opcode": 26,
-      "name": "native_1a",
+      "name": "face_actor_after_movement",
       "handler": "fn_80057448",
       "arguments": [
-        "arg0",
-        "arg1"
+        "actor_id",
+        "heading_degrees"
       ],
       "argument_types": [
-        "i32",
+        "actor_id",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-medium",
       "source": "src/game/fn_80057448.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "notes": "Waits for actor movement to finish, then turns to the requested heading before resuming (deferred command 5)."
     },
     {
       "opcode": 27,
@@ -468,7 +472,7 @@
     },
     {
       "opcode": 30,
-      "name": "native_1e",
+      "name": "set_actor_path_point",
       "handler": "fn_80054F60",
       "arguments": [
         "arg0",
@@ -486,14 +490,14 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/game_script_vm_80054864.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 31,
-      "name": "native_1f",
+      "name": "spawn_enemy_actor",
       "handler": "fn_80054C58",
       "arguments": [
         "arg0",
@@ -610,7 +614,7 @@
     },
     {
       "opcode": 36,
-      "name": "register_input_value",
+      "name": "add_party_member",
       "handler": "fn_800543B4",
       "arguments": [
         "input_value"
@@ -742,7 +746,7 @@
     },
     {
       "opcode": 43,
-      "name": "native_2b",
+      "name": "get_equipped_item",
       "handler": "fn_80053FB0",
       "arguments": [
         "arg0",
@@ -752,7 +756,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -762,7 +766,7 @@
     },
     {
       "opcode": 44,
-      "name": "native_2c",
+      "name": "equip_item",
       "handler": "fn_80053C20",
       "arguments": [
         "arg0",
@@ -772,14 +776,14 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80053C20.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 45,
-      "name": "native_2d",
+      "name": "unequip_item",
       "handler": "fn_80053A34",
       "arguments": [
         "arg0",
@@ -789,14 +793,14 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80053A34.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 46,
-      "name": "native_2e",
+      "name": "learn_technique",
       "handler": "fn_800539B4",
       "arguments": [
         "arg0",
@@ -806,7 +810,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_800539B4.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -833,7 +837,7 @@
     },
     {
       "opcode": 48,
-      "name": "native_30",
+      "name": "create_automatic_event_trigger",
       "handler": "fn_80053628",
       "arguments": [
         "arg0",
@@ -855,14 +859,14 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80053628.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 49,
-      "name": "native_31",
+      "name": "remove_automatic_event_triggers",
       "handler": "fn_80053264",
       "arguments": [
         "arg0"
@@ -870,7 +874,7 @@
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80053264.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -907,7 +911,7 @@
     },
     {
       "opcode": 51,
-      "name": "native_33",
+      "name": "remove_touch_triggers",
       "handler": "fn_80052488",
       "arguments": [
         "arg0"
@@ -915,14 +919,14 @@
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80052488.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 52,
-      "name": "native_34",
+      "name": "heal_party",
       "handler": "fn_800511BC",
       "arguments": [
         "arg0"
@@ -930,14 +934,14 @@
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_800511BC.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 53,
-      "name": "native_35",
+      "name": "create_treasure_chest",
       "handler": "fn_80050F88",
       "arguments": [
         "arg0",
@@ -957,7 +961,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80050F88.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -1018,7 +1022,7 @@
     },
     {
       "opcode": 57,
-      "name": "allocate_resource_instance",
+      "name": "spawn_event",
       "handler": "fn_80050508",
       "arguments": [
         "resource_key"
@@ -1088,23 +1092,23 @@
     },
     {
       "opcode": 60,
-      "name": "native_3c",
+      "name": "create_confirmed_triangle_trigger",
       "handler": "fn_80051D14",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8",
-        "arg9",
-        "arg10",
-        "arg11",
-        "arg12",
-        "arg13"
+        "key",
+        "action",
+        "destination",
+        "preload",
+        "x1",
+        "y1",
+        "z1",
+        "x2",
+        "y2",
+        "z2",
+        "x3",
+        "y3",
+        "z3",
+        "height"
       ],
       "argument_types": [
         "i32",
@@ -1122,33 +1126,34 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80051D14.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "notes": "Creates a confirmed interaction volume with signed 16-bit vertices and height; metadata supplies the action indicator and destination/preload hints."
     },
     {
       "opcode": 61,
-      "name": "native_3d",
+      "name": "create_confirmed_area_trigger",
       "handler": "fn_800519F8",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8",
-        "arg9",
-        "arg10",
-        "arg11",
-        "arg12",
-        "arg13",
-        "arg14",
-        "arg15",
-        "arg16"
+        "key",
+        "action",
+        "destination",
+        "preload",
+        "x1",
+        "y1",
+        "z1",
+        "x2",
+        "y2",
+        "z2",
+        "x3",
+        "y3",
+        "z3",
+        "x4",
+        "y4",
+        "z4",
+        "height"
       ],
       "argument_types": [
         "i32",
@@ -1169,14 +1174,15 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_800519F8.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "notes": "Creates a confirmed interaction volume with signed 16-bit vertices and height; metadata supplies the action indicator and destination/preload hints."
     },
     {
       "opcode": 62,
-      "name": "native_3e",
+      "name": "remove_confirmed_triggers",
       "handler": "fn_80051868",
       "arguments": [
         "arg0"
@@ -1184,7 +1190,7 @@
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80051868.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -1233,11 +1239,11 @@
     },
     {
       "opcode": 65,
-      "name": "native_41",
+      "name": "get_current_field",
       "handler": "fn_8004FE40",
       "arguments": [],
       "argument_types": [],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -1247,7 +1253,7 @@
     },
     {
       "opcode": 66,
-      "name": "native_42",
+      "name": "configure_scenery_animation",
       "handler": "fn_8004FBC0",
       "arguments": [
         "arg0",
@@ -1265,7 +1271,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_8004FBC0.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -1327,7 +1333,7 @@
     },
     {
       "opcode": 70,
-      "name": "native_46",
+      "name": "configure_rendering",
       "handler": "fn_8004F81C",
       "arguments": [
         "arg0",
@@ -1337,7 +1343,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_8004F81C.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -1355,7 +1361,7 @@
     },
     {
       "opcode": 72,
-      "name": "native_48",
+      "name": "preload_field",
       "handler": "fn_8004F774",
       "arguments": [
         "arg0"
@@ -1363,14 +1369,14 @@
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_8004F774.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 73,
-      "name": "native_49",
+      "name": "set_treasure_model",
       "handler": "fn_8004F6E0",
       "arguments": [
         "arg0",
@@ -1445,15 +1451,15 @@
     },
     {
       "opcode": 76,
-      "name": "native_4c",
+      "name": "play_world_cinematic",
       "handler": "fn_8004FE90",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5"
+        "cinematic",
+        "destination",
+        "x_or_landmark",
+        "y",
+        "z",
+        "heading_or_direction"
       ],
       "argument_types": [
         "i32",
@@ -1463,7 +1469,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_8004FE90.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -1594,7 +1600,7 @@
     },
     {
       "opcode": 83,
-      "name": "native_53",
+      "name": "set_actor_ambient_sound",
       "handler": "fn_8004E95C",
       "arguments": [
         "arg0",
@@ -1608,14 +1614,14 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_8004E95C.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 84,
-      "name": "request_field_transition",
+      "name": "play_movie_blocking",
       "handler": "fn_8004E6F8",
       "arguments": [
         "field_or_resource_id"
@@ -1756,7 +1762,7 @@
     },
     {
       "opcode": 92,
-      "name": "native_5c",
+      "name": "create_ring_station",
       "handler": "fn_80050AF0",
       "arguments": [
         "arg0",
@@ -1781,7 +1787,7 @@
     },
     {
       "opcode": 93,
-      "name": "finish_actor_action",
+      "name": "return_field_control",
       "handler": "fn_800574AC",
       "arguments": [
         "action_id"
@@ -1857,7 +1863,7 @@
     },
     {
       "opcode": 97,
-      "name": "reset_event_state",
+      "name": "enable_mapped_input",
       "handler": "fn_8004E4E4",
       "arguments": [],
       "confidence": "semantic-medium",
@@ -2029,7 +2035,7 @@
     },
     {
       "opcode": 107,
-      "name": "native_6b",
+      "name": "add_gald",
       "handler": "fn_8004DC10",
       "arguments": [
         "arg0"
@@ -2037,7 +2043,7 @@
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -2047,7 +2053,7 @@
     },
     {
       "opcode": 108,
-      "name": "native_6c",
+      "name": "is_debug_session",
       "handler": "fn_8004D4FC",
       "arguments": [],
       "argument_types": [],
@@ -2061,7 +2067,7 @@
     },
     {
       "opcode": 109,
-      "name": "native_6d",
+      "name": "configure_session",
       "handler": "fn_80043A44",
       "arguments": [
         "arg0",
@@ -2071,7 +2077,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -2100,7 +2106,7 @@
     },
     {
       "opcode": 111,
-      "name": "native_6f",
+      "name": "sin_degrees",
       "handler": "fn_8004D2D0",
       "arguments": [
         "arg0"
@@ -2118,7 +2124,7 @@
     },
     {
       "opcode": 112,
-      "name": "native_70",
+      "name": "cos_degrees",
       "handler": "fn_8004D20C",
       "arguments": [
         "arg0"
@@ -2301,11 +2307,11 @@
     },
     {
       "opcode": 120,
-      "name": "set_global_eab_eac",
+      "name": "configure_sorcerers_ring",
       "handler": "fn_8004D688",
       "arguments": [
-        "value_eab",
-        "value_eac"
+        "mode",
+        "variant"
       ],
       "returns_value": true,
       "confidence": "semantic-medium",
@@ -2317,7 +2323,7 @@
         "i32"
       ],
       "result_type": "i32",
-      "notes": "Returns the old byte at global offset 0xEAB and, unless value_eab is -1, writes bytes 0xEAB and 0xEAC."
+      "notes": "Returns the previous Sorcerer's Ring mode; writes previous mode/variant to result registers 0/1. Unless mode is -1, updates both ring bytes."
     },
     {
       "opcode": 121,
@@ -2342,18 +2348,18 @@
     },
     {
       "opcode": 122,
-      "name": "native_7a",
+      "name": "rank_character_affinity",
       "handler": "fn_8004D720",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8"
+        "rank",
+        "include_member_2",
+        "include_member_3",
+        "include_member_4",
+        "include_member_5",
+        "include_member_6",
+        "include_member_7",
+        "include_member_8",
+        "include_member_9"
       ],
       "argument_types": [
         "i32",
@@ -2366,13 +2372,14 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
       "source": "src/game/fn_8004D720.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "notes": "Selects a one-based affinity rank among enabled companions. Ties favor the lower character ID; rank 0 selects first and ranks beyond the count select last."
     },
     {
       "opcode": 123,
@@ -2431,7 +2438,7 @@
     },
     {
       "opcode": 126,
-      "name": "native_7e",
+      "name": "preload_voice_bank",
       "handler": "fn_80040F5C",
       "arguments": [
         "arg0",
@@ -2441,7 +2448,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80040F5C.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -2560,21 +2567,22 @@
     },
     {
       "opcode": 132,
-      "name": "native_84",
+      "name": "is_skit_viewed",
       "handler": "fn_80040D04",
       "arguments": [
-        "arg0"
+        "skit"
       ],
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
       "source": "src/game/fn_80040D04.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "notes": "Reads the viewed-skit bit through fn_8009EA50; used by inn scripts to select optional conversations."
     },
     {
       "opcode": 133,
@@ -2643,7 +2651,7 @@
     },
     {
       "opcode": 137,
-      "name": "snapshot_input_state",
+      "name": "snapshot_party",
       "handler": "fn_80040C24",
       "arguments": [
         "operation"
@@ -2655,7 +2663,7 @@
       "argument_types": [
         "i32"
       ],
-      "notes": "Operation 0 copies eight global input bytes from 0xE9D..0xEA4 to 0x1F34..0x1F3B; operation 1 clears the destination bytes."
+      "notes": "Operation 0 saves the eight-byte party formation; operation 1 clears the saved formation. Other operations leave it unchanged."
     },
     {
       "opcode": 138,
@@ -2847,7 +2855,7 @@
     },
     {
       "opcode": 148,
-      "name": "stage_command_44",
+      "name": "stage_command44",
       "handler": "fn_80042F04",
       "arguments": [
         "arg0",
@@ -2877,7 +2885,7 @@
     },
     {
       "opcode": 149,
-      "name": "native_95",
+      "name": "create_triangle_trigger",
       "handler": "fn_80052958",
       "arguments": [
         "arg0",
@@ -2905,7 +2913,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80052958.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -3046,7 +3054,7 @@
     },
     {
       "opcode": 156,
-      "name": "native_9c",
+      "name": "set_actor_animation_flags",
       "handler": "fn_8004C3DC",
       "arguments": [
         "arg0",
@@ -3081,21 +3089,22 @@
     },
     {
       "opcode": 158,
-      "name": "native_9e",
+      "name": "is_actor_animation_finished",
       "handler": "fn_8004BAAC",
       "arguments": [
-        "arg0"
+        "actor_id"
       ],
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-medium",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
       "source": "src/game/fn_8004BAAC.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "notes": "fn_8004BAAC returns the bound motion completion byte at +0x20, or zero for an absent actor/motion."
     },
     {
       "opcode": 159,
@@ -3302,7 +3311,7 @@
         "i32",
         "i32"
       ],
-      "notes": "Writes six paired fields at camera offsets 0x64..0x90 and two global camera values. The engine's float-zero sentinel leaves individual fields unchanged."
+      "notes": "Pins the eye and target coordinates by setting both bounds for each nonzero coordinate; the final two nonzero arguments set position/target interpolation rates. Clears both settled flags."
     },
     {
       "opcode": 169,
@@ -3347,7 +3356,7 @@
     },
     {
       "opcode": 171,
-      "name": "native_ab",
+      "name": "configure_screen_copy",
       "handler": "fn_800496B4",
       "arguments": [
         "arg0",
@@ -3371,11 +3380,11 @@
       "handler": "fn_800495D4",
       "arguments": [
         "mode",
-        "unused",
-        "x",
-        "y",
-        "value0",
-        "value1"
+        "start_distance",
+        "end_distance",
+        "red",
+        "green",
+        "blue"
       ],
       "confidence": "semantic-medium",
       "source": "src/game/fn_800495D4.c",
@@ -3389,11 +3398,11 @@
         "i32",
         "i32"
       ],
-      "notes": "Configures the camera-adjacent structure at lbl_802C8700; mode selects internal state 0 or 5, followed by two float and three byte fields."
+      "notes": "Configures perspective fog. Mode 1 selects GX exponential fog (type 5), other modes disable fog. Remaining arguments set start/end distances and red/green/blue bytes; consumed by GXSetFog."
     },
     {
       "opcode": 173,
-      "name": "native_ad",
+      "name": "play_camera_track",
       "handler": "fn_800494EC",
       "arguments": [
         "arg0",
@@ -3405,7 +3414,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_800494EC.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -3432,7 +3441,7 @@
     },
     {
       "opcode": 175,
-      "name": "native_af",
+      "name": "stop_camera_track",
       "handler": "fn_80048E18",
       "arguments": [],
       "argument_types": [],
@@ -3466,7 +3475,7 @@
     },
     {
       "opcode": 177,
-      "name": "native_b1",
+      "name": "wait_actor_animation_frame",
       "handler": "fn_80047764",
       "arguments": [
         "arg0",
@@ -3483,7 +3492,7 @@
     },
     {
       "opcode": 178,
-      "name": "set_actor_mode",
+      "name": "set_actor_face",
       "handler": "fn_800479F4",
       "arguments": [
         "actor_id",
@@ -3501,7 +3510,7 @@
     },
     {
       "opcode": 179,
-      "name": "set_actor_behavior",
+      "name": "set_actor_mouth",
       "handler": "fn_800477C8",
       "arguments": [
         "actor_id",
@@ -3519,7 +3528,7 @@
     },
     {
       "opcode": 180,
-      "name": "get_actor_resource_index",
+      "name": "find_actor_body_part",
       "handler": "fn_800474E0",
       "arguments": [
         "actor_id",
@@ -3628,7 +3637,7 @@
     },
     {
       "opcode": 185,
-      "name": "native_b9",
+      "name": "create_scene_actor",
       "handler": "fn_80059838",
       "arguments": [
         "arg0",
@@ -3650,24 +3659,24 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80059838.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 186,
-      "name": "native_ba",
+      "name": "spawn_collision_actor",
       "handler": "fn_80059624",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7"
+        "actor_id",
+        "x",
+        "y",
+        "z",
+        "heading",
+        "resource",
+        "behavior",
+        "speed"
       ],
       "argument_types": [
         "i32",
@@ -3679,24 +3688,25 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80059624.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "notes": "Spawns hidden scenery with native collision enabled and character ground, shadow and view tests disabled."
     },
     {
       "opcode": 187,
-      "name": "native_bb",
+      "name": "spawn_scenery_actor",
       "handler": "fn_80059208",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7"
+        "actor_id",
+        "x",
+        "y",
+        "z",
+        "heading",
+        "resource",
+        "behavior",
+        "speed"
       ],
       "argument_types": [
         "i32",
@@ -3708,14 +3718,15 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80059208.c",
       "arity_evidence": "handler-stack-delta",
-      "authoring_available": true
+      "authoring_available": true,
+      "notes": "Spawns visible scenery with native collision enabled and character ground, shadow and view tests disabled."
     },
     {
       "opcode": 188,
-      "name": "find_actor_animation",
+      "name": "find_actor_node",
       "handler": "fn_800472AC",
       "arguments": [
         "actor_id",
@@ -3736,7 +3747,7 @@
     },
     {
       "opcode": 189,
-      "name": "native_bd",
+      "name": "read_coordinate_register",
       "handler": "fn_80047CC0",
       "arguments": [
         "arg0"
@@ -3744,7 +3755,7 @@
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -3826,7 +3837,7 @@
     },
     {
       "opcode": 192,
-      "name": "native_c0",
+      "name": "configure_battle_control",
       "handler": "fn_80044DE0",
       "arguments": [
         "arg0",
@@ -3836,7 +3847,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -3902,7 +3913,7 @@
     },
     {
       "opcode": 195,
-      "name": "native_c3",
+      "name": "configure_actor_bone_translation",
       "handler": "fn_80045F54",
       "arguments": [
         "arg0",
@@ -3922,7 +3933,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80045F54.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
@@ -4082,7 +4093,7 @@
     },
     {
       "opcode": 202,
-      "name": "native_ca",
+      "name": "raise_party_member_level",
       "handler": "fn_80041494",
       "arguments": [
         "arg0",
@@ -4092,26 +4103,26 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80041494.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 203,
-      "name": "native_cb",
+      "name": "transform_actor_node",
       "handler": "fn_8004568C",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5"
+        "operation",
+        "actor_id",
+        "node",
+        "x",
+        "y",
+        "z"
       ],
       "argument_types": [
         "i32",
-        "i32",
+        "actor_id",
         "i32",
         "i32",
         "i32",
@@ -4124,7 +4135,7 @@
     },
     {
       "opcode": 204,
-      "name": "native_cc",
+      "name": "read_actor_attachment",
       "handler": "fn_80045038",
       "arguments": [
         "arg0",
@@ -4134,14 +4145,14 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_80045038.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 205,
-      "name": "native_cd",
+      "name": "start_battle",
       "handler": "fn_8005098C",
       "arguments": [
         "arg0",
@@ -4171,14 +4182,17 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "fn_8005B3F0 deferred command 23",
+      "confidence": "semantic-medium",
       "source": "src/game/fn_8005098C.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true
     },
     {
       "opcode": 206,
-      "name": "stage_command_54",
+      "name": "stage_command54",
       "handler": "fn_80042E24",
       "arguments": [
         "arg1",
@@ -4228,7 +4242,7 @@
     },
     {
       "opcode": 208,
-      "name": "native_d0",
+      "name": "create_particle",
       "handler": "fn_800429B0",
       "arguments": [
         "arg0",
@@ -4260,7 +4274,7 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "returns_value": true,
       "result_type": "i32",
       "return_evidence": "immediate-output-proven",
@@ -4441,7 +4455,7 @@
     },
     {
       "opcode": 214,
-      "name": "native_d6",
+      "name": "spawn_interaction_actor",
       "handler": "fn_80059428",
       "arguments": [
         "arg0",
@@ -4521,7 +4535,7 @@
     },
     {
       "opcode": 218,
-      "name": "native_da",
+      "name": "set_ring_timer",
       "handler": "fn_800411F8",
       "arguments": [
         "arg0"
@@ -4536,7 +4550,7 @@
     },
     {
       "opcode": 219,
-      "name": "native_db",
+      "name": "get_ring_timer",
       "handler": "fn_800411A8",
       "arguments": [],
       "argument_types": [],
@@ -4660,7 +4674,7 @@
     },
     {
       "opcode": 225,
-      "name": "configure_input_binding",
+      "name": "configure_sound",
       "handler": "fn_8004EB54",
       "arguments": [
         "binding_index",
@@ -4797,7 +4811,7 @@
     },
     {
       "opcode": 233,
-      "name": "run_resource_callback",
+      "name": "select_audio_bank",
       "handler": "fn_800407C0",
       "arguments": [
         "resource_handle"
@@ -4813,7 +4827,7 @@
     },
     {
       "opcode": 234,
-      "name": "native_ea",
+      "name": "set_sound_reverb",
       "handler": "fn_8004F130",
       "arguments": [
         "arg0"
@@ -4821,7 +4835,7 @@
       "argument_types": [
         "i32"
       ],
-      "confidence": "arity-proven",
+      "confidence": "semantic-high",
       "source": "src/game/fn_8004F130.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true

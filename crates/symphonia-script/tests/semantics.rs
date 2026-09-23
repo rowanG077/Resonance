@@ -55,7 +55,7 @@ fn native_registry_is_data_driven_and_validated() {
     assert_eq!(retail.get(0xD7).unwrap().name, "motion_command");
     assert_eq!(retail.get(0xD7).unwrap().arguments[0], "operation");
     assert_eq!(retail.get_by_name("native_d7").unwrap().opcode, 0xD7);
-    assert_eq!(retail.get(0xE1).unwrap().name, "configure_input_binding");
+    assert_eq!(retail.get(0xE1).unwrap().name, "configure_sound");
 }
 
 #[test]
