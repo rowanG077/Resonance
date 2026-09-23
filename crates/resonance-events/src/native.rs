@@ -1,5 +1,6 @@
 //! Native service shims registered by typed call ID. The VM knows neither
 //! actors nor assets; these handlers operate independently of scene/event IDs.
+use crate::animation::slot;
 use crate::world::{Fade, Overlay, OverlayKind, SpriteOverlay};
 use crate::{Actor, Animation, CameraTrack, GameWorld, Particle, ResourceKind, ResourceLibrary};
 use crate::{
@@ -8,6 +9,7 @@ use crate::{
 };
 use symphonia_script::{NativeCall, Program};
 use symphonia_script_vm::{Memory, NativeResult};
+mod battle;
 mod bindings;
 mod camera_path;
 mod field;
@@ -24,6 +26,7 @@ pub(crate) enum EventAction {
     Spawn(u32),
     Pause(bool),
     ControlGate(bool),
+    Release,
 }
 
 pub(crate) struct NativeHost<'a> {
@@ -150,6 +153,73 @@ impl NativeHost<'_> {
     ) -> Result<NativeResult, String> {
         let mut value = None;
         match op {
+            NativeCall::SinDegrees | NativeCall::CosDegrees => {
+                let angle = (a[0] as f32).to_radians();
+                value = Some(
+                    (4096.
+                        * if op == NativeCall::SinDegrees {
+                            angle.sin()
+                        } else {
+                            angle.cos()
+                        }) as i32,
+                );
+            }
+            NativeCall::SetActorAnimationFlags => {
+                let id = if a[0] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[0]
+                };
+                if let Some(animation) = self
+                    .world
+                    .actors
+                    .get_mut(&id)
+                    .and_then(|actor| actor.animation.as_mut())
+                {
+                    let flags = a[1] as u16;
+                    animation.script_pause(flags & 2 != 0, self.world.tick);
+                    if flags != 0 && flags != 2 {
+                        animation.repeat = flags & 8 == 0;
+                    }
+                }
+            }
+            NativeCall::IsDebugSession => value = Some(i32::from(self.world.debug_session)),
+            NativeCall::ConfigureScreenCopy => {
+                require((0..=5).contains(&a[0]), "unknown screen copy command")?;
+                let index = (a[0] & 1) as usize;
+                let previous = self.world.screen_copy_depth[index];
+                if a[0] < 2 {
+                    self.world.screen_copy_depth[index] = a[1] as f32 / 100.;
+                } else if a[0] >= 4 {
+                    self.world.screen_copy_depth[index] = [174., 190.][index];
+                }
+                value = Some((previous * 100.) as i32);
+            }
+            NativeCall::WaitActorAnimationFrame => {
+                *self.wait = Some(Wait::Service {
+                    condition: Box::new(Wait::ActorAnimationFrame(a[0], a[1])),
+                    ready_at: None,
+                });
+                return Ok(NativeResult::Suspend);
+            }
+            NativeCall::IsActorAnimationFinished => {
+                let id = if a[0] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[0]
+                };
+                value = Some(i32::from(
+                    self.world
+                        .actors
+                        .get(&id)
+                        .and_then(|actor| actor.animation.as_ref())
+                        .is_some_and(|animation| {
+                            !animation.repeat
+                                && animation.elapsed(self.world.tick, 0)
+                                    >= animation.duration_ticks as f32
+                        }),
+                ));
+            }
             NativeCall::ActorExists => {
                 value = Some(i32::from(self.world.skit.as_ref().map_or_else(
                     || self.world.actors.contains_key(&a[0]),
@@ -292,10 +362,30 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(Some(previous)));
                 }
                 require(
-                    matches!(a[1], 1..=4 | 7..=13 | 15..=17 | 46 | 66 | 112)
+                    matches!(a[1], 1..=4 | 7..=17 | 30..=32 | 35..=37 | 39 | 41..=44 | 46..=48 | 50 | 66 | 101 | 112)
                         && (a[1] != 112 || op == NativeCall::GetActorProperty),
                     "actor property shim is not implemented",
                 )?;
+                if a[1] == 101 {
+                    // Party level is queried independently of a rendered actor.
+                    let level = self
+                        .world
+                        .party
+                        .as_ref()
+                        .and_then(|party| {
+                            usize::try_from(id - 1)
+                                .ok()
+                                .and_then(|id| party.members.get(id))
+                        })
+                        .map_or(0, |member| i32::from(member.level));
+                    return Ok(NativeResult::Continue(Some(
+                        if op == NativeCall::GetActorProperty {
+                            level
+                        } else {
+                            0
+                        },
+                    )));
+                }
                 if a[1] == 112 {
                     let luck = if (1..=9).contains(&id) {
                         let party = self
@@ -346,7 +436,11 @@ impl NativeHost<'_> {
                     10 => i32::from(!actor.grounded),
                     11 => i32::from(!actor.casts_shadow),
                     12 => i32::from(actor.appearance.model_hidden),
-                    13 => i32::from(!actor.cull_outside_view),
+                    13 | 14 => actor
+                        .properties
+                        .get(&a[1])
+                        .copied()
+                        .unwrap_or(i32::from(!actor.cull_outside_view)),
                     15 => {
                         actor
                             .autonomy
@@ -356,6 +450,13 @@ impl NativeHost<'_> {
                     }
                     16 => i32::from(actor.appearance.expression),
                     17 => actor.properties.get(&17).copied().unwrap_or(2),
+                    30..=32 => actor.properties.get(&a[1]).copied().unwrap_or(100),
+                    35 | 36 => actor.properties.get(&a[1]).copied().unwrap_or(0),
+                    37 => actor.heading as i32,
+                    39 => actor.properties.get(&39).copied().unwrap_or(2),
+                    47 => actor.radius as i32,
+                    41 | 48 | 50 => actor.properties.get(&a[1]).copied().unwrap_or(0),
+                    42..=44 => actor.properties.get(&a[1]).copied().unwrap_or(255),
                     46 => i32::from(!actor.depth_write),
                     _ => unreachable!(),
                 };
@@ -380,18 +481,45 @@ impl NativeHost<'_> {
                         10 => actor.grounded = a[2] & 1 == 0,
                         11 => actor.casts_shadow = a[2] & 1 == 0,
                         12 => actor.appearance.model_hidden = a[2] & 1 != 0,
-                        13 => actor.cull_outside_view = a[2] & 1 == 0,
+                        13 | 14 => {
+                            let other = if a[1] == 13 { 14 } else { 13 };
+                            actor.properties.insert(a[1], a[2] & 1);
+                            actor.cull_outside_view = a[2] & 1 == 0
+                                && actor.properties.get(&other).copied().unwrap_or(0) == 0;
+                        }
                         15 => actor.autonomy.as_mut().unwrap().radius = a[2] as f32,
                         16 => actor.appearance.expression = a[2] as u8,
                         17 => {
                             actor.properties.insert(17, i32::from(a[2] as i16));
                         }
+                        37 => actor.face(a[2] as f32),
+                        39 => {
+                            actor.properties.insert(39, i32::from(a[2] as i8));
+                        }
+                        47 => actor.radius = a[2] as f32,
                         46 => actor.depth_write = a[2] & 1 == 0,
+                        30..=32 | 35 | 36 => {
+                            actor.properties.insert(a[1], a[2]);
+                        }
+                        42..=44 => {
+                            actor.properties.insert(a[1], i32::from(a[2] as u8));
+                        }
+                        41 | 48 | 50 => {
+                            actor.properties.insert(a[1], a[2] & 1);
+                        }
                         _ => unreachable!(),
                     }
                 }
                 value = Some(previous);
             }
+            NativeCall::ReleaseResourceInstance => {
+                require(self.events.len() < 32, "event command limit exceeded")?;
+                self.events.push(EventCommand {
+                    handle: a[0],
+                    action: EventAction::Release,
+                });
+            }
+            NativeCall::StopCameraTrack => self.world.camera = None,
             NativeCall::SpawnEvent => {
                 require(self.events.len() < 32, "event command limit exceeded")?;
                 let key = u32::try_from(a[0]).map_err(|_| "invalid event key")?;
@@ -616,7 +744,7 @@ impl NativeHost<'_> {
                 };
                 require(clips.contains_key(&slot), "animation slot is not cooked")?;
                 require(
-                    matches!(a[4], 1 | 8),
+                    a[4] & !11 == 0,
                     "animation playback flags are not implemented",
                 )?;
                 let count = if actor.animation_bindings.0 == self.world.tick {
@@ -628,7 +756,9 @@ impl NativeHost<'_> {
                 actor.animation = Some(Animation {
                     source,
                     blend_ticks: if a[3] < 0 { 1 } else { a[3] as u32 },
-                    repeat: a[4] == 1,
+                    repeat: a[4] & 8 == 0,
+                    rate: if a[4] & 2 != 0 { 0. } else { 1. },
+                    paused_rate: (a[4] & 2 != 0).then_some(1.),
                     ..Animation::new(resource, slot, clips[&slot].duration_ticks, self.world.tick)
                 });
                 actor.scripted_animation = true;
@@ -636,30 +766,101 @@ impl NativeHost<'_> {
             }
             NativeCall::PlayCameraTrack => {
                 require(a[1..] == [0, 0], "camera playback mode is not implemented")?;
-                let resource = self.resources.resolve(a[0], ResourceKind::Camera)?;
+                let resource = self.resolve(a[0], ResourceKind::Camera)?;
                 self.world.camera = Some(CameraTrack {
                     resource,
                     start_tick: self.world.tick,
                 });
             }
-            NativeCall::CreateSceneActor => {
+            NativeCall::CreateSceneActor | NativeCall::SpawnInteractionActor => {
                 require(
-                    a[4] == 0 && a[6..] == [0, 0],
-                    "actor rotation/mode shim is not implemented",
+                    a[6..] == [0, 0],
+                    "scene actor movement mode is not implemented",
                 )?;
-                let resource = self.resources.resolve(a[5], ResourceKind::Model)?;
+                let resource = self.resolve(a[5], ResourceKind::Model)?;
                 require(!self.world.actors.contains_key(&a[0]), "duplicate actor ID")?;
                 require(self.world.actors.len() < 4096, "actor limit exceeded")?;
+                // fn_80059838 initializes the model immediately. Following calls
+                // can pause it before the first scheduler update (Thoda's rocks).
+                let animation = self
+                    .resources
+                    .model(resource)
+                    .and_then(|model| model.clips.get(&slot::IDLE))
+                    .map(|clip| {
+                        Animation::new(resource, slot::IDLE, clip.duration_ticks, self.world.tick)
+                    });
                 self.world.insert_actor(
                     a[0],
                     Actor {
+                        heading: (a[4] as f32).rem_euclid(360.),
+                        target_heading: (a[4] as f32).rem_euclid(360.),
                         cull_outside_view: false,
                         grounded: false,
                         collidable: false,
                         casts_shadow: false,
+                        animation,
                         ..Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32])
                     },
                 );
+            }
+            NativeCall::FaceActorAfterMovement => {
+                let actor = if a[0] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[0]
+                };
+                *self.wait = Some(Wait::FaceAfterMotion {
+                    actor,
+                    heading: (a[1] as f32).rem_euclid(360.),
+                });
+                return Ok(NativeResult::Suspend);
+            }
+            NativeCall::TransformActorNode => {
+                // fn_8004568C's rotation branch is used by authored doorway hinges.
+                if a[2] == -1 {
+                    return Ok(NativeResult::Continue(None));
+                }
+                let id = if a[1] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[1]
+                };
+                if let Some(actor) = self.world.actors.get_mut(&id) {
+                    require(
+                        matches!(a[0], 2 | 3),
+                        "node transform operation is not implemented",
+                    )?;
+                    let model = self
+                        .resources
+                        .model(actor.resource)
+                        .ok_or("node model missing")?;
+                    let Some(name) = usize::try_from(a[2]).ok().and_then(|i| model.names.get(i))
+                    else {
+                        return Ok(NativeResult::Continue(None));
+                    };
+                    let slot =
+                        u8::try_from(a[2]).map_err(|_| "node transform slot exceeds range")?;
+                    let old = actor
+                        .appearance
+                        .bone_adjustments
+                        .get(&slot)
+                        .map_or([0.; 3], |v| v.sample(self.world.tick));
+                    self.registers[..3].copy_from_slice(&old.map(|v| v as i32));
+                    if a[0] == 3 {
+                        actor.appearance.bone_adjustments.insert(
+                            slot,
+                            crate::BoneAdjustment {
+                                bone: crate::BoneTarget::Name(name.clone()),
+                                absolute_rotation: true,
+                                angles: [a[3] as f32, a[4] as f32, a[5] as f32],
+                                from: old,
+                                duration_ticks: 1,
+                                start_tick: self.world.tick,
+                                translation: None,
+                            },
+                        );
+                    }
+                }
             }
             NativeCall::FindActorNode => {
                 let name = self
@@ -693,7 +894,8 @@ impl NativeHost<'_> {
                     .get(&a[0])
                     .ok_or("particle kind is not cooked")?;
                 require(
-                    (0..=0x7fff).contains(&a[1]) && a[12] == 0,
+                    (0..=0x7fff).contains(&a[1])
+                        && (a[12] == 0 || matches!(kind, crate::ParticleKind::Flutter(_))),
                     "particle lifetime/color mode is not implemented",
                 )?;
                 let (rgba, flutter) = match kind {
@@ -763,6 +965,7 @@ impl NativeHost<'_> {
                     | NativeCall::PlayMovie
                     | NativeCall::YieldCommand
                     | NativeCall::SetActorProperty
+                    | NativeCall::SetActorPathPoint
                     | NativeCall::GetActorProperty
             )
         {
@@ -782,6 +985,7 @@ impl NativeHost<'_> {
                     | NativeCall::SetActorPosition
                     | NativeCall::SetActorOrientation
                     | NativeCall::ConfigureActorAnimation
+                    | NativeCall::ConfigureActorBoneTranslation
                     | NativeCall::SetActorAnimationProperty
                     | NativeCall::FindActorNode
                     | NativeCall::SetActorAnimation

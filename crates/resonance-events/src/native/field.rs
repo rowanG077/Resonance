@@ -9,6 +9,27 @@ use crate::{
 use symphonia_script::NativeCall;
 use symphonia_script_vm::Memory;
 
+#[derive(Clone, Copy)]
+#[repr(i32)]
+enum FieldSystemCommand {
+    SuppressTransitionFade = 15,
+    BattleCount = 17,
+    SetDoorInteractionRadius = 19,
+}
+
+impl TryFrom<i32> for FieldSystemCommand {
+    type Error = &'static str;
+
+    fn try_from(id: i32) -> Result<Self, Self::Error> {
+        match id {
+            15 => Ok(Self::SuppressTransitionFade),
+            17 => Ok(Self::BattleCount),
+            19 => Ok(Self::SetDoorInteractionRadius),
+            _ => Err("field system command is not implemented"),
+        }
+    }
+}
+
 impl NativeHost<'_> {
     pub(super) fn field(
         &mut self,
@@ -18,6 +39,90 @@ impl NativeHost<'_> {
     ) -> Result<NativeResult, String> {
         let mut value = None;
         match op {
+            NativeCall::GetCurrentField => {
+                value = Some(self.world.current_field.ok_or("field owner is missing")? as i32);
+            }
+            NativeCall::SetActorPathPoint => {
+                if let Some(actor) = self.world.actors.get_mut(&a[0]) {
+                    require(
+                        (0..12).contains(&a[1]),
+                        "actor path point exceeds native capacity",
+                    )?;
+                    let path = &mut actor.path;
+                    path.points[a[1] as usize] = [a[2] as f32, a[3] as f32, a[4] as f32];
+                    path.count = a[1] as u8 + 1;
+                    if a[5] as i8 != -1 {
+                        path.reverse_at_end = a[5] as i8 != 0;
+                    }
+                }
+            }
+            NativeCall::SetTreasureModel => {
+                if (3..=4).contains(&a[0]) {
+                    self.world.treasure_models[(a[0] - 3) as usize] =
+                        Some(self.resolve(a[1], ResourceKind::Model)?);
+                }
+            }
+            NativeCall::CreateTreasureChest => {
+                if !(0..1024).contains(&a[0]) {
+                    return Ok(NativeResult::Continue(None));
+                }
+                require(
+                    self.world.treasures.len() < 1024,
+                    "field treasure limit exceeded",
+                )?;
+                use crate::TreasureKind;
+                let kind = TreasureKind::try_from(a[2]).unwrap_or(TreasureKind::UnknownId0);
+                let resource = match kind {
+                    TreasureKind::CustomModel0 | TreasureKind::CustomModel1 => {
+                        let index = usize::from(kind as u8 - TreasureKind::CustomModel0 as u8);
+                        self.world.treasure_models[index]
+                            .unwrap_or(resonance_content::field::TREASURE_RESOURCE_BASE)
+                    }
+                    _ => resonance_content::field::TREASURE_RESOURCE_BASE + u32::from(kind as u8),
+                };
+                let model = self
+                    .resources
+                    .model(resource)
+                    .ok_or("treasure model is not cooked")?;
+                let clip = model
+                    .clips
+                    .get(&slot::IDLE)
+                    .ok_or("treasure opening animation is not cooked")?;
+                let id = i32::MIN + 1024 + self.world.treasures.len() as i32;
+                let mut actor = Actor::new(resource, [a[3] as f32, a[4] as f32, a[5] as f32]);
+                actor.face(a[6] as f32);
+                actor.grounded = false;
+                actor.casts_shadow = false;
+                actor.scripted_animation = true;
+                let mut animation =
+                    Animation::new(resource, slot::IDLE, clip.duration_ticks, self.world.tick);
+                animation.rate = 0.;
+                animation.repeat = false;
+                if self
+                    .world
+                    .party
+                    .as_ref()
+                    .is_some_and(|party| party.travel.opened_treasures.contains(&(a[0] as u16)))
+                {
+                    animation.start_frame = clip.duration_ticks as f32;
+                }
+                actor.animation = Some(animation);
+                self.world.insert_actor(id, actor);
+                self.world.treasures.push(crate::TreasureChest {
+                    actor: id,
+                    flag: a[0] as u16,
+                    reward: crate::TreasureReward::from_source(a[1] as u16),
+                    kind,
+                });
+            }
+            NativeCall::PreloadVoiceBank => {
+                let bank = (a[0] as u32 >> 16) as u16;
+                if bank != 0 {
+                    // Select one of two CRI voice archives. Field
+                    // preparation has decoded all referenced lines before entry.
+                    self.world.voice_banks[usize::from(a[1] != 0)] = Some(bank);
+                }
+            }
             NativeCall::SetSoundReverb => {
                 self.world
                     .audio_commands
@@ -26,6 +131,77 @@ impl NativeHost<'_> {
                         3 => 3,
                         _ => 1,
                     }));
+            }
+            NativeCall::ConfigureSceneryAnimation => {
+                let id = match a[0] {
+                    2 | 0xF423D => 0xF423D,
+                    3 | 0xF423E => 0xF423E,
+                    4 | 0xF422C => 0xF422C,
+                    _ => 0xF423C,
+                };
+                require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
+                let (kind, resource) = self
+                    .world
+                    .loaded_resources
+                    .get(&a[2])
+                    .copied()
+                    .or_else(|| self.resources.binding(a[2]))
+                    .ok_or("scenery motion is not cooked")?;
+                require(
+                    kind == ResourceKind::Animation,
+                    "scenery motion has the wrong resource type",
+                )?;
+                let clip = self
+                    .resources
+                    .animations
+                    .get(&resource)
+                    .and_then(|clips| clips.get(&slot::IDLE))
+                    .ok_or("scenery motion clip is not cooked")?;
+                require(a[5] & !11 == 0, "unknown scenery motion flags")?;
+                let mut animation =
+                    Animation::new(resource, slot::IDLE, clip.duration_ticks, self.world.tick);
+                animation.source = crate::animation::AnimationSource::Resource;
+                animation.start_frame = (a[3] as f32 * 2.).min(clip.duration_ticks as f32);
+                animation.rate = if a[5] & 2 != 0 {
+                    0.
+                } else {
+                    a[4] as f32 / 100.
+                };
+                animation.paused_rate = (a[5] & 2 != 0).then_some(a[4] as f32 / 100.);
+                animation.repeat = a[5] & 8 == 0;
+                let actor = self
+                    .world
+                    .actors
+                    .get_mut(&id)
+                    .ok_or("scenery layer is missing")?;
+                if a[1] == -1 {
+                    actor.animation = Some(animation);
+                } else {
+                    actor.scenery_animations.insert(a[1] as i8, animation);
+                }
+            }
+            NativeCall::SetActorAmbientSound => {
+                if let Some(actor) = self.world.actors.get_mut(&a[0]) {
+                    actor.ambient_sound = (a[1] != -1).then_some(crate::AmbientSound {
+                        id: a[1] as i16,
+                        volume: if a[2] as u8 == 255 { 127 } else { a[2] as u8 },
+                        radius: a[3] as f32,
+                    });
+                }
+            }
+            NativeCall::CreateRingStation => {
+                let resource = self.resolve(a[5], ResourceKind::Model)?;
+                require(self.world.actors.len() < 4096, "actor limit exceeded")?;
+                let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
+                actor.ring_station = true;
+                actor.radius = 65.;
+                actor.grounded = false;
+                actor.casts_shadow = false;
+                actor.depth_write = false;
+                actor.properties.insert(8, 64);
+                actor.properties.insert(17, 5);
+                actor.properties.insert(39, -1);
+                self.world.insert_actor(a[0], actor);
             }
             NativeCall::CreateSavePoint => {
                 let resource = resonance_content::field::SAVE_POINT_RESOURCE;
@@ -76,31 +252,108 @@ impl NativeHost<'_> {
                 });
             }
             NativeCall::Unknown92 => {
-                require(a[0] == 19, "system command is not implemented")?;
-                require(a[1] >= 0, "negative door interaction range")?;
-                value = Some(self.world.door_interaction_radius.unwrap_or(250.) as i32);
-                self.world.door_interaction_radius = Some(a[1] as f32);
+                match FieldSystemCommand::try_from(a[0])? {
+                    FieldSystemCommand::SuppressTransitionFade => {
+                        // Suppress the implicit native
+                        // transition fade. Our scene loader already leaves fades
+                        // to the script and holds its rendered pose until ready.
+                        value = Some(0);
+                    }
+                    FieldSystemCommand::SetDoorInteractionRadius => {
+                        require(a[1] >= 0, "negative door interaction range")?;
+                        value = Some(self.world.door_interaction_radius.unwrap_or(250.) as i32);
+                        self.world.door_interaction_radius = Some(a[1] as f32);
+                    }
+                    FieldSystemCommand::BattleCount => {
+                        let party = self
+                            .world
+                            .party
+                            .as_ref()
+                            .ok_or("party is not initialized")?;
+                        value = Some(i32::from(party.battles.count(a[1])?));
+                    }
+                }
             }
             NativeCall::PreloadField => {
                 self.world.preload_field = if a[0] == -1 {
                     None
                 } else {
                     let map = u32::try_from(a[0]).map_err(|_| "invalid map")?;
-                    require(
-                        self.resources.fields.contains(&map),
-                        "field is not available",
-                    )?;
+                    // Advisory only: destination preparation owns missing-file
+                    // errors, retaining the source scene so the player can retry.
                     Some(map)
                 };
             }
-            NativeCall::ChangeField => {
-                let map = u32::try_from(a[0]).map_err(|_| "invalid map")?;
+            NativeCall::PlayWorldCinematic => {
+                let location = u16::try_from(a[0]).map_err(|_| "invalid world cinematic")?;
+                require((513..=526).contains(&location), "invalid world cinematic")?;
+                let map = u32::try_from(a[1]).map_err(|_| "invalid cinematic destination")?;
                 require(
-                    self.resources.fields.contains(&map),
-                    "field is not available",
+                    self.resources.fields.contains(&3000),
+                    "world is not available",
                 )?;
                 require(
-                    self.world.field_transition.is_none() && self.world.field_exit.is_none(),
+                    self.resources.fields.contains(&map.min(3000)),
+                    "cinematic destination is not available",
+                )?;
+                if map >= 3000 {
+                    require(
+                        a[2] == 0 || (1..=98).contains(&a[2]) || (257..=337).contains(&a[2]),
+                        "invalid world landmark",
+                    )?;
+                    require(i16::try_from(a[5]).is_ok(), "invalid world exit direction")?;
+                }
+                let operation = self.world.request_world(
+                    location,
+                    0,
+                    Some(crate::SceneDestination {
+                        map,
+                        position: [a[2] as f32, a[3] as f32, a[4] as f32],
+                        heading: a[5] as f32,
+                    }),
+                )?;
+                *self.wait = Some(crate::operation::Wait::Complete(operation));
+                return Ok(NativeResult::Suspend);
+            }
+            NativeCall::ChangeField => {
+                let map = u32::try_from(a[0]).map_err(|_| "invalid map")?;
+                if map >= 3000 {
+                    require(
+                        self.resources.fields.contains(&3000),
+                        "world is not available",
+                    )?;
+                    require(
+                        self.world.world_transition.is_none()
+                            && self.world.field_transition.is_none()
+                            && self.world.field_exit.is_none(),
+                        "scene transition is already pending",
+                    )?;
+                    let location = u16::try_from(a[1]).map_err(|_| "invalid world landmark")?;
+                    require(
+                        location == 0
+                            || (1..=98).contains(&location)
+                            || (257..=337).contains(&location),
+                        "invalid world landmark",
+                    )?;
+                    let direction =
+                        i16::try_from(a[4]).map_err(|_| "invalid world exit direction")?;
+                    let operation = self.world.operations.begin()?;
+                    *self.wait = Some(crate::operation::Wait::Complete(operation.clone()));
+                    self.world.world_transition = Some(crate::WorldTransition {
+                        location,
+                        direction,
+                        following: None,
+                        operation,
+                    });
+                    self.world.input_enabled = false;
+                    return Ok(NativeResult::Suspend);
+                }
+                // A partial cooked library must produce a recoverable loader
+                // error, not terminate the running event VM.
+                require(
+                    self.world.field_transition.is_none()
+                        && self.world.world_transition.is_none()
+                        && self.world.field_exit.is_none(),
                     "field transition is already pending",
                 )?;
                 let operation = self.world.operations.begin()?;
@@ -200,6 +453,37 @@ impl NativeHost<'_> {
                 };
                 self.world.audio_commands.push(command);
             }
+            NativeCall::IsMappedInputDisabled => value = Some(i32::from(!self.world.input_enabled)),
+            NativeCall::MoveActorRelative => {
+                if let Some(actor) = self.world.actors.get_mut(&a[0]) {
+                    if a[2] == 0 && a[3] == 0 {
+                        actor.motion = None;
+                    } else {
+                        let angle = (a[1] as f32).to_radians();
+                        let distance = a[2] as f32;
+                        let target = [
+                            actor.position[0] + angle.sin() * distance,
+                            actor.position[1] - angle.cos() * distance,
+                            actor.position[2],
+                        ];
+                        let speed = if a[3] < 0 {
+                            distance / (a[3] as u32 & 0x7fff_ffff).max(1) as f32
+                        } else {
+                            a[3] as f32
+                        };
+                        require(
+                            speed > 0. || distance.abs() < 1.,
+                            "actor movement has zero speed",
+                        )?;
+                        actor.motion = Some(crate::world::ActorMotion { target, speed });
+                        if a[4] != 0 {
+                            actor.appearance.fixed_heading.get_or_insert(actor.heading);
+                        } else {
+                            actor.appearance.fixed_heading = None;
+                        }
+                    }
+                }
+            }
             NativeCall::MoveActor => {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
                     let target = [a[1] as f32, a[2] as f32, a[3] as f32];
@@ -258,19 +542,26 @@ impl NativeHost<'_> {
                     size_delta: 0.,
                     rgba: [64, 64, 64, a[10] as u8],
                     alpha_delta: a[11] as f32,
+                    blend_mode: None,
                 })?;
                 value = Some(handle);
             }
             NativeCall::SetEffectProperty => {
                 require(
-                    matches!(a[1], 134 | 135 | 143),
+                    matches!(a[1], 120..=128 | 132..=135 | 141..=143 | 145),
                     "effect property is not implemented",
                 )?;
                 if let Some(effect) = self.world.billboards.get_mut(&a[0]) {
                     match a[1] {
-                        134 => effect.angular_velocity[2] = a[2] as f32 / 100.,
+                        120..=122 => effect.position[(a[1] - 120) as usize] = a[2] as f32,
+                        123..=124 => effect.size[(a[1] - 123) as usize] = a[2] as f32,
+                        125..=128 => effect.rgba[(a[1] - 125) as usize] = a[2] as u8,
+                        132..=134 => {
+                            effect.angular_velocity[(a[1] - 132) as usize] = a[2] as f32 / 100.
+                        }
                         135 => effect.size_delta = a[2] as f32 / 100.,
-                        143 => effect.rotation[2] = a[2] as f32 / 100.,
+                        141..=143 => effect.rotation[(a[1] - 141) as usize] = a[2] as f32 / 100.,
+                        145 => effect.blend_mode = Some(a[2] as u8 & 3),
                         _ => unreachable!(),
                     }
                 }
@@ -295,13 +586,13 @@ impl NativeHost<'_> {
                         0 | 1 => {
                             // Cooked animation ticks are twice the script’s frame unit;
                             // a script rate of 100 advances one cooked tick per update.
-                            previous = animation.rate * 100.;
-                            animation.seek(position, self.world.tick);
-                            animation.rate = if a[1] == 0 {
+                            previous = animation.script_rate() * 100.;
+                            let rate = if a[1] == 0 {
                                 a[2] as f32 / 100.
                             } else {
                                 duration / 2. / if a[2] == 0 { 1. } else { a[2] as f32 }
                             };
+                            animation.set_script_rate(rate, self.world.tick);
                         }
                         2 => {
                             previous = position / 2.;
@@ -310,7 +601,7 @@ impl NativeHost<'_> {
                                 animation.seek(position, self.world.tick);
                             }
                         }
-                        3 => previous = animation.rate * 100.,
+                        3 => previous = animation.script_rate() * 100.,
                         4 => previous = position / 2.,
                         5 => previous = duration / 2.,
                         6 => {
@@ -358,7 +649,7 @@ impl NativeHost<'_> {
                         .map_or(-1, |index| index as i32),
                 );
             }
-            NativeCall::ConfigureActorAttachment => {
+            NativeCall::ConfigureActorAttachment | NativeCall::ConfigureActorBoneTranslation => {
                 // Add a timed rotation to one bone controller.
                 if a[2] != -1
                     && let Some(actor) = self.world.actors.get_mut(&a[0])
@@ -371,14 +662,38 @@ impl NativeHost<'_> {
                         .and_then(|m| m.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("bone adjustment target is not cooked")?
                         .clone();
-                    adjust_bone(
-                        actor,
-                        a[1] as u8,
-                        bone,
-                        [a[3] as f32, a[5] as f32, a[4] as f32],
-                        a[6] as u32,
-                        self.world.tick,
-                    );
+                    if op == NativeCall::ConfigureActorBoneTranslation {
+                        let adjustment = actor
+                            .appearance
+                            .bone_adjustments
+                            .entry(a[1] as u8)
+                            .or_insert_with(|| BoneAdjustment {
+                                bone: crate::BoneTarget::Name(bone.clone()),
+                                absolute_rotation: false,
+                                angles: [0.; 3],
+                                from: [0.; 3],
+                                duration_ticks: 1,
+                                start_tick: self.world.tick,
+                                translation: None,
+                            });
+                        let from = adjustment.translation(self.world.tick);
+                        adjustment.bone = crate::BoneTarget::Name(bone);
+                        adjustment.translation = Some(crate::world::BoneTranslation {
+                            from,
+                            to: [a[3] as f32, a[4] as f32, a[5] as f32],
+                            duration_ticks: (a[6] as u32).max(1),
+                            start_tick: self.world.tick,
+                        });
+                    } else {
+                        adjust_bone(
+                            actor,
+                            a[1] as u8,
+                            bone,
+                            [a[3] as f32, a[5] as f32, a[4] as f32],
+                            a[6] as u32,
+                            self.world.tick,
+                        );
+                    }
                 }
             }
             NativeCall::MotionCommand => self.camera_path(a)?,
@@ -494,9 +809,75 @@ impl NativeHost<'_> {
                     }
                 }
             }
-            NativeCall::SpawnActor => {
+            NativeCall::SpawnEnemyActor => {
+                if a[0] == crate::CONTROLLED_ACTOR {
+                    return Ok(NativeResult::Continue(None));
+                }
+                require(self.world.actors.len() < 4096, "actor limit exceeded")?;
+                let locator = self.resources.locators.contains(&a[10]);
+                let resource = if locator {
+                    a[10] as u32
+                } else {
+                    self.resolve(a[10], ResourceKind::Model)?
+                };
+                let mut actor = Actor::new(resource, [a[3] as f32, a[4] as f32, a[5] as f32]);
+                actor.face(a[6] as f32);
+                actor.visible = !locator;
+                actor.radius = 32.;
+                actor.turn_speed = 10.;
+                actor.properties.insert(17, 6);
+                let behavior = match a[11] as u8 {
+                    0 => crate::Behavior::WanderNearHome,
+                    1 | 2 => crate::Behavior::Wander,
+                    3 => crate::Behavior::FollowPath,
+                    4 | 5 => crate::Behavior::ApproachPlayer,
+                    6 => crate::Behavior::RandomPath,
+                    _ => crate::Behavior::Wander,
+                };
+                actor.autonomy = Some(crate::Autonomy::new(
+                    behavior,
+                    a[7].max(0) as f32,
+                    actor.position,
+                ));
+                actor.autonomy.as_mut().unwrap().radius = a[14] as f32;
+                actor.enemy = Some(crate::world::Enemy {
+                    event: a[9] as u16,
+                    behavior: a[11] as u8,
+                    normal_speed: a[7].max(0) as f32,
+                    alert_speed: a[8].max(0) as f32,
+                    random_turns: a[12] as u8 != 0,
+                    chase_on_sight: a[13] as u8 != 0,
+                    sight_angle: 180.,
+                    sight_distance: 600.,
+                    event_parameters: [a[1] as i16, a[2] as i16],
+                    contact_cooldown: 0,
+                });
+                if let Some(model) = self.resources.model(resource) {
+                    actor
+                        .appearance
+                        .hidden_nodes
+                        .clone_from(&model.hidden_nodes);
+                    if let Some(clip) = model.clips.get(&slot::IDLE) {
+                        actor.animation = Some(Animation::new(
+                            resource,
+                            slot::IDLE,
+                            clip.duration_ticks,
+                            self.world.tick,
+                        ));
+                    }
+                }
+                self.world.insert_actor(a[0], actor);
+            }
+            NativeCall::SpawnActor
+            | NativeCall::SpawnCollisionActor
+            | NativeCall::SpawnSceneryActor => {
                 if a[0] < 0 {
-                    if (-299..=-100).contains(&a[0]) && self.world.actors.contains_key(&a[5]) {
+                    let target = if a[5] == crate::CONTROLLED_ACTOR {
+                        self.world.controlled_actor
+                    } else {
+                        a[5]
+                    };
+                    if (-299..=-100).contains(&a[0]) && self.world.actors.contains_key(&target) {
                         require((0..=19).contains(&a[4]), "unknown emote recipe")?;
                         require(self.world.emotes.len() < 200, "emote limit exceeded")?;
                         // Every controller initializes immediately, even when its
@@ -505,7 +886,7 @@ impl NativeHost<'_> {
                         self.world.emotes.insert(
                             a[0],
                             Emote {
-                                actor: a[5],
+                                actor: target,
                                 kind: a[4] as u16,
                                 phase,
                                 offset: [a[1] as f32, a[2] as f32, a[3] as f32],
@@ -556,6 +937,16 @@ impl NativeHost<'_> {
                 actor.visible = !locator;
                 actor.interaction_anchor = locator;
                 actor.properties.insert(17, if locator { 0 } else { 2 });
+                if op != NativeCall::SpawnActor {
+                    // Scenery carries its own collision
+                    // mesh and bypasses character grounding, shadows and culling.
+                    actor.grounded = false;
+                    actor.collidable = false;
+                    actor.casts_shadow = false;
+                    actor.cull_outside_view = false;
+                    actor.properties.insert(14, 1);
+                    actor.appearance.model_hidden = op == NativeCall::SpawnCollisionActor;
+                }
                 if let Some(clip) = self
                     .resources
                     .model(resource)
@@ -609,30 +1000,54 @@ impl NativeHost<'_> {
                     .map_err(|e| e.to_string())?;
                 }
             }
+            NativeCall::RemoveAutomaticEventTriggers
+            | NativeCall::RemoveTouchTriggers
+            | NativeCall::RemoveConfirmedTriggers => {
+                self.world.triggers.retain(|trigger| {
+                    trigger.key != a[0] as u32
+                        || match op {
+                            NativeCall::RemoveAutomaticEventTriggers => !trigger.automatic_event,
+                            NativeCall::RemoveConfirmedTriggers => trigger.transition.is_none(),
+                            _ => trigger.transition.is_some() || trigger.automatic_event,
+                        }
+                });
+            }
             NativeCall::CreateScriptRecord
+            | NativeCall::CreateAutomaticEventTrigger
+            | NativeCall::CreateTriangleTrigger
             | NativeCall::CreateScriptRecordVariant
-            | NativeCall::CreateAreaTrigger => {
+            | NativeCall::CreateAreaTrigger
+            | NativeCall::CreateConfirmedTriangleTrigger
+            | NativeCall::CreateConfirmedAreaTrigger => {
                 require(
                     self.world.triggers.len() < 200,
                     "field trigger limit exceeded",
                 )?;
-                let offset = if op == NativeCall::CreateScriptRecordVariant {
-                    4
-                } else {
-                    1
-                };
+                let confirmed = matches!(
+                    op,
+                    NativeCall::CreateScriptRecordVariant
+                        | NativeCall::CreateConfirmedTriangleTrigger
+                        | NativeCall::CreateConfirmedAreaTrigger
+                );
+                let offset = if confirmed { 4 } else { 1 };
                 let point = |i| std::array::from_fn(|axis| a[offset + i * 3 + axis] as i16 as f32);
-                let shape = if op == NativeCall::CreateAreaTrigger {
-                    crate::TriggerShape::Quad(std::array::from_fn(point))
-                } else {
-                    crate::TriggerShape::Line(std::array::from_fn(point))
+                let shape = match op {
+                    NativeCall::CreateAreaTrigger | NativeCall::CreateConfirmedAreaTrigger => {
+                        crate::TriggerShape::Quad(std::array::from_fn(point))
+                    }
+                    NativeCall::CreateConfirmedTriangleTrigger
+                    | NativeCall::CreateTriangleTrigger => {
+                        crate::TriggerShape::Triangle(std::array::from_fn(point))
+                    }
+                    _ => crate::TriggerShape::Line(std::array::from_fn(point)),
                 };
                 self.world.triggers.push(Trigger {
                     key: a[0] as u32,
+                    automatic_event: op == NativeCall::CreateAutomaticEventTrigger,
                     shape,
                     height: a[a.len() - 1] as i16 as f32,
-                    transition: (op == NativeCall::CreateScriptRecordVariant)
-                        .then(|| [a[1] as u32, a[2] as u32, a[3] as u32]),
+                    transition: confirmed
+                        .then(|| [a[1] as u16 as u32, a[2] as u16 as u32, a[3] as u32]),
                     touch_metadata: [0; 3],
                 });
             }
@@ -822,6 +1237,40 @@ impl NativeHost<'_> {
                 rig.position_settled = false;
                 rig.target_settled = false;
             }
+            NativeCall::ConfigureCameraParameters => {
+                let rig = self.world.field_camera.get_or_insert_default();
+                // Pin each nonzero coordinate by setting both
+                // bounds. Zero leaves that axis or interpolation rate alone.
+                for (index, value) in a[..6].iter().copied().enumerate() {
+                    if value != 0 {
+                        let camera = rig.command_camera();
+                        let bounds = if index < 3 {
+                            &mut camera.position_bounds
+                        } else {
+                            &mut camera.target_bounds
+                        };
+                        bounds[index % 3] = [value as f32; 2];
+                    }
+                }
+                if a[6] != 0 {
+                    rig.position_rate = a[6] as f32;
+                }
+                if a[7] != 0 {
+                    rig.target_rate = a[7] as f32;
+                }
+                rig.position_settled = false;
+                rig.target_settled = false;
+            }
+            NativeCall::ConfigureCameraAuxiliary => {
+                // Configure GX fog: mode 1 selects exponential
+                // perspective fog (GX type 5), all other modes disable it.
+                let rig = self.world.field_camera.get_or_insert_default();
+                rig.command_camera().fog = (a[0] == 1).then_some(crate::camera::Fog {
+                    start: a[1] as f32,
+                    end: a[2] as f32,
+                    color: [a[3] as u8, a[4] as u8, a[5] as u8],
+                });
+            }
             _ => return Err(format!("unimplemented native {op:?}")),
         }
         Ok(NativeResult::Continue(value))
@@ -847,14 +1296,17 @@ fn adjust_bone(
 ) {
     let adjustments = &mut actor.appearance.bone_adjustments;
     let from = adjustments.get(&slot).map_or([0.; 3], |a| a.sample(tick));
+    let translation = adjustments.get(&slot).and_then(|a| a.translation.clone());
     adjustments.insert(
         slot,
         BoneAdjustment {
             from,
             bone: crate::BoneTarget::Name(bone),
+            absolute_rotation: false,
             angles,
             duration_ticks: duration.max(1),
             start_tick: tick,
+            translation,
         },
     );
 }

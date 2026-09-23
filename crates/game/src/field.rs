@@ -1280,6 +1280,7 @@ mod tests {
             world.insert_actor(1, Actor::new(1, [-496., -317., 0.]));
             world.triggers.push(resonance_events::Trigger {
                 key: 42,
+                automatic_event: false,
                 shape: resonance_events::TriggerShape::Line([
                     [-540., -264., 0.],
                     [-540., -380., 0.],
