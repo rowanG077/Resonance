@@ -171,10 +171,12 @@ impl GameWorld {
                     HINGE_ADJUSTMENT,
                     BoneAdjustment {
                         bone: crate::BoneTarget::Index(exit.door.bone),
+                        absolute_rotation: false,
                         angles: [0., 0., angle],
                         from: [0., 0., angle],
                         duration_ticks: 1,
                         start_tick: self.tick,
+                        translation: None,
                     },
                 );
                 // Present the current hinge pose before advancing the next one.

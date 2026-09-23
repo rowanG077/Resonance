@@ -125,18 +125,24 @@ pub(crate) enum Wait {
     },
     ActorMotion(i32),
     ActorHeading(i32),
+    FaceAfterMotion {
+        actor: i32,
+        heading: f32,
+    },
     ActorAnimation(i32),
+    ActorAnimationFrame(i32, i32),
     Complete(Operation),
     Choice {
         result: Operation,
         window: Box<Wait>,
     },
     Menu(Operation),
+    Battle(Operation),
     Ready(Operation),
     Position(Operation, u32),
 }
 impl Wait {
-    pub fn poll(&mut self, world: &crate::GameWorld) -> Result<bool, String> {
+    pub fn poll(&mut self, world: &mut crate::GameWorld) -> Result<bool, String> {
         let operation = match self {
             Self::Service {
                 condition,
@@ -178,8 +184,30 @@ impl Wait {
                     .and_then(|a| a.animation.as_ref())
                     .is_none_or(|a| a.elapsed(world.tick, 0) >= a.duration_ticks as f32));
             }
+            Self::ActorAnimationFrame(id, frame) => {
+                // Native model time is in 30-Hz authored frames; cooked poses
+                // use 60-Hz ticks. This wait tests the integer frame, including
+                // a paused final frame, rather than waiting for clip completion.
+                return Ok(world
+                    .actors
+                    .get(id)
+                    .and_then(|a| a.animation.as_ref())
+                    .is_some_and(|a| {
+                        (a.sample(world.tick, 0, a.duration_ticks as f32) / 2.) as i32 == *frame
+                    }));
+            }
             Self::ActorMotion(id) => {
                 return Ok(world.actors.get(id).is_none_or(|a| a.motion.is_none()));
+            }
+            Self::FaceAfterMotion { actor, heading } => {
+                let Some(actor) = world.actors.get_mut(actor) else {
+                    return Ok(true);
+                };
+                if actor.motion.is_some() {
+                    return Ok(false);
+                }
+                actor.target_heading = *heading;
+                return Ok((actor.heading - *heading + 180.).rem_euclid(360.) - 180. == 0.);
             }
             Self::ActorHeading(id) => {
                 return Ok(world
@@ -204,7 +232,11 @@ impl Wait {
                         .is_none_or(|m| m.settled(*channel)));
             }
             Self::Choice { result, .. } => result,
-            Self::Complete(op) | Self::Menu(op) | Self::Ready(op) | Self::Position(op, _) => op,
+            Self::Complete(op)
+            | Self::Battle(op)
+            | Self::Menu(op)
+            | Self::Ready(op)
+            | Self::Position(op, _) => op,
         };
         let progress = operation.progress();
         match progress.outcome {
@@ -214,7 +246,7 @@ impl Wait {
                 _ => Ok(true),
             },
             None => Ok(match self {
-                Self::Complete(_) | Self::Choice { .. } | Self::Menu(_) => false,
+                Self::Complete(_) | Self::Choice { .. } | Self::Menu(_) | Self::Battle(_) => false,
                 Self::Ready(_) => progress.ready,
                 Self::Position(_, target) => progress.ready && progress.position >= *target,
                 _ => unreachable!("non-operation waits returned above"),
@@ -227,22 +259,43 @@ impl Wait {
 mod tests {
     use super::*;
     #[test]
+    fn deferred_facing_preserves_movement_then_waits_for_the_turn() {
+        let mut world = crate::GameWorld::default();
+        let mut actor = crate::Actor::new(1, [0.; 3]);
+        actor.motion = Some(crate::ActorMotion {
+            target: [10., 0., 0.],
+            speed: 2.,
+        });
+        world.actors.insert(1, actor);
+        let mut wait = Wait::FaceAfterMotion {
+            actor: 1,
+            heading: 135.,
+        };
+        assert!(!wait.poll(&mut world).unwrap());
+        assert_eq!(world.actors[&1].target_heading, 0.);
+        world.actors.get_mut(&1).unwrap().motion = None;
+        assert!(!wait.poll(&mut world).unwrap());
+        assert_eq!(world.actors[&1].target_heading, 135.);
+        world.actors.get_mut(&1).unwrap().heading = 135.;
+        assert!(wait.poll(&mut world).unwrap());
+    }
+    #[test]
     fn observed_service_completion_survives_a_later_state_change() {
         let mut world = crate::GameWorld::default();
         let mut wait = Wait::Service {
             condition: Box::new(Wait::Voice),
             ready_at: None,
         };
-        assert!(!wait.poll(&world).unwrap());
+        assert!(!wait.poll(&mut world).unwrap());
         // Another caller can start a voice after this caller's wait cleared.
         // That must not re-block an already completed service command.
         world.voice = Some(crate::VoicePlayback {
             resource: 7,
             end_tick: 100,
         });
-        assert!(!wait.poll(&world).unwrap());
+        assert!(!wait.poll(&mut world).unwrap());
         world.tick += 1;
-        assert!(wait.poll(&world).unwrap());
+        assert!(wait.poll(&mut world).unwrap());
     }
 
     #[test]
@@ -256,7 +309,11 @@ mod tests {
         let new = second.begin().unwrap();
         assert_ne!(old.id(), new.id());
         assert_eq!(new.progress().outcome, None);
-        assert!(Wait::Ready(old).poll(&crate::GameWorld::default()).is_err());
+        assert!(
+            Wait::Ready(old)
+                .poll(&mut crate::GameWorld::default())
+                .is_err()
+        );
         new.complete(Some(7)).unwrap();
         assert!(new.complete(None).is_err());
         assert_eq!(new.progress().outcome, Some(Outcome::Completed(Some(7))));

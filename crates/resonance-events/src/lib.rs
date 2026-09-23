@@ -1,8 +1,11 @@
 //! General native-function shims and event scheduling for SymphoniaScript.
 //! No Bevy, title sequence, disc format, or GameCube address-space dependency.
+mod ambient;
 pub mod animation;
 pub mod authored;
 mod autonomy;
+pub use ambient::AmbientSound;
+pub mod battle;
 pub use autonomy::{Activity, ActorOrigin, Autonomy, Behavior};
 mod face;
 pub use face::EyeBlink;
@@ -19,8 +22,9 @@ pub use scheduler::{BackgroundWaitOrigin, EventRuntime, ResourceWaitObservation}
 pub use world::{
     Actor, ActorCreation, ActorMotion, Appearance, Attachment, AudioCommand, BoneAdjustment,
     BoneTarget, CameraTrack, Emote, EventRecord, Face, Fade, FieldTransition, GameWorld,
-    MusicCommand, Overlay, OverlayKind, Particle, SavePoint, SpriteOverlay, Trigger, TriggerShape,
-    VoicePlayback,
+    MusicCommand, Overlay, OverlayKind, Particle, SavePoint, SceneDestination, SpriteOverlay,
+    TreasureChest, TreasureKind, TreasureReward, Trigger, TriggerShape, VoicePlayback,
+    WorldTransition,
 };
 mod operation;
 pub use operation::{Operation, Outcome, Progress};

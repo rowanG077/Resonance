@@ -23,6 +23,201 @@ fn script(calls: &[(Call, &[i32])]) -> Vec<u16> {
     code.push(0x20ff);
     code
 }
+
+#[test]
+fn current_field_query_uses_the_owning_scene() {
+    let code = script(&[(Call::GetCurrentField, &[])]);
+    for map in [96, 219, 3000] {
+        let mut world = GameWorld::default();
+        world.current_field = Some(map);
+        let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), map as i32);
+    }
+}
+
+#[test]
+fn scenery_can_be_paused_in_its_creation_update_and_resumed_later() {
+    use animation::slot;
+    let resources = ResourceLibrary {
+        models: [(7, model([slot::IDLE], 120))].into(),
+        bindings: [(7, (ResourceKind::Model, 7))].into(),
+        ..Default::default()
+    };
+    let setup = script(&[
+        (Call::CreateSceneActor, &[6010, 0, 0, 0, 0, 7, 0, 0]),
+        (Call::SetActorAnimationFlags, &[6010, 2]),
+    ]);
+    let resume = script(&[(Call::SetActorAnimationFlags, &[6010, 0])]);
+    let mut world = GameWorld::default();
+    world.input_enabled = true;
+    let mut events = runtime(program(&setup, &resume), resources, world);
+    for _ in 0..300 {
+        let animation = events.world.actors[&6010].animation.as_ref().unwrap();
+        assert_eq!(animation.sample(events.tick(), 0, 120.), 0.);
+        events.step().unwrap();
+    }
+    assert!(events.trigger(42, true).unwrap());
+    for _ in 0..20 {
+        events.step().unwrap();
+    }
+    assert!(
+        events.world.actors[&6010]
+            .animation
+            .as_ref()
+            .unwrap()
+            .sample(events.tick(), 0, 120.)
+            > 0.
+    );
+}
+
+#[test]
+fn native_music_requests_decode_before_reaching_the_mixer() {
+    let code = script(&[
+        (Call::AudioCommand, &[10]),
+        (Call::AudioCommand, &[-2]),
+        (Call::AudioCommand, &[97]),
+        (Call::AudioCommand, &[-3]),
+        (Call::AudioCommand, &[-1]),
+    ]);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        Default::default(),
+        Default::default(),
+    );
+    let commands: Vec<_> = events
+        .world
+        .audio_commands
+        .iter()
+        .map(|command| {
+            let AudioCommand::Music(command) = command else {
+                panic!("unexpected audio command")
+            };
+            *command
+        })
+        .collect();
+    assert_eq!(
+        commands,
+        [
+            MusicCommand::Play(10),
+            MusicCommand::Suspend,
+            MusicCommand::PlayJingle(97),
+            MusicCommand::Resume,
+            MusicCommand::Stop
+        ]
+    );
+    assert!(MusicCommand::try_from(-4).is_err());
+}
+
+#[test]
+fn missing_cooked_destination_is_owned_by_the_scene_loader() {
+    let code = script(&[
+        (Call::PreloadField, &[340]),
+        (Call::ChangeField, &[340, 10, 20, 30, 90]),
+    ]);
+    let mut events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary::default(),
+        GameWorld::default(),
+    );
+    assert_eq!(events.world.preload_field, Some(340));
+    let request = events.world.field_transition.as_ref().unwrap().clone();
+    assert_eq!(request.map, 340);
+    for _ in 0..3 {
+        events.step().unwrap();
+    }
+    assert!(request.operation.is_pending());
+    assert!(!events.player_has_control());
+}
+
+#[test]
+fn world_exits_decode_landmarks_separately_from_field_positions() {
+    let code = script(&[(Call::ChangeField, &[3000, 257, 999, -888, 6])]);
+    let resources = ResourceLibrary {
+        fields: [3000].into(),
+        ..Default::default()
+    };
+    let mut events = runtime(program(&code, &[0x20ff]), resources, GameWorld::default());
+    assert!(events.world.field_transition.is_none());
+    let request = events.world.world_transition.as_ref().unwrap().clone();
+    assert_eq!((request.location, request.direction), (257, 6));
+    assert!(request.operation.is_pending());
+    assert!(!events.player_has_control());
+    for _ in 0..3 {
+        events.step().unwrap();
+    }
+    assert!(request.operation.is_pending());
+    events.cancel();
+    assert!(!request.operation.is_pending());
+    assert!(events.world.world_transition.is_none());
+}
+
+#[test]
+fn landmark_entry_is_exclusive_and_supplies_the_native_direction_word() {
+    let child = script(&[(Call::YieldCommand, &[0, 1])]);
+    let mut world = GameWorld::default();
+    world.input_enabled = true;
+    let mut events = runtime(
+        program_kind(&[0x20ff], &child, 1),
+        ResourceLibrary::default(),
+        world,
+    );
+    assert!(events.enter_landmark(42, 6).unwrap());
+    assert!(!events.enter_landmark(42, 2).unwrap());
+    assert_eq!(events.memory().read(0x24, Width::S32).unwrap(), 6);
+    assert!(events.enter_landmark(42, 8).is_err());
+    events.step().unwrap();
+    events.step().unwrap();
+    assert!(events.player_has_control());
+    assert!(events.enter_landmark(42, 2).unwrap());
+    assert_eq!(events.memory().read(0x24, Width::S32).unwrap(), 2);
+}
+
+#[test]
+fn world_entrance_preserves_fog_and_fixed_destination_camera_coordinates() {
+    let code = script(&[
+        (Call::SelectCamera, &[-1]),
+        (
+            Call::ConfigureCameraParameters,
+            &[43, -2852, 434, -53, -1006, 141, 1, 1],
+        ),
+        (Call::ConfigureCameraParameters, &[0; 8]),
+        (
+            Call::ConfigureCameraAuxiliary,
+            &[1, 1000, 14000, 150, 130, 130],
+        ),
+        (Call::ChangeField, &[29, -360, -424, 11, 0]),
+    ]);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary {
+            fields: [29].into(),
+            ..Default::default()
+        },
+        GameWorld::default(),
+    );
+    let camera = &events
+        .world
+        .field_transition
+        .as_ref()
+        .unwrap()
+        .camera
+        .as_ref()
+        .unwrap()
+        .camera;
+    assert_eq!(camera.position_bounds, [[43.; 2], [-2852.; 2], [434.; 2]]);
+    assert_eq!(camera.target_bounds, [[-53.; 2], [-1006.; 2], [141.; 2]]);
+    assert_eq!(
+        camera.fog,
+        Some(camera::Fog {
+            start: 1000.,
+            end: 14000.,
+            color: [150, 130, 130]
+        })
+    );
+    let current = events.world.field_camera.as_ref().unwrap().current();
+    assert!(current.fog.is_none());
+    assert_eq!(current.position_bounds, [[-100000., 100000.]; 3]);
+}
 fn program(main: &[u16], child: &[u16]) -> Arc<Program> {
     program_kind(main, child, 2)
 }
@@ -396,6 +591,37 @@ fn ambient_origin_preserves_the_existing_scripted_clip_binding() {
 }
 
 #[test]
+fn confirmed_polygons_preserve_their_coordinates_and_transition_hints() {
+    let code = script(&[
+        (
+            Call::CreateConfirmedTriangleTrigger,
+            &[42, 18, 0, 243, 0, 0, 10, 100, 0, 20, 0, 100, 30, 200],
+        ),
+        (
+            Call::CreateConfirmedAreaTrigger,
+            &[
+                43, 19, 1, 247, 0, 0, 0, 100, 0, 0, 100, 100, 0, 0, 100, 0, 300,
+            ],
+        ),
+    ]);
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        Default::default(),
+        Default::default(),
+    );
+    let triggers = &events.world.triggers;
+    assert!(matches!(
+        triggers[0].shape,
+        TriggerShape::Triangle([[0., 0., 10.], [100., 0., 20.], [0., 100., 30.]])
+    ));
+    assert_eq!(triggers[0].transition, Some([18, 0, 243]));
+    assert_eq!(triggers[0].height, 200.);
+    assert!(matches!(triggers[1].shape, TriggerShape::Quad(_)));
+    assert_eq!(triggers[1].transition, Some([19, 1, 247]));
+    assert_eq!(triggers[1].height, 300.);
+}
+
+#[test]
 fn touch_metadata_updates_the_first_touch_shape_without_changing_activation() {
     let code = script(&[
         (
@@ -428,6 +654,25 @@ fn touch_metadata_updates_the_first_touch_shape_without_changing_activation() {
             .iter()
             .all(|trigger| trigger.transition.is_none())
     );
+}
+
+#[test]
+fn emotes_resolve_the_current_party_leader_alias() {
+    let code = script(&[(
+        Call::SpawnActor,
+        &[-100, 0, 0, 0, 10, resonance_events::CONTROLLED_ACTOR, 0, 30],
+    )]);
+    let mut world = GameWorld::default();
+    world.controlled_actor = 7;
+    world.insert_actor(7, Actor::new(7, [0.; 3]));
+    let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+    assert_eq!(events.world.emotes[&-100].actor, 7);
+    for _ in 0..30 {
+        events.step().unwrap();
+    }
+    assert!(events.world.emotes.contains_key(&-100));
+    events.step().unwrap();
+    assert!(!events.world.emotes.contains_key(&-100));
 }
 
 #[test]
@@ -1912,7 +2157,7 @@ fn changing_fields_moves_globals_but_retires_locals_actors_and_callbacks() {
         ..Default::default()
     };
     let mut memory = Memory::default();
-    for offset in [0x40, 0x3fc, 0x400, 0x800] {
+    for offset in [0x3c, 0x40, 0x3fc, 0x400, 0x800] {
         memory.write(offset, Width::S32, 123).unwrap();
     }
     let mut world = GameWorld::default();
@@ -1952,6 +2197,22 @@ fn changing_fields_moves_globals_but_retires_locals_actors_and_callbacks() {
     assert_eq!(memory.read(0x3fc, Width::S32).unwrap(), 123);
     assert_eq!(memory.read(0x400, Width::S32).unwrap(), 0);
     assert_eq!(memory.read(0x800, Width::S32).unwrap(), 0);
+
+    let mut child = EventRuntime::with_state(
+        program(&[0x20ff], &[0x20ff]),
+        Default::default(),
+        world,
+        memory,
+    )
+    .unwrap();
+    child.set_global(16, -1).unwrap();
+    child.set_global(255, i32::MAX).unwrap();
+    events.copy_script_globals(&child).unwrap();
+    assert_eq!(events.memory().read(0x3c, Width::S32).unwrap(), 123);
+    assert_eq!(events.memory().read(0x40, Width::S32).unwrap(), -1);
+    assert_eq!(events.memory().read(0x3fc, Width::S32).unwrap(), i32::MAX);
+    assert_eq!(events.memory().read(0x400, Width::S32).unwrap(), 123);
+    assert_eq!(events.memory().read(0x800, Width::S32).unwrap(), 123);
 }
 
 #[test]
@@ -2534,39 +2795,173 @@ fn sprite_overlay_fades_advance_on_ticks_and_stop_without_removing_the_actor() {
 }
 
 #[test]
-fn native_music_requests_decode_before_reaching_the_mixer() {
+fn numbered_world_cinematics_keep_the_following_scene_and_retire_the_caller() {
+    for args in [[516, 416, 3615, -659, 396, 0], [518, 3001, 271, 0, 0, 6]] {
+        let code = script(&[
+            (Call::PlayWorldCinematic, &args),
+            (Call::SetEventBit, &[100]),
+        ]);
+        let resources = ResourceLibrary {
+            fields: [3000, 416].into(),
+            ..Default::default()
+        };
+        let mut events = runtime(program(&code, &[0x20ff]), resources, GameWorld::default());
+        let request = events.world.world_transition.as_ref().unwrap().clone();
+        assert_eq!(request.location, args[0] as u16);
+        assert_eq!(
+            request.following,
+            Some(SceneDestination {
+                map: args[1] as u32,
+                position: [args[2] as f32, args[3] as f32, args[4] as f32],
+                heading: args[5] as f32,
+            })
+        );
+        for _ in 0..120 {
+            events.step().unwrap();
+        }
+        assert!(!events.world.event_flags.contains(&100));
+        assert!(request.operation.is_pending());
+        events.cancel();
+        assert_eq!(
+            request.operation.progress().outcome,
+            Some(Outcome::Cancelled)
+        );
+        assert!(!events.world.event_flags.contains(&100));
+        assert!(request.operation.complete(None).is_err());
+    }
+}
+
+#[test]
+fn scenery_motion_accepts_loaded_handles_and_keeps_paused_layers_independent() {
     let code = script(&[
-        (Call::AudioCommand, &[10]),
-        (Call::AudioCommand, &[-2]),
-        (Call::AudioCommand, &[97]),
-        (Call::AudioCommand, &[-3]),
-        (Call::AudioCommand, &[-1]),
+        (Call::ResolveScriptResource, &[123]),
+        (
+            Call::ConfigureSceneryAnimation,
+            &[999996, -1, -65536, 3, 100, 2],
+        ),
+        (
+            Call::ConfigureSceneryAnimation,
+            &[999996, 0, -65536, 0, 100, 8],
+        ),
     ]);
-    let events = runtime(
-        program(&code, &[0x20ff]),
-        Default::default(),
-        Default::default(),
-    );
-    let commands: Vec<_> = events
-        .world
-        .audio_commands
-        .iter()
-        .map(|command| {
-            let AudioCommand::Music(command) = command else {
-                panic!("unexpected audio command")
-            };
-            *command
-        })
-        .collect();
+    let mut world = GameWorld::default();
+    world.actors.insert(999996, Actor::new(1, [0.; 3]));
+    let resources = ResourceLibrary {
+        animations: [(123, model([12], 20).clips)].into(),
+        ..Default::default()
+    };
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    for _ in 0..30 {
+        events.step().unwrap();
+    }
+    let actor = &events.world.actors[&999996];
+    let paused = actor.animation.as_ref().unwrap();
+    assert_eq!(paused.sample(events.tick(), 0, 20.), 6.);
     assert_eq!(
-        commands,
-        [
-            MusicCommand::Play(10),
-            MusicCommand::Suspend,
-            MusicCommand::PlayJingle(97),
-            MusicCommand::Resume,
-            MusicCommand::Stop
-        ]
+        actor.scenery_animations[&0].sample(events.tick(), 0, 20.),
+        20.
     );
-    assert!(MusicCommand::try_from(-4).is_err());
+}
+
+#[test]
+fn enemy_contact_uses_its_event_key_and_publishes_the_symbol_identity_once() {
+    let main = script(&[(
+        Call::SpawnEnemyActor,
+        &[90, 0, 0, 50, 0, 0, 0, 2, 4, 42, 1, 0, 1, 1, 600, 0],
+    )]);
+    let child = script(&[(Call::SetEventBit, &[123]), (Call::YieldCommand, &[0, 2])]);
+    let mut world = GameWorld::default();
+    world.input_enabled = true;
+    let resources = ResourceLibrary {
+        bindings: [(1, (ResourceKind::Model, 1))].into(),
+        models: [(1, model([12, 36], 20))].into(),
+        ..Default::default()
+    };
+    let mut events = runtime(program_kind(&main, &child, 0), resources, world);
+    assert!(events.contact_enemy(90).unwrap());
+    assert!(!events.contact_enemy(90).unwrap());
+    assert_eq!(events.memory().read(0x24, Width::S32).unwrap(), 90);
+    events.step().unwrap();
+    assert!(events.world.event_flags.contains(&123));
+    assert!(!events.player_has_control());
+}
+
+#[test]
+fn animation_frame_wait_resumes_at_the_authored_frame_before_clip_end() {
+    let code = script(&[
+        (Call::WaitActorAnimationFrame, &[1, 3]),
+        (Call::SetEventBit, &[123]),
+    ]);
+    let mut actor = Actor::new(1, [0.; 3]);
+    actor.scripted_animation = true;
+    actor.animation = Some(Animation::new(1, 12, 30, 0));
+    let mut world = GameWorld::default();
+    world.actors.insert(1, actor);
+    let mut events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary {
+            models: [(1, model([12], 30))].into(),
+            ..Default::default()
+        },
+        world,
+    );
+    for _ in 0..5 {
+        events.step().unwrap();
+    }
+    assert!(!events.world.event_flags.contains(&123));
+    for _ in 0..3 {
+        events.step().unwrap();
+    }
+    assert!(events.world.event_flags.contains(&123));
+    assert!(events.tick() < 30);
+}
+
+#[test]
+fn screen_copy_passes_are_independent_and_return_their_previous_depth() {
+    let code = script(&[
+        (Call::ConfigureScreenCopy, &[0, 12345]),
+        (Call::ConfigureScreenCopy, &[1, 17890]),
+        (Call::YieldCommand, &[0, 2]),
+        (Call::ConfigureScreenCopy, &[4, 0]),
+        (Call::YieldCommand, &[0, 2]),
+        (Call::ConfigureScreenCopy, &[1, 0]),
+    ]);
+    let mut events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary::default(),
+        GameWorld::default(),
+    );
+    assert_eq!(events.world.screen_copy_depth, [123.45, 178.9]);
+    for _ in 0..2 {
+        events.step().unwrap();
+    }
+    assert_eq!(events.world.screen_copy_depth, [174., 178.9]);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 12345);
+    for _ in 0..2 {
+        events.step().unwrap();
+    }
+    assert_eq!(events.world.screen_copy_depth, [174., 0.]);
+}
+
+#[test]
+fn ring_station_runs_its_original_interaction_and_keeps_glows_bounded() {
+    let main = script(&[(Call::CreateRingStation, &[42, 0, 0, 0, 13, 1])]);
+    let child = script(&[(Call::SetEventBit, &[123])]);
+    let mut world = GameWorld::default();
+    world.input_enabled = true;
+    let resources = ResourceLibrary {
+        bindings: [(1, (ResourceKind::Model, 1))].into(),
+        models: [(1, model([12], 20))].into(),
+        ..Default::default()
+    };
+    let mut events = runtime(program_kind(&main, &child, 0), resources, world);
+    assert!(events.has_interaction(42));
+    assert!(events.interact(42).unwrap());
+    for _ in 0..180 {
+        events.step().unwrap();
+    }
+    assert!(events.world.event_flags.contains(&123));
+    assert!(events.world.actors[&42].ring_station);
+    assert_eq!(events.world.actors[&42].heading, 180.);
+    assert!((4..=24).contains(&events.world.billboards.len()));
 }

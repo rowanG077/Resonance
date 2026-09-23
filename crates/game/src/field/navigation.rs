@@ -8,6 +8,7 @@ pub fn touches_trigger(trigger: &resonance_events::Trigger, p: [f32; 3], radius:
     use resonance_events::TriggerShape;
     let points: &[[f32; 3]] = match &trigger.shape {
         TriggerShape::Line(points) => points,
+        TriggerShape::Triangle(points) => points,
         TriggerShape::Quad(points) => points,
     };
     let low = points.iter().map(|v| v[2]).fold(f32::INFINITY, f32::min);
@@ -18,12 +19,14 @@ pub fn touches_trigger(trigger: &resonance_events::Trigger, p: [f32; 3], radius:
     if p[2] + radius < low || p[2] > high + trigger.height {
         return false;
     }
-    if let TriggerShape::Quad(points) = &trigger.shape {
-        let sides: [f32; 4] = std::array::from_fn(|i| {
-            let (a, b) = (points[i], points[(i + 1) % 4]);
-            (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
-        });
-        return sides.iter().all(|s| *s >= 0.) || sides.iter().all(|s| *s <= 0.);
+    if points.len() > 2 {
+        let sides = || {
+            (0..points.len()).map(|i| {
+                let (a, b) = (points[i], points[(i + 1) % points.len()]);
+                (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+            })
+        };
+        return sides().all(|s| s >= 0.) || sides().all(|s| s <= 0.);
     }
     let (a, b) = (points[0], points[1]);
     let delta = [b[0] - a[0], b[1] - a[1]];
@@ -215,6 +218,7 @@ mod tests {
     fn doorway_height_does_not_expand_its_horizontal_reach() {
         let trigger = resonance_events::Trigger {
             key: 3001,
+            automatic_event: false,
             shape: resonance_events::TriggerShape::Line([[-540., -264., 0.], [-540., -380., 0.]]),
             height: 200.,
             transition: None,
@@ -236,6 +240,7 @@ mod tests {
         ];
         let mut trigger = resonance_events::Trigger {
             key: 2002,
+            automatic_event: false,
             shape: resonance_events::TriggerShape::Quad(points),
             height: 200.,
             transition: None,
