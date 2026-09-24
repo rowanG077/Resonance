@@ -52,6 +52,7 @@ pub(super) struct Cache {
     pub bytes: resonance_content::prepared::Cache,
     pub audio: super::field_audio::Cache,
     pub scripts: Option<resonance_game::authored::FieldScripts>,
+    pub service_scripts: symphonia_script_tools::PreparationCache,
 }
 impl Cache {
     fn configure_scripts(&mut self, root: Option<PathBuf>) {

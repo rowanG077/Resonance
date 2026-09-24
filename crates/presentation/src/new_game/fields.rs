@@ -16,6 +16,12 @@ pub(crate) fn available_fields(root: &Path) -> Result<std::collections::BTreeSet
             fields.insert(map);
         }
     }
+    if root
+        .join(resonance_content::overworld::PACKAGE_PATH)
+        .is_file()
+    {
+        fields.insert(3000);
+    }
     Ok(fields)
 }
 
@@ -27,6 +33,7 @@ pub(crate) struct FieldPackage {
     pub audio: Arc<super::super::field_audio::Assets>,
     pub files: Arc<Files>,
     authored: Option<resonance_game::authored::FieldEvent>,
+    treasure: Arc<resonance_game::authored::PreparedEvent>,
 }
 impl FieldPackage {
     pub fn load(root: &Path, files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
@@ -53,16 +60,16 @@ impl FieldPackage {
         let audio = cache
             .audio
             .load(root, manifest.inputs.audio.first().unwrap(), &files)?;
-        let mut package = Self {
+        let (authored, treasure) = Self::prepare_scripts(map, &files, cache)?;
+        Ok(Self {
             script: files.read(&assets.script.path)?,
             messages: files.read(&assets.messages)?,
             assets,
             audio,
             files,
-            authored: None,
-        };
-        package.prepare_scripts(cache)?;
-        Ok(package)
+            authored,
+            treasure,
+        })
     }
 
     pub fn prepare(
@@ -71,39 +78,49 @@ impl FieldPackage {
         cache: &mut Cache,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
-        let files = Arc::new(Files::load(
-            root,
-            &[&manifest_path(map)],
-            &mut cache.bytes,
-            cancelled,
-        )?);
+        let files = Arc::new(
+            Files::load(root, &[&manifest_path(map)], &mut cache.bytes, cancelled)
+                .with_context(|| format!("prepare field {map}"))?,
+        );
         Self::load(root, files, map, cache)
     }
 
     /// Revisit shared cooked bytes while refreshing only editable source inputs.
     pub fn refresh_scripts(&self, cache: &mut Cache) -> Result<Self> {
         let mut package = self.clone();
-        package.prepare_scripts(cache)?;
+        (package.authored, package.treasure) =
+            Self::prepare_scripts(self.assets.map_id, &self.files, cache)?;
         Ok(package)
     }
 
-    fn prepare_scripts(&mut self, cache: &mut Cache) -> Result<()> {
-        self.authored = cache
+    fn prepare_scripts(
+        map: u32,
+        files: &Files,
+        cache: &mut Cache,
+    ) -> Result<(
+        Option<resonance_game::authored::FieldEvent>,
+        Arc<resonance_game::authored::PreparedEvent>,
+    )> {
+        let sources = files.script_sources()?;
+        let treasure = Arc::new(resonance_game::authored::PreparedEvent::prepare(
+            &mut cache.service_scripts,
+            &sources,
+            resonance_game::authored::Entry {
+                module: "field::treasure",
+                task: "open",
+                arguments: &[0],
+            },
+            &mut ScriptResources { files, font: None },
+        )?);
+        let authored = cache
             .scripts
             .as_mut()
             .map(|scripts| {
-                scripts.prepare(
-                    self.assets.map_id,
-                    &self.files.script_sources()?,
-                    &mut ScriptResources {
-                        files: &self.files,
-                        font: None,
-                    },
-                )
+                scripts.prepare(map, &sources, &mut ScriptResources { files, font: None })
             })
             .transpose()?
             .flatten();
-        Ok(())
+        Ok((authored, treasure))
     }
 
     pub fn queue_entry(&self, field: &mut FieldSession, kind: resonance_game::field::EntryKind) {
@@ -120,6 +137,7 @@ impl FieldPackage {
         menu.validate()?;
         entry.menu_data = Some(Arc::new(menu));
         entry.text = Arc::new(self.files.json("game/text.json")?);
+        entry.treasure_event = Some(self.treasure.clone());
         let mut field = FieldSession::enter(
             &self.script,
             serde_json::from_slice(&self.messages)?,

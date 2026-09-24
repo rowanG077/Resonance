@@ -28,7 +28,7 @@ fn collect(directory: &Path, files: &mut Vec<std::path::PathBuf>) -> io::Result<
 fn main() -> io::Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
     let mut files = Vec::new();
-    for directory in ["std", "preview"] {
+    for directory in ["std", "preview", "field"] {
         collect(&root.join(directory), &mut files)?;
     }
     files.sort();

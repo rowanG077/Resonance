@@ -32,6 +32,7 @@ fn within_reach(player: [f32; 3], point: [f32; 3]) -> bool {
 impl SavePoints {
     fn suspended(world: &GameWorld) -> bool {
         world.field_transition.is_some()
+            || world.world_transition.is_some()
             || world.blocked_by_movie()
             || world
                 .fade

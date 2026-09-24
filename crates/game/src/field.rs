@@ -14,7 +14,8 @@ mod prompt;
 pub mod replay;
 mod save_point;
 pub mod shop;
-mod skit;
+pub(crate) mod skit;
+mod treasure;
 pub use checkpoint::FieldCheckpoint;
 pub use prompt::{ActionPrompt, FieldAction};
 pub use skit::Playback as SkitPlayback;
@@ -31,7 +32,10 @@ pub enum EntryKind {
 /// Typed field-entry data; a transition carries state, never old scene handles.
 #[derive(Default)]
 pub struct FieldEntry {
+    /// The disposable overworld test may fall back to walking after unsupported scripts.
+    pub allow_incomplete_scripts: bool,
     pub kind: EntryKind,
+    pub treasure_event: Option<Arc<crate::authored::PreparedEvent>>,
     pub play_time: crate::clock::PlayTime,
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
@@ -70,6 +74,9 @@ pub struct FieldInput {
 /// Owns one field's gameplay and event lifetime. Presentation consumes the
 /// resulting actors and operations without needing to understand bytecode.
 pub struct FieldSession {
+    pub allow_incomplete_scripts: bool,
+    entered_control: bool,
+    entry_wait_ticks: u32,
     pub play_time: crate::clock::PlayTime,
     /// Effect births keep their phase through menus; particle age uses field time.
     pub effect_clock: crate::clock::PresentationClock,
@@ -88,6 +95,7 @@ pub struct FieldSession {
     conversation_facing: Option<(i32, f32, f32)>,
     active_triggers: std::collections::BTreeSet<u32>,
     save_points: save_point::SavePoints,
+    treasures: treasure::Treasures,
     action_hints: prompt::ActionHints,
     skits: skit::Skits,
     pub active_skit: Option<SkitPlayback>,
@@ -202,7 +210,11 @@ impl FieldSession {
                 "character references an uncooked technique"
             );
         }
-        Ok(Self {
+        let treasure_event = entry.treasure_event.clone();
+        let mut session = Self {
+            allow_incomplete_scripts: entry.allow_incomplete_scripts,
+            entered_control: false,
+            entry_wait_ticks: 0,
             menu_resources,
             skits,
             active_skit: None,
@@ -221,6 +233,9 @@ impl FieldSession {
             conversation_facing: None,
             active_triggers: Default::default(),
             save_points: save_point::SavePoints::new(assets.save_point_tutorial.clone()),
+            treasures: treasure::Treasures {
+                event: treasure_event,
+            },
             action_hints: Default::default(),
             voice_durations: Default::default(),
             voice_feedback: None,
@@ -229,7 +244,11 @@ impl FieldSession {
             light_regions: (!assets.regions.is_empty())
                 .then(|| navigation::WalkMesh::new(&assets.regions))
                 .transpose()?,
-        })
+        };
+        if let Some(reason) = session.events.exploration_error.clone() {
+            session.enter_exploration(reason)?;
+        }
+        Ok(session)
     }
     /// Install a prepared entry only after legacy setup/checkpoint restoration.
     /// The presentation owner starts gameplay updates after the field is ready.
@@ -237,6 +256,113 @@ impl FieldSession {
         self.authored_entry = event;
     }
     pub fn step(&mut self, input: FieldInput) -> Result<()> {
+        if self.allow_incomplete_scripts {
+            if input.start
+                && self.menu.is_none()
+                && self.shop.is_none()
+                && self
+                    .events
+                    .world
+                    .party
+                    .as_ref()
+                    .is_some_and(|p| p.travel.overworld.is_some())
+            {
+                self.events.cancel();
+                self.events
+                    .world
+                    .request_world(0, 0, None)
+                    .map_err(anyhow::Error::msg)?;
+                return Ok(());
+            }
+            self.events
+                .world
+                .skip_battle_as_victory()
+                .map_err(anyhow::Error::msg)?;
+        }
+        let result = self.step_inner(input);
+        if !self.allow_incomplete_scripts {
+            return result;
+        }
+        if let Err(error) = result {
+            self.enter_exploration(format!("{error:#}"))?;
+        }
+        if !self.entered_control {
+            self.entry_wait_ticks += 1;
+            if self.entry_wait_ticks >= 1200
+                && self.events.world.dialogue.is_empty()
+                && self.events.world.choices.is_empty()
+                && self.events.world.field_transition.is_none()
+                && self.events.world.world_transition.is_none()
+            {
+                self.enter_exploration("Entrance event did not release walking controls".into())?;
+            }
+            self.entered_control = self.player_has_control();
+        }
+        Ok(())
+    }
+    pub fn enter_exploration(&mut self, reason: String) -> Result<()> {
+        self.events.enter_exploration(reason);
+        self.authored_entry = None;
+        self.active_skit = None;
+        self.menu = None;
+        self.shop = None;
+        self.menu_operation = None;
+        self.dialogue.clear();
+        self.choices = Default::default();
+        self.talking.clear();
+        self.action_hints = Default::default();
+        self.save_points = Default::default();
+        self.treasures = Default::default();
+        for point in std::mem::take(&mut self.events.world.save_points) {
+            self.events.world.actors.remove(&point.actor);
+        }
+        self.events.world.treasures.clear();
+        self.conversation_facing = None;
+        let id = self.events.world.controlled_actor;
+        if !self.events.world.actors.contains_key(&id) {
+            let mut player = Actor::new(id as u32, [0.; 3]);
+            if let Some(model) = self.events.resources().model(id as u32) {
+                player
+                    .appearance
+                    .hidden_nodes
+                    .clone_from(&model.hidden_nodes);
+            }
+            self.events.world.insert_actor(id, player);
+        }
+        let actor = self.events.world.actors.get_mut(&id).unwrap();
+        actor.position = self
+            .walkmesh
+            .exploration_start(actor.position)
+            .context("field has no exploration floor")?;
+        actor.visible = true;
+        actor.grounded = true;
+        actor.appearance.model_hidden = false;
+        actor.appearance.fixed_heading = None;
+        actor.properties.insert(8, 255);
+        for property in [7, 35, 36] {
+            actor.properties.remove(&property);
+        }
+        for property in [30, 31, 32] {
+            actor.properties.insert(property, 100);
+        }
+        actor.scripted_animation = false;
+        actor.animation = None;
+        actor.autonomy = Some(resonance_events::Autonomy::new(
+            resonance_events::Behavior::Player,
+            0.,
+            actor.position,
+        ));
+        let entry = resonance_events::camera::EntryCamera::following(id);
+        let mut camera = resonance_events::camera::CameraRig::default();
+        camera.angles = entry.camera.angles;
+        camera.distance = entry.camera.distance;
+        *camera.current_mut() = entry.camera;
+        camera.snap_follow_view(&self.events.world.actors);
+        self.events.world.field_camera = Some(camera);
+        self.entered_control = true;
+        Ok(())
+    }
+    fn step_inner(&mut self, input: FieldInput) -> Result<()> {
         self.play_time.advance();
         self.effect_clock.advance();
         if self.field_control_available()
@@ -353,6 +479,34 @@ impl FieldSession {
         }
         let talking = self.step_dialogue(input)?;
         self.save_points.finish_notice(&mut self.events.world)?;
+        self.treasures
+            .step(&mut self.events, input.interact && !talking)?;
+        if self.events.player_has_control() && !talking {
+            let world = &self.events.world;
+            let contact = world
+                .actors
+                .get(&world.controlled_actor)
+                .and_then(|player| {
+                    world.actors.iter().find_map(|(&id, actor)| {
+                        (actor.visible
+                            && actor
+                                .enemy
+                                .as_ref()
+                                .is_some_and(|enemy| enemy.contact_cooldown == 0)
+                            && actor
+                                .position
+                                .iter()
+                                .zip(player.position)
+                                .map(|(a, b)| (a - b).powi(2))
+                                .sum::<f32>()
+                                < (2. * actor.radius + player.radius).powi(2))
+                        .then_some(id)
+                    })
+                });
+            if let Some(actor) = contact {
+                self.events.contact_enemy(actor)?;
+            }
+        }
         let can_trigger = self.events.world.input_enabled && !talking;
         let interaction_target = input.interact.then(|| self.interaction_target()).flatten();
         let walkmesh = &self.walkmesh;
@@ -363,7 +517,13 @@ impl FieldSession {
             .actors
             .iter()
             .filter(|(_, a)| {
-                a.visible && a.collidable && a.resource < SCENERY_RESOURCE_BASE && a.resource != 24
+                a.visible
+                    && a.collidable
+                    && (a.resource < SCENERY_RESOURCE_BASE
+                        || (resonance_content::field::TREASURE_RESOURCE_BASE
+                            ..resonance_content::field::TREASURE_RESOURCE_BASE + 3)
+                            .contains(&a.resource))
+                    && a.resource != 24
             })
             .map(|(&id, a)| (id, a.position))
             .collect();
@@ -405,7 +565,11 @@ impl FieldSession {
                                 *other != id
                                     && a.visible
                                     && a.collidable
-                                    && a.resource < SCENERY_RESOURCE_BASE
+                                    && a.properties.get(&48) != Some(&1)
+                                    && (a.resource < SCENERY_RESOURCE_BASE
+                                        || (resonance_content::field::TREASURE_RESOURCE_BASE
+                                            ..resonance_content::field::TREASURE_RESOURCE_BASE + 3)
+                                            .contains(&a.resource))
                                     && a.resource != 24
                                     && (p[2] - a.position[2]).abs() < 60.
                                     && (p[0] - a.position[0]).hypot(p[1] - a.position[1]) < 35.
@@ -562,7 +726,10 @@ impl FieldSession {
                 // cloth and hair must see that initial pose before grounding.
                 && resolved.contains_key(id)
                 && resolved.get(id) != Some(&actor.position)
-                && let Some(z) = self.walkmesh.height(actor.position, 32.)
+                // Script coordinates use coarse authored heights. A teleported
+                // grounded actor must reach its actual floor before the next
+                // small walking step (Nova places Lloyd 36 units above it).
+                && let Some(z) = self.walkmesh.height(actor.position, 128.)
             {
                 actor.position[2] = z;
             }
@@ -572,7 +739,7 @@ impl FieldSession {
             .world
             .actors
             .iter()
-            .map(|(&id, actor)| (id, self.target_light(actor.position)))
+            .map(|(&id, actor)| (id, self.actor_light(actor)))
             .collect();
         self.lighting
             .retain(|id, _| self.events.world.actors.contains_key(id));
@@ -652,7 +819,7 @@ impl FieldSession {
             if (confirmed && !confirm) || active.contains(&trigger.key) {
                 continue;
             }
-            if events.trigger(trigger.key, confirmed)? {
+            if events.trigger(trigger.key, confirmed || trigger.automatic_event)? {
                 active.insert(trigger.key);
                 break;
             }
@@ -814,9 +981,6 @@ impl FieldSession {
         Ok(focus.is_some())
     }
     pub fn interaction_target(&self) -> Option<i32> {
-        // Field actors initialize the same radius, independently of model scale.
-        const ACTOR_RADIUS: f32 = 42.;
-        const REACH: f32 = (1.4_f64 * (2. * ACTOR_RADIUS) as f64) as f32;
         const HEIGHT: f32 = 145.;
         let id = self.events.world.controlled_actor;
         let player = self.events.world.actors.get(&id)?;
@@ -827,6 +991,7 @@ impl FieldSession {
             .iter()
             .filter_map(|(id, actor)| {
                 if (!actor.visible && !actor.interaction_anchor)
+                    || actor.properties.get(&50) == Some(&1)
                     || !self.events.has_interaction(*id)
                 {
                     return None;
@@ -836,7 +1001,7 @@ impl FieldSession {
                 let distance = dx.hypot(dy);
                 let facing = dx * angle.sin() - dy * angle.cos();
                 (distance > 0.
-                    && distance < REACH
+                    && distance < (1.4 * f64::from(player.radius + actor.radius)) as f32
                     && (f64::from(-facing / distance).sin() as f32).to_degrees() < -22.5
                     && (actor.position[2] - player.position[2]).abs() <= HEIGHT)
                     .then_some((*id, distance))
@@ -853,8 +1018,23 @@ impl FieldSession {
                 .world
                 .actors
                 .get(&id)
-                .map_or_else(Default::default, |actor| self.target_light(actor.position))
+                .map_or_else(Default::default, |actor| self.actor_light(actor))
         })
+    }
+    fn actor_light(
+        &self,
+        actor: &resonance_events::Actor,
+    ) -> resonance_events::effect::CharacterLight {
+        if actor.properties.get(&41) == Some(&1) {
+            return self
+                .events
+                .world
+                .character_lights
+                .get(&-2)
+                .cloned()
+                .unwrap_or_default();
+        }
+        self.target_light(actor.position)
     }
     fn target_light(&self, point: [f32; 3]) -> resonance_events::effect::CharacterLight {
         // The ground attribute mesh selects the light using its low five bits.
@@ -933,6 +1113,7 @@ fn start_with_entry(
         text: entry.text,
         skits: entry.skits.clone(),
         doors: assets.doors.clone(),
+        camera_tracks: assets.camera_tracks.clone(),
         particles: assets
             .particles
             .iter()
@@ -950,6 +1131,11 @@ fn start_with_entry(
         ..Default::default()
     };
     resources.movies.insert(1);
+    for &id in assets.camera_tracks.keys() {
+        resources
+            .bindings
+            .insert(id as i32, (ResourceKind::Camera, id));
+    }
     for geometry in &assets.unbound_geometry {
         resources.bindings.insert(
             geometry.resource as i32,
@@ -983,6 +1169,7 @@ fn start_with_entry(
         bind_clips(&mut resources, resource, &model.clips)?;
     }
     let (mut world, memory) = entry.persistent.into_world();
+    world.current_field = Some(assets.map_id);
     if let Some((party, menu)) = world.party.as_mut().zip(resources.menu_data.as_ref()) {
         party.travel.enter_field(&menu.world_map, assets.map_id);
     }
@@ -1079,11 +1266,12 @@ fn start_with_entry(
             .unwrap()
             .snap_follow_view(&world.actors);
     }
-    EventRuntime::with_state(
+    EventRuntime::with_state_policy(
         Arc::new(Program::decode(script)?),
         Arc::new(resources),
         world,
         memory,
+        entry.allow_incomplete_scripts,
     )
 }
 
@@ -1189,6 +1377,9 @@ mod tests {
             ..Default::default()
         };
         FieldSession {
+            allow_incomplete_scripts: false,
+            entered_control: false,
+            entry_wait_ticks: 0,
             map_id: 0,
             authored_entry: None,
             menu_resources: None,
@@ -1200,6 +1391,7 @@ mod tests {
             conversation_facing: None,
             active_triggers: Default::default(),
             save_points: Default::default(),
+            treasures: Default::default(),
             action_hints: Default::default(),
             skits: Default::default(),
             active_skit: None,
@@ -1230,6 +1422,108 @@ mod tests {
             .unwrap(),
             light_regions: None,
             lighting: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn exploration_fallback_retires_save_point_and_caption_actors() {
+        let mut session = choice_session();
+        let world = &mut session.events.world;
+        world.insert_actor(world.controlled_actor, Actor::new(1, [2., 2., 0.]));
+        world.insert_actor(
+            500,
+            Actor::new(resonance_content::field::SAVE_POINT_RESOURCE, [0.; 3]),
+        );
+        world.save_points.push(resonance_events::SavePoint {
+            actor: 500,
+            position: [0.; 3],
+            resource: resonance_content::field::SAVE_POINT_RESOURCE,
+            born: 0,
+            active: true,
+            glow_scale: 1.,
+        });
+        world.insert_actor(999_989, Actor::new(0, [0.; 3]));
+        world.overlays.insert(
+            999_989,
+            resonance_events::Overlay {
+                born: 0,
+                size: [0; 2],
+                rgba: [255; 4],
+                duration: 60,
+                kind: resonance_events::OverlayKind::LocationCaption { hold_ticks: 60 },
+            },
+        );
+        session
+            .enter_exploration("unsupported event".into())
+            .unwrap();
+        let world = &session.events.world;
+        assert!(world.save_points.is_empty());
+        assert!(world.overlays.is_empty());
+        assert!(!world.actors.contains_key(&500));
+        assert!(!world.actors.contains_key(&999_989));
+        assert!(world.actors.contains_key(&world.controlled_actor));
+    }
+
+    #[test]
+    fn exploration_fallback_recovers_initial_and_later_script_failures_and_walks() {
+        for initial in [false, true] {
+            let mut words = vec![4, 0, 0, 0];
+            if !initial {
+                native(&mut words, NativeCall::YieldCommand, &[0, 2]);
+            }
+            native(&mut words, NativeCall::Unknown75, &[0; 9]);
+            native(&mut words, NativeCall::SetEventBit, &[123]);
+            words.push(0x20ff);
+            let program = Arc::new(
+                Program::decode(
+                    &words
+                        .into_iter()
+                        .flat_map(u16::to_be_bytes)
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap(),
+            );
+            if initial {
+                assert!(EventRuntime::new(program.clone(), Default::default()).is_err());
+            }
+            let mut session = choice_session();
+            session.allow_incomplete_scripts = true;
+            let mut world = resonance_events::GameWorld::default();
+            world.controlled_actor = 1;
+            world.insert_actor(1, Actor::new(1, [2., 2., 0.]));
+            session.events = EventRuntime::with_state_policy(
+                program,
+                Default::default(),
+                world,
+                Default::default(),
+                true,
+            )
+            .unwrap();
+            session.walkmesh =
+                navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+                    surface: 0,
+                    vertices: vec![[-1000., -1000., 0.], [1000., -1000., 0.], [0., 1000., 0.]],
+                    triangles: vec![[0, 1, 2]],
+                }])
+                .unwrap();
+            if let Some(reason) = session.events.exploration_error.clone() {
+                session.enter_exploration(reason).unwrap();
+            }
+            for _ in 0..4 {
+                session.step(FieldInput::default()).unwrap();
+            }
+            assert!(session.player_has_control());
+            assert!(session.events.exploration_error.is_some());
+            assert_eq!(session.events.world.brightness(), 1.);
+            assert!(!session.events.world.event_flags.contains(&123));
+            let before = session.events.world.actors[&1].position;
+            session
+                .step(FieldInput {
+                    direction: [1., 0.],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_ne!(session.events.world.actors[&1].position, before);
         }
     }
 
