@@ -24,6 +24,9 @@ pub struct SkitCatalog {
 pub struct SkitResourcePaths {
     pub script: String,
     pub messages: String,
+    /// Event-only skits have titles but never produce an ambient notification.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 /// Original images stay independent; each portrait maintains its own tile canvas.
@@ -114,9 +117,12 @@ impl SkitCatalog {
         for (&id, resource) in &self.resources {
             crate::validate_asset_path(&resource.script)?;
             crate::validate_asset_path(&resource.messages)?;
+            ensure!((1..=860).contains(&id), "invalid skit resource {id}");
             ensure!(
-                self.skits.iter().any(|skit| skit.id == id),
-                "invalid skit resource {id}"
+                resource.title.as_ref().is_none_or(
+                    |title| title.chars().count() <= 80 && !title.chars().any(char::is_control)
+                ),
+                "invalid skit resource title {id}"
             );
         }
         for portrait in self.portraits.values() {

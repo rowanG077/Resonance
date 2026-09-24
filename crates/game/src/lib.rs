@@ -7,6 +7,7 @@ pub mod dialogue;
 pub mod field;
 pub mod menu;
 pub mod replay;
+pub mod skit;
 pub mod title_events;
 pub const TITLE_REVEAL_TICKS: u32 = 843;
 

@@ -39,6 +39,7 @@ fn read_script(path: &Path) -> Result<Script> {
             paths: SkitResourcePaths {
                 script: format!("{directory}/script.ssb"),
                 messages: format!("{directory}/messages.json"),
+                title: None,
             },
             requested_media: media::requests(script.bytes)?,
         },
@@ -81,6 +82,18 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
         let source = crate::field_resources::resolve_path(&files, physical.script(skit.id)?)?;
         sources.entry(source).or_default().push(skit.id);
     }
+    let direct: BTreeMap<_, _> = physical
+        .event_resources()?
+        .into_iter()
+        .filter(|(id, _)| !catalog.skits.iter().any(|skit| skit.id == *id))
+        .collect();
+    for &id in direct.keys() {
+        // The executable retains named, disabled rows whose script was removed
+        // from the disc. They are not playable resources on this edition.
+        if let Some(source) = crate::field_resources::find_path(&files, physical.script(id)?)? {
+            sources.entry(source).or_default().push(id);
+        }
+    }
     let mut requested = BTreeSet::new();
     for (source, ids) in sources {
         let path = files.join(source);
@@ -89,7 +102,9 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
             .publish(output)?;
         requested.extend(binding.requested_media);
         for id in ids {
-            catalog.resources.insert(id, binding.paths.clone());
+            let mut paths = binding.paths.clone();
+            paths.title = direct.get(&id).cloned().flatten();
+            catalog.resources.insert(id, paths);
         }
     }
     let archive = fs::read(files.join(&physical.portrait_archive))?;
@@ -144,11 +159,15 @@ fn original_skit_preparation_matches_both_disc_catalogues_without_intermediate_a
         cook(&extracted, work.path())?;
         let actual: Value =
             serde_json::from_slice(&fs::read(work.path().join("game/skits.json"))?)?;
-        let resources = actual["resources"]
+        let resources = expected["resources"]
             .as_object()
-            .context("missing resources")?;
-        for (id, resource) in resources {
-            let original = &mut expected["resources"][id];
+            .context("missing resources")?
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in resources {
+            let resource = &actual["resources"][&id];
+            let original = &mut expected["resources"][&id];
             let script = resource["script"].as_str().unwrap();
             let messages = resource["messages"].as_str().unwrap();
             assert!(script.starts_with("assets/") && messages.starts_with("assets/"));
@@ -164,6 +183,13 @@ fn original_skit_preparation_matches_both_disc_catalogues_without_intermediate_a
             assert_eq!(messages, original_messages, "disc {disc} skit {id}");
             *original = resource.clone();
         }
+        // Event-only scripts extend the previous ambient catalogue. Their
+        // complete byte/message fidelity is checked against the discs below.
+        expected["resources"] = actual["resources"].clone();
+        for (id, media) in expected["media"].as_object().context("missing media")? {
+            assert_eq!(&actual["media"][id], media, "existing skit media changed");
+        }
+        expected["media"] = actual["media"].clone();
         assert_eq!(
             actual, expected,
             "complete disc {disc} skit catalogue changed"
@@ -200,5 +226,54 @@ fn original_skit_preparation_matches_both_disc_catalogues_without_intermediate_a
             "preparation copied shared scripts"
         );
     }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires original disc and RESONANCE_COOKED audio; writes RESONANCE_WORLD_SKITS"]
+fn original_world_skit_resources_are_prepared_alongside_notifications() -> Result<()> {
+    let library = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_COOKED").context("set RESONANCE_COOKED")?,
+    )
+    .canonicalize()?;
+    let output = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_SKITS")
+            .context("set RESONANCE_WORLD_SKITS to an empty output directory")?,
+    );
+    fs::create_dir_all(&output)?;
+    for name in ["audio", "sources.json"] {
+        let target = output.join(name);
+        if !target.exists() {
+            std::os::unix::fs::symlink(library.join(name), target)?;
+        }
+    }
+    let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
+    cook(&extracted, &output)?;
+    let catalog: SkitCatalog = serde_json::from_slice(&fs::read(output.join("game/skits.json"))?)?;
+    catalog.validate()?;
+    assert_eq!(catalog.resources.range(450..544).count(), 94);
+    assert!(
+        !catalog
+            .skits
+            .iter()
+            .any(|skit| (450..544).contains(&skit.id))
+    );
+    let physical = Catalog::read(&extracted, &fs::read(extracted.join("sys/main.dol"))?)?;
+    for id in catalog.resources.keys().copied() {
+        let original = read_script(&extracted.join("files").join(
+            crate::field_resources::resolve_path(&extracted.join("files"), physical.script(id)?)?,
+        ))?;
+        assert_eq!(
+            fs::read(output.join(&catalog.resources[&id].script))?,
+            original.bytes
+        );
+        let messages: Vec<symphonia_script::message::Message> =
+            serde_json::from_slice(&fs::read(output.join(&catalog.resources[&id].messages))?)?;
+        assert_eq!(messages, original.messages);
+    }
+    fs::copy(
+        library.join("game/session-data.json"),
+        output.join("game/session-data.json"),
+    )?;
     Ok(())
 }

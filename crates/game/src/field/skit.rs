@@ -18,7 +18,7 @@ pub struct SkitPrompt<'a> {
 }
 
 #[derive(Default)]
-pub(super) struct Skits {
+pub(crate) struct Skits {
     data: Option<Arc<SkitCatalog>>,
     control_ticks: u32,
     selected: Option<usize>,
@@ -28,6 +28,11 @@ pub(super) struct Skits {
     visible: bool,
 }
 impl Skits {
+    pub fn reset(&mut self) {
+        self.control_ticks = 0;
+        self.selected = None;
+    }
+
     pub fn new(data: Option<Arc<SkitCatalog>>) -> Self {
         Self {
             data,
@@ -103,6 +108,7 @@ impl Skits {
         if !free_control
             || !world.input_enabled
             || world.field_transition.is_some()
+            || world.world_transition.is_some()
             || world.blocked_by_movie()
         {
             return Ok(());
@@ -143,9 +149,10 @@ impl Skits {
                 {
                     continue;
                 }
-                SkitCondition::Unimplemented => {
-                    anyhow::bail!("skit {} needs an availability condition", skit.id)
-                }
+                // An optional announcement with an uncooked predicate is not
+                // eligible. Explicit event requests still play its prepared
+                // script; an unavailable hint must not stop travel or a field.
+                SkitCondition::Unimplemented => continue,
                 _ => (),
             }
             if self.selected == Some(index) {
@@ -180,41 +187,12 @@ impl Skits {
     }
 }
 
-pub struct Playback {
-    pub id: u16,
-    pub title: String,
-    pub events: EventRuntime,
-    pub skippable: bool,
-    pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
-    preview: bool,
-    completion: Option<resonance_events::Operation>,
-}
-pub(super) struct Prepared {
-    program: Arc<Program>,
-    resources: Arc<ResourceLibrary>,
-}
+pub use crate::skit::{Playback, Prepared};
 impl FieldSession {
     /// Decode scenarios while preparing the field. Z never reads the filesystem.
     pub fn prepare_skits(&mut self, files: &resonance_content::prepared::Files) -> Result<()> {
-        let Some(catalog) = self.skits.data.clone() else {
-            return Ok(());
-        };
-        let text: Arc<resonance_content::session::GameText> =
-            Arc::new(files.json("game/text.json")?);
-        let data: Arc<resonance_content::session::SessionData> =
-            Arc::new(files.json("game/session-data.json")?);
-        for (&id, paths) in &catalog.resources {
-            let program = Arc::new(Program::decode(&files.read(&paths.script)?)?);
-            let resources = Arc::new(ResourceLibrary {
-                skits: Some(catalog.clone()),
-                text: text.clone(),
-                session_data: Some(data.clone()),
-                messages: files.json(&paths.messages)?,
-                actor_names: ResourceLibrary::character_names(),
-                ..Default::default()
-            });
-            self.skit_programs
-                .insert(id, Prepared { program, resources });
+        if let Some(catalog) = self.skits.data.clone() {
+            self.skit_programs = Prepared::load(catalog, files)?;
         }
         Ok(())
     }
@@ -229,96 +207,35 @@ impl FieldSession {
             .skit_programs
             .get(&id)
             .with_context(|| format!("skit {id} was not prepared; cook the skit assets"))?;
-        let definition = self
-            .skits
-            .data
-            .as_ref()
-            .and_then(|c| c.skits.iter().find(|s| s.id == id))
-            .context("skit title missing")?;
-        let mut memory = symphonia_script_vm::Memory::default();
-        for offset in (0..0x2000).step_by(4) {
-            memory.write(
-                offset,
-                symphonia_script::Width::S32,
-                self.events
-                    .memory()
-                    .read(offset, symphonia_script::Width::S32)?,
-            )?;
-        }
-        let mut world = resonance_events::GameWorld::default();
-        world.skit = Some(Default::default());
-        world.party = self.events.world.party.clone();
-        world.event_flags = self.events.world.event_flags.clone();
-        world.random_state = self.events.world.random_state;
-        let mut events = EventRuntime::with_state(
-            prepared.program.clone(),
-            prepared.resources.clone(),
-            world,
-            memory,
-        )?;
-        self.events
-            .world
-            .audio_commands
-            .push(resonance_events::AudioCommand::MusicVolume {
-                volume: 127 / 2,
-                duration_ticks: 60,
-            });
-        self.events
-            .world
-            .audio_commands
-            .append(&mut events.world.audio_commands);
-        self.active_skit = Some(Playback {
-            id,
-            title: definition.title.clone(),
-            events,
-            dialogue: BTreeMap::new(),
-            skippable: skippable
-                && !matches!(id, 472 | 657 | 680 | 696 | 251 | 452 | 618 | 827 | 833),
+        self.active_skit = Some(Playback::start(
+            prepared,
+            &mut self.events,
+            skippable,
             preview,
             completion,
-        });
+        )?);
         Ok(())
     }
     pub(super) fn step_skit(&mut self, input: FieldInput) -> Result<()> {
         let skit = self.active_skit.as_mut().context("skit is not active")?;
-        skit.events.step()?;
-        crate::dialogue::step_requests(
-            &mut skit.events.world,
-            &mut skit.dialogue,
-            input.interact || input.cancel,
-            input.accelerate_dialogue,
-        )?;
-        self.events
-            .world
-            .audio_commands
-            .append(&mut skit.events.world.audio_commands);
-        if skit.events.main_finished() || input.menu && skit.skippable && skit.events.tick() >= 120
-        {
-            if !skit.preview {
-                self.events.world.party = skit.events.world.party.take();
-                self.events.world.event_flags = skit.events.world.event_flags.clone();
-                self.events
-                    .world
-                    .party
-                    .as_mut()
-                    .context("skit completion has no party")?
-                    .viewed_skits
-                    .insert(skit.id);
-            }
-            if let Some(operation) = &skit.completion {
-                operation.complete(None).map_err(anyhow::Error::msg)?;
-            }
-            self.events.world.random_state = skit.events.world.random_state;
-            self.events.world.audio_commands.extend([
-                resonance_events::AudioCommand::StopVoice,
-                resonance_events::AudioCommand::MusicVolume {
-                    volume: 127,
-                    duration_ticks: 60,
+        if skit.step(
+            &mut self.events,
+            crate::skit::Input {
+                confirm: input.interact,
+                cancel: input.cancel,
+                direction: if input.direction[1] > 0.5 {
+                    -1
+                } else if input.direction[1] < -0.5 {
+                    1
+                } else {
+                    0
                 },
-            ]);
+                accelerate: input.accelerate_dialogue,
+                skip: input.menu || input.start,
+            },
+        )? {
             self.active_skit = None;
-            self.skits.control_ticks = 0;
-            self.skits.selected = None;
+            self.skits.reset();
         }
         Ok(())
     }
