@@ -11,6 +11,7 @@ pub enum FieldAction {
     Talk = 2,
     Shop = 4,
     Examine = 5,
+    Rest = 16,
     Leave = 18,
     Save = 23,
 }
@@ -22,7 +23,8 @@ impl FieldAction {
             2 => Some(Self::Talk),
             4 => Some(Self::Shop),
             5 => Some(Self::Examine),
-            18 => Some(Self::Leave),
+            16 => Some(Self::Rest),
+            3 | 18 => Some(Self::Leave),
             23 => Some(Self::Save),
             _ => anyhow::bail!("unsupported field action hint {id}"),
         })

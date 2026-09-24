@@ -65,6 +65,29 @@ impl WalkMesh {
         }
         Ok(Self { triangles })
     }
+    /// Keep an entrance on its floor, or use the nearest valid triangle when an
+    /// unfinished setup script never placed the player.
+    pub fn exploration_start(&self, point: [f32; 3]) -> Option<[f32; 3]> {
+        if let Some(z) = self.height(point, f32::MAX) {
+            return Some([point[0], point[1], z]);
+        }
+        self.triangles
+            .iter()
+            .filter_map(|(vertices, _)| {
+                let center =
+                    std::array::from_fn(|axis| vertices.iter().map(|p| p[axis]).sum::<f32>() / 3.);
+                height(*vertices, center).map(|z| [center[0], center[1], z])
+            })
+            .min_by(|a, b| {
+                let distance = |p: &[f32; 3]| {
+                    p.iter()
+                        .zip(point)
+                        .map(|(a, b)| (a - b).powi(2))
+                        .sum::<f32>()
+                };
+                distance(a).total_cmp(&distance(b))
+            })
+    }
     /// Select the closest reachable floor. This also preserves authored ramps
     /// and raised platforms without importing the original collision engine.
     pub fn height(&self, point: [f32; 3], max_step: f32) -> Option<f32> {
@@ -142,13 +165,22 @@ impl WalkMesh {
         };
         for _ in 0..steps {
             let delta: [f32; 2] = std::array::from_fn(|axis| {
-                let mut probe = point;
-                probe[axis] += radius.copysign(delta[axis]);
-                if delta[axis] != 0. && self.height(probe, 32.).is_some() {
-                    delta[axis]
-                } else {
-                    0.
+                if delta[axis] == 0. {
+                    return 0.;
                 }
+                // Follow the floor through the clearance probe. Comparing a
+                // whole body radius against one 32-unit step rejects continuous
+                // steep stairs, even though each actual walking step is valid.
+                let probe_steps = (radius / 4.).ceil().max(1.) as u32;
+                let mut probe = Some(point);
+                for _ in 0..probe_steps {
+                    probe = probe.and_then(|mut p| {
+                        p[axis] += radius.copysign(delta[axis]) / probe_steps as f32;
+                        p[2] = self.height(p, 32.)?;
+                        Some(p)
+                    });
+                }
+                if probe.is_some() { delta[axis] } else { 0. }
             });
             if let Some(next) = fit([point[0] + delta[0], point[1] + delta[1], point[2]]) {
                 point = next;
@@ -182,6 +214,30 @@ fn height([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn triangular_triggers_use_the_polygon_instead_of_its_bounding_box() {
+        let mut trigger = resonance_events::Trigger {
+            key: 1,
+            automatic_event: false,
+            shape: resonance_events::TriggerShape::Triangle([
+                [0., 0., 10.],
+                [100., 0., 10.],
+                [0., 100., 10.],
+            ]),
+            height: 50.,
+            transition: Some([18, 0, 243]),
+            touch_metadata: [0; 3],
+        };
+        for _ in 0..2 {
+            assert!(touches_trigger(&trigger, [20., 20., 10.], 5.));
+            assert!(!touches_trigger(&trigger, [80., 80., 10.], 5.));
+            assert!(!touches_trigger(&trigger, [20., 20., 61.], 5.));
+            assert!(!touches_trigger(&trigger, [20., 20., 4.], 5.));
+            if let resonance_events::TriggerShape::Triangle(points) = &mut trigger.shape {
+                points.reverse();
+            }
+        }
+    }
     #[test]
     fn walking_intent_tilts_onto_single_and_double_axis_slopes() {
         let mesh = WalkMesh::new(&[CollisionGroup {

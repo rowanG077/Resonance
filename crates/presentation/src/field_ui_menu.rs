@@ -139,6 +139,7 @@ impl MenuArtwork {
             FieldAction::Examine => "examine",
             FieldAction::Leave => "go_out",
             FieldAction::Save => "save",
+            FieldAction::Rest => "rest",
         }]
     }
 

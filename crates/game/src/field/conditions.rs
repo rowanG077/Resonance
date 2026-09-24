@@ -10,7 +10,11 @@ const PUFF_HEIGHT: f32 = 150.;
 
 pub(super) fn step(world: &mut GameWorld, effect_tick: u32) -> Result<()> {
     world.paralysis = None;
-    if !world.input_enabled || world.field_transition.is_some() || world.blocked_by_movie() {
+    if !world.input_enabled
+        || world.field_transition.is_some()
+        || world.world_transition.is_some()
+        || world.blocked_by_movie()
+    {
         return Ok(());
     }
     let conditions = world.party.as_ref().map_or(0, |party| {

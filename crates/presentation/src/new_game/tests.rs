@@ -796,3 +796,6 @@ fn moving_slope_checkpoint_survives_cold_and_warm_loads() {
         session.restore(saved.clone()).unwrap();
     }
 }
+
+#[path = "exploration_tests.rs"]
+mod exploration;
