@@ -2,41 +2,13 @@
 use super::WorldKind;
 use crate::rel::Rel;
 use anyhow::{Context, Result, ensure};
-use serde::Serialize;
+use resonance_content::overworld::{
+    Tile, TileAsset as Asset, TileCatalogue as Catalogue, TileWorld as World,
+};
 use std::{collections::BTreeMap, path::Path};
 
 const ROWS: u8 = 9;
 const COLUMNS: u8 = 12;
-
-#[derive(Serialize)]
-pub(crate) struct Catalogue {
-    axis_labels: String,
-    worlds: [World; 2],
-}
-
-#[derive(Serialize)]
-struct World {
-    kind: WorldKind,
-    /// Format arguments are row label followed by column label.
-    templates: [String; 2],
-    tiles: Vec<Tile>,
-}
-
-#[derive(Serialize)]
-struct Tile {
-    column: u8,
-    row: u8,
-    base: Asset,
-    /// Availability is authored; selection depends on native story/location state.
-    alternate: Option<Asset>,
-}
-
-#[derive(Serialize)]
-struct Asset {
-    source: String,
-    /// Root-relative directory containing the converted package and its scene recipes.
-    package: String,
-}
 
 struct Layout {
     axis: (usize, usize),
@@ -149,10 +121,12 @@ fn decode(rel: &Rel, layout: Layout, sources: &BTreeMap<String, String>) -> Resu
         world(WorldKind::Sylvarant, 0)?,
         world(WorldKind::TetheAlla, 1)?,
     ];
-    Ok(Catalogue {
+    let catalogue = Catalogue {
         axis_labels,
         worlds,
-    })
+    };
+    catalogue.validate()?;
+    Ok(catalogue)
 }
 
 pub(crate) fn read(file: &Path, sources: &BTreeMap<String, String>) -> Result<Option<Catalogue>> {
