@@ -7,6 +7,7 @@ struct Settings {
     eye: vec4<f32>,
     uv: vec4<f32>,
     parameters: vec4<f32>,
+    screen_copy: vec4<f32>,
     pulses: array<Pulse, 16>,
 };
 @group(0) @binding(0) var scene: texture_2d<f32>;
@@ -19,6 +20,17 @@ struct Settings {
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let original = textureSampleLevel(scene, linear_sampler, in.uv, 0.);
     var color = original;
+    let depth = textureLoad(scene_depth, vec2<i32>(in.position.xy), 0);
+    // Enlarged copies with alpha 0x90. Pass B uses LEQUAL,
+    // pass A GEQUAL; the scene depth buffer uses the reverse convention.
+    if settings.screen_copy.y != 0. && (1. - settings.screen_copy.y / 200.) * (1. - settings.screen_copy.z) + settings.screen_copy.z >= depth {
+        let uv = (in.uv * vec2<f32>(640., 480.) + vec2<f32>(3.)) / vec2<f32>(646., 486.);
+        color = mix(color, textureSampleLevel(scene, linear_sampler, uv, 0.), 144. / 255.);
+    }
+    if settings.screen_copy.x != 0. && (1. - settings.screen_copy.x / 200.) * (1. - settings.screen_copy.z) + settings.screen_copy.z <= depth {
+        let uv = (in.uv * vec2<f32>(640., 480.) + vec2<f32>(4.)) / vec2<f32>(648., 488.);
+        color = mix(color, textureSampleLevel(scene, linear_sampler, uv, 0.), 144. / 255.);
+    }
     let projected = settings.world_from_clip * vec4<f32>(in.uv * vec2<f32>(2., -2.) + vec2<f32>(-1., 1.), 0.5, 1.);
     let ray = projected.xyz / projected.w - settings.eye.xyz;
     for (var i = 0u; i < u32(settings.parameters.x); i++) {

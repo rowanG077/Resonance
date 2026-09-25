@@ -33,7 +33,9 @@ pub(super) struct Artwork {
     layers: Vec<Option<(Entity, Handle<Mesh>)>>,
     particles: BTreeMap<i32, (FlutterRecipe, usize)>,
     sprites: BTreeMap<u16, usize>,
+    sprite_modes: BTreeMap<(u16, u8), usize>,
     additive: Vec<bool>,
+    subtractive: Vec<bool>,
     refraction_texture: Handle<Image>,
 }
 impl Artwork {
@@ -86,6 +88,16 @@ impl Artwork {
                 (kind, (recipe.clone(), index))
             })
             .collect();
+        let mut subtractive = vec![false; paths.len()];
+        let mut sprite_modes = BTreeMap::new();
+        for (&kind, recipe) in &spec.sprites {
+            for mode in 0..3 {
+                sprite_modes.insert((kind, mode), paths.len());
+                paths.push(recipe.texture.clone());
+                additive.push(mode == 1);
+                subtractive.push(mode == 2);
+            }
+        }
         let textures: Vec<_> = paths
             .iter()
             .enumerate()
@@ -123,7 +135,9 @@ impl Artwork {
             layers,
             particles,
             sprites,
+            sprite_modes,
             additive,
+            subtractive,
             refraction_texture,
         })
     }
@@ -158,6 +172,7 @@ impl Artwork {
                 sampling: Some(self.textures[if index == STATUS { EMOTES } else { index }].clone()),
                 blend: true,
                 additive: self.additive[index],
+                subtractive: self.subtractive[index],
                 // Head emotes ignore depth so hair cannot obscure them; dust tests depth.
                 depth_test: index > STATUS,
                 depth_write: false,
@@ -328,7 +343,12 @@ pub(super) fn render(
             .iter()
             .map(|v| (f32::from(*v) * 4. / 255.).min(1.) * brightness)
             .collect::<Vec<_>>();
-        batches[art.sprites[&effect.recipe]].sprite(
+        let batch = effect
+            .blend_mode
+            .and_then(|mode| art.sprite_modes.get(&(effect.recipe, mode)))
+            .copied()
+            .unwrap_or(art.sprites[&effect.recipe]);
+        batches[batch].sprite(
             Vec3::from_array(effect.position),
             rotation,
             effect.size,
