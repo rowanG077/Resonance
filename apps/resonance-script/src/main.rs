@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
                     .with_context(|| format!("module not found: {module}"))?;
                 let kind = script_kind(module, source)?;
                 let natives = match kind {
-                    ScriptKind::Field => resonance_events::authored::native_declarations(),
+                    ScriptKind::Field => field_declarations(),
                     ScriptKind::Model => resonance_model_behavior::native_declarations(),
                     ScriptKind::Library => Vec::new(),
                 };
@@ -93,11 +93,17 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Api { host } => {
             let natives = match host {
-                Host::Field => resonance_events::authored::native_declarations(),
+                Host::Field => field_declarations(),
                 Host::Model => resonance_model_behavior::native_declarations(),
             };
             print!("{}", native_reference(&natives));
         }
     }
     Ok(())
+}
+
+fn field_declarations() -> Vec<symphonia_script::authored::NativeDeclaration> {
+    let mut declarations = resonance_events::authored::native_declarations();
+    declarations.extend(resonance_game::overworld::scripts::native_declarations());
+    declarations
 }

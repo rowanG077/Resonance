@@ -4557,7 +4557,9 @@ dependencies = [
  "anyhow",
  "clap",
  "resonance-events",
+ "resonance-game",
  "resonance-model-behavior",
+ "symphonia-script",
  "symphonia-script-compiler",
  "symphonia-script-tools",
 ]
