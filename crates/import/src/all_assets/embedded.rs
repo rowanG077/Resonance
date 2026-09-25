@@ -200,6 +200,7 @@ pub(crate) fn cook_tables(
         "field-catalogue" => catalogues.field_phases(),
     }
     let independent: &[(&str, DolPublisher)] = &[
+        ("overworld-landmarks", super::overworld_landmarks::cook),
         ("sound-test", sound_test::cook),
         ("grade-shop", grade_shop::cook),
         ("crafting", crafting::cook),
@@ -515,6 +516,7 @@ pub(crate) fn cook(
                 let publishers: &[(&str, RelPublisher)] = &[
                     ("overworld-encounters", super::overworld_encounters::cook),
                     ("overworld-collision", super::overworld_collision::cook),
+                    ("overworld-movement", super::overworld_movement::cook),
                 ];
                 for (family, result) in [
                     (

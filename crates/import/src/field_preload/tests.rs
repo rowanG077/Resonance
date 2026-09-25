@@ -7,6 +7,89 @@ use std::{
 };
 
 #[test]
+#[ignore = "refreshes disposable RESONANCE_WORLD_ASSETS field inventories against current shared world data"]
+fn original_world_field_roundtrip_packages() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let mut maps: Vec<u32> = fs::read_dir(root.join("fields"))?
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name();
+            name.to_str()?
+                .strip_prefix("map-")?
+                .strip_suffix(".preload.json")?
+                .parse()
+                .ok()
+        })
+        .collect();
+    maps.sort_unstable();
+    crate::model_behavior::publish(&root)?;
+    let shared = [
+        "ui/menu.json",
+        "game/menu-data.json",
+        "game/skits.json",
+        "battle/audio.json",
+    ]
+    .into_iter()
+    .map(|path| Ok((path, hash_file(&root.join(path))?)))
+    .map(|entry| entry.map(|(path, hash)| (path.to_owned(), hash)))
+    .collect::<Result<Vec<_>>>()?;
+    let shared = shared
+        .into_iter()
+        .chain(
+            resonance_script_content::FILES
+                .iter()
+                .filter(|(path, _)| path.ends_with(".sym"))
+                .map(|(path, source)| (format!("scripts/{path}"), digest(source.as_bytes()))),
+        )
+        .collect::<Vec<_>>();
+
+    let prepare = |map: &u32| -> Result<()> {
+        let prior: Manifest = serde_json::from_slice(&fs::read(
+            root.join(format!("fields/map-{map}.preload.json")),
+        )?)?;
+        if prior.missing_inputs.is_empty()
+            && shared.iter().all(|(path, hash)| {
+                prior
+                    .files
+                    .get(path)
+                    .is_some_and(|file| file.sha256 == *hash)
+            })
+        {
+            return Ok(());
+        }
+        // This disposable fixture combines existing field geometry with the
+        // shared menu/skit outputs just recooked for the world package.
+        let path = root.join(&prior.inputs.field);
+        let mut field: FieldAssets = serde_json::from_slice(&fs::read(&path)?)?;
+        for (shared, hash) in &shared {
+            field.files.insert(shared.clone(), hash.clone());
+        }
+        write_atomic(&path, &serde_json::to_vec_pretty(&field)?)?;
+        let manifest = cook(&root, prior.inputs)?;
+        ensure!(
+            manifest.missing_inputs.is_empty(),
+            "round-trip field inputs missing"
+        );
+        Ok(())
+    };
+    std::thread::scope(|scope| -> Result<()> {
+        let workers: Vec<_> = maps
+            .chunks(maps.len().div_ceil(4).max(1))
+            .map(|maps| {
+                let prepare = &prepare;
+                scope.spawn(move || maps.iter().try_for_each(prepare))
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap()?;
+        }
+        Ok(())
+    })?;
+    Ok(())
+}
+
+#[test]
 #[ignore = "adds cooked native treasure models and service sounds to disposable RESONANCE_WORLD_ASSETS"]
 fn original_fields_prepare_treasure_services() -> Result<()> {
     let root = PathBuf::from(

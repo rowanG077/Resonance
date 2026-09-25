@@ -69,6 +69,48 @@ impl FieldAudioCooker {
         self.cook_resources(&crate::field::audio_path(map_id), resources)
     }
 
+    pub(crate) fn world(&mut self, script: &[u8]) -> Result<()> {
+        // Native world music selection and vehicle loops (fn_2_B190).
+        let mut resources = self.catalogue.with_native(
+            script,
+            &[2, 3, 4, 5],
+            &[
+                24, 25, 26, 133, 160, 177, 182, 183, 193, 217, 282, 437, 438, 443, 445,
+            ],
+        )?;
+        // e04 contains the nine spoken lines used by fn_2_1C9A0. These IDs
+        // address that embedded table, not the ordinary field voice archive.
+        let source = crate::field_resources::resolve_path(
+            &self.workspace.extracted.join("files"),
+            "FIELD/e04.d",
+        )?;
+        let bytes = crate::compression::payload(fs::read(
+            self.workspace.extracted.join("files").join(source),
+        )?)?;
+        let members = crate::field::sections(&bytes)?;
+        let archive = members
+            .get(9)
+            .and_then(|range| range.as_ref())
+            .and_then(|range| bytes.get(range.clone()))
+            .context("world cinematic voice archive missing")?;
+        let voices = crate::field::sections(archive)?;
+        ensure!(voices.len() == 9, "unexpected world cinematic voice count");
+        for (index, range) in voices.into_iter().enumerate() {
+            let data = &archive[range.context("world cinematic voice missing")?];
+            let name = format!("e04_{index}.ahx");
+            let voice = decode_voice_to(
+                &self.workspace,
+                &format!("audio/voices/{}.wav", crate::digest(data)),
+                &crate::afs::Member { name: &name, data },
+                VoiceFormat::Ahx,
+            )?;
+            let id = 0xe01a3 + index as u32;
+            self.voices.insert(id, voice);
+            resources.voices.insert(id);
+        }
+        self.cook_resources("worlds/audio.json", resources)
+    }
+
     fn cook_resources(&mut self, path: &str, resources: resources::Resources) -> Result<()> {
         let missing = resources
             .voices
