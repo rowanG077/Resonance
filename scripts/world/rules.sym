@@ -1,0 +1,157 @@
+script field;
+use world::locations::Location;
+use world::locations::Interaction;
+use world::markers::Model;
+use world::flags::Flag;
+use world::quests::Quest;
+use world::quests::Step;
+use world::story::Stage;
+use world::locations;
+use world::flags;
+use world::quests;
+use world::story;
+use world::travel;
+use world::caravan;
+use world::terrain;
+// IDs cross the native boundary only in the typed data modules.
+fn enable(location: Location, available: bool) {
+    if available {
+        locations::set_interaction(location, Interaction::Active);
+    } else {
+        locations::set_interaction(location, Interaction::Disabled);
+    }
+}
+fn block(location: Location, blocked: bool) {
+    if blocked {
+        locations::set_interaction(location, Interaction::Blocked);
+    } else {
+        locations::set_interaction(location, Interaction::Active);
+    }
+}
+fn event(location: Location, available: bool) {
+    enable(location, available);
+    if available {
+        locations::unmodeled(location);
+    } else {
+        locations::hide(location);
+    }
+}
+fn update_towns_and_dungeons() {
+    if quests::before(Quest::LuinRebuilding, Step::UnknownId1000) {
+        locations::model(Location::Luin_7, Model::UnknownId9);
+    } else if quests::before(Quest::LuinRebuilding, Step::UnknownId10000) {
+        locations::model(Location::Luin_7, Model::LuinRuins);
+    } else if quests::before(Quest::LuinRebuilding, Step::UnknownId40000) {
+        locations::model(Location::Luin_7, Model::LuinRebuilding);
+    } else if quests::before(Quest::LuinRebuilding, Step::UnknownId600000) {
+        locations::model(Location::Luin_7, Model::UnknownId9);
+    } else {
+        locations::model(Location::Luin_7, Model::UnknownId10);
+    }
+    if story::reached(Stage::UnknownId903000) && story::before(Stage::UnknownId1208000) {
+        locations::model(Location::Iselia, Model::UnknownId5);
+    } else {
+        locations::model(Location::Iselia, Model::UnknownId4);
+    }
+    if story::reached(Stage::UnknownId12601000) {
+        locations::model(Location::Ozette, Model::UnknownId10);
+    } else {
+        locations::model(Location::Ozette, Model::UnknownId9);
+    }
+    for location in[Location::Palmacosta, Location::TrietRuins, Location::ThodaGeyser, Location::BalacrufMausoleum, Location::TowerOfMana] {
+        block(location, story::reached(Stage::UnknownId20201000));
+    }
+    block(Location::AsgardRanch, quests::reached(Quest::AsgardRanch, Step::UnknownId6000));
+    enable(Location::TowerOfSalvation_24, story::before(Stage::UnknownId20401000));
+    if story::before(Stage::UnknownId20401000) {
+        locations::model(Location::TowerOfSalvation_24, Model::SylvarantTower);
+    } else {
+        locations::hide(Location::TowerOfSalvation_24);
+    }
+    block(Location::TowerOfSalvation_280, story::before(Stage::UnknownId21401000));
+    if story::reached(Stage::UnknownId22601000) {
+        locations::model(Location::TowerOfSalvation_280, Model::UnknownId5);
+    } else {
+        locations::model(Location::TowerOfSalvation_280, Model::UnknownId4);
+    }
+    if quests::reached(Quest::LinkiteTree, Step::UnknownId40000) {
+        locations::model(Location::LinkiteTree, Model::LinkiteTreeRestored);
+    } else {
+        locations::model(Location::LinkiteTree, Model::LinkiteTreeDormant);
+    }
+    if story::after(Stage::UnknownId20801000) {
+        locations::set_interaction(Location::IslandRanch, Interaction::Blocked);
+        locations::model(Location::IslandRanch, Model::IslandRanch);
+    } else {
+        locations::set_interaction(Location::IslandRanch, Interaction::Disabled);
+        locations::unmodeled(Location::IslandRanch);
+    }
+}
+fn update_story_events() {
+    event(Location::Skit00, story::before(Stage::UnknownId903000));
+    event(Location::Skit01, story::reached(Stage::UnknownId903000) && story::before(Stage::UnknownId1001000) && !locations::visited(Location::Skit01));
+    event(Location::Skit02, story::reached(Stage::UnknownId1101000) && story::through(Stage::UnknownId1201000) && !locations::visited(Location::Skit02));
+    event(Location::Skit03, story::reached(Stage::UnknownId1208000) && story::through(Stage::UnknownId1301000));
+    event(Location::ExSkillTutorialEvent, story::reached(Stage::UnknownId903000) && story::before(Stage::UnknownId1000000));
+    event(Location::OzetteAttackEvent, story::at(Stage::UnknownId12601000));
+    event(Location::OtherworldlyGate, story::at(Stage::UnknownId12904000));
+    if story::reached(Stage::UnknownId12204000) && story::through(Stage::UnknownId12400000) {
+        locations::set_interaction(Location::FlyingDragon, Interaction::Blocked);
+        locations::model(Location::FlyingDragon, Model::FlyingDragon);
+    } else {
+        locations::set_interaction(Location::FlyingDragon, Interaction::Disabled);
+        locations::hide(Location::FlyingDragon);
+    }
+    for location in[Location::SylvarantBase, Location::TetheallaBase] {
+        if story::reached(Stage::UnknownId13503000) {
+            locations::model(location, Model::Portal);
+        } else {
+            locations::hide(location);
+        }
+    }
+}
+fn update_discoveries() {
+    locations::discoveries(Location::SylvarantExploration00Genis, Location::SylvarantExploration31SandWorm);
+    locations::discoveries(Location::TetheallaExploration00Item, Location::TetheallaExploration31Item);
+    if quests::at(Quest::Hima, Step::UnknownId301) {
+        for location in[Location::SylvarantExploration03Colette, Location::SylvarantExploration16Colette, Location::SylvarantExploration24Colette] {
+            enable(location, false);
+        }
+    }
+    enable(Location::TetheallaExploration12Kratos, !locations::visited(Location::TetheallaExploration12Kratos) && story::before(Stage::UnknownId21400000));
+    if story::through(Stage::UnknownId11903000) {
+        enable(Location::TetheallaExploration20Presea, false);
+        enable(Location::TetheallaExploration24Presea, false);
+    }
+    if !flags::enabled(Flag::UnknownId1150) || !flags::enabled(Flag::UnknownId1151) {
+        enable(Location::SylvarantExploration31SandWorm, false);
+    }
+    locations::refresh_guideposts();
+}
+pub fn refresh() {
+    caravan::refresh();
+    update_towns_and_dungeons();
+    update_story_events();
+    update_discoveries();
+}
+pub fn on_enter(world: travel::World) {
+    caravan::on_enter(world);
+}
+pub fn records_visit(location: i32) -> bool {
+    return locations::record_range(location, Location::SylvarantExploration00Genis, Location::Skit03) || locations::record_range(location, Location::TetheallaExploration00Item, Location::TetheallaExploration31Item);
+}
+pub fn music(mount: travel::Mount, bank: travel::MusicBank) -> travel::Music {
+    if mount == travel::Mount::Ship {
+        return travel::Music::Ship;
+    }
+    if mount == travel::Mount::Rheairds {
+        return travel::Music::Rheairds;
+    }
+    if bank == travel::MusicBank::TetheAlla {
+        return travel::Music::TetheAlla;
+    }
+    return travel::Music::Sylvarant;
+}
+pub fn terrain_variants(world: travel::World) {
+    terrain::select(world);
+}

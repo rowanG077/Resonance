@@ -1,0 +1,32 @@
+script library;
+use game::world;
+pub enum Quest {
+    Hima = 3,
+    UnknownId30 = 30,
+    PalmacostaRanch = 31,
+    AsgardRanch = 40,
+    Asgard = 41,
+    LuinRebuilding = 46,
+    LinkiteTree = 60,
+}
+pub enum Step {
+    UnknownId301 = 301,
+    UnknownId1000 = 1000,
+    UnknownId6000 = 6000,
+    UnknownId10000 = 10000,
+    UnknownId15000 = 15000,
+    UnknownId40000 = 40000,
+    UnknownId600000 = 600000,
+}
+pub fn at(quest: Quest, step: Step) -> bool {
+    return world::global(i32(quest)) == i32(step);
+}
+pub fn before(quest: Quest, step: Step) -> bool {
+    return world::global(i32(quest)) < i32(step);
+}
+pub fn through(quest: Quest, step: Step) -> bool {
+    return world::global(i32(quest)) <= i32(step);
+}
+pub fn reached(quest: Quest, step: Step) -> bool {
+    return world::global(i32(quest)) >= i32(step);
+}
