@@ -56,6 +56,7 @@ fn fixture() -> App {
         movie_frame: None,
         boot_frame: None,
         skip_intro: false,
+        skip_battles: false,
         record_playthrough: None,
         record_title_ticks: 1000,
     };

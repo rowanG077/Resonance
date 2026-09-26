@@ -2,9 +2,11 @@
 mod fixture;
 mod menu;
 mod menu_probe;
+mod overworld_test;
 mod probe;
 mod replay;
 pub use fixture::prepare_checkpoint_fixture;
+pub use overworld_test::{prepare_overworld_test_fixture, run_overworld_field_probe};
 pub(crate) use replay::record_live;
 pub use replay::{CheckpointReplay, record_checkpoint, record_checkpoint_with_display};
 pub(super) mod title;
