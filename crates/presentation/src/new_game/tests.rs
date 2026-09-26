@@ -1,6 +1,226 @@
 use super::*;
 use resonance_game::field::FieldInput;
 
+#[path = "exploration_tests.rs"]
+mod exploration;
+
+#[test]
+#[ignore = "requires RESONANCE_WORLD_ASSETS with current field inventories; no window or audio device"]
+fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -> Result<()> {
+    use super::super::saves::{SceneCheckpoint, WorldCheckpoint};
+    use resonance_content::overworld::{Mount, Position, TravelState, World};
+    let root = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let identity = Session::identity(&root)?;
+    let mut cache = super::super::loading::Cache::default();
+    let prepared = resonance_game::overworld::Prepared::load(
+        &root,
+        &mut cache.bytes,
+        available_fields(&root)?,
+        || false,
+    )?;
+    let data = prepared.resources.session_data.as_ref().unwrap();
+    let header = resonance_persistence::Header {
+        identity,
+        label: "World test".into(),
+        location: "Sylvarant".into(),
+        played_ticks: 12345,
+        saved_unix_seconds: 0,
+    };
+    for mount in [Mount::Foot, Mount::Noishe, Mount::Rheairds, Mount::Ship] {
+        let mut persistent = resonance_events::PersistentState {
+            party: Some(resonance_events::party::Party::new(
+                data,
+                Default::default(),
+            )?),
+            ..Default::default()
+        };
+        persistent
+            .memory
+            .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+        let state = TravelState {
+            world: World::Sylvarant,
+            position: Position::from_map([9770., 24160., 0.])?,
+            heading: 1.25,
+            camera_yaw: 2.5,
+            alternate_perspective: true,
+            map_display: resonance_content::overworld::MapDisplay::Full,
+            mount,
+            altitude: if mount.airborne() { 600. } else { 0. },
+        };
+        let session = resonance_game::overworld::Session::enter(
+            prepared.assets(state.world, &persistent)?,
+            state.clone(),
+            persistent,
+            resonance_game::clock::PlayTime::resume(12345),
+        )?;
+        let state = session.travel.state().clone();
+        let saved = SceneCheckpoint::World(WorldCheckpoint {
+            overworld: session.checkpoint()?,
+            anchor_field: 330,
+        });
+        let bytes = resonance_persistence::encode(&header, &saved)?;
+        let (_, decoded): (_, SceneCheckpoint) =
+            resonance_persistence::decode(&bytes, &header.identity)?;
+        let SceneCheckpoint::World(saved) = decoded else {
+            panic!("world save decoded as a field")
+        };
+        let field = FieldPackage::prepare(&root, saved.anchor_field, &mut cache, || false)?;
+        let mut restored =
+            Session::load_world_prepared(&root, field.files, saved, &mut cache, || false)?;
+        let scene = restored.overworld.as_ref().unwrap();
+        assert_eq!(scene.session.travel.state(), &state);
+        assert_eq!(scene.session.play_time.total(), 12345);
+        assert_eq!(scene.session.events.tick(), session.events.tick());
+        assert!(!restored.field.player_has_control());
+        assert!(!restored.ready_for_field);
+        assert!(restored.story_movie.is_none());
+        assert!(restored.audio.is_some());
+        let world = &mut restored.overworld.as_mut().unwrap().session;
+        let tick = world.events.tick();
+        world.step(resonance_game::overworld::Input {
+            menu: FieldInput {
+                menu: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        })?;
+        assert!(world.menu.is_some());
+        assert!(!world.player_has_control());
+        assert!(world.checkpoint().is_err());
+        for _ in 0..20 {
+            world.step(resonance_game::overworld::Input {
+                travel: resonance_game::overworld::travel::Input {
+                    cycle_map: true,
+                    toggle_perspective: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })?;
+        }
+        assert_eq!(world.travel.state(), &state);
+        assert_eq!(world.events.tick(), tick);
+        assert_eq!(world.travel.state(), &state);
+        let menu_save = SceneCheckpoint::World(WorldCheckpoint {
+            overworld: world.menu_checkpoint()?,
+            anchor_field: 330,
+        });
+        let menu_bytes = resonance_persistence::encode(&header, &menu_save)?;
+        let (_, saved): (_, SceneCheckpoint) =
+            resonance_persistence::decode(&menu_bytes, &header.identity)?;
+        let SceneCheckpoint::World(saved) = saved else {
+            panic!("world menu wrote a field save")
+        };
+        assert_eq!(saved.overworld.state, state);
+        assert_eq!(
+            saved.overworld.progress.party.travel.overworld.as_ref(),
+            Some(&state)
+        );
+        world.step(resonance_game::overworld::Input {
+            menu: FieldInput {
+                cancel: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        })?;
+        // Stop when the menu closes so no contact/event can advance this probe.
+        for _ in 0..30 {
+            if world.menu.is_none() {
+                break;
+            }
+            world.step(Default::default())?;
+        }
+        assert!(world.menu.is_none());
+        assert!(world.player_has_control());
+        if mount == Mount::Foot {
+            let scene = restored.overworld.as_mut().unwrap();
+            scene.session.events.set_global(16, 900_000)?;
+            // The original world script selects ISA_T00 from the south;
+            // octants 6/7 instead enter the northern ISA_T02 map (332).
+            assert!(scene.session.events.enter_landmark(2, 2)?);
+            for _ in 0..120 {
+                scene.session.step(Default::default())?;
+                if scene.session.events.world.field_transition.is_some() {
+                    break;
+                }
+            }
+            let request = restored
+                .events()
+                .world
+                .field_transition
+                .clone()
+                .context("Iselia entry did not request a field")?;
+            assert_eq!(request.map, 330);
+            // A failed asynchronous preparation leaves both the request and its
+            // source session intact, and does not automatically retry each frame.
+            let mut owner = bevy::prelude::World::new();
+            owner.insert_resource(super::super::loading::Resident::default());
+            owner.insert_resource(ButtonInput::<KeyCode>::default());
+            owner.insert_resource(restored);
+            transition_failed(&mut owner, anyhow::anyhow!("missing destination fixture"));
+            for _ in 0..3 {
+                transition(&mut owner);
+            }
+            assert!(owner.contains_resource::<TransitionFailure>());
+            assert!(request.operation.is_pending());
+            assert!(owner.resource::<Session>().overworld.is_some());
+            restored = owner.remove_resource::<Session>().unwrap();
+            let package = Arc::new(FieldPackage::prepare(
+                &root,
+                request.map,
+                &mut cache,
+                || false,
+            )?);
+            restored.change_field(package)?;
+            assert!(!request.operation.is_pending());
+            assert!(restored.overworld.is_none());
+            assert_eq!(
+                restored
+                    .field
+                    .events
+                    .world
+                    .party
+                    .as_ref()
+                    .unwrap()
+                    .travel
+                    .overworld
+                    .as_ref(),
+                Some(&state)
+            );
+            for _ in 0..120 {
+                restored.field.step(Default::default())?;
+                if restored.field.player_has_control() {
+                    break;
+                }
+            }
+            assert!(
+                restored.field.player_has_control(),
+                "Iselia arrival did not release control"
+            );
+            // Original ISA_T00's confirmed south exit is registry (2,1000).
+            assert!(restored.field.events.trigger(1000, true)?);
+            for _ in 0..120 {
+                restored.field.step(Default::default())?;
+                if restored.events().world.world_transition.is_some() {
+                    break;
+                }
+            }
+            let request = restored
+                .events()
+                .world
+                .world_transition
+                .clone()
+                .context("Iselia exit did not request the world")?;
+            let package = restored.world_package.clone().unwrap();
+            restored.change_world(package)?;
+            assert!(!request.operation.is_pending());
+            assert!(restored.overworld.is_some());
+        }
+    }
+    Ok(())
+}
+
 fn asset_root() -> std::path::PathBuf {
     std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
         || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
@@ -797,5 +1017,719 @@ fn moving_slope_checkpoint_survives_cold_and_warm_loads() {
     }
 }
 
-#[path = "exploration_tests.rs"]
-mod exploration;
+#[test]
+#[ignore = "requires RESONANCE_WORLD_ASSETS; exercises original cinematics without a window or audio device"]
+fn original_world_cinematics_prepare_chain_and_return_without_resuming_the_caller() -> Result<()> {
+    use resonance_content::overworld::{Mount, Position, TravelState, World};
+    let root = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let mut cache = super::super::loading::Cache::default();
+    let prepared = resonance_game::overworld::Prepared::load(
+        &root,
+        &mut cache.bytes,
+        available_fields(&root)?,
+        || false,
+    )?;
+    let mut persistent = resonance_events::PersistentState {
+        party: Some(resonance_events::party::Party::new(
+            prepared.resources.session_data.as_ref().unwrap(),
+            Default::default(),
+        )?),
+        ..Default::default()
+    };
+    persistent
+        .memory
+        .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+    let state = TravelState {
+        world: World::Sylvarant,
+        position: Position::from_map([9770., 24160., 0.])?,
+        heading: 0.,
+        camera_yaw: 0.,
+        alternate_perspective: false,
+        map_display: Default::default(),
+        mount: Mount::Foot,
+        altitude: 0.,
+    };
+    let world = resonance_game::overworld::Session::enter(
+        prepared.assets(state.world, &persistent)?,
+        state,
+        persistent,
+        Default::default(),
+    )?;
+    let saved = super::super::saves::WorldCheckpoint {
+        overworld: world.checkpoint()?,
+        anchor_field: 330,
+    };
+    let field = FieldPackage::prepare(&root, 330, &mut cache, || false)?;
+    let mut owner = Session::load_world_prepared(&root, field.files, saved, &mut cache, || false)?;
+    let package = owner.world_package.clone().unwrap();
+    for id in 513..=526 {
+        let position = owner
+            .overworld
+            .as_ref()
+            .unwrap()
+            .session
+            .travel
+            .state()
+            .position;
+        let request = owner
+            .events_mut()
+            .world
+            .request_world(
+                id,
+                0,
+                Some(resonance_events::SceneDestination {
+                    map: 3000,
+                    position: [0.; 3],
+                    heading: 0.,
+                }),
+            )
+            .map_err(anyhow::Error::msg)?;
+        owner.change_world(package.clone())?;
+        assert_eq!(
+            request.progress().outcome,
+            Some(resonance_events::Outcome::Cancelled)
+        );
+        let scenes = if id == 516 { vec![516, 517] } else { vec![id] };
+        for expected in scenes {
+            let scene = owner.overworld.as_mut().unwrap();
+            assert_eq!(scene.session.cinematic.as_ref().unwrap().id, expected);
+            assert!(scene.session.checkpoint().is_err());
+            assert!(!scene.session.player_has_control());
+            for _ in 0..2200 {
+                scene.session.step(Default::default())?;
+                if scene.session.events.world.world_transition.is_some() {
+                    break;
+                }
+            }
+            let next = owner
+                .events()
+                .world
+                .world_transition
+                .as_ref()
+                .context("cinematic did not finish")?
+                .operation
+                .clone();
+            let ticks = owner
+                .overworld
+                .as_ref()
+                .unwrap()
+                .session
+                .cinematic
+                .as_ref()
+                .unwrap()
+                .ticks();
+            for _ in 0..30 {
+                owner
+                    .overworld
+                    .as_mut()
+                    .unwrap()
+                    .session
+                    .step(Default::default())?;
+            }
+            assert_eq!(
+                owner
+                    .overworld
+                    .as_ref()
+                    .unwrap()
+                    .session
+                    .cinematic
+                    .as_ref()
+                    .unwrap()
+                    .ticks(),
+                ticks
+            );
+            owner.change_world(package.clone())?;
+            assert_eq!(
+                next.progress().outcome,
+                Some(resonance_events::Outcome::Cancelled)
+            );
+        }
+        let world = &owner.overworld.as_ref().unwrap().session;
+        assert!(world.cinematic.is_none());
+        // A normal world return resolves terrain height again; horizontal
+        // placement and the stored field-return pose must survive the film.
+        assert_eq!(
+            &world.travel.state().position.map()[..2],
+            &position.map()[..2]
+        );
+        if id == 518 {
+            assert_eq!(world.travel.state().mount, Mount::Rheairds);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires the complete cooked field catalogue in RESONANCE_WORLD_ASSETS"]
+fn original_world_landmarks_prepare_and_enter_their_fields() -> Result<()> {
+    use resonance_content::overworld::{Mount, Position, TravelState, World};
+    let root = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let fields = available_fields(&root)?;
+    ensure!(fields.len() > 490, "full field catalogue required");
+    let prepared =
+        resonance_game::overworld::Prepared::load(&root, &mut Default::default(), fields, || {
+            false
+        })?;
+    let selected: Option<BTreeSet<u16>> = std::env::var("RESONANCE_WORLD_LANDMARKS")
+        .ok()
+        .map(|s| s.split(',').map(|v| v.parse().unwrap()).collect());
+    let mut failures = Vec::new();
+    let mut destinations = BTreeSet::new();
+    for world in [World::Sylvarant, World::TetheAlla] {
+        for landmark in &prepared.definition.landmarks.worlds[world.index()] {
+            if selected
+                .as_ref()
+                .is_some_and(|ids| !ids.contains(&landmark.id))
+            {
+                continue;
+            }
+            // Field points are handled by world reward/skit services, not the
+            // script's town registry (some IDs intentionally alias its entries).
+            if matches!(
+                landmark.marker,
+                resonance_content::overworld::Marker::FieldPoint
+            ) {
+                continue;
+            }
+            let result = (|| -> Result<()> {
+                let mut party = resonance_events::party::Party::new(
+                    prepared.resources.session_data.as_ref().unwrap(),
+                    Default::default(),
+                )?;
+                party.formation = vec![1, 2, 3, 4];
+                party.travel.saved_formation = party.formation.clone();
+                let mut progress = resonance_events::PersistentState {
+                    party: Some(party),
+                    ..Default::default()
+                };
+                progress
+                    .memory
+                    .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+                progress
+                    .memory
+                    .write(0x50, symphonia_script::Width::S32, world.index() as i32)?;
+                let mut scene = resonance_game::overworld::Session::enter(
+                    prepared.assets(world, &progress)?,
+                    TravelState {
+                        world,
+                        position: Position::from_map([
+                            landmark.position[0],
+                            landmark.position[1],
+                            0.,
+                        ])?,
+                        heading: 0.,
+                        camera_yaw: 0.,
+                        alternate_perspective: false,
+                        map_display: Default::default(),
+                        mount: Mount::Foot,
+                        altitude: 0.,
+                    },
+                    progress,
+                    Default::default(),
+                )?;
+                if !scene.events.enter_landmark(landmark.id, 2)? {
+                    return Ok(());
+                }
+                for _ in 0..180 {
+                    scene.step(Default::default())?;
+                    if scene.events.world.field_transition.is_some() {
+                        break;
+                    }
+                }
+                let Some(request) = scene.events.world.field_transition.as_ref() else {
+                    return Ok(());
+                };
+                let map = request.map;
+                let mut cache = super::super::loading::Cache::default();
+                let package = FieldPackage::prepare(&root, map, &mut cache, || false)
+                    .with_context(|| format!("prepare map {map}"))?;
+                let mut entry = scene.field_entry()?;
+                if let Some(camera) = &entry.camera {
+                    ensure!(
+                        camera.camera.actor
+                            == i32::from(entry.persistent.party.as_ref().unwrap().field_leader),
+                        "world camera retained a non-field actor for map {map}"
+                    );
+                }
+                entry.allow_incomplete_scripts = true;
+                let mut field = package
+                    .enter(entry)
+                    .with_context(|| format!("enter map {map}"))?;
+                for _ in 0..2400 {
+                    field
+                        .step(FieldInput {
+                            interact: true,
+                            accelerate_dialogue: true,
+                            ..Default::default()
+                        })
+                        .with_context(|| format!("step map {map}"))?;
+                    field.events.world.audio_commands.clear();
+                    if field.player_has_control()
+                        || field.events.world.field_transition.is_some()
+                        || field.events.world.world_transition.is_some()
+                    {
+                        break;
+                    }
+                }
+                println!(
+                    "Landmark {} ({}) entered map {map}; control={}",
+                    landmark.id,
+                    landmark.name,
+                    field.player_has_control()
+                );
+                if let Some(reason) = &field.events.exploration_error {
+                    println!("map {map} exploration fallback: {reason}");
+                }
+                if !field.player_has_control() {
+                    println!("map {map} pending: {:?}", field.events.pending_operations());
+                    println!(
+                        "map {map} services: movie={:?}, skit={:?}, battle={:?}, menu={:?}, field={:?}, world={:?}",
+                        field.events.world.movie,
+                        field.events.world.skit_request,
+                        field.events.world.battle_request,
+                        field.events.world.menu_request,
+                        field.events.world.field_transition,
+                        field.events.world.world_transition
+                    );
+                }
+                ensure!(
+                    field.player_has_control()
+                        || field.events.world.field_transition.is_some()
+                        || field.events.world.world_transition.is_some(),
+                    "map {map} entrance remained suspended without a scene handoff"
+                );
+                if landmark.id == 53 {
+                    ensure!(
+                        field.player_has_control(),
+                        "caravan introduction did not finish"
+                    );
+                    ensure!(
+                        field.events.interact(102)?,
+                        "caravan NPC interaction missing"
+                    );
+                    let mut dialogue_seen = false;
+                    for _ in 0..2400 {
+                        field.step(FieldInput {
+                            interact: true,
+                            accelerate_dialogue: true,
+                            ..Default::default()
+                        })?;
+                        dialogue_seen |= !field.events.world.dialogue.is_empty();
+                        field.events.world.audio_commands.clear();
+                        if field.player_has_control() {
+                            break;
+                        }
+                    }
+                    ensure!(
+                        dialogue_seen && field.player_has_control(),
+                        "caravan NPC dialogue did not finish"
+                    );
+                    ensure!(field.events.trigger(1000, true)?, "caravan exit missing");
+                    for _ in 0..180 {
+                        field.step(Default::default())?;
+                        if field.events.world.world_transition.is_some() {
+                            break;
+                        }
+                    }
+                    ensure!(
+                        field.events.world.world_transition.is_some(),
+                        "caravan did not return to the world"
+                    );
+                    println!("Nova's Caravan NPC dialogue and world return passed");
+                }
+                field.step(FieldInput {
+                    start: true,
+                    ..Default::default()
+                })?;
+                let return_request = field
+                    .events
+                    .world
+                    .world_transition
+                    .as_ref()
+                    .context("test return control did not request the overworld")?;
+                ensure!(
+                    return_request.location == 0,
+                    "test return lost its saved world position"
+                );
+                let progress = field.events.persistent_state()?;
+                let resumed = resonance_game::overworld::Session::return_from_field(
+                    prepared.assets(world, &progress)?,
+                    return_request,
+                    progress,
+                    field.play_time,
+                )?;
+                ensure!(
+                    resumed.travel.state().world == world,
+                    "test returned to the wrong world"
+                );
+                destinations.insert(map);
+                Ok(())
+            })();
+            if let Err(error) = result {
+                failures.push(format!("{} ({}): {error:#}", landmark.id, landmark.name));
+            }
+        }
+    }
+    println!(
+        "Prepared and entered {} distinct destination fields",
+        destinations.len()
+    );
+    ensure!(
+        failures.is_empty(),
+        "landmark failures:\n{}",
+        failures.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires the complete cooked field catalogue in RESONANCE_WORLD_ASSETS"]
+fn original_all_fields_have_complete_preparation_inventories() -> Result<()> {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let fields = available_fields(&root)?;
+    ensure!(fields.len() > 490, "full field catalogue required");
+    let selected: Option<BTreeSet<u32>> = std::env::var("RESONANCE_FIELD_MAPS")
+        .ok()
+        .map(|s| s.split(',').map(|v| v.parse().unwrap()).collect());
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    let mut walking = 0;
+    for map in fields
+        .iter()
+        .copied()
+        .filter(|&map| map < 3000 && selected.as_ref().is_none_or(|ids| ids.contains(&map)))
+    {
+        checked += 1;
+        let mut cache = super::super::loading::Cache::default();
+        let result = (|| -> Result<()> {
+            let package = FieldPackage::prepare(&root, map, &mut cache, || false)?;
+            if package.assets.ground.is_empty() && package.assets.parts.is_empty() {
+                println!("Map {map} has no room geometry or collision; checked its inventory only");
+                return Ok(());
+            }
+            let data = Arc::new(
+                package
+                    .files
+                    .json::<resonance_content::session::SessionData>("game/session-data.json")?,
+            );
+            let mut party = resonance_events::party::Party::new(&data, Default::default())?;
+            party.formation = vec![1, 2, 3, 4];
+            party.travel.saved_formation = party.formation.clone();
+            let mut progress = resonance_events::PersistentState {
+                party: Some(party),
+                ..Default::default()
+            };
+            progress
+                .memory
+                .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+            let mut field = package.enter(FieldEntry {
+                allow_incomplete_scripts: true,
+                persistent: progress,
+                data: Some(data),
+                available_fields: fields.clone(),
+                ..Default::default()
+            })?;
+            field.enter_exploration("Field catalogue walking check".into())?;
+            ensure!(
+                field.player_has_control(),
+                "exploration did not grant control"
+            );
+            let initial = field.events.world.actors[&field.events.world.controlled_actor].position;
+            let mut walked = false;
+            for direction in [[1., 0.], [-1., 0.], [0., 1.], [0., -1.]] {
+                for _ in 0..8 {
+                    field.step(resonance_game::field::FieldInput {
+                        direction,
+                        ..Default::default()
+                    })?;
+                    field.events.world.audio_commands.clear();
+                    let current =
+                        field.events.world.actors[&field.events.world.controlled_actor].position;
+                    walked |= current != initial;
+                }
+            }
+            ensure!(walked, "player could not walk from the exploration spawn");
+            field.checkpoint()?;
+            walking += 1;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            failures.push(format!("map {map}: {error:#}"));
+        }
+    }
+    println!("Checked {checked} field preparation inventories and {walking} walking sessions");
+    ensure!(
+        failures.is_empty(),
+        "field preparation failures:\n{}",
+        failures.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_WORLD_ASSETS; original Salvation interior handoff"]
+fn original_salvation_interior_handoff_keeps_its_destination() -> Result<()> {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let mut cache = super::super::loading::Cache::default();
+    let package = FieldPackage::prepare(&root, 81, &mut cache, || false)?;
+    let data: Arc<resonance_content::session::SessionData> =
+        Arc::new(package.files.json("game/session-data.json")?);
+    let mut persistent = resonance_events::PersistentState {
+        party: Some(resonance_events::party::Party::new(
+            &data,
+            Default::default(),
+        )?),
+        ..Default::default()
+    };
+    persistent
+        .memory
+        .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+    let mut field = package.enter(FieldEntry {
+        allow_incomplete_scripts: true,
+        persistent,
+        data: Some(data.clone()),
+        available_fields: available_fields(&root)?,
+        position: [557., 83., 124.],
+        ..Default::default()
+    })?;
+    for _ in 0..1200 {
+        field.step(FieldInput {
+            interact: true,
+            accelerate_dialogue: true,
+            ..Default::default()
+        })?;
+        if field.player_has_control() {
+            break;
+        }
+    }
+    ensure!(
+        field.player_has_control(),
+        "Salvation outside did not release control"
+    );
+    ensure!(
+        field.events.trigger(1002, true)?,
+        "Salvation doorway trigger missing"
+    );
+    for _ in 0..600 {
+        field.step(Default::default())?;
+        if field.events.exploration_error.is_some() || field.events.world.field_transition.is_some()
+        {
+            break;
+        }
+    }
+    ensure!(
+        field.events.exploration_error.is_none(),
+        "door script failed: {:?}",
+        field.events.exploration_error
+    );
+    let request = field
+        .events
+        .world
+        .field_transition
+        .as_ref()
+        .context("door did not request interior")?;
+    ensure!(request.map == 95, "wrong Salvation interior");
+    let package = FieldPackage::prepare(&root, request.map, &mut cache, || false)?;
+    let mut inside = package.enter(FieldEntry {
+        allow_incomplete_scripts: true,
+        persistent: field.events.persistent_state()?,
+        data: Some(data),
+        available_fields: available_fields(&root)?,
+        position: request.position,
+        heading: request.heading,
+        camera: request.camera.clone(),
+        ..Default::default()
+    })?;
+    for _ in 0..1200 {
+        inside.step(FieldInput {
+            interact: true,
+            accelerate_dialogue: true,
+            ..Default::default()
+        })?;
+        if inside.player_has_control() {
+            break;
+        }
+    }
+    ensure!(
+        inside.player_has_control(),
+        "Salvation interior did not release control"
+    );
+    ensure!(
+        inside.events.exploration_error.is_none(),
+        "interior unexpectedly fell back"
+    );
+    ensure!(
+        inside.events.trigger(1000, true)?,
+        "Salvation interior exit missing"
+    );
+    for _ in 0..180 {
+        inside.step(Default::default())?;
+        if inside.events.world.field_transition.is_some() {
+            break;
+        }
+    }
+    ensure!(
+        inside
+            .events
+            .world
+            .field_transition
+            .as_ref()
+            .is_some_and(|request| request.map == 81),
+        "Salvation interior failed to return outside"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_WORLD_ASSETS; original overworld discovery skit choices"]
+fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result<()> {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let prepared = resonance_game::overworld::Prepared::load(
+        &root,
+        &mut Default::default(),
+        available_fields(&root)?,
+        || false,
+    )?;
+    let data = prepared.resources.session_data.as_ref().unwrap();
+    let mut world = resonance_events::GameWorld::default();
+    world.party = Some(resonance_events::party::Party::new(
+        data,
+        Default::default(),
+    )?);
+    world.input_enabled = true;
+    let program = Arc::new(symphonia_script::Program::decode(
+        &prepared.files.read(&prepared.definition.script.path)?,
+    )?);
+    let mut parent = resonance_events::EventRuntime::with_state(
+        program,
+        prepared.resources.clone(),
+        world,
+        Default::default(),
+    )?;
+    let skits = resonance_game::skit::Prepared::load(
+        prepared.resources.skits.as_ref().unwrap().clone(),
+        &prepared.files,
+    )?;
+    const STATE: &str = "test::skit::visits";
+    parent.world.script_state.insert(STATE.into(), 0);
+    for (&id, skit) in skits.range(502..=534) {
+        let before = parent.world.script_state[STATE];
+        let mut playback =
+            resonance_game::skit::Playback::start(skit, &mut parent, true, false, None)?;
+        assert_eq!(playback.id, id);
+        assert_eq!(playback.events.world.script_state[STATE], before);
+        playback
+            .events
+            .world
+            .script_state
+            .insert(STATE.into(), before + 1);
+        let (mut text_seen, mut choice_seen, mut done) = (false, false, false);
+        for tick in 0..36_000 {
+            text_seen |= playback
+                .dialogue
+                .values()
+                .any(|p| p.window_visible() && !p.current().glyphs.is_empty());
+            choice_seen |= !playback.events.world.choices.is_empty();
+            done = playback.step(
+                &mut parent,
+                resonance_game::skit::Input {
+                    confirm: tick % 30 == 10,
+                    ..Default::default()
+                },
+            )?;
+            parent.world.audio_commands.clear();
+            if done {
+                break;
+            }
+        }
+        ensure!(
+            done && text_seen && choice_seen,
+            "skit {id} failed: complete={done}, text={text_seen}, choice={choice_seen}"
+        );
+        assert!(playback.step(&mut parent, Default::default())?);
+        assert_eq!(parent.world.script_state[STATE], before + 1);
+    }
+    let before = parent.save_progress()?;
+    let mut preview =
+        resonance_game::skit::Playback::start(&skits[&502], &mut parent, true, true, None)?;
+    preview.events.world.script_state.clear();
+    preview.events.world.event_flags.clear();
+    preview.events.world.party.as_mut().unwrap().gald = before.party.gald + 1;
+    preview.events.set_global(16, 99)?;
+    for _ in 0..120 {
+        preview.step(
+            &mut parent,
+            resonance_game::skit::Input {
+                skip: true,
+                ..Default::default()
+            },
+        )?;
+    }
+    assert!(preview.step(&mut parent, Default::default())?);
+    let after = parent.save_progress()?;
+    assert_eq!(after.script_state, before.script_state);
+    assert_eq!(after.script_globals, before.script_globals);
+    assert_eq!(after.event_flags, before.event_flags);
+    assert_eq!(after.party.gald, before.party.gald);
+    // Exercise the coastal Raine discovery through the owning world VM too:
+    // completion must retire the skit and release the suspended contact event.
+    let mut persistent = parent.persistent_state()?;
+    persistent
+        .memory
+        .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
+    persistent.party.as_mut().unwrap().formation = vec![1, 2, 3, 4];
+    let mut scene = resonance_game::overworld::Session::enter(
+        prepared.assets(resonance_game::overworld::World::Sylvarant, &persistent)?,
+        resonance_content::overworld::TravelState {
+            world: resonance_game::overworld::World::Sylvarant,
+            position: resonance_game::overworld::Position::from_map([2763., 49152., 0.])?,
+            heading: 0.,
+            camera_yaw: 0.,
+            alternate_perspective: false,
+            map_display: Default::default(),
+            mount: resonance_content::overworld::Mount::Foot,
+            altitude: 0.,
+        },
+        persistent,
+        Default::default(),
+    )?;
+    let mut started = false;
+    for tick in 0..12_000 {
+        scene.step(resonance_game::overworld::Input {
+            confirm: tick % 30 == 10,
+            ..Default::default()
+        })?;
+        scene.events.world.audio_commands.clear();
+        started |= scene.active_skit.is_some();
+        if started && scene.active_skit.is_none() && scene.player_has_control() {
+            break;
+        }
+    }
+    ensure!(
+        started && scene.player_has_control() && scene.active_skit.is_none(),
+        "coastal discovery did not restore world control"
+    );
+    ensure!(
+        scene
+            .events
+            .world
+            .party
+            .as_ref()
+            .unwrap()
+            .travel
+            .visited_locations
+            .contains(&65),
+        "coastal discovery was not consumed"
+    );
+    Ok(())
+}

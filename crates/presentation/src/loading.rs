@@ -159,12 +159,13 @@ impl Pending {
         let cache = resident.cache.clone();
         Self::spawn(move |stop| {
             let identity = super::new_game::Session::identity(&root)?;
-            let checkpoint: Option<resonance_game::field::FieldCheckpoint> = checkpoint
+            let checkpoint: Option<super::saves::SceneCheckpoint> = checkpoint
                 .map(|bytes| {
                     resonance_persistence::decode(&bytes, &identity).map(|(_, state)| state)
                 })
                 .transpose()?;
-            let map = checkpoint.as_ref().map_or(5, |c| c.map_id);
+            let map = checkpoint.as_ref().map_or(5, |c| c.map());
+            let new_game = checkpoint.is_none();
             let mut paths = vec![super::new_game::manifest_path(map)];
             if map == 5 {
                 paths.push(super::new_game::manifest_path(340));
@@ -177,13 +178,31 @@ impl Pending {
                 &mut cache.bytes,
                 || stop.load(Ordering::Relaxed),
             )?);
-            let mut session =
-                super::new_game::Session::load_prepared(&root, files, checkpoint, &mut cache)?;
+            let mut session = match checkpoint {
+                Some(super::saves::SceneCheckpoint::World(checkpoint)) => {
+                    super::new_game::Session::load_world_prepared(
+                        &root,
+                        files,
+                        checkpoint,
+                        &mut cache,
+                        || stop.load(Ordering::Relaxed),
+                    )?
+                }
+                checkpoint => super::new_game::Session::load_prepared(
+                    &root,
+                    files,
+                    checkpoint.map(|c| match c {
+                        super::saves::SceneCheckpoint::Field(c) => c,
+                        _ => unreachable!(),
+                    }),
+                    &mut cache,
+                )?,
+            };
             anyhow::ensure!(
                 session.identity == identity,
                 "cooked content changed during field preparation"
             );
-            if map == 5 {
+            if new_game {
                 session.prepare_movie(&root, || stop.load(Ordering::Relaxed))?;
             }
             Ok(session)
@@ -209,6 +228,27 @@ impl FieldPending {
                     stop.load(Ordering::Relaxed)
                 })
             }
+        })
+    }
+}
+pub(super) type WorldPending = Task<super::overworld::Package>;
+impl WorldPending {
+    pub fn overworld(
+        root: PathBuf,
+        fields: std::collections::BTreeSet<u32>,
+        resident: &Resident,
+    ) -> Result<Self> {
+        let cache = resident.cache.clone();
+        Self::spawn(move |stop| {
+            let mut cache = cache.lock().unwrap();
+            let world = Arc::new(resonance_game::overworld::Prepared::load(
+                &root,
+                &mut cache.bytes,
+                fields,
+                || stop.load(Ordering::Relaxed),
+            )?);
+            let audio = cache.audio.load(&root, "worlds/audio.json", &world.files)?;
+            Ok(super::overworld::Package { world, audio })
         })
     }
 }

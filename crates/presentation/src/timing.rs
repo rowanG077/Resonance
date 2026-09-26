@@ -45,9 +45,10 @@ pub(super) fn advance_clock(
     if options.capture.is_none()
         && loading.is_none()
         && (session.is_none() || resident.is_none_or(|r| r.active.load(Ordering::Acquire)))
-        && session
-            .as_ref()
-            .is_none_or(|s| s.field.events.world.field_transition.is_none())
+        && session.as_ref().is_none_or(|s| {
+            s.events().world.field_transition.is_none()
+                && s.events().world.world_transition.is_none()
+        })
         && ready.0
         && pause.is_none_or(|p| !p.0)
         && recording.is_none_or(|r| r.started)
