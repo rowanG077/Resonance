@@ -548,6 +548,7 @@ pub(super) fn gather_controls(
 #[allow(clippy::too_many_arguments)] // The fixed update waits for CPU and GPU preparation.
 pub(super) fn advance_live(
     mut session: Option<ResMut<super::new_game::Session>>,
+    display: Res<super::display::Display>,
     art: Option<Res<Art>>,
     ui: Option<Res<super::field_ui::Artwork>>,
     images: Res<Assets<Image>>,
@@ -584,6 +585,9 @@ pub(super) fn advance_live(
         return;
     }
     let input = controls.consume();
+    if let Some(camera) = &mut session.field.events.world.field_camera {
+        camera.view_aspect_ratio = display.0.aspect();
+    }
     if let Err(error) = session.field.step(input) {
         error!("Field update failed: {error:#}");
         session.field.events.cancel();
@@ -1595,6 +1599,9 @@ fn pose(
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
         let brightness = world.brightness();
         let tint = Vec4::new(brightness, brightness, brightness, 1.)
+            * Vec4::from_array([42, 43, 44, 8].map(|property| {
+                actor.properties.get(&property).copied().unwrap_or(255) as f32 / 255.
+            }))
             * part.spec.outline_color.map_or(Vec4::ONE, |color| {
                 Vec4::from_array(color.map(|c| f32::from(c) / 255.))
             })
@@ -1680,6 +1687,7 @@ fn pose(
                     || s.uv_scales != uv_scales
                     || s.tint != tint
                     || s.depth_write != depth_write
+                    || s.additive != (actor.ring_station || save_point.is_some())
                     || s.field_light != light_position
                     || s.shade_colors != shades
             }) {
@@ -1688,17 +1696,30 @@ fn pose(
                 surface.uv_scales = uv_scales;
                 surface.tint = tint;
                 surface.depth_write = depth_write;
+                surface.additive = actor.ring_station || save_point.is_some();
                 surface.field_light = light_position;
                 surface.shade_colors = shades;
             }
         }
         transform.translation = Vec3::from_array(actor.position);
+        transform.scale = Vec3::from_array(std::array::from_fn(|axis| {
+            actor
+                .properties
+                .get(&(30 + axis as i32))
+                .copied()
+                .unwrap_or(100) as f32
+                / 100.
+        }));
         transform.rotation = Quat::from_rotation_z(
             actor
                 .appearance
                 .fixed_heading
                 .unwrap_or(actor.heading)
                 .to_radians(),
+        ) * Quat::from_rotation_y(
+            (actor.properties.get(&36).copied().unwrap_or(0) as f32).to_radians(),
+        ) * Quat::from_rotation_x(
+            (actor.properties.get(&35).copied().unwrap_or(0) as f32).to_radians(),
         );
         *visibility = if actor.visible && !actor.appearance.model_hidden {
             Visibility::Inherited
@@ -1757,11 +1778,32 @@ fn pose(
             }
             instance.prepared = descendants > 0;
         }
+        let draw_stage = if save_point.is_some() {
+            super::draw_order::FIELD_TRANSLUCENCY
+        } else if (SCENERY_RESOURCE_BASE..=SCENERY_RESOURCE_BASE + u32::from(u16::MAX))
+            .contains(&actor.resource)
+        {
+            0
+        } else {
+            match actor.properties.get(&39).copied().unwrap_or(2) {
+                -1 => DrawStage::LateActors.offset(),
+                -4 => DrawStage::TranslucentScenery.offset() + 2 * MODEL_DRAW_SPAN,
+                -3 => super::draw_order::EFFECTS + MODEL_DRAW_SPAN,
+                -2 => super::draw_order::EFFECTS + 2 * MODEL_DRAW_SPAN,
+                _ => DrawStage::Actors.offset(),
+            }
+        };
         for &(material, entity) in &instance.geometry {
-            if let Ok(mut order) = draw_orders.get_mut(entity)
-                && order.1 != actor_order
-            {
-                order.1 = actor_order;
+            if let Ok(mut order) = draw_orders.get_mut(entity) {
+                let next = DrawOrder(
+                    part.spec.materials[material].draw_order
+                        + u32::from(instance.pass) * MODEL_DRAW_SPAN
+                        + draw_stage,
+                    actor_order,
+                );
+                if *order != next {
+                    *order = next;
+                }
             }
             // Hide only geometry attached to the script node; its transform
             // and child bones must remain active.
