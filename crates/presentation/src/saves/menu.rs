@@ -48,7 +48,9 @@ pub(super) fn update(world: &mut World) {
         match result {
             Ok(candidate) => {
                 if let Some(mut session) = world.get_resource_mut::<new_game::Session>() {
-                    let changing = session.assets.map_id != candidate.assets.map_id;
+                    let changing = session.assets.map_id != candidate.assets.map_id
+                        || session.overworld.is_some()
+                        || candidate.overworld.is_some();
                     session.replace_loaded(candidate);
                     restored(world, changing);
                 } else {
@@ -75,7 +77,13 @@ fn current(world: &mut World) -> Option<Mut<'_, Menu>> {
     }
     world
         .get_resource_mut::<new_game::Session>()?
-        .filter_map_unchanged(|session| session.field.menu.as_mut())
+        .filter_map_unchanged(|session| {
+            if let Some(scene) = &mut session.overworld {
+                scene.session.menu.as_mut()
+            } else {
+                session.field.menu.as_mut()
+            }
+        })
 }
 fn failed(world: &mut World, error: anyhow::Error) {
     warn!("Save menu operation failed: {error:#}");
@@ -120,18 +128,27 @@ fn start(world: &mut World, command: Command) -> Result<()> {
         Command::Save(index) => {
             let session = world.resource::<new_game::Session>();
             let identity = session.identity.clone();
-            let menu = session.field.menu.as_ref().context("save menu is closed")?;
+            let menu = session
+                .overworld
+                .as_ref()
+                .map_or(session.field.menu.as_ref(), |scene| {
+                    scene.session.menu.as_ref()
+                })
+                .context("save menu is closed")?;
             ensure!(menu.at_save_point, "saving is unavailable here");
-            let checkpoint = menu
-                .checkpoint
-                .clone()
-                .context("save menu has no checkpoint")?;
-            let location = match checkpoint.map_id {
-                340 => "Iselia school",
-                332 => "Iselia school grounds",
-                _ => "Iselia",
-            }
-            .to_string();
+            let checkpoint = if let Some(scene) = &session.overworld {
+                SceneCheckpoint::World(WorldCheckpoint {
+                    overworld: scene.session.menu_checkpoint()?,
+                    anchor_field: session.assets.map_id,
+                })
+            } else {
+                SceneCheckpoint::Field(
+                    menu.checkpoint
+                        .clone()
+                        .context("save menu has no checkpoint")?,
+                )
+            };
+            let location = checkpoint.location();
             let played_ticks = checkpoint.played_ticks();
             let header = Header {
                 identity,
@@ -149,7 +166,7 @@ fn start(world: &mut World, command: Command) -> Result<()> {
                     Slot::Saved {
                         location,
                         played_ticks,
-                        checkpoint: Box::new(checkpoint),
+                        checkpoint: Box::new(checkpoint.menu_snapshot()),
                     },
                 ))
             })?));
@@ -196,9 +213,10 @@ fn read_slots(
             let result = store
                 .read(Kind::Save, &id)
                 .and_then(|bytes| {
-                    resonance_persistence::decode::<FieldCheckpoint>(&bytes, identity)
+                    resonance_persistence::decode::<SceneCheckpoint>(&bytes, identity)
                 })
-                .and_then(|(header, mut checkpoint)| {
+                .and_then(|(header, checkpoint)| {
+                    let mut checkpoint = checkpoint.menu_snapshot();
                     checkpoint.progress.party.bind_ex_skills(data);
                     checkpoint.progress.party.validate(data)?;
                     ensure!(

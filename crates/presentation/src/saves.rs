@@ -23,6 +23,66 @@ use std::{
 };
 pub use title_probe::run_title_load_probe;
 
+/// Field saves retain their existing JSON shape. World saves carry a separate
+/// scene checkpoint and the suspended field package needed by the scene owner.
+#[derive(Clone, serde::Serialize)]
+#[serde(untagged)]
+pub(super) enum SceneCheckpoint {
+    Field(FieldCheckpoint),
+    World(WorldCheckpoint),
+}
+impl<'de> serde::Deserialize<'de> for SceneCheckpoint {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Serde's untagged buffer loses JSON's numeric map-key conversion.
+        // Inventory, bestiary and event records all use integer keys. Select
+        // the existing wire shape explicitly, then use the JSON deserializer.
+        let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
+        if value.get("overworld").is_some() {
+            serde_json::from_value(value).map(Self::World)
+        } else {
+            serde_json::from_value(value).map(Self::Field)
+        }
+        .map_err(serde::de::Error::custom)
+    }
+}
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct WorldCheckpoint {
+    pub overworld: resonance_game::overworld::Checkpoint,
+    pub anchor_field: u32,
+}
+impl SceneCheckpoint {
+    fn menu_snapshot(&self) -> FieldCheckpoint {
+        match self {
+            Self::Field(checkpoint) => checkpoint.clone(),
+            Self::World(checkpoint) => checkpoint.overworld.menu_snapshot(),
+        }
+    }
+    pub fn map(&self) -> u32 {
+        match self {
+            Self::Field(c) => c.map_id,
+            Self::World(c) => c.anchor_field,
+        }
+    }
+    fn played_ticks(&self) -> u64 {
+        match self {
+            Self::Field(c) => c.played_ticks(),
+            Self::World(c) => c.overworld.played_ticks,
+        }
+    }
+    fn location(&self) -> String {
+        match self {
+            Self::Field(c) => format!("Field {}", c.map_id),
+            Self::World(c) => match c.overworld.state.world {
+                resonance_game::overworld::World::Sylvarant => "Sylvarant".into(),
+                resonance_game::overworld::World::TetheAlla => "Tethe'alla".into(),
+            },
+        }
+    }
+}
+#[derive(Resource)]
+pub(super) struct WorldLoad(loading::Pending);
+
 #[derive(Default)]
 pub struct SaveOptions {
     pub directory: Option<PathBuf>,
@@ -110,7 +170,7 @@ pub(super) fn capture(world: &mut World) {
         world.write_message(AppExit::error());
         return;
     }
-    let Ok(checkpoint) = checkpoint(world) else {
+    let Ok(checkpoint) = scene_checkpoint(world) else {
         return;
     };
     let mut state = world.resource_mut::<Capture>();
@@ -157,32 +217,67 @@ pub(super) fn checkpoint(world: &mut World) -> Result<FieldCheckpoint> {
         .get_resource::<new_game::Session>()
         .context("quicksave requires free field control")?;
     ensure!(
-        session.ready_for_field && session.audio.is_none(),
+        session.overworld.is_none() && session.ready_for_field && session.audio.is_none(),
         "quicksave unavailable during a scene presentation"
     );
     session.field.checkpoint()
 }
 
+fn scene_checkpoint(world: &mut World) -> Result<SceneCheckpoint> {
+    if world
+        .get_resource::<new_game::Session>()
+        .is_none_or(|s| s.overworld.is_none())
+    {
+        return checkpoint(world).map(SceneCheckpoint::Field);
+    }
+    ensure!(
+        !world.resource::<Time<Virtual>>().is_paused(),
+        "cannot save while paused"
+    );
+    ensure!(
+        field_prepared(world),
+        "cannot save while preparing the scene"
+    );
+    let session = world.resource::<new_game::Session>();
+    ensure!(
+        session.audio.is_none(),
+        "cannot save during audio preparation"
+    );
+    Ok(SceneCheckpoint::World(WorldCheckpoint {
+        overworld: session.overworld.as_ref().unwrap().session.checkpoint()?,
+        anchor_field: session.assets.map_id,
+    }))
+}
+
 fn field_prepared(world: &mut World) -> bool {
     !world.contains_resource::<loading::Pending>()
         && !world.contains_resource::<loading::FieldPending>()
+        && !world.contains_resource::<loading::WorldPending>()
+        && !world.contains_resource::<WorldLoad>()
         && world
             .resource::<loading::Resident>()
             .active
             .load(std::sync::atomic::Ordering::Acquire)
-        && field_view::ready(world)
+        && if world
+            .get_resource::<new_game::Session>()
+            .is_some_and(|s| s.overworld.is_some())
+        {
+            super::overworld::ready(world)
+        } else {
+            field_view::ready(world)
+        }
 }
 
 fn save(world: &mut World) -> Result<String> {
     let started = Instant::now();
-    let state = checkpoint(world)?;
+    let state = scene_checkpoint(world)?;
     let persistence = world.resource::<Persistence>();
     let mut writing = persistence.writing.lock().unwrap();
     ensure!(writing.is_none(), "previous save is still being written");
     let header = Header {
         identity: world.resource::<new_game::Session>().identity.clone(),
         label: format!("Quicksave {}", persistence.slot.as_str()),
-        location: format!("Field {}", state.map_id),
+        location: state.location(),
         played_ticks: state.played_ticks(),
         saved_unix_seconds: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
     };
@@ -201,15 +296,34 @@ fn save(world: &mut World) -> Result<String> {
 }
 
 fn load(world: &mut World) -> Result<String> {
-    checkpoint(world)?;
+    let recovering = world.contains_resource::<new_game::TransitionFailure>();
+    if !recovering {
+        scene_checkpoint(world)?;
+    }
     let persistence = world.resource::<Persistence>();
     ensure!(
         !persistence.is_writing(),
         "quicksave is still being written"
     );
     let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-    let (_, checkpoint): (_, FieldCheckpoint) =
+    let (_, checkpoint): (_, SceneCheckpoint) =
         resonance_persistence::decode(&bytes, &world.resource::<new_game::Session>().identity)?;
+    if matches!(checkpoint, SceneCheckpoint::World(_))
+        || world.resource::<new_game::Session>().overworld.is_some()
+        || recovering
+    {
+        let pending = loading::Pending::start(
+            world.resource::<super::RunOptions>().assets.clone(),
+            world.resource::<super::RunOptions>().script_root.clone(),
+            Some(bytes),
+            world.resource::<loading::Resident>(),
+        )?;
+        world.insert_resource(WorldLoad(pending));
+        return Ok("Loading quicksave".into());
+    }
+    let SceneCheckpoint::Field(checkpoint) = checkpoint else {
+        unreachable!()
+    };
     let changing_field = checkpoint.map_id != world.resource::<new_game::Session>().assets.map_id;
     let started = Instant::now();
     let scripts = world.resource::<super::RunOptions>().script_root.clone();
@@ -232,6 +346,7 @@ fn load(world: &mut World) -> Result<String> {
 }
 
 fn restored(world: &mut World, changing_field: bool) {
+    world.remove_resource::<new_game::TransitionFailure>();
     let files = world.resource::<new_game::Session>().files();
     *world.resource::<loading::Resident>().files.write().unwrap() = Some(files);
     if changing_field {
@@ -260,7 +375,9 @@ pub(super) fn release_frame(world: &mut World) {
         || !field_prepared(world)
         || world
             .get_resource::<new_game::Session>()
-            .is_none_or(|session| !session.ready_for_field || session.audio.is_some())
+            .is_none_or(|session| {
+                (session.overworld.is_none() && !session.ready_for_field) || session.audio.is_some()
+            })
     {
         return;
     }
@@ -272,6 +389,24 @@ pub(super) fn release_frame(world: &mut World) {
 }
 
 pub(super) fn update(world: &mut World) {
+    if let Some(pending) = world.get_resource::<WorldLoad>() {
+        let result = match pending.0.poll() {
+            Ok(None) => return,
+            Ok(Some(result)) => result,
+            Err(error) => Err(error),
+        };
+        world.remove_resource::<WorldLoad>();
+        match result {
+            Ok(candidate) => {
+                world
+                    .resource_mut::<new_game::Session>()
+                    .replace_loaded(candidate);
+                restored(world, true);
+                report(world, Ok("Quicksave loaded".into()));
+            }
+            Err(error) => report(world, Err(error.context("Quicksave preparation failed"))),
+        }
+    }
     menu::update(world);
     if let Some(result) = world.resource::<Persistence>().poll_write() {
         report(world, result.map(|()| "Quicksave written".into()));
@@ -308,6 +443,49 @@ fn report(world: &mut World, result: Result<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn field_and_world_save_shapes_preserve_numeric_inventory_and_event_keys() -> Result<()> {
+        let field: FieldCheckpoint = serde_json::from_value(serde_json::json!({
+            "map_id": 330, "position": [0, 0, 0], "heading": 0,
+            "progress": {
+                "script_globals": [], "event_flags": [22], "random_state": 0, "tick": 100,
+                "event_records": {"12": {"value": 1, "extra": 0, "tick": 50}},
+                "party": {
+                    "members": [], "formation": [], "items": {"58": 1},
+                    "found_items": [58], "recent_items": [58], "gald": 0, "spent_gald": 0,
+                    "settings": resonance_events::party::Settings::default()
+                }
+            }
+        }))?;
+        let state = resonance_content::overworld::TravelState {
+            world: resonance_content::overworld::World::Sylvarant,
+            position: resonance_content::overworld::Position::from_map([9770., 23500., 0.])?,
+            heading: 0.,
+            camera_yaw: 0.,
+            alternate_perspective: false,
+            map_display: Default::default(),
+            mount: resonance_content::overworld::Mount::Rheairds,
+            altitude: 600.,
+        };
+        let world = WorldCheckpoint {
+            overworld: resonance_game::overworld::Checkpoint {
+                state,
+                progress: field.progress.clone(),
+                played_ticks: 0,
+            },
+            anchor_field: 330,
+        };
+        for checkpoint in [SceneCheckpoint::Field(field), SceneCheckpoint::World(world)] {
+            let bytes = serde_json::to_vec(&checkpoint)?;
+            let decoded: SceneCheckpoint = serde_json::from_slice(&bytes)?;
+            assert_eq!(
+                serde_json::to_value(&checkpoint)?,
+                serde_json::to_value(decoded)?
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     #[ignore = "requires cooked fields and the captured slope quicksave; no window or audio device"]

@@ -53,6 +53,8 @@ mod menu_backdrop;
 mod model_preview;
 mod movie;
 mod new_game;
+mod overworld;
+pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
     CheckpointReplay, SaveOptions, prepare_checkpoint_fixture, record_checkpoint,
@@ -379,6 +381,7 @@ fn build_app_with_display(
         .add_plugins(MaterialPlugin::<glow::GlowMaterial>::default())
         .add_plugins(draw_order::DrawOrderPlugin)
         .add_plugins(field_view::FieldPlugin)
+        .add_plugins(overworld::OverworldPlugin)
         .init_asset::<GameAudio>()
         .init_asset::<field_audio::FieldSource>()
         .init_resource::<audio::MenuSounds>()
@@ -430,6 +433,10 @@ fn build_app_with_display(
             )
                 .chain(),
         );
+    app.add_systems(
+        Update,
+        field_ui::transition_failure.after(new_game::transition),
+    );
     if !capture_only {
         audio_output::install(&mut app, silent)?;
     } else {

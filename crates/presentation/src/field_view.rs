@@ -214,6 +214,137 @@ pub(super) struct Surface {
     pub(super) color: Option<(Handle<Image>, TextureBinding)>,
     pub(super) multiply: Option<(Handle<Image>, TextureBinding)>,
 }
+impl Part {
+    pub(super) fn load(
+        spec: ScenePart,
+        server: &AssetServer,
+        loads: &super::loading::LoadTasks,
+    ) -> Self {
+        let gltf = server
+            .load_builder()
+            .with_guard(loads.ticket())
+            .load(spec.mesh.clone());
+        let load = |b: &TextureBinding| {
+            (
+                server
+                    .load_builder()
+                    .with_guard(loads.ticket())
+                    .with_settings(|s: &mut ImageLoaderSettings| s.is_srgb = false)
+                    .load(spec.textures[b.texture].clone()),
+                b.clone(),
+            )
+        };
+        let materials = spec
+            .materials
+            .iter()
+            .map(|m| Surface {
+                color: m.color.as_ref().map(load),
+                multiply: m.multiply.as_ref().map(load),
+            })
+            .collect();
+        Self {
+            gltf,
+            resolved: false,
+            scene: Handle::default(),
+            clips: spec
+                .clips
+                .iter()
+                .map(|clip| {
+                    server
+                        .load_builder()
+                        .with_guard(loads.ticket())
+                        .load(clip.motion.clone())
+                })
+                .collect(),
+            materials,
+            spec,
+        }
+    }
+
+    pub(super) fn resolve(
+        &mut self,
+        server: &AssetServer,
+        gltfs: &Assets<bevy::gltf::Gltf>,
+        clips: &Assets<super::sparse_animation::Clip>,
+        images: &Assets<Image>,
+    ) -> Result<bool> {
+        if !server.is_loaded_with_dependencies(self.gltf.id()) {
+            return Ok(false);
+        }
+        let Some(gltf) = gltfs.get(&self.gltf) else {
+            return Ok(false);
+        };
+        if !self.clips.iter().all(|clip| clips.contains(clip)) {
+            return Ok(false);
+        }
+        for clip in &self.clips {
+            clips
+                .get(clip)
+                .unwrap()
+                .0
+                .validate_bones(self.spec.bone_names.len())?;
+        }
+        ensure!(
+            gltf.meshes.len() == self.materials.len(),
+            "model material recipe differs: {}",
+            self.spec.mesh
+        );
+        self.scene = gltf.scenes.first().context("model has no scene")?.clone();
+        self.resolved = true;
+        Ok(server.is_loaded_with_dependencies(self.scene.id())
+            && self.materials.iter().all(|m| {
+                m.color
+                    .iter()
+                    .chain(&m.multiply)
+                    .all(|(h, _)| images.contains(h.id()))
+            }))
+    }
+
+    pub(super) fn load_error(&self, server: &AssetServer) -> Option<String> {
+        std::iter::once(self.gltf.id().untyped())
+            .chain(self.clips.iter().map(|c| c.id().untyped()))
+            .chain(self.materials.iter().flat_map(|m| {
+                m.color
+                    .iter()
+                    .chain(&m.multiply)
+                    .map(|(h, _)| h.id().untyped())
+            }))
+            .find_map(|id| match server.get_load_states(id) {
+                Some((bevy::asset::LoadState::Failed(error), _, _)) => {
+                    Some(format!("{}: {error}", self.spec.mesh))
+                }
+                _ => None,
+            })
+    }
+
+    pub(super) fn surfaces(
+        &self,
+        images: &mut Assets<Image>,
+        sampled: &mut super::scene::SampledImages,
+    ) -> Vec<TitleSurface> {
+        self.materials
+            .iter()
+            .zip(&self.spec.materials)
+            .map(|(material, spec)| TitleSurface {
+                vertex_color: spec.vertex_color,
+                multiply: super::scene::sampled_image(material.multiply.clone(), images, sampled),
+                constant_color: self.spec.outline_color.is_some(),
+                blend: spec.blend,
+                depth_write: spec.depth_write,
+                cull: spec.cull,
+                tint: self.spec.outline_color.map_or(Vec4::ONE, |c| {
+                    Vec4::from_array(c.map(|v| f32::from(v) / 255.))
+                }),
+                ..TitleSurface::textured(super::scene::sampled_image(
+                    material.color.clone(),
+                    images,
+                    sampled,
+                ))
+            })
+            .collect()
+    }
+}
+
 #[derive(Component)]
 pub(super) struct ActorPart {
     pub(super) actor: i32,
@@ -351,7 +482,8 @@ pub(super) fn ready(world: &mut World) -> bool {
     let Some(art) = world.get_resource::<Art>() else {
         return false;
     };
-    art.ready
+    session.overworld.is_none()
+        && art.ready
         && art.map == session.assets.map_id
         && session.field.events.world.actors.iter().all(|(id, actor)| {
             !art.models.contains_key(&actor.resource) || art.instances.contains_key(id)
@@ -367,6 +499,7 @@ fn retire_live(world: &mut World) {
         return;
     }
     if let Some(session) = world.get_resource::<super::new_game::Session>()
+        && session.overworld.is_none()
         && world
             .get_resource::<Art>()
             .is_none_or(|art| art.map == session.assets.map_id)
@@ -409,7 +542,7 @@ fn load_live(
     let Some(session) = session else {
         return;
     };
-    if art.is_some() {
+    if art.is_some() || session.overworld.is_some() {
         return;
     }
     if let Some((art, mut ui, mut effects)) = retained.0.remove(&session.assets.map_id) {
@@ -566,6 +699,7 @@ pub(super) fn advance_live(
         return;
     }
     if !resident.active.load(std::sync::atomic::Ordering::Acquire)
+        || session.overworld.is_some()
         || !session.ready_for_field
         || session.audio.is_some()
         || session.field.events.world.field_transition.is_some()
@@ -601,11 +735,13 @@ fn camera(
     output_stage: Res<super::display::OutputStage>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<super::FieldCamera>>,
     mut outputs: ResMut<Assets<TitleOutput>>,
+    mut clear: ResMut<ClearColor>,
     mut applied: ResMut<Applied>,
 ) {
     if state.live.as_ref().is_some_and(|s| !s.ready_for_field) {
         return;
     }
+    clear.0 = Color::BLACK;
     let Some(camera) = &state.get().events.world.field_camera else {
         return;
     };
@@ -1235,47 +1371,7 @@ fn load_art(
     {
         let parts = parts
             .into_iter()
-            .map(|spec| {
-                let gltf = server
-                    .load_builder()
-                    .with_guard(loads.ticket())
-                    .load(spec.mesh.clone());
-                let load = |b: &TextureBinding| {
-                    (
-                        server
-                            .load_builder()
-                            .with_guard(loads.ticket())
-                            .with_settings(|s: &mut ImageLoaderSettings| s.is_srgb = false)
-                            .load(spec.textures[b.texture].clone()),
-                        b.clone(),
-                    )
-                };
-                let materials = spec
-                    .materials
-                    .iter()
-                    .map(|m| Surface {
-                        color: m.color.as_ref().map(load),
-                        multiply: m.multiply.as_ref().map(load),
-                    })
-                    .collect();
-                Part {
-                    gltf,
-                    resolved: false,
-                    scene: Handle::default(),
-                    clips: spec
-                        .clips
-                        .iter()
-                        .map(|clip| {
-                            server
-                                .load_builder()
-                                .with_guard(loads.ticket())
-                                .load(clip.motion.clone())
-                        })
-                        .collect(),
-                    materials,
-                    spec,
-                }
-            })
+            .map(|spec| Part::load(spec, server, &loads))
             .collect();
         models.insert(resource, parts);
     }

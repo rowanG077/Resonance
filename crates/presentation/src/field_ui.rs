@@ -1,6 +1,9 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
 #[path = "field_ui_coverage.rs"]
 mod coverage;
+#[path = "field_ui_failure.rs"]
+mod failure;
+pub(super) use failure::update as transition_failure;
 #[path = "field_ui_menu.rs"]
 mod menu;
 #[path = "field_ui_overlay.rs"]

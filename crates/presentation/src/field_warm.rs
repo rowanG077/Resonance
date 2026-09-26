@@ -91,11 +91,13 @@ fn retire(
     retained: Option<Res<PreparedMaterials>>,
     shared: Res<Shared>,
 ) {
-    if session.is_some() || pending.is_some() {
+    if session.as_ref().is_some_and(|s| s.overworld.is_none()) || pending.is_some() {
         return;
     }
-    resident.active.store(false, Ordering::Release);
-    resident.files.write().unwrap().take();
+    if session.is_none() {
+        resident.active.store(false, Ordering::Release);
+        resident.files.write().unwrap().take();
+    }
     if let Some(preparation) = preparation {
         for entity in preparation.roots.iter().chain(&preparation.entities) {
             commands.entity(*entity).despawn();
@@ -128,7 +130,10 @@ fn begin(
         return;
     };
     if session.is_none_or(|s| {
-        s.assets.map_id != art.map || s.field.events.world.field_transition.is_some()
+        s.overworld.is_some()
+            || s.assets.map_id != art.map
+            || s.events().world.field_transition.is_some()
+            || s.events().world.world_transition.is_some()
     }) {
         return;
     }
@@ -478,6 +483,11 @@ fn rendered(
     device: Res<bevy::render::renderer::RenderDevice>,
 ) {
     let mut report = shared.0.lock().unwrap();
+    // The overworld also uses Resident, but never starts this field-only GPU
+    // preparation pass. A retired field report cannot govern its pipelines.
+    if report.map.is_none() {
+        return;
+    }
     use bevy::render::render_resource::PipelineDescriptor;
     let relevant = || {
         cache.pipelines().filter(|p| matches!(&p.descriptor,

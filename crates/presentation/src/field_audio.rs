@@ -899,7 +899,15 @@ pub(super) fn update(world: &mut World) {
         .active
         .load(Ordering::Acquire)
         || world.resource::<super::new_game::Session>().audio.is_some()
-            && !super::field_view::ready(world)
+            && !(if world
+                .resource::<super::new_game::Session>()
+                .overworld
+                .is_some()
+            {
+                super::overworld::ready(world)
+            } else {
+                super::field_view::ready(world)
+            })
     {
         return;
     }
@@ -919,23 +927,28 @@ pub(super) fn update(world: &mut World) {
                 world.spawn((AudioPlayer(handle), PlaybackSettings::ONCE));
                 world.insert_resource(control);
             }
-            let control = world.resource::<Control>().clone();
-            world
-                .resource_mut::<super::new_game::Session>()
-                .field
-                .voice_feedback = Some(Arc::new(control));
+            if world
+                .resource::<super::new_game::Session>()
+                .overworld
+                .is_none()
+            {
+                let control = world.resource::<Control>().clone();
+                world
+                    .resource_mut::<super::new_game::Session>()
+                    .field
+                    .voice_feedback = Some(Arc::new(control));
+            }
         }
         let commands = std::mem::take(
             &mut world
                 .resource_mut::<super::new_game::Session>()
-                .field
-                .events
+                .events_mut()
                 .world
                 .audio_commands,
         );
-        let field = &world.resource::<super::new_game::Session>().field;
-        let preferences = field
-            .events
+        let owner = world.resource::<super::new_game::Session>();
+        let preferences = owner
+            .events()
             .world
             .party
             .as_ref()
@@ -954,25 +967,22 @@ pub(super) fn update(world: &mut World) {
         });
         // Music previews while editing. New cues and stereo use the committed
         // settings, including the Back cue emitted when Customize commits.
-        if let Some(preview) = field
-            .menu
-            .as_ref()
-            .and_then(resonance_game::menu::Menu::preferences)
+        if owner.overworld.is_none()
+            && let Some(preview) = owner
+                .field
+                .menu
+                .as_ref()
+                .and_then(resonance_game::menu::Menu::preferences)
         {
             levels[0] = preview.volumes.music;
         }
         world.resource_mut::<Control>().stereo(stereo)?;
         world.resource_mut::<Control>().levels(levels)?;
         let session = world.resource::<super::new_game::Session>();
-        let movie_active =
-            session.movie_owns_audio() || session.field.events.world.blocked_by_movie();
+        let movie_active = session.movie_owns_audio() || session.events().world.blocked_by_movie();
         world.resource_mut::<Control>().movie(movie_active)?;
         if world.contains_resource::<Trace>() {
-            let tick = world
-                .resource::<super::new_game::Session>()
-                .field
-                .events
-                .tick();
+            let tick = world.resource::<super::new_game::Session>().events().tick();
             let frame = world.resource::<Control>().rendered_frames();
             let mut trace = world.resource_mut::<Trace>();
             ensure!(
@@ -996,8 +1006,7 @@ pub(super) fn update(world: &mut World) {
         error!("Field audio adapter failed: {error:#}");
         world
             .resource_mut::<super::new_game::Session>()
-            .field
-            .events
+            .events_mut()
             .cancel();
         world.write_message(AppExit::error());
     }
@@ -1050,6 +1059,68 @@ pub(super) fn acknowledge(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires RESONANCE_WORLD_ASSETS; synthesizes native world music and vehicles without a device"]
+    fn original_world_music_and_vehicle_sounds_render_from_verified_assets() -> Result<()> {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        );
+        let prepared = resonance_game::overworld::Prepared::load(
+            &root,
+            &mut Default::default(),
+            (0..547).collect(),
+            || false,
+        )?;
+        let bank = Cache::default().load(&root, "worlds/audio.json", &prepared.files)?;
+        for id in [2, 3, 4, 5] {
+            let (source, control) = (*bank).clone().session();
+            let mut frames = source.decoder();
+            control.send(AudioCommand::Music(MusicCommand::Play(id)))?;
+            let mut audible = false;
+            for _ in 0..RATE * 2 {
+                let frame = frames.frame()?.context("world music ended")?;
+                ensure!(frame.iter().all(|v| v.is_finite()), "invalid music sample");
+                audible |= frame.iter().any(|v| v.abs() > 0.001);
+            }
+            ensure!(audible, "silent world music {id}");
+        }
+        for id in [24, 25] {
+            let (source, control) = (*bank).clone().session();
+            let mut frames = source.decoder();
+            control.send(AudioCommand::RepeatSound {
+                id,
+                pan: 64,
+                volume: 64,
+                slot: 15,
+            })?;
+            let mut audible = false;
+            for index in 0..RATE * 8 {
+                let frame = frames.frame()?.context("world vehicle sound ended")?;
+                ensure!(
+                    frame.iter().all(|v| v.is_finite()),
+                    "invalid vehicle sample"
+                );
+                if index >= RATE * 7 {
+                    audible |= frame.iter().any(|v| v.abs() > 0.001);
+                }
+            }
+            ensure!(audible, "silent world vehicle {id}");
+            assert_eq!(
+                frames
+                    .sounds
+                    .iter()
+                    .filter(|sound| sound.slot == Some(15))
+                    .count(),
+                1
+            );
+            control.send(AudioCommand::StopSound(15))?;
+            frames.frame()?;
+            assert!(frames.sounds.iter().all(|sound| sound.slot != Some(15)));
+            assert!(frames.sounds.iter().all(|sound| sound.repeat.is_none()));
+        }
+        Ok(())
+    }
 
     fn synthetic_assets() -> Assets {
         Assets {
