@@ -51,6 +51,21 @@ impl Artwork {
             return Ok(());
         }
         let mut batches = [Batch::default(), Batch::default()];
+        if session.allow_incomplete_scripts
+            && session
+                .events
+                .world
+                .party
+                .as_ref()
+                .is_some_and(|p| p.travel.overworld.is_some())
+        {
+            let hint = if session.events.exploration_error.is_some() {
+                "Exploration preview - Home / Start: Overworld"
+            } else {
+                "Home / Start: Return to overworld"
+            };
+            skit::centered(&mut batches[1], &self.font, hint, 16., 15., 0.9, true)?;
+        }
         let button_highlight = session.effect_clock.tick() & 32 != 0;
         if let Some(prompt) = session.action_prompt() {
             let glyphs = self
@@ -95,32 +110,43 @@ impl Artwork {
                 x += glyph.advance as f32;
             }
         }
-        if let Some(prompt) = session.skit_prompt() {
-            let v = if button_highlight { 49. } else { 73. };
-            batches[0].quad(
-                [16., 432., 40., 456.],
-                [233., v, 255., v + 22.],
-                [1., 1., 1., f32::from(prompt.opacity) / 255.],
-            );
-            if prompt.title_visible {
-                let mut x = 56.;
-                for c in prompt.title.chars() {
-                    let glyph = self
-                        .font
-                        .glyphs
-                        .get(&c)
-                        .with_context(|| format!("uncooked skit title glyph {c:?}"))?;
-                    let [u, v, w, h] = glyph.rect.map(|v| v as f32);
-                    batches[1].quad(
-                        [x, 432., x + 20., 456.],
-                        [u, v, u + w * 255. / 256., v + h * 255. / 256.],
-                        [1., 1., 1., f32::from(prompt.text_opacity) / 255.],
-                    );
-                    x = (x + glyph.advance as f32 * (5. / 6.)).trunc()
-                        + f32::from(resonance_content::font::is_single_byte(c));
-                }
-            }
-        }
+        draw_skit_prompt(
+            &mut batches,
+            &self.font,
+            session.skit_prompt(),
+            button_highlight,
+        )?;
+        self.upload_prompts(batches, commands, meshes)
+    }
+    pub(super) fn render_world_notifications(
+        &mut self,
+        session: &resonance_game::overworld::Session,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        let mut batches = [Batch::default(), Batch::default()];
+        let prompt = if session.active_skit.is_none()
+            && session.menu.is_none()
+            && session.prompt().is_none()
+        {
+            session.skit_prompt()
+        } else {
+            None
+        };
+        draw_skit_prompt(
+            &mut batches,
+            &self.font,
+            prompt,
+            session.events.tick() & 32 != 0,
+        )?;
+        self.upload_prompts(batches, commands, meshes)
+    }
+    fn upload_prompts(
+        &mut self,
+        batches: [Batch; 2],
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
         let texture = &self.spec.textures[0];
         for ((layer, batch), size) in self.prompt_layers.iter_mut().zip(batches).zip([
             [texture.width, texture.height],
@@ -134,4 +160,38 @@ impl Artwork {
         }
         Ok(())
     }
+}
+
+fn draw_skit_prompt(
+    batches: &mut [Batch; 2],
+    font: &BitmapFont,
+    prompt: Option<resonance_game::field::SkitPrompt<'_>>,
+    button_highlight: bool,
+) -> Result<()> {
+    if let Some(prompt) = prompt {
+        let v = if button_highlight { 49. } else { 73. };
+        batches[0].quad(
+            [16., 432., 40., 456.],
+            [233., v, 255., v + 22.],
+            [1., 1., 1., f32::from(prompt.opacity) / 255.],
+        );
+        if prompt.title_visible {
+            let mut x = 56.;
+            for c in prompt.title.chars() {
+                let glyph = font
+                    .glyphs
+                    .get(&c)
+                    .with_context(|| format!("uncooked skit title glyph {c:?}"))?;
+                let [u, v, w, h] = glyph.rect.map(|v| v as f32);
+                batches[1].quad(
+                    [x, 432., x + 20., 456.],
+                    [u, v, u + w * 255. / 256., v + h * 255. / 256.],
+                    [1., 1., 1., f32::from(prompt.text_opacity) / 255.],
+                );
+                x = (x + glyph.advance as f32 * (5. / 6.)).trunc()
+                    + f32::from(resonance_content::font::is_single_byte(c));
+            }
+        }
+    }
+    Ok(())
 }
