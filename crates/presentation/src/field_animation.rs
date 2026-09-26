@@ -78,37 +78,48 @@ pub(super) fn sample(
     let world = &state.get().events.world;
     for (part, mut rig) in &mut rigs {
         rig.authored_channels.fill(0);
-        let Some(index) = part.active_clip else {
-            continue;
-        };
-        let animation = world.actors[&part.actor].animation.as_ref().unwrap();
+        let actor = &world.actors[&part.actor];
         let model = &art.models[&part.resource][part.part];
-        let clip = &clips
-            .get(&model.clips[index])
-            .expect("prepared sparse clip")
-            .0;
-        let time = animation.sample(
-            world.tick,
-            0,
-            model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ,
-        );
-        for track in &clip.tracks {
-            rig.authored_channels[usize::from(track.bone)] = track.channels().0;
+        for animation in actor
+            .animation
+            .iter()
+            .chain(actor.scenery_animations.values())
+        {
+            let Some(index) = model
+                .spec
+                .clips
+                .iter()
+                .position(|clip| animation.matches(clip, actor.resource))
+            else {
+                continue;
+            };
+            let clip = &clips
+                .get(&model.clips[index])
+                .expect("prepared sparse clip")
+                .0;
+            let time = animation.sample(
+                world.tick,
+                0,
+                model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ,
+            );
+            for track in &clip.tracks {
+                rig.authored_channels[usize::from(track.bone)] |= track.channels().0;
+            }
+            super::sparse_animation::sample(
+                &rig.bones,
+                clip,
+                time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
+                &mut nodes,
+                &mut affine,
+            )
+            .expect("validated sparse animation must evaluate");
+            applied.ack(super::field_audit::Request::Animation {
+                actor: part.actor,
+                part: part.part,
+                resource: animation.resource,
+                slot: animation.slot,
+            });
         }
-        super::sparse_animation::sample(
-            &rig.bones,
-            clip,
-            time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
-            &mut nodes,
-            &mut affine,
-        )
-        .expect("validated sparse animation must evaluate");
-        applied.ack(super::field_audit::Request::Animation {
-            actor: part.actor,
-            part: part.part,
-            resource: animation.resource,
-            slot: animation.slot,
-        });
     }
 }
 
