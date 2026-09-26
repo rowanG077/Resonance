@@ -338,7 +338,7 @@ fn compose(
     Ok(pixels)
 }
 
-fn centered(
+pub(super) fn centered(
     batch: &mut Batch,
     font: &BitmapFont,
     text: &str,
@@ -405,7 +405,11 @@ mod tests {
     #[ignore = "requires cook-all and prepared skits; no graphics or audio device"]
     fn original_shared_portraits_decode_and_compose_without_atlases() -> Result<()> {
         use bevy::image::{CompressedImageFormats, ImageType};
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets");
+        let root = std::env::var_os("RESONANCE_WORLD_ASSETS")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets")
+            });
         let catalog: SkitCatalog =
             serde_json::from_slice(&std::fs::read(root.join("game/skits.json"))?)?;
         catalog.validate()?;

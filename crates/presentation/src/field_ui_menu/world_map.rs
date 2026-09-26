@@ -49,12 +49,28 @@ impl Drawing<'_> {
         let locations = menu.map_locations();
         let phase = self.tick % 60 * 512 / 60;
         let alpha = if phase < 256 { phase } else { 511 - phase } as f32 / 255.;
-        if let Some(location) = travel
-            .current_location
-            .filter(|id| id / 256 == u16::from(state.world))
-            .and_then(|id| data.world_map.locations.get(&id))
+        let current = if menu
+            .checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| checkpoint.map_id == 3000)
         {
-            self.map_crosshair(location.point, [1., 128. / 255., 128. / 255., 1. - alpha]);
+            travel
+                .overworld
+                .as_ref()
+                .filter(|world| world.world.index() == usize::from(state.world))
+                .map(|world| {
+                    let [x, z, _] = world.position.map();
+                    [(x / 200.).trunc() as i16, (z / 200.).trunc() as i16]
+                })
+        } else {
+            travel
+                .current_location
+                .filter(|id| id / 256 == u16::from(state.world))
+                .and_then(|id| data.world_map.locations.get(&id))
+                .map(|location| location.point)
+        };
+        if let Some(point) = current {
+            self.map_crosshair(point, [1., 128. / 255., 128. / 255., 1. - alpha]);
         }
         if let Some((_, location)) = locations.get(state.location) {
             self.map_crosshair(location.point, [1., 1., 1., alpha]);
