@@ -612,6 +612,18 @@ pub(super) fn activate(world: &mut World, session: Session) {
     );
 }
 
+/// This switch belongs to the temporary test, including fields reached from it.
+pub(super) fn skip_test_battles(options: Res<RunOptions>, session: Option<ResMut<Session>>) {
+    if options.skip_battles
+        && let Some(mut session) = session
+    {
+        session.field.allow_incomplete_scripts = true;
+        if let Err(error) = session.events_mut().world.skip_battle_as_victory() {
+            error!("Could not finish test battle: {error}");
+        }
+    }
+}
+
 /// The VM requests a field; the scene owner replaces it after validating its
 /// cooked package. Outstanding callbacks are cancelled before actors retire.
 pub(super) fn transition(world: &mut World) {

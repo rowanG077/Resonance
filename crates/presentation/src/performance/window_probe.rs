@@ -82,6 +82,7 @@ fn run(
             movie_frame: None,
             boot_frame: None,
             skip_intro: true,
+            skip_battles: false,
             record_playthrough: None,
             record_title_ticks: 1000,
         },

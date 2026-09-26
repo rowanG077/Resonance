@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(about = "Resonance — Tales of Symphonia reimplementation")]
-#[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame", "load"]).multiple(false)))]
+#[command(group(clap::ArgGroup::new("checkpoint").args(["tick", "movie_frame", "boot_frame", "load", "test_overworld"]).multiple(false)))]
 struct Args {
     #[arg(long, default_value = "local/all-assets")]
     assets: PathBuf,
@@ -19,6 +19,9 @@ struct Args {
     /// Start from a free-exploration save, without replaying the opening.
     #[arg(long, conflicts_with_all = ["record_music", "record_playthrough", "replay"])]
     load: Option<PathBuf>,
+    /// Temporary playground: start above Sylvarant on unlocked Rheairds.
+    #[arg(long, conflicts_with_all = ["record_music", "record_playthrough", "replay"])]
+    test_overworld: bool,
     /// Fixed render resolution for this session (default 640x480); restart to change it.
     #[arg(long, conflicts_with_all = ["capture", "record_music", "record_playthrough", "replay"])]
     resolution: Option<resonance_presentation::Resolution>,
@@ -73,7 +76,20 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    // Keep the fixture and default save slots alive for this run only. The
+    // ordinary checkpoint loader then owns rendering, audio and flight input.
+    let _playground = if args.test_overworld {
+        let directory = tempfile::tempdir()?;
+        let checkpoint = directory.path().join("rheairds.json");
+        resonance_presentation::prepare_overworld_test_fixture(&args.assets, &checkpoint)?;
+        args.load = Some(checkpoint);
+        args.save_directory
+            .get_or_insert_with(|| directory.path().join("saves"));
+        Some(directory)
+    } else {
+        None
+    };
     if let Some(output) = &args.record_music {
         return resonance_presentation::record_title_music(
             &args.assets,
@@ -102,6 +118,7 @@ fn main() -> anyhow::Result<()> {
             movie_frame: args.movie_frame,
             boot_frame: args.boot_frame,
             skip_intro: args.skip_intro,
+            skip_battles: args.test_overworld,
             record_playthrough: args.record_playthrough,
             record_title_ticks: args.record_title_ticks,
         },

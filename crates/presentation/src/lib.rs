@@ -57,8 +57,9 @@ mod overworld;
 pub use overworld::{Probe as OverworldProbe, capture_overworld};
 mod saves;
 pub use saves::{
-    CheckpointReplay, SaveOptions, prepare_checkpoint_fixture, record_checkpoint,
-    record_checkpoint_with_display, run_menu_probe, run_quicksave_probe, run_title_load_probe,
+    CheckpointReplay, SaveOptions, prepare_checkpoint_fixture, prepare_overworld_test_fixture,
+    record_checkpoint, record_checkpoint_with_display, run_menu_probe, run_overworld_field_probe,
+    run_quicksave_probe, run_title_load_probe,
 };
 mod new_game_capture;
 mod secondary_motion;
@@ -101,6 +102,8 @@ pub struct RunOptions {
     pub movie_frame: Option<u32>,
     pub boot_frame: Option<u32>,
     pub skip_intro: bool,
+    /// Temporary exploration: resolve field and world battles as victories.
+    pub skip_battles: bool,
     pub record_playthrough: Option<PathBuf>,
     pub record_title_ticks: u32,
 }
@@ -413,6 +416,7 @@ fn build_app_with_display(
             (
                 saves::update,
                 new_game::enter,
+                new_game::skip_test_battles,
                 new_game::transition,
                 scene::bind_animated,
                 prepare_field,

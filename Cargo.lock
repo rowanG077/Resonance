@@ -4330,6 +4330,7 @@ dependencies = [
  "anyhow",
  "clap",
  "resonance-presentation",
+ "tempfile",
 ]
 
 [[package]]
@@ -4547,6 +4548,7 @@ dependencies = [
  "sha2",
  "symphonia-script",
  "symphonia-script-tools",
+ "tempfile",
  "time",
 ]
 
