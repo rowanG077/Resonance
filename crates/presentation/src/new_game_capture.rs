@@ -128,6 +128,7 @@ fn record(
             reveal: false,
             selected: 0,
             silent: true,
+            paranoid: true,
             replay: None,
             movie_frame: None,
             boot_frame: None,
@@ -978,19 +979,51 @@ pub(super) fn screenshot(
     failed: Arc<AtomicBool>,
     written: Arc<AtomicU32>,
 ) -> Result<()> {
+    screenshot_inner(app, path, failed, written, false)
+}
+
+/// Checkpoint replays can continue through Game Over after retiring the field.
+/// Those owners require the same held readback as a live field checkpoint.
+pub(super) fn screenshot_held(
+    app: &mut App,
+    path: PathBuf,
+    failed: Arc<AtomicBool>,
+    written: Arc<AtomicU32>,
+) -> Result<()> {
+    screenshot_inner(app, path, failed, written, true)
+}
+
+fn screenshot_inner(
+    app: &mut App,
+    path: PathBuf,
+    failed: Arc<AtomicBool>,
+    written: Arc<AtomicU32>,
+    hold: bool,
+) -> Result<()> {
+    let fixed_scene = hold
+        .then(|| crate::saves::recording_scene(app.world()))
+        .transpose()?;
+    let fixed_battle = app
+        .world()
+        .get_resource::<battle::Owner>()
+        .and_then(|battle| battle.diagnostic());
+    let fixed_presentation = app.world().resource::<Clock>().0.tick();
     let fixed_tick = app
         .world()
         .get_resource::<new_game::Session>()
         .filter(|s| s.ready_for_field && !app.world().resource::<movie::Playback>().active)
         .map(|s| s.field.events.tick());
-    if fixed_tick.is_some() {
+    let locked = hold || fixed_tick.is_some();
+    if locked {
         // Readback happens on a later render submission. Keep the gameplay
         // snapshot fixed so an effect/opening image cannot depict tick N+1
         // while its sidecar describes tick N. No audio samples are consumed.
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
         app.update();
         playthrough::check_exit(app)?;
-        super::model_preview::synchronize_capture(app)?;
+        if fixed_tick.is_some() {
+            super::model_preview::synchronize_capture(app)?;
+        }
     }
     let completed = Arc::new(AtomicBool::new(false));
     let captured = completed.clone();
@@ -998,11 +1031,12 @@ pub(super) fn screenshot(
     let framebuffer = app.world().resource::<Framebuffer>().0.clone();
     let secondary = super::secondary_motion::diagnostic(app.world_mut());
     let shadows = field_view::shadow_diagnostic(app.world_mut());
-    let metadata = app.world().get_resource::<new_game::Session>().map(|session| {
+    let mut metadata = app.world().get_resource::<new_game::Session>().map(|session| {
         let field = &session.field;
         serde_json::json!({"tick":field.events.tick(),"input_enabled":field.events.world.input_enabled,
             "output_stage":app.world().resource::<display::OutputStage>(),
-            "talking":field.talking, "state_tick_locked":fixed_tick.is_some(),
+            "talking":field.talking, "state_tick_locked":locked,
+            "battle":fixed_battle.as_ref(),
             "secondary_chains":secondary,
             "contact_shadows":shadows,
             "camera":field.events.world.field_camera.as_ref().map(|c|serde_json::json!({"position":c.position,"target":c.target,"fov_degrees":c.fov_degrees()})),
@@ -1012,6 +1046,14 @@ pub(super) fn screenshot(
             "fade":format!("{:?}",field.events.world.fade),
             "dialogue":field.dialogue.values().filter(|d| !d.closed).map(|d|d.current().glyphs.iter().take(d.visible).map(|g|g.character).collect::<String>()).collect::<Vec<_>>()})
     });
+    if let Some(scene) = &fixed_scene {
+        let metadata = metadata.get_or_insert_with(|| serde_json::json!({}));
+        metadata["scene"] = scene.clone();
+        metadata["state_tick_locked"] = serde_json::json!(true);
+        metadata["presentation_counter"] = serde_json::json!(fixed_presentation);
+        metadata["output_stage"] =
+            serde_json::to_value(app.world().resource::<display::OutputStage>())?;
+    }
     app.world_mut()
         .spawn(Screenshot(framebuffer))
         .observe(move |event: On<ScreenshotCaptured>| {
@@ -1023,24 +1065,37 @@ pub(super) fn screenshot(
                 captured.store(true, Ordering::Release);
             }
         });
-    if let Some(tick) = fixed_tick {
+    if locked {
         let began = Instant::now();
         while !completed.load(Ordering::Acquire) {
             anyhow::ensure!(
                 began.elapsed() < Duration::from_secs(10) && !failure.load(Ordering::Acquire),
-                "field checkpoint readback failed"
+                "checkpoint readback failed"
             );
             app.update();
             playthrough::check_exit(app)?;
             anyhow::ensure!(
-                app.world()
-                    .resource::<new_game::Session>()
-                    .field
-                    .events
-                    .tick()
-                    == tick,
+                fixed_tick.is_none_or(|tick| app
+                    .world()
+                    .get_resource::<new_game::Session>()
+                    .is_some_and(|session| session.field.events.tick() == tick)),
                 "field checkpoint advanced gameplay during readback"
             );
+            anyhow::ensure!(
+                app.world()
+                    .get_resource::<battle::Owner>()
+                    .and_then(|battle| battle.diagnostic())
+                    == fixed_battle
+                    && (!hold && fixed_battle.is_none()
+                        || app.world().resource::<Clock>().0.tick() == fixed_presentation),
+                "battle checkpoint changed during readback"
+            );
+            if let Some(scene) = &fixed_scene {
+                anyhow::ensure!(
+                    crate::saves::recording_scene(app.world())? == *scene,
+                    "checkpoint scene changed during held readback"
+                );
+            }
             thread::sleep(Duration::from_millis(1));
         }
         app.insert_resource(TimeUpdateStrategy::ManualDuration(

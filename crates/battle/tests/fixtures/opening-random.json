@@ -1,0 +1,86 @@
+{
+  "scope": "LCG arithmetic only. Draw counts inferred from observed transitions, not evidence of action consumption order.",
+  "oracle": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "d74977e7681b13cea0f7a1464c572c94d32757354a4e7974333b849e50fa65b3",
+    "initial_state_sha256": "975782ffa10190ceb70020c770c01bb75b53cae8383eca9b4aeb7d90caa0bb46",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    }
+  },
+  "capture_sha256": "03bb595ade9dae65e8772bb551e1eb721cbb95ee46575b9cb17fcad1b40f4662",
+  "memory_sha256": "15ab2e6249c77d366638645ab9495dce99201d516dfd3e524c988dc2d679347d",
+  "origin": {
+    "battle_random_state_word": 4199247352,
+    "battle_gameplay_tick_word": 317,
+    "battle_combat_tick_word": 258,
+    "battle_presentation_tick_word": 317,
+    "battle_pause_flags_word": 1,
+    "vi": 0
+  },
+  "transitions": [
+    {
+      "vi": 10,
+      "before": 4199247352,
+      "after": 2296814266,
+      "draws": 2
+    },
+    {
+      "vi": 11,
+      "before": 2296814266,
+      "after": 1933796281,
+      "draws": 1
+    },
+    {
+      "vi": 44,
+      "before": 1933796281,
+      "after": 3057429068,
+      "draws": 1
+    },
+    {
+      "vi": 45,
+      "before": 3057429068,
+      "after": 378700003,
+      "draws": 1
+    },
+    {
+      "vi": 54,
+      "before": 378700003,
+      "after": 2454380846,
+      "draws": 1
+    },
+    {
+      "vi": 57,
+      "before": 2454380846,
+      "after": 1887814519,
+      "draws": 19
+    },
+    {
+      "vi": 58,
+      "before": 1887814519,
+      "after": 186613209,
+      "draws": 10
+    },
+    {
+      "vi": 59,
+      "before": 186613209,
+      "after": 1438177742,
+      "draws": 3
+    }
+  ]
+}

@@ -1,0 +1,821 @@
+{
+  "scope": "22 natural eligible contact rolls, including two successful stun entries and later re-entry after interruption. No modified game state or input retiming.",
+  "source": {
+    "revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+    "rel_sha256": "b2acfb222246fbbecf5ab8025fb08241c736da65031104fd4be9c51c301df214",
+    "targets": {
+      "fn_1_9E38": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_9E38.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "3acd6db2fe50307c1becf81fab100f8adc41b9b7065a04cb61f609e9ade73d6f"
+      },
+      "fn_1_1BA44": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_1BA44.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "43f5422869b3803eb21278640891f197647ef1a6a1c9cadc7d638a4ab6b82b73"
+      },
+      "fn_1_29330": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_29330.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "94396fa25974a62040e0a95d2460d05234880b86790a26e3a426c94d57cbfc6f"
+      },
+      "fn_1_2A710": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_2A710.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "1786dd465248564d1a6123a099804881ddd9752a3f3319d4fd73f6a085c1febc"
+      },
+      "fn_1_2B18C": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_2B18C.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "afeae05ca17b7d85ef45f0399750f93c6019807ddaf82decff2565325fe670b9"
+      },
+      "fn_1_2E848": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_2E848.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "0d14cacb6aa2f3f5953a99752b591013d26ae11eec2f339a4325f0350b140056"
+      },
+      "fn_1_2F284": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_2F284.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "fe8f55b996f3806ac9ee743559a9bfdf58c52b73831d9a0af674ec12e1a2a73b"
+      },
+      "fn_1_3BDF8": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_3BDF8.c",
+        "match_status": "partial",
+        "match_tier": "partial",
+        "match_percent": 3.6227,
+        "link_status": "unlinked",
+        "source_sha256": "dc1cbd41620fb65306fce9f4df8074135d2c142837e13d993975471de0e1615d"
+      }
+    },
+    "instruction_sha256": "390a50329a4e5e9ed1e4add4cfa23bfd956c6490dd7609460819a8b3e27f4531",
+    "stun_constants": {
+      "0x17d8": 0.0,
+      "0x1998": 0.10000000149011612,
+      "0x19a0": 0.5,
+      "0x19c4": -2.5,
+      "0x19c8": -7.5
+    }
+  },
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "11378925d993ad7c4e23f03a5e4f13fb00bfe97fb3e31b632b781331f5af77f4",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "effective_configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "RetroAchievements.ini": "3c0dd9a34631867226e2cbdd407075550de57ee09aff91a15ba74d9670dc58d3",
+      "GBA.ini": "da87f7564bc33321b15c4824bc83a35d95d6703aa90563013bc48162e2264255",
+      "Qt.ini": "de649067f1a0e0a7f67ad5bd9a519757249b01bd8342a62e2a09c03ed0ce45a0",
+      "FreeLook.ini": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "e1fdaf9f84be31df89fc0c22cb140f8baf447c9bc16d1c7d9c7a9ca7bbcba094",
+      "GCPadNew.ini": "396ec02cbb5acb99e935ddac942ef0264533d1e65438f39f2380e770c2492170",
+      "TimePlayed.ini": "eaa4b4a5b25cf58dba753feed5c6b390c1680a1ec400ce7658e21e74298541d0",
+      "GCKeyNew.ini": "48a3c9ccf16c86e9a70b3df2e8fd4ff0a56ff60ee0513a79617ad99df5061d19",
+      "FreeLookController.ini": "ad9ce95aadbd0ca48a57b6a1c03518f9c2075f335c2a2311fece5853e505d955",
+      "DSUClient.ini": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Logger.ini": "562251e06bf393ce22407d510947dcd04e1a10babad1cc147cd6b84571eb163c",
+      "WiimoteNew.ini": "178010ac594018157ac0f7b5e56b2d37cd8545b305e47e68fe861484d612f395"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    }
+  },
+  "trace_sha256": "a7df16a1c0a19e5742ade6748e3f906f6947a8ce60422cccc9f6c266c8023a4f",
+  "memory_sha256": "fd7e55d0e01887075fb05a4fdacb5ef185e92c7a934f07ed7c2d31bcb40e38f3",
+  "ordinary_memory_sha256": "ef094c35ff743924eb5bd18f685da0b4d484a6313289a135188ad0f6532f72e9",
+  "comparison_sha256": "1a0c754cdda1ff096b4bdc161f198eab1074bd451ebd7610968c0f611a278916",
+  "comparison": {
+    "samples": 1592,
+    "fields": 85,
+    "differences": 0
+  },
+  "observations": [
+    {
+      "index": 0,
+      "combat_tick": 380,
+      "presentation_counter": 43801,
+      "owner": 2167295296,
+      "target": 2167267008,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 2400601947,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 30,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 28242502
+    },
+    {
+      "index": 1,
+      "combat_tick": 427,
+      "presentation_counter": 43848,
+      "owner": 2167274080,
+      "target": 2167295296,
+      "chance": 0,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 3876057484,
+      "ex_bonus": false,
+      "effective_chance": 0,
+      "roll": 25,
+      "after": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 676681507
+    },
+    {
+      "index": 2,
+      "combat_tick": 466,
+      "presentation_counter": 43887,
+      "owner": 2167274080,
+      "target": 2167295296,
+      "chance": 0,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 2102115881,
+      "ex_bonus": false,
+      "effective_chance": 0,
+      "roll": 97,
+      "after": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 3925429244
+    },
+    {
+      "index": 3,
+      "combat_tick": 467,
+      "presentation_counter": 43888,
+      "owner": 2167281152,
+      "target": 2167295296,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 1805214560,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 33,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 3370739303
+    },
+    {
+      "index": 4,
+      "combat_tick": 479,
+      "presentation_counter": 43900,
+      "owner": 2167281152,
+      "target": 2167302368,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 3404610786,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 27,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 1994104513
+    },
+    {
+      "index": 5,
+      "combat_tick": 483,
+      "presentation_counter": 43904,
+      "owner": 2167281152,
+      "target": 2167295296,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 1548185770,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 29,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 1548589801
+    },
+    {
+      "index": 6,
+      "combat_tick": 698,
+      "presentation_counter": 44119,
+      "owner": 2167274080,
+      "target": 2167295296,
+      "chance": 0,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 827399730,
+      "ex_bonus": false,
+      "effective_chance": 0,
+      "roll": 43,
+      "after": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 3279678929
+    },
+    {
+      "index": 7,
+      "combat_tick": 737,
+      "presentation_counter": 44158,
+      "owner": 2167274080,
+      "target": 2167295296,
+      "chance": 0,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 2896202368,
+      "ex_bonus": false,
+      "effective_chance": 0,
+      "roll": 64,
+      "after": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 161533703
+    },
+    {
+      "index": 8,
+      "combat_tick": 743,
+      "presentation_counter": 44164,
+      "owner": 2167281152,
+      "target": 2167302368,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 799368987,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 35,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 1221326598
+    },
+    {
+      "index": 9,
+      "combat_tick": 744,
+      "presentation_counter": 44165,
+      "owner": 2167281152,
+      "target": 2167295296,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 3019993994,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 5,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 2090931273
+    },
+    {
+      "index": 10,
+      "combat_tick": 747,
+      "presentation_counter": 44168,
+      "owner": 2167267008,
+      "target": 2167295296,
+      "chance": 2,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 4036517211,
+      "ex_bonus": false,
+      "effective_chance": 2,
+      "roll": 62,
+      "after": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 751194182
+    },
+    {
+      "index": 11,
+      "combat_tick": 764,
+      "presentation_counter": 44185,
+      "owner": 2167281152,
+      "target": 2167302368,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 4067699304,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 0,
+      "after": {
+        "activity": 15,
+        "remaining": 180,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 1
+      },
+      "random_after": 3571750095,
+      "particle": {
+        "address": 2167592056,
+        "declaration": "070000110000100000010041001e001e000004000480000000800080008000000000000000000000000000200000000008000000000000004238000000000000000000000000000000000000000000000000000000000000c2b4000000000000000000000000000000000000c0200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004200000042000000424800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c2136b0f42de5929c333d26f80ac7ae40000000000000000"
+      }
+    },
+    {
+      "index": 12,
+      "combat_tick": 878,
+      "presentation_counter": 44299,
+      "owner": 2167267008,
+      "target": 2167302368,
+      "chance": 2,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 2869494873,
+      "ex_bonus": false,
+      "effective_chance": 2,
+      "roll": 34,
+      "after": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 2282933868
+    },
+    {
+      "index": 13,
+      "combat_tick": 1062,
+      "presentation_counter": 44483,
+      "owner": 2167281152,
+      "target": 2167302368,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 3400781783,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 79,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 1866454802
+    },
+    {
+      "index": 14,
+      "combat_tick": 1069,
+      "presentation_counter": 44490,
+      "owner": 2167281152,
+      "target": 2167302368,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 1896036218,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 36,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 4222919033
+    },
+    {
+      "index": 15,
+      "combat_tick": 1080,
+      "presentation_counter": 44501,
+      "owner": 2167281152,
+      "target": 2167302368,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 1647109346,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 97,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 3820562113
+    },
+    {
+      "index": 16,
+      "combat_tick": 1114,
+      "presentation_counter": 44535,
+      "owner": 2167267008,
+      "target": 2167302368,
+      "chance": 2,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 1373923752,
+      "ex_bonus": false,
+      "effective_chance": 2,
+      "roll": 1,
+      "after": {
+        "activity": 15,
+        "remaining": 180,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 1
+      },
+      "random_after": 3597992719,
+      "particle": {
+        "address": 2167616680,
+        "declaration": "070000110000100000010041001e001e000004000480000000800080008000000000000000000000000000200000000008000000000000004238000000000000000000000000000000000000000000000000000000000000c2b4000000000000000000000000000000000000c0200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004200000042000000424800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c289a45243151d85c32ec4a580ac7ae40000000000000000"
+      }
+    },
+    {
+      "index": 17,
+      "combat_tick": 1209,
+      "presentation_counter": 44630,
+      "owner": 2167274080,
+      "target": 2167302368,
+      "chance": 0,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 4180424020,
+      "ex_bonus": false,
+      "effective_chance": 0,
+      "roll": 89,
+      "after": {
+        "activity": 9,
+        "remaining": 45,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 589112139
+    },
+    {
+      "index": 18,
+      "combat_tick": 1239,
+      "presentation_counter": 44660,
+      "owner": 2167267008,
+      "target": 2167302368,
+      "chance": 2,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 2203605337,
+      "ex_bonus": false,
+      "effective_chance": 2,
+      "roll": 75,
+      "after": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 2344615788
+    },
+    {
+      "index": 19,
+      "combat_tick": 1345,
+      "presentation_counter": 44766,
+      "owner": 2167281152,
+      "target": 2167302368,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 2219747158,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 24,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 2400209445
+    },
+    {
+      "index": 20,
+      "combat_tick": 1354,
+      "presentation_counter": 44775,
+      "owner": 2167281152,
+      "target": 2167302368,
+      "chance": 1,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 1056524072,
+      "ex_bonus": false,
+      "effective_chance": 1,
+      "roll": 76,
+      "after": {
+        "activity": 9,
+        "remaining": 20,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 4107555471
+    },
+    {
+      "index": 21,
+      "combat_tick": 1357,
+      "presentation_counter": 44778,
+      "owner": 2167267008,
+      "target": 2167302368,
+      "chance": 2,
+      "bonus": 0,
+      "resistance": 0,
+      "immune": false,
+      "shortened": false,
+      "before": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_before": 1110148297,
+      "ex_bonus": false,
+      "effective_chance": 2,
+      "roll": 41,
+      "after": {
+        "activity": 9,
+        "remaining": 40,
+        "armor": 0,
+        "pulse": 0,
+        "retained_count": 0
+      },
+      "random_after": 730177052
+    }
+  ]
+}

@@ -272,7 +272,9 @@ fn publish_field(output: &Path, path: &str, field: &FieldAssets) -> Result<Strin
     Ok(digest(&bytes))
 }
 
-pub(crate) fn finish(output: &Path, ids: impl IntoIterator<Item = u32>) -> Result<()> {
+/// Validate existing field publications and rebuild their complete dependency
+/// inventories. This performs no asset conversion or resource substitution.
+pub fn finish(output: &Path, ids: impl IntoIterator<Item = u32>) -> Result<()> {
     for id in ids {
         let path = resonance_content::field::metadata_path(id);
         let bytes = fs::read(output.join(&path))?;

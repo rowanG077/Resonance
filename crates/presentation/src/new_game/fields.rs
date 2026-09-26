@@ -71,11 +71,28 @@ impl FieldPackage {
         cache: &mut Cache,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
-        let files = Arc::new(Files::load(
+        Self::prepare_with_diagnostics(
+            root,
+            map,
+            cache,
+            cancelled,
+            resonance_content::diagnostics::Diagnostics::new(true),
+        )
+    }
+
+    pub fn prepare_with_diagnostics(
+        root: &Path,
+        map: u32,
+        cache: &mut Cache,
+        cancelled: impl Fn() -> bool,
+        diagnostics: resonance_content::diagnostics::Diagnostics,
+    ) -> Result<Self> {
+        let files = Arc::new(Files::load_with_diagnostics(
             root,
             &[&manifest_path(map)],
             &mut cache.bytes,
             cancelled,
+            diagnostics,
         )?);
         Self::load(root, files, map, cache)
     }

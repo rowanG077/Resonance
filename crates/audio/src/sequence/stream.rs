@@ -33,6 +33,21 @@ impl Stream {
             shared: Some(synth.start(loaded, looping)?),
         })
     }
+    /// Pause musical time and retire held notes on the next mixer block.
+    /// Resuming preserves the event cursor, controllers, tempo and shared RNG.
+    pub fn pause(&mut self, paused: bool) -> Result<()> {
+        if let Some(shared) = &self.shared {
+            shared.pause(paused)
+        } else {
+            let state = self.state.as_mut().context("score is absent")?;
+            ensure!(
+                state.borrow_owner().score.origin == crate::data::ScoreOrigin::Sequence,
+                "only a sequence can be paused"
+            );
+            state.with_dependent_mut(|_, kernel| kernel.pause(paused));
+            Ok(())
+        }
+    }
     pub fn is_shared(&self) -> bool {
         self.shared.is_some()
     }

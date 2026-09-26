@@ -1,0 +1,165 @@
+{
+  "scope": "Unguarded ordinary physical damage, neutral resistance, HP application and three RNG draws. Rows 4, 5 and 7 only. Other trace rows require automatic guard selection and its fourth RNG draw; no guard or complete dispatcher claim.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "original_resolver_sha256": "51c9c35ab83848b9259277ea6d8072703e77f307301d308a8f5fe9c4911cf185",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499"
+  },
+  "damage_trace_sha256": "84a662babbd9af3c065c64fc31a9f776d1fd084c5b8aba58c9d488cebf7f604c",
+  "memory_sha256": "3b8706575c3452bf966cad9b635327b8e3bedbdf032cdeee121d225ce6d38067",
+  "ordinary_memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+  "comparison_sha256": "17e9ffb17efe06431f10bb5df60d0104bd4b7d803aac80c94b6af5850891c417",
+  "comparison": {
+    "samples": 511,
+    "fields": 85,
+    "differences": 0
+  },
+  "observations": [
+    {
+      "index": 4,
+      "combat_tick": 421,
+      "presentation_counter": 43842,
+      "power": 100,
+      "random_before": 546536231,
+      "random_after": 1574320628,
+      "amount": 24,
+      "hp_after": 136,
+      "result": 131073,
+      "owner": {
+        "stats": {
+          "slash": 122,
+          "thrust": 112,
+          "defense": 30,
+          "intelligence": 43,
+          "accuracy": 78,
+          "evasion": 66,
+          "level": 3
+        },
+        "max_hp": 328,
+        "hp": 300,
+        "luck": 3
+      },
+      "target": {
+        "stats": {
+          "slash": 144,
+          "thrust": 144,
+          "defense": 10,
+          "intelligence": 31,
+          "accuracy": 73,
+          "evasion": 48,
+          "level": 4
+        },
+        "max_hp": 320,
+        "hp": 160,
+        "luck": 25
+      },
+      "kind": "slash",
+      "power_mode": "normal",
+      "affinity": "resistant"
+    },
+    {
+      "index": 5,
+      "combat_tick": 441,
+      "presentation_counter": 43862,
+      "power": 85,
+      "random_before": 1045635997,
+      "random_after": 1739390306,
+      "amount": 21,
+      "hp_after": 115,
+      "result": 131073,
+      "owner": {
+        "stats": {
+          "slash": 122,
+          "thrust": 112,
+          "defense": 30,
+          "intelligence": 43,
+          "accuracy": 78,
+          "evasion": 66,
+          "level": 3
+        },
+        "max_hp": 328,
+        "hp": 300,
+        "luck": 3
+      },
+      "target": {
+        "stats": {
+          "slash": 144,
+          "thrust": 144,
+          "defense": 10,
+          "intelligence": 31,
+          "accuracy": 73,
+          "evasion": 48,
+          "level": 4
+        },
+        "max_hp": 320,
+        "hp": 136,
+        "luck": 25
+      },
+      "kind": "slash",
+      "power_mode": "normal",
+      "affinity": "resistant"
+    },
+    {
+      "index": 7,
+      "combat_tick": 449,
+      "presentation_counter": 43870,
+      "power": 85,
+      "random_before": 2125954983,
+      "random_after": 2468046964,
+      "amount": 20,
+      "hp_after": 95,
+      "result": 131073,
+      "owner": {
+        "stats": {
+          "slash": 122,
+          "thrust": 112,
+          "defense": 30,
+          "intelligence": 43,
+          "accuracy": 78,
+          "evasion": 66,
+          "level": 3
+        },
+        "max_hp": 328,
+        "hp": 300,
+        "luck": 3
+      },
+      "target": {
+        "stats": {
+          "slash": 144,
+          "thrust": 144,
+          "defense": 10,
+          "intelligence": 31,
+          "accuracy": 73,
+          "evasion": 48,
+          "level": 4
+        },
+        "max_hp": 320,
+        "hp": 115,
+        "luck": 25
+      },
+      "kind": "slash",
+      "power_mode": "normal",
+      "affinity": "resistant"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+script battle;
+use encounter;
+
+// Exact native 80B20 predicates reachable by formations 1/2 with characters
+// 1..3. The game adapter rejects other formations/rosters before activation.
+// Short-circuit order is significant: every draw advances the live battle RNG.
+fn group(leader: i32) -> i32 {
+    if (encounter::random() & 1) != 0 { return 0; }
+    if encounter::available(1) && encounter::available(3) && leader == 3
+        && encounter::affinity_rank(3) == 0 && (encounter::random() & 1) != 0 {
+        return 5;
+    }
+    let story = encounter::story();
+    if story < 301 || story > 1000 {
+        if encounter::available(1) && encounter::available(2) && encounter::available(3)
+            && leader == 1 && encounter::affinity_rank(2) == 0
+            && encounter::affinity_rank(3) >= 4 && (encounter::random() & 3) == 0 {
+            return 27;
+        }
+        if encounter::available(2) && encounter::available(1) && leader == 2
+            && !encounter::party_was_hit() && encounter::participation(2) >= 100
+            && (encounter::random() & 1) != 0 {
+            return 25;
+        }
+        // Preserve the original contradictory availability/death gates.
+        if encounter::available(2) && encounter::available(1) && encounter::dead(2)
+            && encounter::available(1) && encounter::affinity_rank(2) == 0
+            && (encounter::random() & 4) != 0 {
+            return 26;
+        }
+        if encounter::available(1) && encounter::available(2) && encounter::poisoned(1)
+            && (encounter::random() & 4) != 0 {
+            return 24;
+        }
+    }
+    if encounter::available(1) && encounter::available(2) && encounter::available(3)
+        && leader == 1 && (encounter::random() & 7) == 0 && (story < 301 || story > 1000) {
+        return 15;
+    }
+    return 0;
+}
+
+// Exact native 1630 ordinary pose selection, after the group scan fails.
+fn pose(leader: i32) -> i32 {
+    if leader == 2 && encounter::story() == 0 {
+        if encounter::random() % 100 < 10 { return 3; }
+        return 2;
+    }
+    if encounter::hp_percent(leader) < 25 || !encounter::available(leader) { return 1; }
+    if encounter::all_healthy() { return 0; }
+    if leader == 2 {
+        if encounter::story() != 0 { return 4; }
+    } else if !encounter::party_was_hit() { return 4; }
+    if encounter::random() % 100 < 10 { return 3; }
+    return 2;
+}
+
+pub fn select() {
+    let leader = encounter::leader();
+    let selected = group(leader);
+    if selected != 0 { encounter::select_victory(selected, 0); }
+    else { encounter::select_victory(0, pose(leader)); }
+}

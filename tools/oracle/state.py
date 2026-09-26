@@ -71,6 +71,11 @@ def inspect(path, library=None):
               "title": {key: u32(address) for key, address in fields.items()}}
     result["title"]["revealed"] = bool(ram[0x35a6c0])
     result["title"]["state_flags"] = struct.unpack_from(">H", ram, 0x35a762)[0]
+    if result["title"]["state_flags"] & 0x7f in (9, 12):
+        from battle_state import inspect_battle
+        result["battle"] = inspect_battle(ram)
+        # Suspended field storage is reused during battle and game-over.
+        return result
     result["action_prompt"] = {
         "id": u32(0x35a460), "opacity": u32(0x35a464), "remaining": u32(0x35a468),
     }

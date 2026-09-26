@@ -151,6 +151,7 @@ pub(super) fn record(mut app: App, output: PathBuf) -> Result<()> {
         "playthrough image write failed"
     );
     let options = app.world().resource::<RunOptions>();
+    let diagnostics = crate::diagnostics::policy(app.world());
     let assets = &options.assets;
     if app.world().resource::<boot::Playback>().asset.is_some() {
         for tick in BOOT_TICKS {
@@ -197,6 +198,9 @@ pub(super) fn record(mut app: App, output: PathBuf) -> Result<()> {
         output.join("recording.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
             "version":1, "complete":true, "headless":true, "audio_device":false,
+            "mode":if diagnostics.paranoid() { "paranoid" } else { "tolerant" },
+            "paranoid":diagnostics.paranoid(), "valid":!diagnostics.has_errors(),
+            "diagnostics":diagnostics.entries(),
             "output_stage":app.world().resource::<display::OutputStage>(),
             "source":"resonance_offline_mixer", "fixed_update_hz":UPDATE_HZ,
             "update_rate_ratio":[UPDATE_RATE_NUMERATOR,UPDATE_RATE_DENOMINATOR], "sample_rate":RATE,

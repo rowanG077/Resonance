@@ -8,6 +8,7 @@ use crate::{
 };
 use symphonia_script::{NativeCall, Program};
 use symphonia_script_vm::{Memory, NativeResult};
+mod battle;
 mod bindings;
 mod camera_path;
 mod field;

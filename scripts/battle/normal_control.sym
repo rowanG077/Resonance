@@ -1,0 +1,18 @@
+script battle;
+use battle;
+use battle::companion_ai;
+use battle::mobility;
+
+// The existing player decision owns both ordinary mobility and the separate
+// source normal reevaluation callback while a semi-automatic actor approaches.
+pub task lloyd() { await control(false); }
+pub task colette() { await control(true); }
+pub task genis() { await control(false); }
+
+task control(colette: bool) {
+    spawn companion_ai::approaches(colette);
+    while true {
+        mobility::update();
+        await battle::next_update();
+    }
+}

@@ -5,16 +5,25 @@ Run from the repository root inside `nix develop`. Reusable inputs belong in
 Capture output directories must be fresh.
 
 Read the relevant original routines and recovered asset recipes before a fidelity
-batch. Group related fixes, build once, then run independent cases with up to 12
-workers. Give each worker a separate output directory; fresh Dolphin recordings
-also require isolated profiles, displays and watcher sockets. Retain exit codes,
+batch. Group related fixes, build once, then run independent cases with up to 20
+Dolphin sessions. Each session needs its own profile/configuration directory,
+virtual display, watcher/debugger socket, and capture/audio/log/report directories. Retain exit codes,
 timings and failed comparisons. Reuse verified source captures when only native
-code changes.
+code changes. Keep heavy builds and cooks separate from capture batches; use one
+Cargo build job and at most 24 workers for non-Dolphin tooling. The 20-session
+Dolphin cap is independent of emulator-internal thread counts. Run performance
+benchmarks separately from concurrent captures.
 
 **All validation is silent.** Dolphin capture enforces `Backend=No Audio Output`,
 `Muted=True` and `DumpAudio=True`, without changing desktop settings. Native
 recorders use no output device; interactive recording requires `--silent`.
 Audio is still recorded and compared.
+
+Battle checkpoints are inspected through the loaded REL and its BSS. The watcher
+records battle clocks, RNG, actor/vital pointers and camera state; suspended field
+banks are not interpreted as active models. `cases/battle-opening-source.json`
+retains the historical opening-route input. It does not establish native battle
+acceptance. See [current battle evidence](../../docs/battle-status.md).
 
 ## Paired replay
 
@@ -135,12 +144,144 @@ Poll `stick`/`c_stick` values are byte pairs, neutral at `[128,128]`.
 
 `--watch-state` records frame-end memory; `--watch-vis N` can record a timeline
 without PNGs. Actor, particle and volume-group watchers extend observations.
-`--trace-startup` and bounded `--trace-random N` use a read-only debugger that
-pauses execution; confirm timing against an ordinary replay afterward.
+`--trace-startup`, bounded `--trace-random N`, `--trace-distance N`,
+`--trace-geometry N`, `--trace-damage N`, `--trace-melee N`,
+`--trace-motion N`, `--trace-movement N`, `--trace-residents N`,
+`--trace-casting N`, `--trace-effects N`, `--trace-reactions N`, `--trace-hurt N`,
+`--trace-guard N`, `--trace-particles N`, `--trace-particle-uv N`, `--trace-voices N`, `--trace-weapon-flights N`, `--trace-stun-rolls N` and
+`--trace-stun N` use a
+read-only debugger that pauses execution; confirm timing against an ordinary
+replay afterward. Distance tracing records original SDK vector-length inputs,
+results and FPSCR, with 1–4096 calls from a recorded checkpoint. It changes no
+game memory or instructions and cannot be combined with another trace mode.
+Common particle tracing records complete input/output declarations, object ages and
+RNG around each update, including initialization. Casting traces retain ordered
+effect, sound and spell-release requests; effect traces retain post-modifier particle
+inputs and their separate update/draw groups.
+Voice tracing records relative/absolute actor requests, the common dispatcher,
+logical priority/pending slots and ordered audio idle/stop/play calls. Supply
+observed audio completion at the replay boundary; do not prescribe a guessed
+voice duration. Before/after priority and pending state are assertions, not replay
+inputs. Volume and pan are recorded separately from acceptance of the voice
+arbitration state.
+Weapon-flight tracing observes active equipped-weapon updates at `21F48`,
+the catch-distance call at `2213C` and its flag update at `2215C`. It retains
+the actual stack catch point before and after movement, source hit row, slot,
+outbound counter, position, Euler angles, direction, speed and cooldowns.
+The outbound branch skips initialization of this catch point; a return-only
+assumption must not be inferred from partial C or a successful distant throw.
+Adding `--trace-weapon-stack-writes` instead starts each observation immediately
+before an already active owner's state callback. A Dolphin memory write
+watchpoint attributes changes to the twelve catch-point bytes through the common
+tail, then records that visit's flight update. It ends at the requested visit
+bound or the first catch/retirement. Each visit admits at most256 write stops
+and the capture at most8192 actor dispatches. It changes no game
+memory; confirm the observed trajectory against the identical ordinary replay.
+Melee tracing distinguishes `melee` hit-stream visits, `commands` visits,
+`animation_start` admission bindings and later `animation_row` visits.
+Animation observations retain the separate action, command, hit and animation
+counters, row index, clip and model blend flag before and after binding. Their
+source order matters: a later motion row can hold its animation counter after
+commands and contacts already advanced on that visit.
+Command rows retain the command clock and ordered calls to the sound and voice
+request helpers, with RNG before/after. These establish requests, not audio playback.
+Melee rows also record Lloyd's held body and carried-weapon matrices at contact
+submission. Gameplay matrices and drawing matrices remain distinct; contact-only
+bones can have no drawing object. These samples can validate ordinary bone and
+weapon attachment composition. Hair/cloth dynamics require the secondary solver's
+history, and sampled poses alone do not establish complete action timing.
+Motion tracing distinguishes `motion` clock visits from `chains` solver visits;
+nested solver calls appear in a motion row's `chain_visits`. Chain snapshots retain
+positions, previous positions, targets, velocity, parameters, callback identity,
+model rotation/scale, acceleration, wind, the floor flag and primary bone matrices
+before/after the solver. A clock visit with
+flag 4 set skips matrix composition and cannot establish solver behavior.
+Particle UV tracing records only visits with a bound UV stream, from `403F4`'s
+UV branch through its clock increment. It records the original keys, rectangles,
+palette selectors, row/scroll state and owner's clock-hold flag. Matching this
+component does not establish an observed particle's attachment or rendering.
+Stun-roll tracing records the contact's chance, attacker bonus, target resistance,
+EX query, unsigned random roll and resulting entry state. Zero chance still
+consumes a roll. Failed rolls do not establish successful entry or the stunned
+controller's later motion, particle attachment, sound and recovery behavior.
+Stun-controller tracing observes `2E848` entry/return, retained particle writes,
+body motion bindings, timer and recovery state, and original `9E38` sound calls.
+Supplied head samples can validate attachment writes without establishing native
+skeletal sampling; sound-call comparisons do not establish audio playback fidelity.
+Geometry tracing requires a loaded battle checkpoint. It follows the original
+REL's five hurt-shape branches, recording shape dimensions, scales, world points
+and the overlap decision before hit rules run. The 1–4096 observations establish
+only the shapes/branches actually encountered; they do not establish damage,
+guard or full collision behavior. Damage tracing also requires a loaded battle
+checkpoint. It records the resolver's actor/rule inputs, selected action row,
+live attack-element overrides and the original element-selector return,
+position/facing and incoming vector, computed amount, result flags, HP, shared RNG
+state and target controller/guard fields before/after each call. Native comparisons must
+identify which observed branches are implemented; a formula match alone does
+not establish guard selection, reactions or the contact dispatcher.
+Reaction tracing follows `63470` through its return to `3BDF8` and then through
+the complete contact return. It records pending/live recoil, delay, hitstun,
+actor state, HP and shared RNG at each boundary. Comparisons must distinguish
+wrapper writes from controller transitions and later effect/audio RNG draws.
+Hurt tracing records `2FB24` entry/return, including signed hitstun, local hit-stop,
+pending impulse, movement, combos, controller activity and RNG. It also records
+the explicit guard preference and auto-guard chance, distinguishing recovery's
+random draw from contact resolution. Its profile/owner/root fields identify the
+branches observed; ordinary hurt visits do not establish captured, Unison, EX or
+knockdown behavior, model transitions or complete contact entry.
+Guard tracing uses the same callback observations for `2F284`, with guard mode,
+active state, body clip and next-action selection inputs. Classify ordinary
+countdown/recovery separately from held inputs, counters and automatic follow-ups.
+Contact tracing also retains the chosen recoil direction and model track bindings;
+matching these does not establish full pose or contact-tail fidelity.
+Melee tracing observes `2D564` entry/return: the current source row, hit-stream
+clock/cursor, actor contact caches and newly submitted origins/descriptors. It
+requires a loaded battle checkpoint. Comparing supplied sampled origins verifies
+stream timing and submission, not the native pose sampler or full actor timing.
+Motion tracing records controller lists before/after `8006D2E0`, including pending
+cross-fade replacements, playback intervals, rates and completion flags. It
+requires a loaded battle checkpoint and records 1–4096 model visits. This verifies
+controller arithmetic; it does not capture bone matrices or establish full action
+or drawing timing.
+Movement tracing records `24314`, `244D0` and `24040` inputs/outputs, including
+velocity, acceleration, origin snapshots, braking, profile flags and model root
+state. It requires a loaded battle checkpoint. Arithmetic comparisons must retain
+the observed scope; a helper call does not establish arena corrections, controller
+transitions or root-motion routes absent from the capture.
+Resident tracing reads both original slots around `3A978`, preserving roster order,
+initialization/active phases, age, duration, retention and owner HP. Ordinary-slot
+observations do not establish stored-scene or summon cleanup.
+Loaded-battle snapshots and VI watches also retain the stored transition's owner,
+countdown and slot flags, both stored resources/owners/completion callbacks, and
+actor casting, body-clip and resident phase/age words. Decode the named word fields
+using their original widths: the stored countdown is the upper signed halfword;
+the lower halfword is a separate presentation value. These read-only observations
+distinguish resource activation, resident initialization, active expiry and cleanup.
+Casting tracing reads `39974`, `3898C` and `385A0` entry/return state: selected
+actor/technique records, countdown, elapsed time, model replacement/playback, TP,
+primary occupancy and RNG. It requires a loaded battle checkpoint. Compare each
+observed branch with the native script using the original parameters; motion-clock
+agreement does not establish curves, images, voices or all caster variants.
+Effect tracing records `420C4` visits and their ordered `418B4` command dispatches,
+including immediate construction and later object-group calls. It preserves the
+source record, cursor, age, repeat-list counters, bank slot/root pointers and battle RNG
+before/after each visit. Nested particle-allocation observations retain the original
+352-byte recipe, allocated address and the copied record after command modifiers,
+plus origin, heading and RNG. Allocation failure produces no particle record.
+It requires a loaded battle checkpoint. Compare the prepared particle fields and
+RNG separately from timeline dispatch; these snapshots precede initialization and
+do not establish continuous particle motion, attachments, rendering or audio.
+All trace modes retain the ordinary replay's
+inputs and use isolated debugger sockets.
 
 `resonance-oracle inventory-fixture --help` describes matching changes to copied
 Dolphin states and native saves: items, formation, learned records, discoveries,
-settings and history. It validates starting values and records input/output hashes.
+settings and history. `--learn-technique CHARACTER:TECHNIQUE` grants a technique;
+`--disable-technique CHARACTER:TECHNIQUE` disables AI use of a learned technique
+in both copies, using the ordinary saved menu setting. Characters are zero-based
+and technique IDs come from the cooked catalogue. This supports controlled spell
+observations without changing the battle code. The tool validates starting values
+and records input/output hashes and requested changes.
 Original files and game code remain unchanged. Declare these grants in the paired
 manifest; controlled menu fixtures do not prove natural story progression.
 
@@ -214,3 +355,13 @@ python3 -m unittest discover -s tools/oracle -p 'test_*.py'
 
 Source PCM agreement does not establish physical device latency or underrun
 behavior. See [performance probes](../../docs/performance.md) for those checks.
+
+Reaction traces also record the attacker at the damage-wrapper and contact return,
+plus each nested `A9B4` TP recovery request. This distinguishes suppressed recovery
+from an eligible request clamped by maximum TP. The observations remain read-only;
+compare identical VI indices with an ordinary replay before accepting timing.
+
+Effect-command observations include nested `9DC4` spatial sound requests with
+sound index, priority and world-position bits. An empty request list establishes
+only that the observed command emitted no sound; it does not establish sound
+controller or playback acceptance.

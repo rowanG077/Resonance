@@ -4141,7 +4141,7 @@
     },
     {
       "opcode": 205,
-      "name": "native_cd",
+      "name": "start_battle",
       "handler": "fn_8005098C",
       "arguments": [
         "arg0",
@@ -4171,7 +4171,10 @@
         "i32",
         "i32"
       ],
-      "confidence": "arity-proven",
+      "returns_value": true,
+      "result_type": "i32",
+      "return_evidence": "fn_8005B3F0 deferred command 23",
+      "confidence": "semantic-medium",
       "source": "src/game/fn_8005098C.c",
       "arity_evidence": "handler-stack-delta",
       "authoring_available": true

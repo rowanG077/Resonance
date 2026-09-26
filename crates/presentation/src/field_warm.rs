@@ -36,6 +36,7 @@ struct Report {
     completed: Arc<AtomicBool>,
     failure: Option<String>,
     prepared_pipeline_count: usize,
+    held_for_battle: bool,
     seen: usize,
     missing: Vec<MainEntity>,
 }
@@ -70,7 +71,8 @@ pub(super) fn install(app: &mut App) {
         Update,
         (retire, begin, convert, effects, complete, guard)
             .chain()
-            .after(super::field_view::FieldPreparation),
+            .after(super::field_view::FieldPreparation)
+            .run_if(super::battle::field_running),
     );
     app.get_sub_app_mut(bevy::render::RenderApp)
         .unwrap()
@@ -484,6 +486,15 @@ fn rendered(
         PipelineDescriptor::RenderPipelineDescriptor(d) if matches!(d.label.as_deref(),Some("resonance/surface" | "resonance/field-ui" | "resonance/refraction" | "resonance/menu-backdrop"))))
     };
     let count = relevant().count();
+    if resident.battle.load(Ordering::Acquire) {
+        report.held_for_battle = true;
+        return;
+    }
+    if std::mem::take(&mut report.held_for_battle) {
+        // The field retained its prepared draws. A completed battle may add
+        // already-warmed specializations to the shared pipeline cache.
+        report.prepared_pipeline_count = count;
+    }
     if resident.active.load(Ordering::Acquire) {
         if count != report.prepared_pipeline_count
             || relevant().any(|p| !matches!(p.state, CachedPipelineState::Ok(_)))

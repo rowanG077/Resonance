@@ -402,6 +402,43 @@ impl Transform {
     }
 }
 
+/// Native quaternion extraction from the complete basis, including scale/shear.
+pub fn matrix_rotation(matrix: Matrix) -> Result<[f32; 4]> {
+    let columns = matrix;
+    let m = |row: usize, col: usize| columns[col][row];
+    let trace = m(0, 0) + m(1, 1) + m(2, 2);
+    let mut q = [0.; 4];
+    if trace > 0. {
+        let scale = (1. + trace).sqrt();
+        q[3] = 0.5 * scale;
+        let scale = 0.5 / scale;
+        q[0] = (m(2, 1) - m(1, 2)) * scale;
+        q[1] = (m(0, 2) - m(2, 0)) * scale;
+        q[2] = (m(1, 0) - m(0, 1)) * scale;
+    } else {
+        let mut i = usize::from(m(1, 1) > m(0, 0));
+        if m(2, 2) > m(i, i) {
+            i = 2;
+        }
+        let j = (i + 1) % 3;
+        let k = (j + 1) % 3;
+        let mut scale = ((m(i, i) - (m(j, j) + m(k, k))) + 1.).sqrt();
+        q[i] = 0.5 * scale;
+        if scale != 0. {
+            scale = 0.5 / scale;
+        }
+        q[3] = (m(k, j) - m(j, k)) * scale;
+        q[j] = (m(i, j) + m(j, i)) * scale;
+        q[k] = (m(i, k) + m(k, i)) * scale;
+    }
+    let q = glam::Quat::from_array(q);
+    ensure!(
+        q.is_finite() && q.length_squared().is_finite() && q.length_squared() > 0.,
+        "invalid native matrix rotation"
+    );
+    Ok(q.normalize().to_array())
+}
+
 pub fn multiply(a: Matrix, b: Matrix) -> Matrix {
     std::array::from_fn(|column| {
         std::array::from_fn(|row| (0..4).map(|i| a[i][row] * b[column][i]).sum())

@@ -20,6 +20,18 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef VERTEX_COLORS
     color *= in.color;
 #endif
+#ifdef SCREEN_TEXTURE
+    // 46DCC: stage 1 replaces stage 0 RGB with the captured scene, but
+    // multiplies its alpha by raster alpha a second time (4ACB8/4AB74).
+    let scene = sample_primary(slot, in.uv_b);
+    let mask = sample_secondary(slot, in.uv);
+    let screened = vec4<f32>(scene.rgb * color.rgb, mask.a * color.a * color.a) * tint;
+    if screened.a < 1.0/255.0 { discard; }
+    return screened;
+#else
+#ifdef MULTIPLY_ALPHA_ONLY
+    let raster_alpha = color.a;
+#endif
     var texture_color = vec4<f32>(1.0);
 #ifdef VERTEX_UVS_A
     let primary = sample_primary(slot, in.uv * material.uv_scales.xy + uv_offsets.xy);
@@ -28,8 +40,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
 #ifdef VERTEX_UVS_B
     let secondary = sample_secondary(slot, in.uv_b * material.uv_scales.zw + uv_offsets.zw);
+#ifdef MULTIPLY_ALPHA_ONLY
+    // The original two-stage particle TEV takes alpha from its second palette,
+    // independently of the color palette's alpha (4AC18, 4AB74 and 47FA4).
+    texture_color = vec4<f32>(texture_color.rgb, secondary.a);
+    color = vec4<f32>(color.rgb, raster_alpha * secondary.a);
+#else
     texture_color *= secondary;
     color *= secondary;
+#endif
 #endif
     // Preserve transparent holes in both the color and focus depth layers.
     // Keep every nonzero eight-bit alpha value.
@@ -43,7 +62,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // continuous float multiplication makes the characters slightly brighter.
     var ambient = vec3<f32>(255.0);
 #ifdef VERTEX_COLORS
-    ambient = round(in.color.rgb * 255.0);
+    ambient = round(in.color.rgb * 255.0 * material.ambient_scale.rgb);
 #endif
     let base = min(floor(round(texture_color.rgb * 255.0)
         * (ambient + floor(ambient / 128.0)) / 64.0 + 0.5), vec3<f32>(255.0));
@@ -53,5 +72,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
 #endif
     return color * tint;
+#endif
 #endif
 }

@@ -61,6 +61,9 @@ struct Args {
     /// Disable speaker output. Capture mode disables the audio device entirely.
     #[arg(long)]
     silent: bool,
+    /// Stop on missing or unsupported content instead of logging and continuing.
+    #[arg(long)]
+    paranoid: bool,
     /// Show wall-clock FPS, frame-time percentiles and low FPS (F3 toggles).
     #[arg(long, conflicts_with_all = ["record_music", "capture", "record_playthrough"])]
     perf_overlay: bool,
@@ -98,6 +101,7 @@ fn main() -> anyhow::Result<()> {
             reveal: args.reveal,
             selected: args.selected as usize,
             silent: args.silent,
+            paranoid: args.paranoid,
             replay: args.replay,
             movie_frame: args.movie_frame,
             boot_frame: args.boot_frame,
@@ -111,4 +115,19 @@ fn main() -> anyhow::Result<()> {
         },
         args.resolution.unwrap_or_default(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostics_are_tolerant_unless_paranoid_is_requested() {
+        assert!(!Args::try_parse_from(["resonance"]).unwrap().paranoid);
+        assert!(
+            Args::try_parse_from(["resonance", "--paranoid"])
+                .unwrap()
+                .paranoid
+        );
+    }
 }

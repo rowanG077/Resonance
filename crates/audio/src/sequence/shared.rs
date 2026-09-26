@@ -196,6 +196,8 @@ struct Output {
     length: usize,
     cursor: usize,
     started: bool,
+    paused: bool,
+    sequence: bool,
 }
 pub(super) struct Stream(Arc<Mutex<Output>>);
 
@@ -333,6 +335,8 @@ impl Synthesizer {
             length: 0,
             cursor: 0,
             started: false,
+            paused: false,
+            sequence: state.borrow_owner().score.origin == crate::data::ScoreOrigin::Sequence,
         }));
         let id = shared.next_id;
         shared.next_id += 1;
@@ -352,6 +356,22 @@ impl Synthesizer {
         let cursor = (shared.frame % 160) as usize;
         if cursor == 0 {
             shared.entries.retain(|e| e.output.strong_count() != 0);
+            // Continuing a sequence prepends it to the native sequence list.
+            // This vector is traversed in reverse for sequence preparation.
+            shared.entries.sort_by_key(|entry| {
+                entry.output.upgrade().is_some_and(|output| {
+                    entry.state.with_dependent(|_, kernel| kernel.paused())
+                        && !output.lock().expect("shared stream lock poisoned").paused
+                })
+            });
+            for entry in &mut shared.entries {
+                if let Some(output) = entry.output.upgrade() {
+                    let paused = output.lock().expect("shared stream lock poisoned").paused;
+                    entry
+                        .state
+                        .with_dependent_mut(|_, kernel| kernel.pause(paused));
+                }
+            }
             let frame = shared.frame;
             for entry in &mut shared.entries {
                 entry.started_at.get_or_insert(frame);
@@ -513,6 +533,12 @@ impl Synthesizer {
     }
 }
 impl Stream {
+    pub(super) fn pause(&self, paused: bool) -> Result<()> {
+        let mut output = self.0.lock().expect("shared stream lock poisoned");
+        ensure!(output.sequence, "only a sequence can be paused");
+        output.paused = paused;
+        Ok(())
+    }
     pub(super) fn controls(&self, controls: [LiveControls; 5]) -> Result<()> {
         super::stream::validate_controls(controls)?;
         self.0.lock().expect("shared stream lock poisoned").controls = controls;

@@ -29,8 +29,8 @@ pub(super) fn read(executable: &[u8]) -> Result<Tables> {
     assemble(&Source::read(executable)?, &Inputs::read(executable)?)
 }
 
-#[cfg(test)]
-pub(super) fn items(executable: &[u8]) -> Result<Vec<Item>> {
+/// Decode the shared item publication without preparing menu artwork or models.
+pub fn items(executable: &[u8]) -> Result<Vec<Item>> {
     menu_items(&crate::item::read(executable)?)
 }
 

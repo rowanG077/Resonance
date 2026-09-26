@@ -1,0 +1,30 @@
+script battle;
+use battle;
+
+asset lloyd_idle: battle::Motion = "battle/motions/lloyd/0";
+asset lloyd_weak: battle::Motion = "battle/motions/lloyd/26";
+asset colette_idle: battle::Motion = "battle/motions/colette/0";
+asset colette_weak: battle::Motion = "battle/motions/colette/26";
+asset genis_idle: battle::Motion = "battle/motions/genis/0";
+asset genis_weak: battle::Motion = "battle/motions/genis/26";
+
+// 57718 binds the loop at construction. C908 then installs controller19;
+// its 2E350 callback returns immediately for the party side.
+fn posture(motion: battle::Motion, eyes: i32, mouth: i32) {
+    battle::texture_layers(eyes, mouth, 0, 0);
+    battle::play_motion(motion, ticks(0), 0.0, 0.5, true, 0.0);
+    battle::finish();
+}
+
+pub task character_1_healthy() { posture(lloyd_idle, 0, 0); }
+pub task character_1_weak() { posture(lloyd_weak, 10, 5); }
+pub task character_2_healthy() { posture(colette_idle, 0, 0); }
+pub task character_2_weak() { posture(colette_weak, 10, 5); }
+pub task character_3_healthy() { posture(genis_idle, 0, 0); }
+pub task character_3_weak() { posture(genis_weak, 10, 5); }
+pub task character_2_sealed_healthy() { posture(colette_idle, 15, 0); }
+pub task character_2_sealed_weak() { posture(colette_weak, 15, 0); }
+pub task character_2_sealed_petrified() {
+    battle::texture_layers(15, 0, 0, 0);
+    battle::finish();
+}

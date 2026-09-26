@@ -1,0 +1,125 @@
+{
+  "combat_tick": 224,
+  "observations": [
+    {
+      "bank": "martial",
+      "member": 1,
+      "phases": [
+        {
+          "scalars": "002c000a002d001900000003",
+          "rule": "08600a281e0205010000000000010078000000000100080001000000"
+        },
+        {
+          "scalars": "002300080023001c00000004",
+          "rule": "08600a281e0205010000000000010078000000000100080001000000"
+        },
+        {
+          "scalars": "002400080023001c00000004",
+          "rule": "08600a281e0205010000000000010078000000000100080001000000"
+        },
+        {
+          "scalars": "0000000000000000ffffffff",
+          "rule": "08600a281e0205010000000000010078000000000100080001000000"
+        }
+      ]
+    },
+    {
+      "bank": "martial",
+      "member": 2,
+      "phases": [
+        {
+          "scalars": "003e000a003e002a00000005",
+          "rule": "08600a1e1e0205010000000000010069000000000100080001000000"
+        },
+        {
+          "scalars": "0038000a003e003400000006",
+          "rule": "08600a1e1e0205010000000000010069000000000100080001000000"
+        },
+        {
+          "scalars": "0038000a003e003400000006",
+          "rule": "08600a1e1e0205010000000000010069000000000100080001000000"
+        },
+        {
+          "scalars": "0000000000000000ffffffff",
+          "rule": "08600a1e1e0205010000000000010069000000000100080001000000"
+        }
+      ]
+    },
+    {
+      "bank": "spell",
+      "member": 4,
+      "phases": [
+        {
+          "scalars": "005a000000000000ffffffff",
+          "rule": "002003141e010100000000000001003c000000000000000000000000"
+        },
+        {
+          "scalars": "0000000000000000ffffffff",
+          "rule": "002003141e010100000000000001003c000000000000000000000000"
+        },
+        {
+          "scalars": "0000000000000000ffffffff",
+          "rule": "002003141e010100000000000001003c000000000000000000000000"
+        },
+        {
+          "scalars": "0000000000000000ffffffff",
+          "rule": "002003141e010100000000000001003c000000000000000000000000"
+        }
+      ]
+    },
+    {
+      "bank": "spell",
+      "member": 16,
+      "phases": [
+        {
+          "scalars": "005a000000000000ffffffff",
+          "rule": "002005141e1401000000000000010082000000000000000000000000"
+        },
+        {
+          "scalars": "0000000000000000ffffffff",
+          "rule": "002005141e1401000000000000010082000000000000000000000000"
+        },
+        {
+          "scalars": "0000000000000000ffffffff",
+          "rule": "002005141e1401000000000000010082000000000000000000000000"
+        },
+        {
+          "scalars": "0000000000000000ffffffff",
+          "rule": "002005141e1401000000000000010082000000000000000000000000"
+        }
+      ]
+    }
+  ],
+  "scope": "Common action phase scalars and first hit rule as loaded in the pinned original Dolphin checkpoint. Source/preparation evidence only; no arte execution acceptance.",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499"
+  },
+  "state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+  "movie": {
+    "vi_frame": 44345,
+    "input_count": 88685,
+    "input_byte": 709480,
+    "lag_frames": 1
+  },
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf"
+}

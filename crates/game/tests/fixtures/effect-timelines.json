@@ -1,0 +1,857 @@
+{
+  "scope": "Original effect timeline dispatch and termination by visit. Particle operations are test witnesses; RNG is recorded, not accepted. Object-group activation, particle evolution, visual/audio and full casting acceptance remain pending.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "source_ranges_sha256": {
+    "420c4..422b4": "a94d6c1d25df6df7959ae3d4c82213379976acab25a844e2875b427419fe95b5",
+    "40210..40340": "69e1a0d5d8c9bf6e0e8c5ad03deaf0a1121599c3ef1b579306dab529d7ee042f"
+  },
+  "banks_sha256": {
+    "Common": "2c72d54fcdf809b93f10d0c9213790710b4f0144a4f55253ebab415f4e69a48b",
+    "Techniques": "2a0b8378be586933a7a3e4d59eda0e1a073c59b9cbc6f2169f300edebe09c059"
+  },
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499"
+  },
+  "trace_sha256": "ce1210923cbcde027f425743c34915d80c25609c683d8f580562597c7d23d4cf",
+  "memory_sha256": "92facdb8d842ef8fb3ad41b9ae3034d87df6b111ccc2c956156b48e2e5186ab5",
+  "ordinary_memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+  "comparison_sha256": "3640fc653e590d91df92f4d6987028f9530af57e80795bd7531cefb8950c92e1",
+  "comparison": {
+    "samples": 703,
+    "fields": 85,
+    "differences": 0
+  },
+  "cases": [
+    {
+      "bank": "Techniques",
+      "program": 25,
+      "records": [
+        {
+          "age": 0,
+          "command": 39,
+          "argument": 0,
+          "operand": 51136
+        },
+        {
+          "age": 0,
+          "command": 254,
+          "argument": 0,
+          "operand": 0
+        }
+      ],
+      "visits": [
+        {
+          "age": 0,
+          "combat_tick": 225,
+          "commands": [
+            0
+          ],
+          "active": false,
+          "random_before": 2066238961,
+          "random_after": 2692586182
+        }
+      ]
+    },
+    {
+      "bank": "Techniques",
+      "program": 7,
+      "records": [
+        {
+          "age": 0,
+          "command": 0,
+          "argument": 0,
+          "operand": 50016
+        },
+        {
+          "age": 0,
+          "command": 254,
+          "argument": 0,
+          "operand": 0
+        }
+      ],
+      "visits": [
+        {
+          "age": 0,
+          "combat_tick": 253,
+          "commands": [
+            0
+          ],
+          "active": false,
+          "random_before": 3378754718,
+          "random_after": 4039303629
+        }
+      ]
+    },
+    {
+      "bank": "Techniques",
+      "program": 3,
+      "records": [
+        {
+          "age": 12,
+          "command": 2,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 15,
+          "command": 255,
+          "argument": 3,
+          "operand": 3
+        },
+        {
+          "age": 0,
+          "command": 1,
+          "argument": 0,
+          "operand": 50244
+        },
+        {
+          "age": 24,
+          "command": 254,
+          "argument": 0,
+          "operand": 0
+        }
+      ],
+      "visits": [
+        {
+          "age": 0,
+          "combat_tick": 238,
+          "commands": [],
+          "active": true,
+          "random_before": 3765958683,
+          "random_after": 3765958683
+        },
+        {
+          "age": 1,
+          "combat_tick": 239,
+          "commands": [],
+          "active": true,
+          "random_before": 1997292346,
+          "random_after": 1997292346
+        },
+        {
+          "age": 2,
+          "combat_tick": 240,
+          "commands": [],
+          "active": true,
+          "random_before": 3238125981,
+          "random_after": 3238125981
+        },
+        {
+          "age": 3,
+          "combat_tick": 241,
+          "commands": [],
+          "active": true,
+          "random_before": 4065818420,
+          "random_after": 4065818420
+        },
+        {
+          "age": 4,
+          "combat_tick": 242,
+          "commands": [],
+          "active": true,
+          "random_before": 1992660015,
+          "random_after": 1992660015
+        },
+        {
+          "age": 5,
+          "combat_tick": 243,
+          "commands": [],
+          "active": true,
+          "random_before": 2593684723,
+          "random_after": 2593684723
+        },
+        {
+          "age": 6,
+          "combat_tick": 244,
+          "commands": [],
+          "active": true,
+          "random_before": 1235955191,
+          "random_after": 1235955191
+        },
+        {
+          "age": 7,
+          "combat_tick": 245,
+          "commands": [],
+          "active": true,
+          "random_before": 578316036,
+          "random_after": 578316036
+        },
+        {
+          "age": 8,
+          "combat_tick": 246,
+          "commands": [],
+          "active": true,
+          "random_before": 2094025013,
+          "random_after": 2094025013
+        },
+        {
+          "age": 9,
+          "combat_tick": 247,
+          "commands": [],
+          "active": true,
+          "random_before": 3640406490,
+          "random_after": 3640406490
+        },
+        {
+          "age": 10,
+          "combat_tick": 248,
+          "commands": [],
+          "active": true,
+          "random_before": 1534188163,
+          "random_after": 1534188163
+        },
+        {
+          "age": 11,
+          "combat_tick": 249,
+          "commands": [],
+          "active": true,
+          "random_before": 3674420736,
+          "random_after": 3674420736
+        },
+        {
+          "age": 12,
+          "combat_tick": 250,
+          "commands": [
+            0
+          ],
+          "active": true,
+          "random_before": 2007460555,
+          "random_after": 2007460555
+        },
+        {
+          "age": 13,
+          "combat_tick": 251,
+          "commands": [],
+          "active": true,
+          "random_before": 2516523240,
+          "random_after": 2516523240
+        },
+        {
+          "age": 14,
+          "combat_tick": 252,
+          "commands": [],
+          "active": true,
+          "random_before": 4060315497,
+          "random_after": 4060315497
+        },
+        {
+          "age": 15,
+          "combat_tick": 253,
+          "commands": [
+            2
+          ],
+          "active": true,
+          "random_before": 3378754718,
+          "random_after": 3378754718
+        },
+        {
+          "age": 16,
+          "combat_tick": 254,
+          "commands": [],
+          "active": true,
+          "random_before": 2110371154,
+          "random_after": 2110371154
+        },
+        {
+          "age": 17,
+          "combat_tick": 255,
+          "commands": [],
+          "active": true,
+          "random_before": 1864437062,
+          "random_after": 1864437062
+        },
+        {
+          "age": 18,
+          "combat_tick": 256,
+          "commands": [
+            2
+          ],
+          "active": true,
+          "random_before": 2991059066,
+          "random_after": 2991059066
+        },
+        {
+          "age": 19,
+          "combat_tick": 257,
+          "commands": [],
+          "active": true,
+          "random_before": 499897070,
+          "random_after": 499897070
+        },
+        {
+          "age": 20,
+          "combat_tick": 258,
+          "commands": [],
+          "active": true,
+          "random_before": 3583862946,
+          "random_after": 3583862946
+        },
+        {
+          "age": 21,
+          "combat_tick": 259,
+          "commands": [
+            2
+          ],
+          "active": true,
+          "random_before": 3724846486,
+          "random_after": 3724846486
+        },
+        {
+          "age": 22,
+          "combat_tick": 260,
+          "commands": [],
+          "active": true,
+          "random_before": 3883000432,
+          "random_after": 3883000432
+        },
+        {
+          "age": 23,
+          "combat_tick": 261,
+          "commands": [],
+          "active": true,
+          "random_before": 3509477431,
+          "random_after": 3509477431
+        },
+        {
+          "age": 24,
+          "combat_tick": 262,
+          "commands": [],
+          "active": false,
+          "random_before": 2477559794,
+          "random_after": 2477559794
+        }
+      ]
+    },
+    {
+      "bank": "Common",
+      "program": 11,
+      "records": [
+        {
+          "age": 0,
+          "command": 5,
+          "argument": 0,
+          "operand": 30788
+        },
+        {
+          "age": 0,
+          "command": 255,
+          "argument": 3,
+          "operand": 2
+        },
+        {
+          "age": 0,
+          "command": 7,
+          "argument": 0,
+          "operand": 30668
+        },
+        {
+          "age": 2,
+          "command": 6,
+          "argument": 0,
+          "operand": 30656
+        },
+        {
+          "age": 3,
+          "command": 5,
+          "argument": 0,
+          "operand": 30820
+        },
+        {
+          "age": 6,
+          "command": 254,
+          "argument": 0,
+          "operand": 0
+        }
+      ],
+      "visits": [
+        {
+          "age": 0,
+          "combat_tick": 266,
+          "commands": [
+            0,
+            2
+          ],
+          "active": true,
+          "random_before": 1282151852,
+          "random_after": 2748455232
+        },
+        {
+          "age": 1,
+          "combat_tick": 267,
+          "commands": [],
+          "active": true,
+          "random_before": 129772354,
+          "random_after": 129772354
+        },
+        {
+          "age": 2,
+          "combat_tick": 268,
+          "commands": [
+            3,
+            2
+          ],
+          "active": true,
+          "random_before": 129772354,
+          "random_after": 740135179
+        },
+        {
+          "age": 3,
+          "combat_tick": 269,
+          "commands": [
+            4
+          ],
+          "active": true,
+          "random_before": 740135179,
+          "random_after": 740135179
+        },
+        {
+          "age": 4,
+          "combat_tick": 270,
+          "commands": [
+            2
+          ],
+          "active": true,
+          "random_before": 740135179,
+          "random_after": 4181093253
+        },
+        {
+          "age": 5,
+          "combat_tick": 271,
+          "commands": [],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 6,
+          "combat_tick": 272,
+          "commands": [],
+          "active": false,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        }
+      ]
+    },
+    {
+      "bank": "Common",
+      "program": 17,
+      "records": [
+        {
+          "age": 0,
+          "command": 25,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 0,
+          "command": 254,
+          "argument": 0,
+          "operand": 0
+        }
+      ],
+      "visits": [
+        {
+          "age": 0,
+          "combat_tick": 277,
+          "commands": [
+            0
+          ],
+          "active": false,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        }
+      ]
+    },
+    {
+      "bank": "Techniques",
+      "program": 8,
+      "records": [
+        {
+          "age": 0,
+          "command": 3,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 0,
+          "command": 4,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 0,
+          "command": 255,
+          "argument": 2,
+          "operand": 6
+        },
+        {
+          "age": 0,
+          "command": 5,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 12,
+          "command": 254,
+          "argument": 0,
+          "operand": 0
+        }
+      ],
+      "visits": [
+        {
+          "age": 0,
+          "combat_tick": 266,
+          "commands": [
+            0,
+            1,
+            3
+          ],
+          "active": true,
+          "random_before": 1282151852,
+          "random_after": 1282151852
+        },
+        {
+          "age": 1,
+          "combat_tick": 267,
+          "commands": [],
+          "active": true,
+          "random_before": 129772354,
+          "random_after": 129772354
+        },
+        {
+          "age": 2,
+          "combat_tick": 268,
+          "commands": [],
+          "active": true,
+          "random_before": 740135179,
+          "random_after": 740135179
+        },
+        {
+          "age": 3,
+          "combat_tick": 269,
+          "commands": [],
+          "active": true,
+          "random_before": 740135179,
+          "random_after": 740135179
+        },
+        {
+          "age": 4,
+          "combat_tick": 270,
+          "commands": [],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 5,
+          "combat_tick": 271,
+          "commands": [],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 6,
+          "combat_tick": 272,
+          "commands": [
+            3
+          ],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 7,
+          "combat_tick": 273,
+          "commands": [],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 8,
+          "combat_tick": 274,
+          "commands": [],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 9,
+          "combat_tick": 275,
+          "commands": [],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 10,
+          "combat_tick": 276,
+          "commands": [],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 11,
+          "combat_tick": 277,
+          "commands": [],
+          "active": true,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        },
+        {
+          "age": 12,
+          "combat_tick": 278,
+          "commands": [],
+          "active": false,
+          "random_before": 4181093253,
+          "random_after": 4181093253
+        }
+      ]
+    },
+    {
+      "bank": "Common",
+      "program": 3,
+      "records": [
+        {
+          "age": 0,
+          "command": 255,
+          "argument": 4,
+          "operand": 2
+        },
+        {
+          "age": 0,
+          "command": 36,
+          "argument": 0,
+          "operand": 31000
+        },
+        {
+          "age": 0,
+          "command": 34,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 0,
+          "command": 35,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 8,
+          "command": 254,
+          "argument": 0,
+          "operand": 0
+        }
+      ],
+      "visits": [
+        {
+          "age": 0,
+          "combat_tick": 298,
+          "commands": [
+            2,
+            3,
+            1
+          ],
+          "active": true,
+          "random_before": 3498939260,
+          "random_after": 2100456019
+        },
+        {
+          "age": 1,
+          "combat_tick": 298,
+          "commands": [],
+          "active": true,
+          "random_before": 3574127117,
+          "random_after": 3574127117
+        },
+        {
+          "age": 2,
+          "combat_tick": 299,
+          "commands": [
+            1
+          ],
+          "active": true,
+          "random_before": 2196148567,
+          "random_after": 2094086802
+        },
+        {
+          "age": 3,
+          "combat_tick": 300,
+          "commands": [],
+          "active": true,
+          "random_before": 3159370212,
+          "random_after": 3159370212
+        },
+        {
+          "age": 4,
+          "combat_tick": 301,
+          "commands": [
+            1
+          ],
+          "active": true,
+          "random_before": 3705246101,
+          "random_after": 3243194616
+        },
+        {
+          "age": 5,
+          "combat_tick": 302,
+          "commands": [],
+          "active": true,
+          "random_before": 3885161914,
+          "random_after": 3885161914
+        },
+        {
+          "age": 6,
+          "combat_tick": 303,
+          "commands": [
+            1
+          ],
+          "active": true,
+          "random_before": 2435982668,
+          "random_after": 1049747427
+        },
+        {
+          "age": 7,
+          "combat_tick": 304,
+          "commands": [],
+          "active": true,
+          "random_before": 386445853,
+          "random_after": 386445853
+        },
+        {
+          "age": 8,
+          "combat_tick": 305,
+          "commands": [],
+          "active": false,
+          "random_before": 1458556903,
+          "random_after": 1458556903
+        }
+      ]
+    },
+    {
+      "bank": "Common",
+      "program": 1,
+      "records": [
+        {
+          "age": 0,
+          "command": 9,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 2,
+          "command": 8,
+          "argument": 0,
+          "operand": 0
+        },
+        {
+          "age": 8,
+          "command": 254,
+          "argument": 0,
+          "operand": 0
+        }
+      ],
+      "visits": [
+        {
+          "age": 0,
+          "combat_tick": 335,
+          "commands": [
+            0
+          ],
+          "active": true,
+          "random_before": 3886732561,
+          "random_after": 3886732561
+        },
+        {
+          "age": 1,
+          "combat_tick": 336,
+          "commands": [],
+          "active": true,
+          "random_before": 2027875835,
+          "random_after": 2027875835
+        },
+        {
+          "age": 2,
+          "combat_tick": 337,
+          "commands": [
+            1
+          ],
+          "active": true,
+          "random_before": 1984817653,
+          "random_after": 1984817653
+        },
+        {
+          "age": 3,
+          "combat_tick": 338,
+          "commands": [],
+          "active": true,
+          "random_before": 4271626650,
+          "random_after": 4271626650
+        },
+        {
+          "age": 4,
+          "combat_tick": 339,
+          "commands": [],
+          "active": true,
+          "random_before": 491025731,
+          "random_after": 491025731
+        },
+        {
+          "age": 5,
+          "combat_tick": 340,
+          "commands": [],
+          "active": true,
+          "random_before": 2032556871,
+          "random_after": 2032556871
+        },
+        {
+          "age": 6,
+          "combat_tick": 341,
+          "commands": [],
+          "active": true,
+          "random_before": 1299281441,
+          "random_after": 1299281441
+        },
+        {
+          "age": 7,
+          "combat_tick": 342,
+          "commands": [],
+          "active": true,
+          "random_before": 2804565174,
+          "random_after": 2804565174
+        },
+        {
+          "age": 8,
+          "combat_tick": 343,
+          "commands": [],
+          "active": false,
+          "random_before": 1572272808,
+          "random_after": 1572272808
+        }
+      ]
+    }
+  ],
+  "trace_notes": "The raw trace field named program is the bank slot at context+0x90. Case program identities are resolved from the captured bank/root pointers and original ef1 root tables."
+}

@@ -1,0 +1,58 @@
+script battle;
+use battle;
+
+asset ordinary_a: battle::Voice = "battle/voices/relative/16";
+asset ordinary_b: battle::Voice = "battle/voices/relative/17";
+asset ordinary_c: battle::Voice = "battle/voices/relative/18";
+asset major: battle::Voice = "battle/voices/relative/19";
+asset numerous: battle::Voice = "battle/voices/relative/20";
+asset weaker: battle::Voice = "battle/voices/relative/21";
+asset stronger: battle::Voice = "battle/voices/relative/22";
+asset repeated: battle::Voice = "battle/voices/relative/23";
+
+// 10A8, called at the tail of 40C8 after all initial actor choices. Even an
+// unavailable random participant consumes the draw before the roster fallback.
+pub task initialize() {
+    let count = battle::ally_count();
+    let mut actor = battle::ally(battle::ai_random_mod(count));
+    if !battle::actor_available(actor) {
+        let mut i = 0;
+        let mut found = false;
+        while i < count && !found {
+            let candidate = battle::ally(i);
+            if battle::actor_available(candidate) {
+                actor = candidate;
+                found = true;
+            }
+            i += 1;
+        }
+    }
+    battle::center_voice(actor);
+    let parameters = battle::entry_voice_parameters();
+    let mut line = repeated;
+    if !parameters.repeated_formation {
+        if parameters.major_enemy {
+            line = major;
+        } else {
+            let mut threshold = count + 2;
+            if threshold >= 5 { threshold = 5; }
+            if parameters.enemy_count >= threshold {
+                line = numerous;
+            } else {
+                if parameters.level_difference <= -3 {
+                    line = stronger;
+                } else {
+                    if parameters.level_difference >= 3 {
+                        line = weaker;
+                    } else {
+                        let choice = battle::ai_random_mod(3);
+                        line = ordinary_a;
+                        if choice == 1 { line = ordinary_b; }
+                        if choice == 2 { line = ordinary_c; }
+                    }
+                }
+            }
+        }
+    }
+    battle::voice(actor, line, 1);
+}

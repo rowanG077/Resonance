@@ -484,3 +484,83 @@ fn loop_carries_fraction_and_preserves_each_clocks_tempo_and_startup_seed() {
         assert_eq!(kernel.time, [outgoing + old_delta, incoming + new_delta]);
     }
 }
+
+#[test]
+fn sequence_pause_retires_notes_preserves_cursor_and_resumes_on_the_shared_clock() -> Result<()> {
+    let (mut bank, mut song, tables) = fixture();
+    bank.programs.insert(
+        1,
+        vec![Command::Wait {
+            milliseconds: None,
+            from_start: false,
+            key_off: false,
+            sample_end: false,
+        }],
+    );
+    let note = Note {
+        macro_id: 1,
+        key: 60,
+        velocity: 100,
+        pan: 64,
+        priority: 9,
+        max_voices: 255,
+    };
+    song.end_tick = 100;
+    song.first_events = vec![
+        event(
+            0,
+            0,
+            EventKind::Notes {
+                source: crate::data::VoiceSource::Sequence {
+                    group: 0,
+                    program: 0,
+                    drums: false,
+                },
+                voices: vec![note],
+                length: 50,
+            },
+        ),
+        event(
+            10,
+            0,
+            EventKind::Notes {
+                source: crate::data::VoiceSource::Sequence {
+                    group: 0,
+                    program: 0,
+                    drums: false,
+                },
+                voices: vec![note],
+                length: 50,
+            },
+        ),
+    ];
+    let mut kernel = Kernel::new(&bank, &song, &tables, None, false, ClockStart::Running)?;
+    let shared = shared::Control::default();
+    kernel.set_random(shared.clone());
+    kernel.prepare_millisecond(LiveControls::default())?;
+    assert_eq!(kernel.voices.len(), 1);
+    let time = kernel.time;
+    let next = kernel.events.peek().unwrap().tick;
+    kernel.pause(true);
+    assert!(kernel.voices.is_empty());
+    for _ in 0..50 {
+        kernel.prepare_millisecond(LiveControls::default())?;
+        kernel.next_millisecond(LiveControls::default())?;
+        kernel.finish_block()?;
+    }
+    assert_eq!(kernel.time, time);
+    assert_eq!(kernel.events.peek().unwrap().tick, next);
+    assert!(!kernel.ended);
+    kernel.pause(false);
+    for _ in 0..20 {
+        kernel.prepare_millisecond(LiveControls::default())?;
+        kernel.next_millisecond(LiveControls::default())?;
+    }
+    assert_eq!(
+        kernel.voices.len(),
+        1,
+        "held notes are not restarted; the next authored note is issued"
+    );
+    assert!(kernel.time[0] > time[0]);
+    Ok(())
+}

@@ -1,0 +1,99 @@
+{
+  "scope": "Observed standard projectile feedback, final motion and retirement only. Starts from an already-latched ordinary contact. Does not validate collision cause, damage, clashes, effects, or rendering.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    }
+  },
+  "memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+  "watch_locations_sha256": "aec7327fecb638d257db1d25446805ac7a86ab5b1c7c5a161358dc3dc33718f1",
+  "flags": 1025,
+  "lifetime": 60,
+  "radius": 50,
+  "contact_offset": [
+    0,
+    20,
+    0
+  ],
+  "observations": [
+    {
+      "vi": 41,
+      "combat": 266,
+      "gameplay": 325,
+      "present": true,
+      "age": 14,
+      "mode": 1,
+      "feedback": 1,
+      "disarmed": false,
+      "position": [
+        -60.27880859375,
+        0.0,
+        45.494598388671875
+      ],
+      "velocity": [
+        15.71942138671875,
+        0.0,
+        2.9832522869110107
+      ]
+    },
+    {
+      "vi": 42,
+      "combat": 267,
+      "gameplay": 326,
+      "present": true,
+      "age": 15,
+      "mode": 2,
+      "feedback": 1,
+      "disarmed": false,
+      "position": [
+        -44.55938720703125,
+        0.0,
+        48.47785186767578
+      ],
+      "velocity": [
+        15.71942138671875,
+        0.0,
+        2.9832522869110107
+      ]
+    },
+    {
+      "vi": 43,
+      "combat": 268,
+      "gameplay": 327,
+      "present": false,
+      "age": 0,
+      "mode": 0,
+      "feedback": 0,
+      "disarmed": false,
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "velocity": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ]
+}

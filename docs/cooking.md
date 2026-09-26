@@ -3,9 +3,11 @@
 `resonance-import cook-all` builds one shared asset library from the two extracted
 North American GQSEAF revision 0 discs. It recovers general models, textures,
 animations, audio, movies, fields, scripts and databases, including unused content
-in supported formats. Battle-specific preparation is a separate change. Deferred
-battle resources are reported explicitly; a successful general cook is not a
-claim of complete battle coverage.
+in supported formats. Battle semantics are being added to this same pipeline as
+part of Milestone 4. It now publishes all original formations and shared enemy
+statistics, including repeat-battle variants, common action and projectile tables,
+and common/technique effect source banks. Remaining battle resources are
+reported explicitly; a successful cook does not establish complete battle coverage.
 
 ```sh
 resonance-import cook-all --jobs 6 \
@@ -15,8 +17,8 @@ resonance-import cook-all --jobs 6 \
 ```
 
 Extraction happens once. Cooking reads the extracted filesystem and processes
-everything from the supplied discs. There are no field lists, category
-selectors or partial-cook commands. Output location and worker count change where
+everything from the supplied discs. The production command has no field lists,
+category selectors or partial-cook options. Output location and worker count change where
 and how cooking runs, never which resources it includes. Conversion uses Rust
 codecs without invoking FFmpeg, vgmstream or KTX tools. Reusable GLB, KTX2 and PCM
 WAV writers live in `resonance-asset-writer`; original formats and game-specific
@@ -55,10 +57,57 @@ content shares a destination; different content at the same path fails. Atomic
 installation prevents partial final files. The coordinator retains identities
 and status, not decoded payloads.
 
-Every invocation cooks the complete input again, including media. There are no
-incremental receipts, persistent caches or existing-file shortcuts. Identical
+Every `cook-all` invocation cooks the complete input again, including media. There
+are no incremental receipts, persistent caches or existing-file shortcuts. Identical
 inputs and outputs share work within the current invocation. Movies run serially
 to bound temporary disk use.
+
+During battle development, the temporary ignored helper under
+`local/dev-battle-cook/` calls these same production table publishers for selected
+groups. Use it throughout battle implementation, including integration checkpoints.
+Do not run full cooks for battle development:
+
+```sh
+cargo run --offline -j1 --manifest-path local/dev-battle-cook/Cargo.toml \
+  --target-dir target -- recoil
+```
+
+Available groups are `recoil`, `normals`, `profiles`, `enemy-models`, `monster-data`,
+`party-models`, `weapons`, `scenes`, `stages`, `ui`, `victory`, `audio`, `game-over`,
+`actions`, `projectiles`, `formations`, `effects`, `tints`, `techniques`, `voices`,
+`items` and `scripts` (existing battle `.sym` sources);
+multiple groups may be selected.
+After building the helper, source-only edits can use `target/debug/dev-battle-cook scripts`
+directly. This copies the maintained files from the workspace, with no embedded
+content fallback, and refreshes the same inventories. Rebuild the helper when its
+publisher code or list of script paths changes.
+The helper requires an existing cooked library, stages selected publications and
+refreshes their hashes in field declarations and dependency inventories, including
+the changed descriptors' own hashes and byte counts. It shares
+the full cook's output lock. Only explicitly selected model groups prepare model resources; table/script refreshes
+do not reconvert models, movies, audio or field assets.
+The explicitly supported `normals`, `profiles` and `tints` groups add their REL tables to
+source aliases and inventories containing the paired recoil table, matching the
+production shared dependency set. `enemy-models` adds all 251 enemy rigs and profiles,
+including hashes of their existing shared model dependencies, through the same
+production publisher. After a Monster schema change, refresh `monster-data items`
+before `enemy-models`, which reads those installed records. Standalone Monster
+records remain cooker inputs; runtime menus use the embedded catalogue.
+It does not reconvert meshes, textures or clips. Other new paths or memberships require explicit
+preparation. Its `dev-battle-cook.json` report describes a partial refresh and
+records whether the previous `coverage.json` is present. If an interrupted cook
+removed that report, the helper retains its prior identity as provenance without
+claiming full-library completeness. It still verifies selected publications and
+refreshes their dependency inventories. This local helper is temporary, not a second
+production cooking pipeline or an incremental cache.
+
+`scenes` currently publishes Nurse's original stored package. Full cooking uses
+the same publisher and records both the spell archive and REL table dependencies.
+`battle/scenes/237.json` binds a standard source effect bank, action records, textures,
+four model slots and their verified physical dependencies. Existing importers
+produce shared meshes, textures and sparse clips; identical source clips share
+bytes while each model slot retains independent playback. Authored Nurse control
+flow remains in `scripts/battle/nurse.sym` and compiles on load.
 
 Each distinct executable is parsed into one set of catalogues. Embedded table
 publication, menus and session data consume those same values. Field actors,
@@ -75,6 +124,69 @@ model path.
 - `movies/{id}.json` binds the movie catalogue to shared converted streams.
 - `scripts/` contains immutable authored SymphoniaScript published from embedded sources.
 - `data/` and `embedded/` hold parsed records and their provenance.
+- `battle/formations.json` preserves every original formation and its common-archive
+  source digest. Distinct supplied common archives retain their own formation
+  publications under `battle/variants/<hash>/`; equal inputs share a publication.
+  The primary catalogue enters each field's verified dependency inventory.
+- `battle/effects/{common,techniques}.json` holds every original effect timeline,
+  controller declaration, referenced modifier stream and UV row/table from the
+  common archive. These are source inputs, without compiled VM instructions.
+  Cooking retains controllers independently of runtime support. Loading compiles
+  the requested members and rejects unimplemented operations before activation.
+  Texture/model/audio preparation is a separate requirement for those members.
+  Distinct common archives use the same `battle/variants/<hash>/` prefix, and
+  the primary banks enter the shared verified field inventory.
+- `battle/projectiles.json` preserves all 26 common projectile templates, including
+  inactive operands, unknown selectors and instance storage. The importer retains
+  original float bits when an inactive operand is non-finite. This publication uses
+  the same common-archive variant prefix and verified field inventory as the other
+  battle tables. Battle preparation reads selected rows from the verified snapshot,
+  resolves caller-selected hit records from verified action tables, binds effects,
+  and checks runtime support before
+  activation. Cooking does not generate arte behavior or executable code.
+- `battle/effects/tints.json` retains the battle REL's ten element palettes and
+  colors, plus twelve actor RGBA tint requests. It shares REL source identity/variants and the verified
+  field inventory. Casting selects its tint while loading; scripts own emission
+  timing, and particles apply the selected RGB/palette after original modifiers.
+  Maintained recovery source selects actor tints through a load-time binding to
+  this same verified table.
+- `battle/recoil.json` publishes the battle REL's 19 forward/vertical impulse
+  pairs, proximity threshold, weight scales and guarded speed through the normal
+  battle table cooker. It retains source identity and float bits, is included in
+  field dependency inventories, and is loaded from the verified encounter snapshot.
+  No reaction controller or other native control flow is generated by cooking.
+- `battle/{martial,spell}-actions.json` retains the two common action tables:
+  phase descriptors, hit rules/windows, animation records and original command
+  records. Both tables preserve all 147 indexed slots, including null entries,
+  compact records and unused storage. These are original source-format records,
+  not compiled authored programs. The same variant publication and shared
+  integrity inventory apply. Unsupported reactions, conditions and controllers
+  remain explicit preparation failures; they do not prevent source cooking.
+- `battle/normal-actions.json` publishes the nine character groups from the
+  battle REL: seven selectors and action bindings per group, independent descriptor
+  tables, hit rules, animation/hit rows and original command records. Descriptor
+  aliases and unused entries remain distinct, since reach and action selection
+  have different consumers. It is published before field inventories, beside the
+  shared recoil data. Maintained normal-attack programs remain `.sym` source.
+- `battle/party-profiles.json` retains all eleven original party templates, with
+  source identity, typed shared traits, casting/attachment operands, effect scale,
+  Genis's original chant rows (including their terminal record), and remaining
+  uninterpreted bytes. The verified loader supplies existing guard, recoil,
+  stagger, stun and movement traits to a session-derived actor candidate. Party
+  guard pressure uses prepared maximum HP, as in the original setup. Model,
+  equipment, condition and casting preparation still have separate consumers;
+  publishing their operands does not establish runtime support.
+- `game/techniques.json` publishes the existing DOL technique/learning/Unison
+  catalogue for battle loading, shared with the menu importer. TP costs, casting
+  additions, recovery and route flags remain original data. The ordinary casting
+  loader binds them with party profiles and prepared body clips; maintained
+  `.sym` control flow is compiled only on loading.
+- `battle/enemies/NNN.json` contains each original enemy profile and primary-body
+  skeleton, contact radii, attack groups and attachment slots. Bind-channel presence
+  and original bone indices are retained. It also inventories the shared model,
+  texture and sparse-motion files; battle preparation verifies those resources for
+  the selected enemies without adding their payloads to every field snapshot.
+  The Monster Book remains the shared source of statistics and scene bindings.
 - The `overworld-tiles` catalogue binds every terrain coordinate and available
   alternate to its converted package using the original path templates and axis
   labels. Runtime story state selects between those alternatives.
@@ -101,8 +213,10 @@ player to interpret.
 Every AFS member, physical movie audio track, discoverable sound bank and song
 arrangement is converted independently of field references. Missing dependencies
 in the original sound data remain explicit unavailable records; they are not
-replaced with silence. Enemy archives and their embedded sound banks remain under
-the battle exclusion. Native executable code, build metadata and disc headers are
+replaced with silence. Enemy metadata, base/variant combat statistics and model
+resources share the Monster Book preparation path. Their remaining behavior,
+effects and embedded sound banks still appear in the battle backlog.
+Native executable code, build metadata and disc headers are
 accounted for separately from assets; known embedded tables and artwork are
 recovered without publishing executable slices.
 
@@ -113,9 +227,10 @@ alignment padding and list terminators serve parsing rather than becoming cooked
 fields. Validation compares semantic catalogues and prepared menu data with the
 original sources and existing baseline.
 
-After a format change, rerun `cook-all`. There is no
-compatibility layer for obsolete cooked formats: version mismatches request a
-recook.
+After a format change, republish the affected assets. During battle development,
+use the targeted helper described above; full cooks are forbidden. Ordinary
+complete-library publication uses `cook-all`. There is no compatibility layer
+for obsolete cooked formats: version mismatches request a recook.
 
 ## Authored events
 
@@ -135,7 +250,9 @@ integrity checks; runtime never substitutes embedded defaults. Change the
 checked-in sources, rebuild and recook to publish updates. Mod overlays are
 out of scope for now. See
 the [language guide](symphonia-script.md) for the CLI, project layout and field
-entry bindings. Battle-specific programs and preparation remain separate.
+entry bindings. Authored battle programs follow the same source publication and
+load-time compilation contract; their encounter preparation is tracked in
+[battle status](battle-status.md).
 
 ## Models and animations
 
@@ -148,6 +265,19 @@ channels. Playback evaluates these curves rather than storing sampled animation
 frames in GLB. The affine evaluator preserves shear through model hierarchies
 and attachments. Secondary motion retains distinct drawing and attachment poses.
 Clip paths participate in preload dependencies, so missing clips fail admission.
+
+Battle party preparation retains the nine standard bodies and their separate
+battle motion banks in the same cooking graph. It reuses decoded geometry and
+sparse curves, preserving original motion slots, including gaps. Shared field
+inventories contain the party and enemy model descriptors; each descriptor lists
+the meshes, textures and clips verified when that model is selected for battle.
+These payloads are not loaded for every field. Both original party body and motion
+sources list the resulting descriptor in `sources.json`.
+
+The shared weapon bank similarly preserves original resource slots and holes,
+primary/outline/extra model layers, local sparse clips and contact rigs. Its bank
+descriptor is shared; equipment selection verifies only the chosen model payloads.
+Weapon trails and owner-linked playback remain battle implementation work.
 
 Fields use named, disjoint draw stages for scenery and actor body/outline passes.
 Missing scenery sections retain their stage instead of shifting later materials

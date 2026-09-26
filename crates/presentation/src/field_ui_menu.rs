@@ -186,6 +186,9 @@ impl MenuArtwork {
                     frame_mask: source.clone(),
                     color_mask: source.clone(),
                     coverage: Coverage::default(),
+                    layered: false,
+                    screen_break: false,
+                    additive: false,
                     opaque: texture.opaque,
                 })
             })
@@ -206,11 +209,26 @@ impl MenuArtwork {
         self.images.iter().all(|image| images.contains(image.id()))
     }
     pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+        self.prepare_planes(commands, meshes, PLANES, 100.);
+    }
+    pub(super) fn prepare_windows(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
+        self.prepare_planes(commands, meshes, 1, 200.);
+    }
+    pub(super) fn images(&self) -> &[Handle<Image>] {
+        &self.images
+    }
+    fn prepare_planes(
+        &mut self,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        planes: usize,
+        depth: f32,
+    ) {
         if !self.layers.is_empty() {
             return;
         }
         // Separate planes keep a later popup's fill above the preceding text.
-        for index in 0..self.materials.len() * PLANES {
+        for index in 0..self.materials.len() * planes {
             let mut batch = Batch::default();
             batch.quad([0., 0., 1., 1.], [0., 0., 1., 1.], [1.; 4]);
             let mesh = meshes.add(batch.mesh([1, 1]));
@@ -246,7 +264,9 @@ impl MenuArtwork {
                     Transform::from_xyz(
                         0.,
                         0.,
-                        100. + (index / self.materials.len() * self.materials.len()) as f32 + order,
+                        depth
+                            + (index / self.materials.len() * self.materials.len()) as f32
+                            + order,
                     ),
                     Visibility::Hidden,
                 ))
@@ -259,6 +279,64 @@ impl MenuArtwork {
                 visible: false,
             });
         }
+    }
+    /// Reuse the original menu window styles for the battle result cards.
+    #[allow(clippy::too_many_arguments)] // Prepared window art and Bevy resources have separate owners.
+    pub(super) fn render_windows(
+        &mut self,
+        rects: &[[i16; 4]],
+        y_scale: f32,
+        font: &BitmapFont,
+        dialogue: &DialogueArt,
+        preferences: &resonance_content::menu_data::CustomizeSettings,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+    ) -> Result<()> {
+        let mut draw = Drawing {
+            screen: [0., 0., 640., 448.],
+            spec: &self.spec,
+            font,
+            selection: &dialogue.selection,
+            preferences: Some(preferences),
+            experience: &self.experience,
+            tick: 0,
+            plane: 0,
+            opacity: 176,
+            offset: [0.; 2],
+            layers_per_plane: self.materials.len(),
+            batches: (0..self.materials.len())
+                .map(|_| Batch::default())
+                .collect(),
+        };
+        // 553E0 reads the popup color at session+0x1ac.
+        let mut color = preferences.colors.popup;
+        color[3] = 255;
+        for &[x, y, w, h] in rects {
+            draw.frame_detail(
+                [
+                    f32::from(x),
+                    (f32::from(y) * y_scale).trunc(),
+                    f32::from(w),
+                    f32::from(h),
+                ],
+                false,
+                color,
+                false,
+            );
+        }
+        for (index, (layer, batch)) in self.layers.iter_mut().zip(draw.batches).enumerate() {
+            let visible = !batch.indices.is_empty();
+            let size = if index == FONT || index == CURSOR {
+                [font.width, font.height]
+            } else {
+                let texture = &self.spec.textures
+                    [index - usize::from(index > FONT) - usize::from(index > CURSOR)];
+                [texture.width, texture.height]
+            };
+            layer.update_mesh(batch, size, meshes)?;
+            layer.show(visible, commands);
+        }
+        Ok(())
     }
     #[allow(clippy::too_many_arguments)] // Compose shared artwork with the live viewport and clock.
     pub fn render(

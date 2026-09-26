@@ -1,0 +1,687 @@
+{
+  "scope": "Lloyd finisher hit-stream calls at original combat ticks 345..385. Native input anchors come from observed sampled poses. This verifies the shared script host, serial clock, inclusive windows, submission order and copied origins, not native skeletal sampling or full action timing.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "original_stream_sha256": "29d07012ac5e48874896d7c8a690d5b9262ecabf9c552ae598a23bbfc5515716",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499"
+  },
+  "trace_sha256": "49f62c12f5784863b50510b4713904f0de90cba6e4ce4c7a6030ab383b3b41f0",
+  "memory_sha256": "7859a116423a946a4e2718878a7e9d3d2f6666189b75a7e418120894c91206b1",
+  "ordinary_memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+  "comparison_sha256": "6fc7d3987476df4d45653f197a759900358275aa05a138677168265132582ec3",
+  "comparison": {
+    "samples": 761,
+    "fields": 85,
+    "differences": 0
+  },
+  "observations": [
+    {
+      "index": 74,
+      "combat_tick": 345,
+      "presentation_counter": 43766,
+      "clock": 0,
+      "clock_after": 1,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 75,
+      "combat_tick": 346,
+      "presentation_counter": 43767,
+      "clock": 1,
+      "clock_after": 2,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 76,
+      "combat_tick": 347,
+      "presentation_counter": 43768,
+      "clock": 2,
+      "clock_after": 3,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 77,
+      "combat_tick": 348,
+      "presentation_counter": 43769,
+      "clock": 3,
+      "clock_after": 4,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 78,
+      "combat_tick": 349,
+      "presentation_counter": 43770,
+      "clock": 4,
+      "clock_after": 5,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 79,
+      "combat_tick": 350,
+      "presentation_counter": 43771,
+      "clock": 5,
+      "clock_after": 6,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 80,
+      "combat_tick": 351,
+      "presentation_counter": 43772,
+      "clock": 6,
+      "clock_after": 7,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 81,
+      "combat_tick": 352,
+      "presentation_counter": 43773,
+      "clock": 7,
+      "clock_after": 8,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 82,
+      "combat_tick": 353,
+      "presentation_counter": 43774,
+      "clock": 8,
+      "clock_after": 9,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 83,
+      "combat_tick": 354,
+      "presentation_counter": 43775,
+      "clock": 9,
+      "clock_after": 10,
+      "row": "right",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 84,
+      "combat_tick": 355,
+      "presentation_counter": 43776,
+      "clock": 10,
+      "clock_after": 11,
+      "row": "right",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 0,
+          "position_bits": [
+            1120006276,
+            1116519620,
+            1102750437
+          ]
+        },
+        {
+          "anchor": 1,
+          "position_bits": [
+            1122956920,
+            1112670056,
+            3255189264
+          ]
+        }
+      ]
+    },
+    {
+      "index": 85,
+      "combat_tick": 356,
+      "presentation_counter": 43777,
+      "clock": 11,
+      "clock_after": 12,
+      "row": "right",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 0,
+          "position_bits": [
+            1121052989,
+            1117148920,
+            1110558295
+          ]
+        },
+        {
+          "anchor": 1,
+          "position_bits": [
+            1125310432,
+            1114120795,
+            3201412608
+          ]
+        }
+      ]
+    },
+    {
+      "index": 86,
+      "combat_tick": 357,
+      "presentation_counter": 43778,
+      "clock": 12,
+      "clock_after": 13,
+      "row": "right",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 0,
+          "position_bits": [
+            1121984668,
+            1118417000,
+            1117606267
+          ]
+        },
+        {
+          "anchor": 1,
+          "position_bits": [
+            1126859819,
+            1116463658,
+            1114130732
+          ]
+        }
+      ]
+    },
+    {
+      "index": 87,
+      "combat_tick": 358,
+      "presentation_counter": 43779,
+      "clock": 13,
+      "clock_after": 14,
+      "row": "right",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 0,
+          "position_bits": [
+            1117516561,
+            1121412660,
+            1125094737
+          ]
+        },
+        {
+          "anchor": 1,
+          "position_bits": [
+            1124119002,
+            1120890481,
+            1127611059
+          ]
+        }
+      ]
+    },
+    {
+      "index": 88,
+      "combat_tick": 359,
+      "presentation_counter": 43780,
+      "clock": 14,
+      "clock_after": 15,
+      "row": "right",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 0,
+          "position_bits": [
+            1086422960,
+            1123684578,
+            1125697743
+          ]
+        },
+        {
+          "anchor": 1,
+          "position_bits": [
+            1091501346,
+            1124203209,
+            1129858028
+          ]
+        }
+      ]
+    },
+    {
+      "index": 89,
+      "combat_tick": 360,
+      "presentation_counter": 43781,
+      "clock": 15,
+      "clock_after": 16,
+      "row": "right",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 0,
+          "position_bits": [
+            3249011981,
+            1124420505,
+            1124890331
+          ]
+        },
+        {
+          "anchor": 1,
+          "position_bits": [
+            3255246723,
+            1124698644,
+            1128973212
+          ]
+        }
+      ]
+    },
+    {
+      "index": 90,
+      "combat_tick": 361,
+      "presentation_counter": 43782,
+      "clock": 16,
+      "clock_after": 16,
+      "row": "right",
+      "advanced": true,
+      "contacts": [
+        {
+          "anchor": 0,
+          "position_bits": [
+            3257594729,
+            1124528657,
+            1123225618
+          ]
+        },
+        {
+          "anchor": 1,
+          "position_bits": [
+            3263118646,
+            1124392947,
+            1127589552
+          ]
+        }
+      ]
+    },
+    {
+      "index": 91,
+      "combat_tick": 362,
+      "presentation_counter": 43783,
+      "clock": 16,
+      "clock_after": 17,
+      "row": "left",
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 92,
+      "combat_tick": 363,
+      "presentation_counter": 43784,
+      "clock": 17,
+      "clock_after": 18,
+      "row": "left",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 2,
+          "position_bits": [
+            1119598990,
+            1116757869,
+            1116191785
+          ]
+        },
+        {
+          "anchor": 3,
+          "position_bits": [
+            1124880591,
+            1107013134,
+            1112585105
+          ]
+        }
+      ]
+    },
+    {
+      "index": 93,
+      "combat_tick": 364,
+      "presentation_counter": 43785,
+      "clock": 18,
+      "clock_after": 19,
+      "row": "left",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 2,
+          "position_bits": [
+            1116776398,
+            1118099817,
+            1122409392
+          ]
+        },
+        {
+          "anchor": 3,
+          "position_bits": [
+            1122606998,
+            1110648215,
+            1124934433
+          ]
+        }
+      ]
+    },
+    {
+      "index": 94,
+      "combat_tick": 365,
+      "presentation_counter": 43786,
+      "clock": 19,
+      "clock_after": 20,
+      "row": "left",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 2,
+          "position_bits": [
+            1107391167,
+            1119262701,
+            1124643626
+          ]
+        },
+        {
+          "anchor": 3,
+          "position_bits": [
+            1113445032,
+            1114698498,
+            1127962611
+          ]
+        }
+      ]
+    },
+    {
+      "index": 95,
+      "combat_tick": 366,
+      "presentation_counter": 43787,
+      "clock": 20,
+      "clock_after": 21,
+      "row": "left",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 2,
+          "position_bits": [
+            1070893957,
+            1120540441,
+            1124906622
+          ]
+        },
+        {
+          "anchor": 3,
+          "position_bits": [
+            1086165150,
+            1117053644,
+            1128692390
+          ]
+        }
+      ]
+    },
+    {
+      "index": 96,
+      "combat_tick": 367,
+      "presentation_counter": 43788,
+      "clock": 21,
+      "clock_after": 22,
+      "row": "left",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 2,
+          "position_bits": [
+            3250754560,
+            1121702025,
+            1124657417
+          ]
+        },
+        {
+          "anchor": 3,
+          "position_bits": [
+            3255492243,
+            1118810429,
+            1128516836
+          ]
+        }
+      ]
+    },
+    {
+      "index": 97,
+      "combat_tick": 368,
+      "presentation_counter": 43789,
+      "clock": 22,
+      "clock_after": 23,
+      "row": "left",
+      "advanced": false,
+      "contacts": [
+        {
+          "anchor": 2,
+          "position_bits": [
+            3259278059,
+            1122805678,
+            1123483707
+          ]
+        },
+        {
+          "anchor": 3,
+          "position_bits": [
+            3264564835,
+            1120761574,
+            1127468234
+          ]
+        }
+      ]
+    },
+    {
+      "index": 98,
+      "combat_tick": 369,
+      "presentation_counter": 43790,
+      "clock": 23,
+      "clock_after": 23,
+      "row": "left",
+      "advanced": true,
+      "contacts": [
+        {
+          "anchor": 2,
+          "position_bits": [
+            3263821377,
+            1123558007,
+            1119977754
+          ]
+        },
+        {
+          "anchor": 3,
+          "position_bits": [
+            3269384354,
+            1122623619,
+            1125106944
+          ]
+        }
+      ]
+    },
+    {
+      "index": 99,
+      "combat_tick": 370,
+      "presentation_counter": 43791,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 100,
+      "combat_tick": 371,
+      "presentation_counter": 43792,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 101,
+      "combat_tick": 372,
+      "presentation_counter": 43793,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 102,
+      "combat_tick": 373,
+      "presentation_counter": 43794,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 103,
+      "combat_tick": 374,
+      "presentation_counter": 43795,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 104,
+      "combat_tick": 375,
+      "presentation_counter": 43796,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 105,
+      "combat_tick": 376,
+      "presentation_counter": 43797,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 106,
+      "combat_tick": 377,
+      "presentation_counter": 43798,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 107,
+      "combat_tick": 378,
+      "presentation_counter": 43799,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 108,
+      "combat_tick": 379,
+      "presentation_counter": 43800,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 109,
+      "combat_tick": 380,
+      "presentation_counter": 43801,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 110,
+      "combat_tick": 381,
+      "presentation_counter": 43802,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 111,
+      "combat_tick": 382,
+      "presentation_counter": 43803,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 112,
+      "combat_tick": 383,
+      "presentation_counter": 43804,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 113,
+      "combat_tick": 384,
+      "presentation_counter": 43805,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    },
+    {
+      "index": 114,
+      "combat_tick": 385,
+      "presentation_counter": 43806,
+      "clock": 23,
+      "clock_after": 23,
+      "row": null,
+      "advanced": false,
+      "contacts": []
+    }
+  ]
+}

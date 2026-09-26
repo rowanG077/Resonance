@@ -1,0 +1,25 @@
+script battle;
+use battle;
+use battle::casting;
+asset definition: battle::Casting = "battle/casting/raine/99";
+asset spell: battle::Spell = "battle/spells/nurse";
+asset common: battle::Effect = "battle/effects/common";
+asset entry: battle::Motion = "battle/motions/raine/13";
+asset start_sound: battle::Sound = "battle/sounds/common/109";
+asset entry_sound: battle::Sound = "battle/sounds/common/122";
+asset release_sound: battle::Sound = "battle/sounds/common/123";
+asset release_voice: battle::Voice = "battle/voices/techniques/raine/237/release";
+asset chant_voice: battle::Voice = "battle/voices/techniques/raine/237/chant";
+asset fallback_voice: battle::Voice = "battle/voices/techniques/raine/237/fallback";
+asset self_chant_voice: battle::Voice = "battle/voices/techniques/raine/237/self";
+pub task run() {
+    // 39974: Nurse's self-target flag selects Raine's generic chant.
+    let mut chant = chant_voice;
+    if battle::target() == battle::owner() {
+        chant = self_chant_voice;
+    }
+    battle::sound(start_sound, 1);
+    await casting::prepared_stored(definition, spell, common, entry, entry_sound, release_sound, casting::Voices {
+        chant: chant, fallback: fallback_voice, release: release_voice });
+    battle::finish();
+}

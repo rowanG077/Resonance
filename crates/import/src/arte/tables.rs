@@ -1,10 +1,10 @@
 //! Physical learning slots and Unison combinations, including inactive records.
-use super::schema::{Combination, LearningList};
 use crate::{
     dol,
     read::{f32 as float, u16 as half, u32 as word},
 };
 use anyhow::{Result, ensure};
+use resonance_content::arte::{Combination, LearningList};
 
 const LEARNING: u32 = 0x80202dc8;
 const COMBINATIONS: u32 = 0x80208688;

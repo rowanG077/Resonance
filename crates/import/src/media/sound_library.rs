@@ -23,7 +23,7 @@ pub(crate) struct Resources {
 }
 
 impl Resources {
-    pub(super) fn package(
+    pub(crate) fn package(
         self,
         tables: resonance_audio::music_voice::Tables,
         reverbs: [[f32; 5]; 2],
@@ -94,7 +94,7 @@ pub(crate) fn sound(bank: &Bank<'_>, id: u16) -> Result<(decode::Resources, Scor
     Ok((resources, super::sound_score(id, Some(notes))))
 }
 
-pub(super) fn package(
+pub(crate) fn package(
     output: &Path,
     resources: &decode::Resources,
     score: Score,

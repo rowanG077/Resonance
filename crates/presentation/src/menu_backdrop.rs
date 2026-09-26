@@ -67,7 +67,8 @@ pub(super) fn install(app: &mut App) {
     ))
     .add_systems(
         PostUpdate,
-        sync.before(bevy::transform::TransformSystems::Propagate),
+        sync.before(bevy::transform::TransformSystems::Propagate)
+            .run_if(super::battle::field_presenting),
     );
     app.sub_app_mut(RenderApp)
         .add_systems(Core3d, capture.before(Core3dSystems::Prepass));

@@ -153,8 +153,9 @@ fn fixture() -> Fixture {
                     "name":"A","learned_flag":flag,"paragraphs":[{"lines":[[{"kind":"text","text":"A","color":9}]]}]}]})).collect::<Vec<_>>()},
                 "monsters":{"records":(0..resonance_content::monster::MONSTER_COUNT).map(|id|json!({
                     "version":resonance_content::monster::MONSTER_VERSION,"id":id,"name":"A","location":"A","category":"A",
-                    "statistics":[{"hp":1,"tp":0,"attack":0,"defense":0,"experience":0,"gald":0}],
-                    "drops":[null,null],"steal":null,"attack_element":null,"weaknesses":[],"resistances":[],
+                    "statistics":[{"hp":1,"tp":0,"initial_hp":0,"initial_tp":0,"attack":0,"thrust":0,"defense":0,
+                        "intelligence":0,"accuracy":0,"evasion":0,"luck":0,"level":0,"experience":0,"gald":0}],
+                    "grade":0,"drops":[null,null],"drop_chances":[0,0],"steal":null,"attack_element":null,"affinities":vec![0;9],"weaknesses":[],"resistances":[],
                     "preview":preview})).collect::<Vec<_>>(),
                     "labels":(["title","number","hp","tp","attack","experience","gald","defense","drops","steal","location","attack_element","weak","strong","battle_rank","normal","hard","mania","unknown_stat","unknown_item"].into_iter().map(|k|(k,"A")).collect::<BTreeMap<_,_>>())},
                 "status":{"conditions":vec!["";32],"equipment_effects":{},"technical_type":"A","strike_type":"A"},"customize":{"options":vec![json!({"name":"A","description":""});14],"difficulties":vec!["A";3],"actions":vec!["A";7],"control_buttons":[0,1,2,3,4,5,6],"color_groups":vec!["A";7],"volume_channels":vec!["A";6],"themes":vec![window_colors;3],
@@ -482,6 +483,38 @@ fn rejects_stale_inventory_missing_payload_and_unsafe_paths() {
     let mut inputs = root.inputs();
     inputs.movies.insert("../outside.json".into());
     assert!(build(&root.0, inputs).is_err());
+}
+
+#[test]
+fn late_battle_audio_descriptor_is_verified_without_loading_its_packages() {
+    let root = fixture();
+    let marker = resonance_content::battle_formation::PATH;
+    let hash = root.write(marker, b"source formation fixture");
+    let mut field: Value =
+        serde_json::from_slice(&fs::read(root.0.join("fields/test.json")).unwrap()).unwrap();
+    field["files"][marker] = json!(hash);
+    root.json("fields/test.json", &field);
+    // Structural preparation can run before the selected audio publication.
+    assert!(build(&root.0, root.inputs()).unwrap().is_complete());
+    let path = resonance_content::battle_audio::PATH;
+    let package_hash = audio_package(&root);
+    let descriptor = json!({
+        "assets": {"version":resonance_content::field_audio::FieldAudio::VERSION,
+            "music":{},"sounds":{"60":{"path":"audio/package.json","sha256":package_hash}},"voices":{},
+            "voice_gains":(0..128).map(|v| v as f32 /127.).collect::<Vec<_>>()},
+        "voice_pan":vec![[1.,1.];31],
+        "effect_spatial":[320.,5.,64.,0.,127.],"voice_spatial":[320.,5.,64.,24.,104.],
+        "files":{"audio/package.json":{"sha256":package_hash,"bytes":fs::metadata(root.0.join("audio/package.json")).unwrap().len(),"roles":["audio_package"]}}
+    });
+    let hash = root.json(path, &descriptor);
+    let manifest = build(&root.0, root.inputs()).unwrap();
+    assert_eq!(manifest.files[path].sha256, hash);
+    assert!(manifest.files[path].roles.contains(&Role::Data));
+    assert!(!manifest.files.contains_key("audio/package.json"));
+    let mut broken = descriptor;
+    broken["voice_pan"] = json!([]);
+    root.json(path, &broken);
+    assert!(build(&root.0, root.inputs()).is_err());
 }
 
 #[test]

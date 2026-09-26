@@ -52,6 +52,7 @@ fn fixture() -> App {
         reveal: false,
         selected: 0,
         silent: true,
+        paranoid: true,
         replay: None,
         movie_frame: None,
         boot_frame: None,
@@ -81,6 +82,10 @@ fn fixture() -> App {
     // MinimalPlugins and AssetPlugin have no window, renderer, or audio device.
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .insert_resource(images)
+        .insert_resource(crate::diagnostics::Diagnostics(
+            resonance_content::diagnostics::Diagnostics::new(true),
+        ))
+        .add_message::<AppExit>()
         .init_resource::<Assets<MovieAudio>>()
         .init_resource::<Assets<crate::audio::GameAudio>>()
         .init_resource::<ButtonInput<KeyCode>>()

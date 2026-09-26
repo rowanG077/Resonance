@@ -1,0 +1,6395 @@
+{
+  "source": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    }
+  },
+  "trace_sha256": "fea42c38d68a13fe3084732f43e21e88aac1cd379f25478f55c17bed9581ac61",
+  "scope": "Original low throw507..535 with natural catch; horizontal1029..1063; airborne down throw162..173 and late near-origin aerial256..267. All three profiles include every outbound tick. Corresponding unchanged-VI ordinary replays match1150x73,755x121,and762x121 fields respectively. Catch-sphere and interrupted outbound semantics remain separate acceptance gaps.",
+  "observations": [
+    {
+      "combat_tick": 507,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 8,
+        "position_bits": [
+          1128816997,
+          1118326668,
+          3257817311
+        ],
+        "angles_bits": [
+          3262119936,
+          1113194312,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 0
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1131174874,
+      "after": {
+        "detached": 1,
+        "outbound": 7,
+        "position_bits": [
+          1129784595,
+          1119543641,
+          3251464159
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 508,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 7,
+        "position_bits": [
+          1129784595,
+          1119543641,
+          3251464159
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1132195636,
+      "after": {
+        "detached": 1,
+        "outbound": 6,
+        "position_bits": [
+          1130752193,
+          1120760614,
+          3237509120
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 509,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 6,
+        "position_bits": [
+          1130752193,
+          1120760614,
+          3237509120
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          119,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1132911074,
+      "after": {
+        "detached": 1,
+        "outbound": 5,
+        "position_bits": [
+          1131719791,
+          1121977587,
+          1092769726
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          119,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 510,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 5,
+        "position_bits": [
+          1131719791,
+          1121977587,
+          1092769726
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          118,
+          119,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1133502893,
+      "after": {
+        "detached": 1,
+        "outbound": 4,
+        "position_bits": [
+          1132574734,
+          1123194560,
+          1105229246
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          118,
+          119,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 511,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 4,
+        "position_bits": [
+          1132574734,
+          1123194560,
+          1105229246
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          117,
+          118,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1134152660,
+      "after": {
+        "detached": 1,
+        "outbound": 3,
+        "position_bits": [
+          1133058533,
+          1124242502,
+          1110958030
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          117,
+          118,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 512,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 3,
+        "position_bits": [
+          1133058533,
+          1124242502,
+          1110958030
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          116,
+          117,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1134799389,
+      "after": {
+        "detached": 1,
+        "outbound": 2,
+        "position_bits": [
+          1133542332,
+          1124850988,
+          1115653310
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          116,
+          117,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 513,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 2,
+        "position_bits": [
+          1133542332,
+          1124850988,
+          1115653310
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          115,
+          116,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1135494749,
+      "after": {
+        "detached": 1,
+        "outbound": 1,
+        "position_bits": [
+          1134026131,
+          1125459474,
+          1118016727
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          115,
+          116,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 514,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 1,
+        "position_bits": [
+          1134026131,
+          1125459474,
+          1118016727
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          114,
+          115,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1136179061,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134509930,
+          1126067960,
+          1120364367
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          114,
+          115,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 515,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134509930,
+          1126067960,
+          1120364367
+        ],
+        "angles_bits": [
+          1131950808,
+          1109262152,
+          0
+        ],
+        "direction_bits": [
+          1058484203,
+          1052649195,
+          1060595915
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          113,
+          114,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1127986451,
+        1125554394,
+        3256532856
+      ],
+      "catch_distance_bits": 1129440062,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134840700,
+          1127189258,
+          1122353749
+        ],
+        "angles_bits": [
+          1130549260,
+          1107722695,
+          0
+        ],
+        "direction_bits": [
+          1053735736,
+          1060058090,
+          1058761637
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          113,
+          114,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 516,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134840700,
+          1127189258,
+          1122353749
+        ],
+        "angles_bits": [
+          1130549260,
+          1107722695,
+          0
+        ],
+        "direction_bits": [
+          1053735736,
+          1060058090,
+          1058761637
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          112,
+          113,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1127841657,
+        1124836327,
+        3255640932
+      ],
+      "catch_distance_bits": 1130605457,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1135034394,
+          1128561225,
+          1123968670
+        ],
+        "angles_bits": [
+          1129652899,
+          1103956467,
+          0
+        ],
+        "direction_bits": [
+          1047666178,
+          1062624942,
+          1056724178
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          112,
+          113,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 517,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1135034394,
+          1128561225,
+          1123968670
+        ],
+        "angles_bits": [
+          1129652899,
+          1103956467,
+          0
+        ],
+        "direction_bits": [
+          1047666178,
+          1062624942,
+          1056724178
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          111,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1128302672,
+        1122425411,
+        3263287895
+      ],
+      "catch_distance_bits": 1132837400,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1135086361,
+          1130115236,
+          1124529599
+        ],
+        "angles_bits": [
+          1128691750,
+          1094242590,
+          0
+        ],
+        "direction_bits": [
+          1031924378,
+          1064489078,
+          1050602044
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          111,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 518,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1135086361,
+          1130115236,
+          1124529599
+        ],
+        "angles_bits": [
+          1128691750,
+          1094242590,
+          0
+        ],
+        "direction_bits": [
+          1031924378,
+          1064489078,
+          1050602044
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          110,
+          111,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1127634307,
+        1119340966,
+        3267336218
+      ],
+      "catch_distance_bits": 1134444208,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134981814,
+          1131735984,
+          1124647117
+        ],
+        "angles_bits": [
+          1128033038,
+          3262293619,
+          0
+        ],
+        "direction_bits": [
+          3187846948,
+          1065172457,
+          1033037274
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          110,
+          111,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 519,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134981814,
+          1131735984,
+          1124647117
+        ],
+        "angles_bits": [
+          1128033038,
+          3262293619,
+          0
+        ],
+        "direction_bits": [
+          3187846948,
+          1065172457,
+          1033037274
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          109,
+          110,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1126096132,
+        1116930670,
+        3270024270
+      ],
+      "catch_distance_bits": 1135752730,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134713428,
+          1132857502,
+          1124338693
+        ],
+        "angles_bits": [
+          1128936284,
+          3270492994,
+          0
+        ],
+        "direction_bits": [
+          3198664112,
+          1064109462,
+          3191915496
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          109,
+          110,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 520,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134713428,
+          1132857502,
+          1124338693
+        ],
+        "angles_bits": [
+          1128936284,
+          3270492994,
+          0
+        ],
+        "direction_bits": [
+          3198664112,
+          1064109462,
+          3191915496
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          108,
+          109,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1124860704,
+        1116247596,
+        3269869922
+      ],
+      "catch_distance_bits": 1136045100,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134301568,
+          1133476997,
+          1123231696
+        ],
+        "angles_bits": [
+          1130159668,
+          3271674580,
+          0
+        ],
+        "direction_bits": [
+          3204494535,
+          1061263256,
+          3201722548
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          108,
+          109,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 521,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134301568,
+          1133476997,
+          1123231696
+        ],
+        "angles_bits": [
+          1130159668,
+          3271674580,
+          0
+        ],
+        "direction_bits": [
+          3204494535,
+          1061263256,
+          3201722548
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          107,
+          108,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1125167985,
+        1116893213,
+        3269022704
+      ],
+      "catch_distance_bits": 1135468806,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1133797000,
+          1133902417,
+          1121290489
+        ],
+        "angles_bits": [
+          1131329222,
+          3271942798,
+          0
+        ],
+        "direction_bits": [
+          3206393208,
+          1057288593,
+          3205998626
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          107,
+          108,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 522,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1133797000,
+          1133902417,
+          1121290489
+        ],
+        "angles_bits": [
+          1131329222,
+          3271942798,
+          0
+        ],
+        "direction_bits": [
+          3206393208,
+          1057288593,
+          3205998626
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          106,
+          107,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1125458179,
+        1117357380,
+        3268075151
+      ],
+      "catch_distance_bits": 1134758296,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1133251139,
+          1134117503,
+          1119003612
+        ],
+        "angles_bits": [
+          1132382011,
+          3272102741,
+          0
+        ],
+        "direction_bits": [
+          3207238874,
+          1048997307,
+          3207768458
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          106,
+          107,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 523,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1133251139,
+          1134117503,
+          1119003612
+        ],
+        "angles_bits": [
+          1132382011,
+          3272102741,
+          0
+        ],
+        "direction_bits": [
+          3207238874,
+          1048997307,
+          3207768458
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          105,
+          106,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1125755475,
+        1117574505,
+        3267137886
+      ],
+      "catch_distance_bits": 1133986840,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1132704128,
+          1134134054,
+          1116565274
+        ],
+        "angles_bits": [
+          1132882899,
+          3272218823,
+          0
+        ],
+        "direction_bits": [
+          3207262441,
+          1017479573,
+          3208543939
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          105,
+          106,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 524,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1132704128,
+          1134134054,
+          1116565274
+        ],
+        "angles_bits": [
+          1132882899,
+          3272218823,
+          0
+        ],
+        "direction_bits": [
+          3207262441,
+          1017479573,
+          3208543939
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          104,
+          105,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1126128866,
+        1117632042,
+        3266244656
+      ],
+      "catch_distance_bits": 1133173540,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1131903938,
+          1133977111,
+          1112547404
+        ],
+        "angles_bits": [
+          1133282756,
+          3272317257,
+          0
+        ],
+        "direction_bits": [
+          3206732160,
+          3192139172,
+          3208599246
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          104,
+          105,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 525,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1131903938,
+          1133977111,
+          1112547404
+        ],
+        "angles_bits": [
+          1133282756,
+          3272317257,
+          0
+        ],
+        "direction_bits": [
+          3206732160,
+          3192139172,
+          3208599246
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          103,
+          104,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1126584738,
+        1117639966,
+        3265380194
+      ],
+      "catch_distance_bits": 1132193006,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1130946929,
+          1133674592,
+          1107810454
+        ],
+        "angles_bits": [
+          1133630967,
+          3272412861,
+          0
+        ],
+        "direction_bits": [
+          3205859418,
+          3200062218,
+          3208186239
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          103,
+          104,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 526,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1130946929,
+          1133674592,
+          1107810454
+        ],
+        "angles_bits": [
+          1133630967,
+          3272412861,
+          0
+        ],
+        "direction_bits": [
+          3205859418,
+          3200062218,
+          3208186239
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          102,
+          103,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1127064044,
+        1117606704,
+        3264591985
+      ],
+      "catch_distance_bits": 1130506619,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1130094775,
+          1133252374,
+          1099397871
+        ],
+        "angles_bits": [
+          1133937441,
+          3272516021,
+          0
+        ],
+        "direction_bits": [
+          3204785703,
+          3204706678,
+          3207485928
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          102,
+          103,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 527,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1130094775,
+          1133252374,
+          1099397871
+        ],
+        "angles_bits": [
+          1133937441,
+          3272516021,
+          0
+        ],
+        "direction_bits": [
+          3204785703,
+          3204706678,
+          3207485928
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          101,
+          102,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1127497780,
+        1117535048,
+        3263931137
+      ],
+      "catch_distance_bits": 1128874132,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1129358107,
+          1132732963,
+          1067084992
+        ],
+        "angles_bits": [
+          1134210230,
+          3272635053,
+          0
+        ],
+        "direction_bits": [
+          3202758009,
+          3206697178,
+          3206614921
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          101,
+          102,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 528,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1129358107,
+          1132732963,
+          1067084992
+        ],
+        "angles_bits": [
+          1134210230,
+          3272635053,
+          0
+        ],
+        "direction_bits": [
+          3202758009,
+          3206697178,
+          3206614921
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          100,
+          101,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1127869169,
+        1117382516,
+        3263299334
+      ],
+      "catch_distance_bits": 1127269750,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128795024,
+          1131748827,
+          3242590093
+        ],
+        "angles_bits": [
+          1134559112,
+          3272846956,
+          0
+        ],
+        "direction_bits": [
+          3199202985,
+          3208911047,
+          3205173927
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          100,
+          101,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 529,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128795024,
+          1131748827,
+          3242590093
+        ],
+        "angles_bits": [
+          1134559112,
+          3272846956,
+          0
+        ],
+        "direction_bits": [
+          3199202985,
+          3208911047,
+          3205173927
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          99,
+          100,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1128202714,
+        1117153850,
+        3262014110
+      ],
+      "catch_distance_bits": 1125694807,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128401570,
+          1130340388,
+          3250401218
+        ],
+        "angles_bits": [
+          1134863206,
+          3273127535,
+          0
+        ],
+        "direction_bits": [
+          3195398310,
+          3210482063,
+          3202801980
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          99,
+          100,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 530,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128401570,
+          1130340388,
+          3250401218
+        ],
+        "angles_bits": [
+          1134863206,
+          3273127535,
+          0
+        ],
+        "direction_bits": [
+          3195398310,
+          3210482063,
+          3202801980
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          98,
+          99,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1128481440,
+        1116917670,
+        3260562414
+      ],
+      "catch_distance_bits": 1124141534,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128165393,
+          1128828140,
+          3254928702
+        ],
+        "angles_bits": [
+          1135128384,
+          3273523150,
+          0
+        ],
+        "direction_bits": [
+          3188956246,
+          3211545066,
+          3199642323
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          98,
+          99,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 531,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128165393,
+          1128828140,
+          3254928702
+        ],
+        "angles_bits": [
+          1135128384,
+          3273523150,
+          0
+        ],
+        "direction_bits": [
+          3188956246,
+          3211545066,
+          3199642323
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          97,
+          98,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1128686270,
+        1116743677,
+        3259213408
+      ],
+      "catch_distance_bits": 1121094812,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128069470,
+          1127250332,
+          3256652303
+        ],
+        "angles_bits": [
+          1135357762,
+          3274142516,
+          0
+        ],
+        "direction_bits": [
+          3178221259,
+          3212216403,
+          3196495876
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          97,
+          98,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 532,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128069470,
+          1127250332,
+          3256652303
+        ],
+        "angles_bits": [
+          1135357762,
+          3274142516,
+          0
+        ],
+        "direction_bits": [
+          3178221259,
+          3212216403,
+          3196495876
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          96,
+          97,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1128714924,
+        1116646629,
+        3257604666
+      ],
+      "catch_distance_bits": 1117919284,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128084168,
+          1125633900,
+          3257720276
+        ],
+        "angles_bits": [
+          1135562162,
+          1127274848,
+          0
+        ],
+        "direction_bits": [
+          1007876710,
+          3212611915,
+          3190218473
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          96,
+          97,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 533,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128084168,
+          1125633900,
+          3257720276
+        ],
+        "angles_bits": [
+          1135562162,
+          1127274848,
+          0
+        ],
+        "direction_bits": [
+          1007876710,
+          3212611915,
+          3190218473
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          95,
+          96,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1128675641,
+        1116328524,
+        3256565074
+      ],
+      "catch_distance_bits": 1114319758,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128175256,
+          1123929066,
+          3258131608
+        ],
+        "angles_bits": [
+          1135712350,
+          1124759375,
+          0
+        ],
+        "direction_bits": [
+          1029945376,
+          3212777787,
+          3179317899
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          95,
+          96,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 534,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128175256,
+          1123929066,
+          3258131608
+        ],
+        "angles_bits": [
+          1135712350,
+          1124759375,
+          0
+        ],
+        "direction_bits": [
+          1029945376,
+          3212777787,
+          3179317899
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          94,
+          95,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1128679134,
+        1115671876,
+        3256565350
+      ],
+      "catch_distance_bits": 1109092710,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128318739,
+          1120665152,
+          3258043643
+        ],
+        "angles_bits": [
+          1135703395,
+          1117950603,
+          0
+        ],
+        "direction_bits": [
+          1035164288,
+          3212770887,
+          1012656594
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          94,
+          95,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 535,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128318739,
+          1120665152,
+          3258043643
+        ],
+        "angles_bits": [
+          1135703395,
+          1117950603,
+          0
+        ],
+        "direction_bits": [
+          1035164288,
+          3212770887,
+          1012656594
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          93,
+          94,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1128656880,
+        1114166258,
+        3256705329
+      ],
+      "catch_distance_bits": 1100724612,
+      "after": {
+        "detached": 0,
+        "outbound": 0,
+        "position_bits": [
+          1128486204,
+          1117412455,
+          3257618439
+        ],
+        "angles_bits": [
+          1135642095,
+          1114005590,
+          0
+        ],
+        "direction_bits": [
+          1037128936,
+          3212713457,
+          1032118359
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          93,
+          94,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1029,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 14,
+        "position_bits": [
+          1108618354,
+          1115885909,
+          3274863846
+        ],
+        "angles_bits": [
+          3262119936,
+          1120027001,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 0
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1128607819,
+      "after": {
+        "detached": 1,
+        "outbound": 13,
+        "position_bits": [
+          1115110194,
+          1115885909,
+          3274639446
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1030,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 13,
+        "position_bits": [
+          1115110194,
+          1115885909,
+          3274639446
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1128993499,
+      "after": {
+        "detached": 1,
+        "outbound": 12,
+        "position_bits": [
+          1118643449,
+          1115885909,
+          3274415046
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1031,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 12,
+        "position_bits": [
+          1118643449,
+          1115885909,
+          3274415046
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1129603913,
+      "after": {
+        "detached": 1,
+        "outbound": 11,
+        "position_bits": [
+          1121889369,
+          1115885909,
+          3274190646
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1032,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 11,
+        "position_bits": [
+          1121889369,
+          1115885909,
+          3274190646
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1130333904,
+      "after": {
+        "detached": 1,
+        "outbound": 10,
+        "position_bits": [
+          1124604380,
+          1115885909,
+          3273966246
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1033,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 10,
+        "position_bits": [
+          1124604380,
+          1115885909,
+          3273966246
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1131239669,
+      "after": {
+        "detached": 1,
+        "outbound": 9,
+        "position_bits": [
+          1126227340,
+          1115885909,
+          3273741846
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1034,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 9,
+        "position_bits": [
+          1126227340,
+          1115885909,
+          3273741846
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1132224024,
+      "after": {
+        "detached": 1,
+        "outbound": 8,
+        "position_bits": [
+          1127850300,
+          1115885909,
+          3273517446
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1035,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 8,
+        "position_bits": [
+          1127850300,
+          1115885909,
+          3273517446
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1132900119,
+      "after": {
+        "detached": 1,
+        "outbound": 7,
+        "position_bits": [
+          1129473260,
+          1115885909,
+          3273293046
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1036,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 7,
+        "position_bits": [
+          1129473260,
+          1115885909,
+          3273293046
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1133480491,
+      "after": {
+        "detached": 1,
+        "outbound": 6,
+        "position_bits": [
+          1131096220,
+          1115885909,
+          3273068646
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1037,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 6,
+        "position_bits": [
+          1131096220,
+          1115885909,
+          3273068646
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1134108417,
+      "after": {
+        "detached": 1,
+        "outbound": 5,
+        "position_bits": [
+          1132590630,
+          1115885909,
+          3272844246
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1038,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 5,
+        "position_bits": [
+          1132590630,
+          1115885909,
+          3272844246
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1134748996,
+      "after": {
+        "detached": 1,
+        "outbound": 4,
+        "position_bits": [
+          1133402110,
+          1115885909,
+          3272619846
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1039,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 4,
+        "position_bits": [
+          1133402110,
+          1115885909,
+          3272619846
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          119,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1135425091,
+      "after": {
+        "detached": 1,
+        "outbound": 3,
+        "position_bits": [
+          1134213590,
+          1115885909,
+          3272395446
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          119,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1040,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 3,
+        "position_bits": [
+          1134213590,
+          1115885909,
+          3272395446
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          118,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1136107186,
+      "after": {
+        "detached": 1,
+        "outbound": 2,
+        "position_bits": [
+          1135025070,
+          1115885909,
+          3272171046
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          118,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1041,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 2,
+        "position_bits": [
+          1135025070,
+          1115885909,
+          3272171046
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          117,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1136816591,
+      "after": {
+        "detached": 1,
+        "outbound": 1,
+        "position_bits": [
+          1135836550,
+          1115885909,
+          3271946646
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          117,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1042,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 1,
+        "position_bits": [
+          1135836550,
+          1115885909,
+          3271946646
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          116,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1137527931,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1136648030,
+          1115885909,
+          3271722246
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          116,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1043,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1136648030,
+          1115885909,
+          3271722246
+        ],
+        "angles_bits": [
+          1132920833,
+          1118060921,
+          0
+        ],
+        "direction_bits": [
+          1065195110,
+          0,
+          1040990206
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          115,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1138365209,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1137446968,
+          1116045704,
+          3271180937
+        ],
+        "angles_bits": [
+          1132829240,
+          1117458922,
+          0
+        ],
+        "direction_bits": [
+          1064938251,
+          1028111993,
+          1046266567
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          115,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1044,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1137446968,
+          1116045704,
+          3271180937
+        ],
+        "angles_bits": [
+          1132829240,
+          1117458922,
+          0
+        ],
+        "direction_bits": [
+          1064938251,
+          1028111993,
+          1046266567
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          114,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1139123596,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1138217031,
+          1116423802,
+          3270129031
+        ],
+        "angles_bits": [
+          1132703715,
+          1116621370,
+          0
+        ],
+        "direction_bits": [
+          1064346890,
+          1038897064,
+          1050958913
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          114,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1045,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1138217031,
+          1116423802,
+          3270129031
+        ],
+        "angles_bits": [
+          1132703715,
+          1116621370,
+          0
+        ],
+        "direction_bits": [
+          1064346890,
+          1038897064,
+          1050958913
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          113,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1139826394,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1138927304,
+          1117087491,
+          3268637342
+        ],
+        "angles_bits": [
+          1132537917,
+          1115238877,
+          0
+        ],
+        "direction_bits": [
+          1063122386,
+          1045391142,
+          1055462292
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          113,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1046,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1138927304,
+          1117087491,
+          3268637342
+        ],
+        "angles_bits": [
+          1132537917,
+          1115238877,
+          0
+        ],
+        "direction_bits": [
+          1063122386,
+          1045391142,
+          1055462292
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1140431506,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1139526231,
+          1118093314,
+          3266640767
+        ],
+        "angles_bits": [
+          1132208084,
+          1112065262,
+          0
+        ],
+        "direction_bits": [
+          1060842034,
+          1050487019,
+          1058798466
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          112,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1047,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1139526231,
+          1118093314,
+          3266640767
+        ],
+        "angles_bits": [
+          1132208084,
+          1112065262,
+          0
+        ],
+        "direction_bits": [
+          1060842034,
+          1050487019,
+          1058798466
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          111,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1140866585,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1139944084,
+          1119446877,
+          3264168588
+        ],
+        "angles_bits": [
+          1131780629,
+          1107836837,
+          0
+        ],
+        "direction_bits": [
+          1057133621,
+          1054047880,
+          1061233559
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          111,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1048,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1139944084,
+          1119446877,
+          3264168588
+        ],
+        "angles_bits": [
+          1131780629,
+          1107836837,
+          0
+        ],
+        "direction_bits": [
+          1057133621,
+          1054047880,
+          1061233559
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          110,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1140987736,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1140114740,
+          1121061846,
+          3259632124
+        ],
+        "angles_bits": [
+          1131444436,
+          1096655456,
+          0
+        ],
+        "direction_bits": [
+          1045778925,
+          1056724671,
+          1062749543
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          110,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1049,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1140114740,
+          1121061846,
+          3259632124
+        ],
+        "angles_bits": [
+          1131444436,
+          1096655456,
+          0
+        ],
+        "direction_bits": [
+          1045778925,
+          1056724671,
+          1062749543
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          109,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1140990823,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1140009310,
+          1122767586,
+          3253420876
+        ],
+        "angles_bits": [
+          1131323773,
+          3238704502,
+          0
+        ],
+        "direction_bits": [
+          3187919269,
+          1057309391,
+          1062737239
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          109,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1050,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1140009310,
+          1122767586,
+          3253420876
+        ],
+        "angles_bits": [
+          1131323773,
+          3238704502,
+          0
+        ],
+        "direction_bits": [
+          3187919269,
+          1057309391,
+          1062737239
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          108,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1140881564,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1139650826,
+          1124225578,
+          3240710004
+        ],
+        "angles_bits": [
+          1131450848,
+          3253816024,
+          0
+        ],
+        "direction_bits": [
+          3202354539,
+          1056674785,
+          1061209889
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          108,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1051,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1139650826,
+          1124225578,
+          3240710004
+        ],
+        "angles_bits": [
+          1131450848,
+          3253816024,
+          0
+        ],
+        "direction_bits": [
+          3202354539,
+          1056674785,
+          1061209889
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          107,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1140508372,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1139097063,
+          1124916209,
+          1083240794
+        ],
+        "angles_bits": [
+          1131745701,
+          3259025918,
+          0
+        ],
+        "direction_bits": [
+          3207400712,
+          1054331523,
+          1058717062
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          107,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1052,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1139097063,
+          1124916209,
+          1083240794
+        ],
+        "angles_bits": [
+          1131745701,
+          3259025918,
+          0
+        ],
+        "direction_bits": [
+          3207400712,
+          1054331523,
+          1058717062
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          106,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1139965999,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1138412686,
+          1125462752,
+          1098330377
+        ],
+        "angles_bits": [
+          1132102523,
+          3262748335,
+          0
+        ],
+        "direction_bits": [
+          3210075679,
+          1051380594,
+          1054843981
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          106,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1053,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1138412686,
+          1125462752,
+          1098330377
+        ],
+        "angles_bits": [
+          1132102523,
+          3262748335,
+          0
+        ],
+        "direction_bits": [
+          3210075679,
+          1051380594,
+          1054843981
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          105,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1139327334,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1137651481,
+          1125863847,
+          1102247740
+        ],
+        "angles_bits": [
+          1132450905,
+          3264401765,
+          0
+        ],
+        "direction_bits": [
+          3211649130,
+          1048227627,
+          1049476935
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          105,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1054,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1137651481,
+          1125863847,
+          1102247740
+        ],
+        "angles_bits": [
+          1132450905,
+          3264401765,
+          0
+        ],
+        "direction_bits": [
+          3211649130,
+          1048227627,
+          1049476935
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          104,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1138624427,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1136851325,
+          1126133448,
+          1104048598
+        ],
+        "angles_bits": [
+          1132610481,
+          3265526898,
+          0
+        ],
+        "direction_bits": [
+          3212446837,
+          1042841647,
+          1041019178
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          104,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1055,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1136851325,
+          1126133448,
+          1104048598
+        ],
+        "angles_bits": [
+          1132610481,
+          3265526898,
+          0
+        ],
+        "direction_bits": [
+          3212446837,
+          1042841647,
+          1041019178
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          103,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1137879742,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1136036120,
+          1126291092,
+          1104333234
+        ],
+        "angles_bits": [
+          1132739906,
+          3266412529,
+          0
+        ],
+        "direction_bits": [
+          3212755047,
+          1036324377,
+          1018291653
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          103,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1056,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1136036120,
+          1126291092,
+          1104333234
+        ],
+        "angles_bits": [
+          1132739906,
+          3266412529,
+          0
+        ],
+        "direction_bits": [
+          3212755047,
+          1036324377,
+          1018291653
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          102,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3251736529,
+        1121225443,
+        3270476020
+      ],
+      "catch_distance_bits": 1137108262,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1135219683,
+          1126356495,
+          1103393366
+        ],
+        "angles_bits": [
+          1132845866,
+          3267115785,
+          0
+        ],
+        "direction_bits": [
+          3212780269,
+          1025737207,
+          3180518070
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          102,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1057,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1135219683,
+          1126356495,
+          1103393366
+        ],
+        "angles_bits": [
+          1132845866,
+          3267115785,
+          0
+        ],
+        "direction_bits": [
+          3212780269,
+          1025737207,
+          3180518070
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          101,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1083322245,
+        1119737555,
+        3272505712
+      ],
+      "catch_distance_bits": 1135786426,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134412006,
+          1126332073,
+          1101211402
+        ],
+        "angles_bits": [
+          1132948819,
+          3267832549,
+          0
+        ],
+        "direction_bits": [
+          3212600872,
+          3161733176,
+          3190454088
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          101,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1058,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1134412006,
+          1126332073,
+          1101211402
+        ],
+        "angles_bits": [
+          1132948819,
+          3267832549,
+          0
+        ],
+        "direction_bits": [
+          3212600872,
+          3161733176,
+          3190454088
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          100,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1092264950,
+        1118443894,
+        3275412706
+      ],
+      "catch_distance_bits": 1135676246,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1133624390,
+          1126227640,
+          1096502564
+        ],
+        "angles_bits": [
+          1133040585,
+          3268614362,
+          0
+        ],
+        "direction_bits": [
+          3212190014,
+          3179448937,
+          3196647158
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          100,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1059,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1133624390,
+          1126227640,
+          1096502564
+        ],
+        "angles_bits": [
+          1133040585,
+          3268614362,
+          0
+        ],
+        "direction_bits": [
+          3212190014,
+          3179448937,
+          3196647158
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          99,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3248163046,
+        1117610524,
+        3278147604
+      ],
+      "catch_distance_bits": 1136487783,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1132863518,
+          1126063104,
+          1083783876
+        ],
+        "angles_bits": [
+          1133109695,
+          3269330194,
+          0
+        ],
+        "direction_bits": [
+          3211642317,
+          3184372572,
+          3199640456
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          99,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1060,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1132863518,
+          1126063104,
+          1083783876
+        ],
+        "angles_bits": [
+          1133109695,
+          3269330194,
+          0
+        ],
+        "direction_bits": [
+          3211642317,
+          3184372572,
+          3199640456
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          98,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3264128939,
+        1117245816,
+        3279167805
+      ],
+      "catch_distance_bits": 1137331913,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1131788728,
+          1125859508,
+          3232972910
+        ],
+        "angles_bits": [
+          1133154741,
+          3269821976,
+          0
+        ],
+        "direction_bits": [
+          3211176221,
+          3187572392,
+          3201616313
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          98,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1061,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1131788728,
+          1125859508,
+          3232972910
+        ],
+        "angles_bits": [
+          1133154741,
+          3269821976,
+          0
+        ],
+        "direction_bits": [
+          3211176221,
+          3187572392,
+          3201616313
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          97,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3271749320,
+        1117880393,
+        3277629974
+      ],
+      "catch_distance_bits": 1137677246,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1130329702,
+          1125637274,
+          3246631424
+        ],
+        "angles_bits": [
+          1133176282,
+          3269983720,
+          0
+        ],
+        "direction_bits": [
+          3211000072,
+          3188385155,
+          3202242245
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          97,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1062,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1130329702,
+          1125637274,
+          3246631424
+        ],
+        "angles_bits": [
+          1133176282,
+          3269983720,
+          0
+        ],
+        "direction_bits": [
+          3211000072,
+          3188385155,
+          3202242245
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          96,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3272321105,
+        1118809360,
+        3277226925
+      ],
+      "catch_distance_bits": 1136969788,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128879756,
+          1125407893,
+          3252452192
+        ],
+        "angles_bits": [
+          1133184551,
+          3270069182,
+          0
+        ],
+        "direction_bits": [
+          3210907092,
+          3188677892,
+          3202572205
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          96,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 1063,
+      "slot": 0,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1128879756,
+          1125407893,
+          3252452192
+        ],
+        "angles_bits": [
+          1133184551,
+          3270069182,
+          0
+        ],
+        "direction_bits": [
+          3210907092,
+          3188677892,
+          3202572205
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          95,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3272764698,
+        1119786885,
+        3276723601
+      ],
+      "catch_distance_bits": 1136192279,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1127431508,
+          1125180804,
+          3256542788
+        ],
+        "angles_bits": [
+          1133181898,
+          3270089622,
+          0
+        ],
+        "direction_bits": [
+          3210889707,
+          3188584007,
+          3202655947
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          95,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 162,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 10,
+        "position_bits": [
+          3285208848,
+          1132875842,
+          3253424641
+        ],
+        "angles_bits": [
+          3262119936,
+          1121058819,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 0
+      },
+      "catch_point_bits": [
+        0,
+        1080033280,
+        0
+      ],
+      "catch_distance_bits": 1139466955,
+      "after": {
+        "detached": 1,
+        "outbound": 9,
+        "position_bits": [
+          3284537733,
+          1132350043,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 163,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 9,
+        "position_bits": [
+          3284537733,
+          1132350043,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        1075838976,
+        0
+      ],
+      "catch_distance_bits": 1138667822,
+      "after": {
+        "detached": 1,
+        "outbound": 8,
+        "position_bits": [
+          3283866618,
+          1131410482,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 164,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 8,
+        "position_bits": [
+          3283866618,
+          1131410482,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        1069547520,
+        0
+      ],
+      "catch_distance_bits": 1137868888,
+      "after": {
+        "detached": 1,
+        "outbound": 7,
+        "position_bits": [
+          3283195503,
+          1130470921,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 165,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 7,
+        "position_bits": [
+          3283195503,
+          1130470921,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        1056964608,
+        0
+      ],
+      "catch_distance_bits": 1137070194,
+      "after": {
+        "detached": 1,
+        "outbound": 6,
+        "position_bits": [
+          3282524388,
+          1129531360,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 166,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 6,
+        "position_bits": [
+          3282524388,
+          1129531360,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3204448256,
+        0
+      ],
+      "catch_distance_bits": 1136271782,
+      "after": {
+        "detached": 1,
+        "outbound": 5,
+        "position_bits": [
+          3281853273,
+          1128591799,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 167,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 5,
+        "position_bits": [
+          3281853273,
+          1128591799,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3217031168,
+        0
+      ],
+      "catch_distance_bits": 1135473715,
+      "after": {
+        "detached": 1,
+        "outbound": 4,
+        "position_bits": [
+          3281182158,
+          1127652238,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 168,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 4,
+        "position_bits": [
+          3281182158,
+          1127652238,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3223322624,
+        0
+      ],
+      "catch_distance_bits": 1134676068,
+      "after": {
+        "detached": 1,
+        "outbound": 3,
+        "position_bits": [
+          3280511043,
+          1126712677,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 169,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 3,
+        "position_bits": [
+          3280511043,
+          1126712677,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3227516928,
+        0
+      ],
+      "catch_distance_bits": 1133878946,
+      "after": {
+        "detached": 1,
+        "outbound": 2,
+        "position_bits": [
+          3279734128,
+          1125773116,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 170,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 2,
+        "position_bits": [
+          3279734128,
+          1125773116,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3230662656,
+        0
+      ],
+      "catch_distance_bits": 1133082486,
+      "after": {
+        "detached": 1,
+        "outbound": 1,
+        "position_bits": [
+          3278391898,
+          1124833555,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 171,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 1,
+        "position_bits": [
+          3278391898,
+          1124833555,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3232759808,
+        0
+      ],
+      "catch_distance_bits": 1132111683,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          3277049668,
+          1123714517,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 172,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          3277049668,
+          1123714517,
+          3253424641
+        ],
+        "angles_bits": [
+          1134067451,
+          1119092739,
+          0
+        ],
+        "direction_bits": [
+          1062320430,
+          3205680749,
+          3004812608
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3288425608,
+        1133564169,
+        3261746512
+      ],
+      "catch_distance_bits": 1136290203,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          3275765295,
+          1121684630,
+          3253969001
+        ],
+        "angles_bits": [
+          1134175114,
+          1119490234,
+          0
+        ],
+        "direction_bits": [
+          1061727979,
+          3206452671,
+          3173653710
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 173,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          3275765295,
+          1121684630,
+          3253969001
+        ],
+        "angles_bits": [
+          1134175114,
+          1119490234,
+          0
+        ],
+        "direction_bits": [
+          1061727979,
+          3206452671,
+          3173653710
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3288455741,
+        1133339071,
+        3261289803
+      ],
+      "catch_distance_bits": 1137012522,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          3274581261,
+          1119441800,
+          3255004959
+        ],
+        "angles_bits": [
+          1134336179,
+          1120086660,
+          0
+        ],
+        "direction_bits": [
+          1060700510,
+          3207542935,
+          3183806602
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 256,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 10,
+        "position_bits": [
+          1090969656,
+          1119040069,
+          1109414582
+        ],
+        "angles_bits": [
+          3262119936,
+          1121045221,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 0
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1119099705,
+      "after": {
+        "detached": 1,
+        "outbound": 9,
+        "position_bits": [
+          1105676471,
+          1117160948,
+          1109424303
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 257,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 9,
+        "position_bits": [
+          1105676471,
+          1117160948,
+          1109424303
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1118936328,
+      "after": {
+        "detached": 1,
+        "outbound": 8,
+        "position_bits": [
+          1111855273,
+          1114878789,
+          1109434024
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 258,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 8,
+        "position_bits": [
+          1111855273,
+          1114878789,
+          1109434024
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1119499325,
+      "after": {
+        "detached": 1,
+        "outbound": 7,
+        "position_bits": [
+          1116454523,
+          1111120546,
+          1109443745
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 259,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 7,
+        "position_bits": [
+          1116454523,
+          1111120546,
+          1109443745
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1120972851,
+      "after": {
+        "detached": 1,
+        "outbound": 6,
+        "position_bits": [
+          1119138978,
+          1107362303,
+          1109453466
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 260,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 6,
+        "position_bits": [
+          1119138978,
+          1107362303,
+          1109453466
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1122929802,
+      "after": {
+        "detached": 1,
+        "outbound": 5,
+        "position_bits": [
+          1121823433,
+          1099911864,
+          1109463187
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 261,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 5,
+        "position_bits": [
+          1121823433,
+          1099911864,
+          1109463187
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1124695770,
+      "after": {
+        "detached": 1,
+        "outbound": 4,
+        "position_bits": [
+          1124290680,
+          1084437299,
+          1109472908
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 262,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 4,
+        "position_bits": [
+          1124290680,
+          1084437299,
+          1109472908
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1125983633,
+      "after": {
+        "detached": 1,
+        "outbound": 3,
+        "position_bits": [
+          1125632907,
+          1084437299,
+          1109482629
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 263,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 3,
+        "position_bits": [
+          1125632907,
+          1084437299,
+          1109482629
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1127287978,
+      "after": {
+        "detached": 1,
+        "outbound": 2,
+        "position_bits": [
+          1126975134,
+          1084437299,
+          1109492350
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 264,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 2,
+        "position_bits": [
+          1126975134,
+          1084437299,
+          1109492350
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        0,
+        0
+      ],
+      "catch_distance_bits": 1128596361,
+      "after": {
+        "detached": 1,
+        "outbound": 1,
+        "position_bits": [
+          1128317361,
+          1084437299,
+          1109502071
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 265,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 1,
+        "position_bits": [
+          1128317361,
+          1084437299,
+          1109502071
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        0,
+        3212836864,
+        0
+      ],
+      "catch_distance_bits": 1129914436,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1129659588,
+          1084437299,
+          1109511792
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 266,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1129659588,
+          1084437299,
+          1109511792
+        ],
+        "angles_bits": [
+          1134067452,
+          1119079141,
+          0
+        ],
+        "direction_bits": [
+          1062320408,
+          3205680750,
+          985820167
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        1073511277,
+        1112648248,
+        1112035420
+      ],
+      "catch_distance_bits": 1131009772,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1130810319,
+          1084437299,
+          1109663499
+        ],
+        "angles_bits": [
+          1134406973,
+          1118845311,
+          0
+        ],
+        "direction_bits": [
+          1060359487,
+          3207995877,
+          1019060786
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    },
+    {
+      "combat_tick": 267,
+      "slot": 1,
+      "before": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1130810319,
+          1084437299,
+          1109663499
+        ],
+        "angles_bits": [
+          1134406973,
+          1118845311,
+          0
+        ],
+        "direction_bits": [
+          1060359487,
+          3207995877,
+          1019060786
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          119,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 29
+      },
+      "catch_point_bits": [
+        3220252211,
+        1112911060,
+        1112565488
+      ],
+      "catch_distance_bits": 1132081004,
+      "after": {
+        "detached": 1,
+        "outbound": 0,
+        "position_bits": [
+          1131636081,
+          1084437299,
+          1110002810
+        ],
+        "angles_bits": [
+          1134872448,
+          1118323970,
+          0
+        ],
+        "direction_bits": [
+          1057031803,
+          3210524081,
+          1028919761
+        ],
+        "speed_bits": 1103626240,
+        "cooldowns": [
+          119,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trail_timer": 30
+      }
+    }
+  ],
+  "additional_sources": [
+    {
+      "dolphin_version": "Dolphin [master] 2606",
+      "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+      "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+      "movie_sha256": "a2032cbe4768a6320f406bebec86d1b296ab4b0007e0fa454376b613f47b3b8f",
+      "initial_state_sha256": "60a9de48937b011898fe7d7794bfbf5772ad2037386b6d70fc2a2167501add4d",
+      "configs": {
+        "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+        "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+        "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+      },
+      "game_settings": {
+        "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+      },
+      "trace_sha256": "7ccc7ab0f77ef33476b785faff6598f342e7f08f96a9c006ab55b2fa3a28484c",
+      "unchanged_replay_samples": 755,
+      "unchanged_replay_fields": 121
+    },
+    {
+      "dolphin_version": "Dolphin [master] 2606",
+      "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+      "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+      "movie_sha256": "5a40fc7087e4f51299d763faafde05367a95f112acab001d8efe424836f62f67",
+      "initial_state_sha256": "60a9de48937b011898fe7d7794bfbf5772ad2037386b6d70fc2a2167501add4d",
+      "configs": {
+        "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+        "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+        "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+      },
+      "game_settings": {
+        "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+      },
+      "trace_sha256": "b8275bb920581ef25ba3f5f3b5c98f32d267681f66ed7e32e2fef2c9802bf57d",
+      "unchanged_replay_samples": 762,
+      "unchanged_replay_fields": 121
+    }
+  ]
+}

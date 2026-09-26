@@ -5,7 +5,7 @@ use resonance_audio::package::Package;
 use resonance_audio_cook::{compile, decode, instrument, song::Song};
 use std::fs;
 
-pub(super) fn package(
+pub(crate) fn package(
     workspace: &Workspace,
     executable: &[u8],
     coefficients: &[u8],

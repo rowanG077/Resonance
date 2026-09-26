@@ -6,6 +6,10 @@ fn fixture() -> App {
         .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
             Duration::ZERO,
         ))
+        .insert_resource(crate::diagnostics::Diagnostics(
+            resonance_content::diagnostics::Diagnostics::new(true),
+        ))
+        .add_message::<AppExit>()
         .init_resource::<Ready>()
         .init_resource::<RenderReady>()
         .init_resource::<FieldAssets>()
@@ -14,6 +18,7 @@ fn fixture() -> App {
         .init_resource::<PendingInput>()
         .init_resource::<audio::MenuSounds>()
         .init_resource::<Assets<GameAudio>>()
+        .init_resource::<Assets<Image>>()
         .insert_resource(PendingAudio(None))
         .insert_resource(Clock(PresentationClock::new(2365)))
         .insert_resource(Menu(TitleState::default()))
@@ -44,6 +49,7 @@ fn fixture() -> App {
             reveal: false,
             selected: 0,
             silent: true,
+            paranoid: true,
             replay: None,
             movie_frame: None,
             boot_frame: None,
@@ -170,4 +176,25 @@ fn startup_counts_authored_frames_and_releases_title_input_after_completion() {
         "completed startup consumed the title's navigation press"
     );
     assert_eq!(app.world().resource::<Clock>().0.tick(), 2365 + 977);
+}
+
+#[test]
+fn generated_missing_texture_placeholder_does_not_hold_startup_forever() {
+    let mut app = fixture();
+    let placeholder = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::default());
+    app.world_mut()
+        .resource_mut::<Art>()
+        .images
+        .push(placeholder);
+    app.world_mut().resource_mut::<FieldAssets>().ready = true;
+    app.world()
+        .resource::<RenderReady>()
+        .0
+        .store(true, Ordering::Release);
+    app.update();
+    assert!(app.world().resource::<Ready>().0);
+    assert_eq!(app.world().resource::<Clock>().0.tick(), 2365);
 }

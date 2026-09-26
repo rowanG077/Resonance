@@ -1,6 +1,5 @@
-//! Fail closed when the presentation layer drops a live visual request.
+//! Account for every live visual request, including tolerated omissions.
 use super::field_view::{Art, State};
-use anyhow::{Result, ensure};
 use bevy::prelude::*;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -174,49 +173,105 @@ fn expected(
     }
     expected
 }
-fn validate(tick: u32, applied: &Applied, now: Instant) -> Result<()> {
-    let missing: Vec<_> = applied
+fn unapplied(applied: &Applied, now: Instant) -> impl Iterator<Item = &Request> {
+    applied
         .expected
         .difference(&applied.requests)
-        .filter(|r| {
+        .filter(move |r| {
             applied
                 .loading
                 .get(*r)
                 .is_none_or(|since| now.saturating_duration_since(*since) >= LOAD_TIMEOUT)
         })
-        .collect();
-    ensure!(
-        missing.is_empty(),
-        "unapplied VM presentation requests at tick {tick}: {missing:?}"
-    );
-    Ok(())
 }
-pub(super) fn check(state: State, applied: Res<Applied>) {
-    if !cfg!(debug_assertions) || !applied.armed {
+pub(super) fn check(applied: Res<Applied>, mut failures: super::field_view::Failures) {
+    if !applied.armed {
         return;
     }
-    assert_applied(state.get().events.tick(), &applied);
-}
-fn assert_applied(tick: u32, applied: &Applied) {
-    let result = validate(tick, applied, Instant::now());
-    debug_assert!(
-        result.is_ok(),
-        "Field presentation contract failed: {}",
-        result.unwrap_err()
-    );
+    for request in unapplied(&applied, Instant::now()) {
+        if !failures.skip(
+            "field presentation",
+            anyhow::anyhow!("unapplied VM presentation request: {request:?}"),
+        ) {
+            return;
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "unapplied VM presentation requests at tick 549: [Billboard(8)]")]
-    fn missing_effect_triggers_the_debug_assertion() {
-        let mut applied = Applied::default();
-        applied.expected.insert(Request::Billboard(8));
-        assert_applied(549, &applied);
+
+    fn validate(tick: u32, applied: &Applied, now: Instant) -> anyhow::Result<()> {
+        let missing: Vec<_> = unapplied(applied, now).collect();
+        anyhow::ensure!(
+            missing.is_empty(),
+            "unapplied VM presentation requests at tick {tick}: {missing:?}"
+        );
+        Ok(())
     }
+
+    #[test]
+    fn all_missing_effects_are_reported_without_hiding_healthy_or_loading_requests() {
+        let mut applied = Applied::default();
+        applied.expected.insert(Request::Billboard(7));
+        applied.expected.insert(Request::Billboard(8));
+        applied.expected.insert(Request::Particle(9));
+        applied.expected.insert(Request::Emote(10));
+        applied.ack(Request::Billboard(7));
+        applied.loading(Request::Emote(10));
+        assert_eq!(
+            unapplied(&applied, Instant::now())
+                .cloned()
+                .collect::<Vec<_>>(),
+            [Request::Billboard(8), Request::Particle(9)]
+        );
+    }
+
+    #[test]
+    fn tolerant_audit_collects_every_failure_and_strict_audit_exits() {
+        use bevy::ecs::system::RunSystemOnce;
+
+        for paranoid in [None, Some(false), Some(true)] {
+            let mut world = World::new();
+            world.init_resource::<Messages<AppExit>>();
+            let diagnostics = paranoid.map(resonance_content::diagnostics::Diagnostics::new);
+            if let Some(diagnostics) = &diagnostics {
+                world.insert_resource(crate::diagnostics::Diagnostics(diagnostics.clone()));
+            }
+            let mut applied = Applied {
+                armed: true,
+                ..Default::default()
+            };
+            applied.expected.insert(Request::Billboard(8));
+            applied.expected.insert(Request::Particle(9));
+            world.insert_resource(applied);
+
+            world.run_system_once(check).unwrap();
+            assert_eq!(
+                world.resource::<Messages<AppExit>>().len(),
+                usize::from(paranoid != Some(false))
+            );
+            assert!(world.resource::<Applied>().requests.is_empty());
+            if let Some(diagnostics) = diagnostics {
+                assert_eq!(
+                    diagnostics.entries().len(),
+                    if paranoid == Some(true) { 1 } else { 2 }
+                );
+                if paranoid == Some(false) {
+                    world.run_system_once(check).unwrap();
+                    assert!(
+                        diagnostics
+                            .entries()
+                            .iter()
+                            .all(|entry| entry.occurrences == 2)
+                    );
+                    assert!(world.resource::<Messages<AppExit>>().is_empty());
+                }
+            }
+        }
+    }
+
     #[test]
     fn dropped_requests_fail_even_when_other_actors_are_present() {
         let mut world = resonance_events::GameWorld::default();

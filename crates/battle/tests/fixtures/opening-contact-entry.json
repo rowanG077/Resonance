@@ -1,0 +1,1355 @@
+{
+  "dolphin_version": "Dolphin [master] 2606",
+  "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+  "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+  "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+  "configs": {
+    "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+    "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+    "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+  },
+  "effective_configs": {
+    "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+    "RetroAchievements.ini": "3c0dd9a34631867226e2cbdd407075550de57ee09aff91a15ba74d9670dc58d3",
+    "GBA.ini": "da87f7564bc33321b15c4824bc83a35d95d6703aa90563013bc48162e2264255",
+    "Qt.ini": "8d61ccfa299f4e813c080c15325a791e7b660de0f87cd65783404440b7df15c4",
+    "FreeLook.ini": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+    "Dolphin.ini": "b5a9fe0e27fd3d4391cb69f37539fd17b3679c7c59befc46cc943b904e5cd33f",
+    "GCPadNew.ini": "396ec02cbb5acb99e935ddac942ef0264533d1e65438f39f2380e770c2492170",
+    "TimePlayed.ini": "9dbbb40249ee7fda4af81d7c10d03574a1f76682493bd007dd1df0e7ab4cd95d",
+    "GCKeyNew.ini": "48a3c9ccf16c86e9a70b3df2e8fd4ff0a56ff60ee0513a79617ad99df5061d19",
+    "FreeLookController.ini": "ad9ce95aadbd0ca48a57b6a1c03518f9c2075f335c2a2311fece5853e505d955",
+    "DSUClient.ini": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Logger.ini": "562251e06bf393ce22407d510947dcd04e1a10babad1cc147cd6b84571eb163c",
+    "WiimoteNew.ini": "178010ac594018157ac0f7b5e56b2d37cd8545b305e47e68fe861484d612f395"
+  },
+  "game_settings": {
+    "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+  },
+  "presentation": {
+    "profile": "no-blur-v1",
+    "disable_copy_filter": true,
+    "gecko": "Remove Blur",
+    "gecko_verified": true,
+    "keep_duplicate_frames": false
+  },
+  "scope": "Eight natural contacts: direction selection, recoil, ordinary hitstun/combo writes, hurt/guard entry and body motion binding. Damage and complete dispatcher RNG, stun/status, effects, audio and full pose acceptance are separate.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "source_module_sha256": "b2acfb222246fbbecf5ab8025fb08241c736da65031104fd4be9c51c301df214",
+  "capture": "local/battle-rewrite/oracle-contact-entry-01",
+  "trace_sha256": "cdcd871fa1476831e467d336b230b3a7df0e92ed6e258c2c6d7d8ce60c720b98",
+  "memory_sha256": "bbb692889c4d7a54578836501fcb80fdd6e658e3918dab809b25ca642346a837",
+  "ordinary_memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+  "comparison_sha256": "5c3e8a99abb88625962b7c749982036f3d09de0be0368f4bbabf009ffd660eba",
+  "parameters": {
+    "source_sha256": "b2acfb222246fbbecf5ab8025fb08241c736da65031104fd4be9c51c301df214",
+    "impulses": [
+      [
+        0.0,
+        0.0
+      ],
+      [
+        4.0,
+        0.0
+      ],
+      [
+        8.0,
+        0.0
+      ],
+      [
+        12.0,
+        0.0
+      ],
+      [
+        16.0,
+        0.0
+      ],
+      [
+        20.0,
+        0.0
+      ],
+      [
+        2.0,
+        10.0
+      ],
+      [
+        2.0,
+        15.0
+      ],
+      [
+        4.0,
+        20.0
+      ],
+      [
+        4.0,
+        25.0
+      ],
+      [
+        0.0,
+        10.0
+      ],
+      [
+        0.0,
+        15.0
+      ],
+      [
+        0.0,
+        20.0
+      ],
+      [
+        0.0,
+        25.0
+      ],
+      [
+        6.0,
+        -10.0
+      ],
+      [
+        12.0,
+        -15.0
+      ],
+      [
+        18.0,
+        -20.0
+      ],
+      [
+        8.0,
+        20.0
+      ],
+      [
+        10.0,
+        25.0
+      ]
+    ],
+    "suppression_distance": 400.0,
+    "light_vertical_scale": 1.15,
+    "heavy_vertical_scale": 0.75,
+    "guard_speed": 3.0,
+    "default_guard_preferences": [
+      0,
+      1,
+      2,
+      5,
+      5,
+      1,
+      2,
+      1,
+      1,
+      2,
+      0
+    ]
+  },
+  "observations": [
+    {
+      "index": 0,
+      "combat_tick": 266,
+      "presentation_counter": 43687,
+      "direction_mode": 1,
+      "contact_position_bits": [
+        3262193024,
+        1101004800,
+        1110833784
+      ],
+      "incoming_direction_bits": [
+        1098613440,
+        0,
+        1077865883
+      ],
+      "recoil_direction_bits": [
+        1065059008,
+        0,
+        1044311470
+      ],
+      "owner_position_bits": [
+        3281387520,
+        0,
+        0
+      ],
+      "weight": 1,
+      "profile_flags": 3,
+      "selector": 1,
+      "flags": 2144,
+      "hitstun": 40,
+      "delay": 0,
+      "amount": 30,
+      "result": 131073,
+      "before": {
+        "hp": 209,
+        "activity": 4,
+        "hitstun": 4,
+        "hit_stop": 0,
+        "auto_guard_chance": 61,
+        "position_bits": [
+          1116091040,
+          1112334746,
+          1116427860
+        ],
+        "direction_bits": [
+          1065065859,
+          2147483648,
+          1044166179
+        ],
+        "velocity_bits": [
+          1073741824,
+          0,
+          0,
+          0
+        ],
+        "pending_bits": [
+          0,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 1,
+          "frame_bits": 1069547520,
+          "rate_bits": 1056964608,
+          "end_bits": 1100480512,
+          "replaced": false
+        }
+      },
+      "wrapper": {
+        "hp": 179,
+        "activity": 4,
+        "hitstun": 40,
+        "hit_stop": 0,
+        "auto_guard_chance": 61,
+        "position_bits": [
+          1116091040,
+          1112334746,
+          1116427860
+        ],
+        "direction_bits": [
+          1065059008,
+          0,
+          1044311470
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          0
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 1,
+          "frame_bits": 1069547520,
+          "rate_bits": 1056964608,
+          "end_bits": 1100480512,
+          "replaced": false
+        }
+      },
+      "after": {
+        "hp": 179,
+        "activity": 9,
+        "hitstun": 40,
+        "hit_stop": 0,
+        "auto_guard_chance": 61,
+        "position_bits": [
+          1116091040,
+          1112334746,
+          1116427860
+        ],
+        "direction_bits": [
+          1065059008,
+          0,
+          1044311470
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 1,
+        "combo_damage": 30,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 0,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": true
+        }
+      }
+    },
+    {
+      "index": 1,
+      "combat_tick": 335,
+      "presentation_counter": 43756,
+      "direction_mode": 1,
+      "contact_position_bits": [
+        1105222143,
+        1125240361,
+        1122691706
+      ],
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "recoil_direction_bits": [
+        1065059007,
+        0,
+        1044311469
+      ],
+      "owner_position_bits": [
+        3224755438,
+        0,
+        1113691304
+      ],
+      "weight": 1,
+      "profile_flags": 3,
+      "selector": 1,
+      "flags": 0,
+      "hitstun": 30,
+      "delay": 0,
+      "amount": 6,
+      "result": 32784,
+      "before": {
+        "hp": 179,
+        "activity": 3,
+        "hitstun": 0,
+        "hit_stop": 0,
+        "auto_guard_chance": 84,
+        "position_bits": [
+          1124624740,
+          1107495485,
+          1118152017
+        ],
+        "direction_bits": [
+          1065059008,
+          0,
+          1044311470
+        ],
+        "velocity_bits": [
+          0,
+          1081207685,
+          0,
+          1049582633
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 0,
+          "frame_bits": 1092091904,
+          "rate_bits": 1056964608,
+          "end_bits": 1100480512,
+          "replaced": false
+        }
+      },
+      "wrapper": {
+        "hp": 173,
+        "activity": 3,
+        "hitstun": 0,
+        "hit_stop": 0,
+        "auto_guard_chance": 84,
+        "position_bits": [
+          1124624740,
+          1107495485,
+          1118152017
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311469
+        ],
+        "velocity_bits": [
+          1077936128,
+          0,
+          0,
+          1049582633
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 0,
+          "frame_bits": 1092091904,
+          "rate_bits": 1056964608,
+          "end_bits": 1100480512,
+          "replaced": false
+        }
+      },
+      "after": {
+        "hp": 173,
+        "activity": 11,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 100,
+        "position_bits": [
+          1124624740,
+          1107495485,
+          1118152017
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311469
+        ],
+        "velocity_bits": [
+          1077936128,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 2,
+          "frame_bits": 0,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": true
+        }
+      }
+    },
+    {
+      "index": 2,
+      "combat_tick": 355,
+      "presentation_counter": 43776,
+      "direction_mode": 1,
+      "contact_position_bits": [
+        1120006276,
+        1116519620,
+        1102750437
+      ],
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "recoil_direction_bits": [
+        1065059007,
+        0,
+        1044311470
+      ],
+      "owner_position_bits": [
+        3207347152,
+        0,
+        1113799203
+      ],
+      "weight": 1,
+      "profile_flags": 3,
+      "selector": 1,
+      "flags": 0,
+      "hitstun": 30,
+      "delay": 0,
+      "amount": 8,
+      "result": 16,
+      "before": {
+        "hp": 173,
+        "activity": 11,
+        "hitstun": 10,
+        "hit_stop": 0,
+        "auto_guard_chance": 100,
+        "position_bits": [
+          1125236414,
+          1107495485,
+          1118384186
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311469
+        ],
+        "velocity_bits": [
+          0,
+          0,
+          0,
+          2147483648
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 2,
+          "frame_bits": 1077936128,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      },
+      "wrapper": {
+        "hp": 165,
+        "activity": 11,
+        "hitstun": 10,
+        "hit_stop": 0,
+        "auto_guard_chance": 100,
+        "position_bits": [
+          1125236414,
+          1107495485,
+          1118384186
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311470
+        ],
+        "velocity_bits": [
+          1077936128,
+          0,
+          0,
+          2147483648
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 2,
+          "frame_bits": 1077936128,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      },
+      "after": {
+        "hp": 165,
+        "activity": 11,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 100,
+        "position_bits": [
+          1125236414,
+          1107495485,
+          1118384186
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311470
+        ],
+        "velocity_bits": [
+          1077936128,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 2,
+          "frame_bits": 1077936128,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      }
+    },
+    {
+      "index": 3,
+      "combat_tick": 363,
+      "presentation_counter": 43784,
+      "direction_mode": 1,
+      "contact_position_bits": [
+        1119598990,
+        1116757869,
+        1116191785
+      ],
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "recoil_direction_bits": [
+        1065059007,
+        0,
+        1044311469
+      ],
+      "owner_position_bits": [
+        1089243769,
+        0,
+        1114200425
+      ],
+      "weight": 1,
+      "profile_flags": 3,
+      "selector": 1,
+      "flags": 0,
+      "hitstun": 30,
+      "delay": 0,
+      "amount": 5,
+      "result": 16,
+      "before": {
+        "hp": 165,
+        "activity": 11,
+        "hitstun": 22,
+        "hit_stop": 0,
+        "auto_guard_chance": 100,
+        "position_bits": [
+          1125848399,
+          1107495485,
+          1118616474
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311470
+        ],
+        "velocity_bits": [
+          0,
+          0,
+          0,
+          2147483648
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 2,
+          "frame_bits": 1077936128,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      },
+      "wrapper": {
+        "hp": 160,
+        "activity": 11,
+        "hitstun": 22,
+        "hit_stop": 0,
+        "auto_guard_chance": 100,
+        "position_bits": [
+          1125848399,
+          1107495485,
+          1118616474
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311469
+        ],
+        "velocity_bits": [
+          1077936128,
+          0,
+          0,
+          2147483648
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 2,
+          "frame_bits": 1077936128,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      },
+      "after": {
+        "hp": 160,
+        "activity": 11,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 100,
+        "position_bits": [
+          1125848399,
+          1107495485,
+          1118616474
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311469
+        ],
+        "velocity_bits": [
+          1077936128,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 2,
+          "frame_bits": 1077936128,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      }
+    },
+    {
+      "index": 4,
+      "combat_tick": 421,
+      "presentation_counter": 43842,
+      "direction_mode": 1,
+      "contact_position_bits": [
+        1116749604,
+        1125240361,
+        1123788185
+      ],
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "recoil_direction_bits": [
+        1065059008,
+        0,
+        1044311473
+      ],
+      "owner_position_bits": [
+        1109307550,
+        0,
+        1115745625
+      ],
+      "weight": 1,
+      "profile_flags": 3,
+      "selector": 1,
+      "flags": 0,
+      "hitstun": 30,
+      "delay": 0,
+      "amount": 24,
+      "result": 131073,
+      "before": {
+        "hp": 160,
+        "activity": 5,
+        "hitstun": 0,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1126427880,
+          1112042233,
+          1118836424
+        ],
+        "direction_bits": [
+          1065059007,
+          0,
+          1044311469
+        ],
+        "velocity_bits": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1054028596,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 30,
+          "frame_bits": 0,
+          "rate_bits": 1053609165,
+          "end_bits": 1100480512,
+          "replaced": false
+        }
+      },
+      "wrapper": {
+        "hp": 136,
+        "activity": 5,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1126427880,
+          1112042233,
+          1118836424
+        ],
+        "direction_bits": [
+          1065059008,
+          0,
+          1044311473
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          0
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1054028596,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 30,
+          "frame_bits": 0,
+          "rate_bits": 1053609165,
+          "end_bits": 1100480512,
+          "replaced": false
+        }
+      },
+      "after": {
+        "hp": 136,
+        "activity": 9,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1126427880,
+          1112042233,
+          1118836424
+        ],
+        "direction_bits": [
+          1065059008,
+          0,
+          1044311473
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 1,
+        "combo_damage": 24,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 0,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": true
+        }
+      }
+    },
+    {
+      "index": 5,
+      "combat_tick": 441,
+      "presentation_counter": 43862,
+      "direction_mode": 1,
+      "contact_position_bits": [
+        1125941900,
+        1116519620,
+        1107985480
+      ],
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "recoil_direction_bits": [
+        1065059006,
+        0,
+        1044311456
+      ],
+      "owner_position_bits": [
+        1116238689,
+        0,
+        1116455880
+      ],
+      "weight": 1,
+      "profile_flags": 3,
+      "selector": 1,
+      "flags": 0,
+      "hitstun": 30,
+      "delay": 0,
+      "amount": 21,
+      "result": 131073,
+      "before": {
+        "hp": 136,
+        "activity": 9,
+        "hitstun": 10,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1130782034,
+          0,
+          1120489097
+        ],
+        "direction_bits": [
+          1065059008,
+          0,
+          1044311473
+        ],
+        "velocity_bits": [
+          1067450363,
+          3212836864,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 1,
+        "combo_damage": 24,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 1077936128,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      },
+      "wrapper": {
+        "hp": 115,
+        "activity": 9,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1130782034,
+          0,
+          1120489097
+        ],
+        "direction_bits": [
+          1065059006,
+          0,
+          1044311456
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 1,
+        "combo_damage": 24,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 1077936128,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      },
+      "after": {
+        "hp": 115,
+        "activity": 9,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1130782034,
+          0,
+          1120489097
+        ],
+        "direction_bits": [
+          1065059006,
+          0,
+          1044311456
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 2,
+        "combo_damage": 45,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 0,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": true
+        }
+      }
+    },
+    {
+      "index": 6,
+      "combat_tick": 441,
+      "presentation_counter": 43862,
+      "direction_mode": 1,
+      "contact_position_bits": [
+        1127417222,
+        1112670056,
+        3249674358
+      ],
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "recoil_direction_bits": [
+        1062680946,
+        0,
+        3205144002
+      ],
+      "owner_position_bits": [
+        1116238689,
+        0,
+        1116455880
+      ],
+      "weight": 0,
+      "profile_flags": 32,
+      "selector": 1,
+      "flags": 0,
+      "hitstun": 30,
+      "delay": 0,
+      "amount": 49,
+      "result": 1,
+      "before": {
+        "hp": 785,
+        "activity": 4,
+        "hitstun": 222,
+        "hit_stop": 0,
+        "auto_guard_chance": 50,
+        "position_bits": [
+          1132751903,
+          0,
+          3261268284
+        ],
+        "direction_bits": [
+          1061958338,
+          0,
+          1058694698
+        ],
+        "velocity_bits": [
+          1067869798,
+          3212836864,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 1,
+          "frame_bits": 1107427328,
+          "rate_bits": 1056964608,
+          "end_bits": 1109131264,
+          "replaced": false
+        }
+      },
+      "wrapper": {
+        "hp": 736,
+        "activity": 4,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 50,
+        "position_bits": [
+          1132751903,
+          0,
+          3261268284
+        ],
+        "direction_bits": [
+          1062680946,
+          0,
+          3205144002
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1057803469,
+        "combo_hits": 0,
+        "combo_damage": 0,
+        "motion": {
+          "clip": 1,
+          "frame_bits": 1107427328,
+          "rate_bits": 1056964608,
+          "end_bits": 1109131264,
+          "replaced": false
+        }
+      },
+      "after": {
+        "hp": 736,
+        "activity": 9,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 50,
+        "position_bits": [
+          1132751903,
+          0,
+          3261268284
+        ],
+        "direction_bits": [
+          1062680946,
+          0,
+          3205144002
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 1,
+        "combo_damage": 49,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 0,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": true
+        }
+      }
+    },
+    {
+      "index": 7,
+      "combat_tick": 449,
+      "presentation_counter": 43870,
+      "direction_mode": 1,
+      "contact_position_bits": [
+        1126668088,
+        1116757869,
+        1118025781
+      ],
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "recoil_direction_bits": [
+        1065059008,
+        0,
+        1044311457
+      ],
+      "owner_position_bits": [
+        1117928842,
+        0,
+        1116776641
+      ],
+      "weight": 1,
+      "profile_flags": 3,
+      "selector": 1,
+      "flags": 0,
+      "hitstun": 30,
+      "delay": 0,
+      "amount": 20,
+      "result": 131073,
+      "before": {
+        "hp": 115,
+        "activity": 9,
+        "hitstun": 22,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1132346632,
+          0,
+          1121082961
+        ],
+        "direction_bits": [
+          1065059006,
+          0,
+          1044311456
+        ],
+        "velocity_bits": [
+          1072064097,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 2,
+        "combo_damage": 45,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 1073741824,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      },
+      "wrapper": {
+        "hp": 95,
+        "activity": 9,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1132346632,
+          0,
+          1121082961
+        ],
+        "direction_bits": [
+          1065059008,
+          0,
+          1044311457
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 2,
+        "combo_damage": 45,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 1073741824,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": false
+        }
+      },
+      "after": {
+        "hp": 95,
+        "activity": 9,
+        "hitstun": 30,
+        "hit_stop": 0,
+        "auto_guard_chance": 60,
+        "position_bits": [
+          1132346632,
+          0,
+          1121082961
+        ],
+        "direction_bits": [
+          1065059008,
+          0,
+          1044311457
+        ],
+        "velocity_bits": [
+          1082130432,
+          0,
+          0,
+          3212836864
+        ],
+        "pending_bits": [
+          1082130432,
+          0
+        ],
+        "delay": 0,
+        "kind": 0,
+        "braking_bits": 1049414861,
+        "combo_hits": 3,
+        "combo_damage": 65,
+        "motion": {
+          "clip": 3,
+          "frame_bits": 0,
+          "rate_bits": 1056964608,
+          "end_bits": 1077936128,
+          "replaced": true
+        }
+      }
+    }
+  ]
+}

@@ -20,6 +20,7 @@ pub fn run_movie_probe(root: &Path, output: &Path, stalls: bool) -> Result<()> {
             reveal: false,
             selected: 0,
             silent: true,
+            paranoid: true,
             replay: None,
             movie_frame: None,
             boot_frame: None,

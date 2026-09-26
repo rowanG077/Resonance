@@ -1,0 +1,26 @@
+script battle;
+use battle;
+asset flame: battle::Projectile = "battle/projectiles/techniques/3";
+asset effects: battle::Effect = "battle/effects/techniques/fire_ball";
+asset fire_sound: battle::Sound = "battle/sounds/common/81";
+// 60CC4 initializes the resident; 60B3C emits in sound/position/projectile order.
+// Each emission uses the owner's live position and heading. The constructor's
+// effect remains at the original point. Directions are the rodata3928 vectors.
+pub task release() {
+    battle::retarget_unavailable();
+    let owner = battle::owner();
+    let origin = battle::actor_point(owner, 50.0, 2.0);
+    battle::show_scaled_at(effects, 23, origin, battle::heading(owner), battle::effect_scale(owner));
+    await battle::at_age(ticks(2));
+    battle::sound(fire_sound, 2);
+    battle::emit_with_velocity(flame, battle::actor_point(owner, 50.0, 2.0), battle::Point {
+        x: 0.1, y: 0.3, z: 0.5 });
+    await battle::at_age(ticks(10));
+    battle::sound(fire_sound, 2);
+    battle::emit_with_velocity(flame, battle::actor_point(owner, 50.0, 2.0), battle::Point {
+        x: - 0.3, y: - 0.2, z: 0.5 });
+    await battle::at_age(ticks(18));
+    battle::sound(fire_sound, 2);
+    battle::emit_with_velocity(flame, battle::actor_point(owner, 50.0, 2.0), battle::Point {
+        x: 0.3, y: 0.1, z: 0.5 });
+}

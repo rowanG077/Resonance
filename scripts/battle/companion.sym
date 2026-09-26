@@ -1,0 +1,15 @@
+script battle;
+use battle;
+use battle::companion_ai;
+
+asset colette_idle: battle::Motion = "battle/motions/colette/0";
+asset colette_walk: battle::Motion = "battle/motions/colette/1";
+asset colette_run: battle::Motion = "battle/motions/colette/19";
+asset colette_stop: battle::Motion = "battle/motions/colette/18";
+asset genis_idle: battle::Motion = "battle/motions/genis/0";
+asset genis_walk: battle::Motion = "battle/motions/genis/1";
+asset genis_run: battle::Motion = "battle/motions/genis/19";
+asset genis_stop: battle::Motion = "battle/motions/genis/18";
+
+pub task colette() { await companion_ai::ordinary(true, colette_idle, colette_walk, colette_run, colette_stop); }
+pub task genis() { await companion_ai::ordinary(false, genis_idle, genis_walk, genis_run, genis_stop); }

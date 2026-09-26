@@ -6,7 +6,7 @@ use super::{
     field_view::{ActorPart, State},
     materials::TitleSurface,
 };
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
 use bevy::{
     asset::RenderAssetUsages,
     camera::visibility::NoFrustumCulling,
@@ -266,6 +266,7 @@ pub(super) fn render(
     names: Query<&Name>,
     helper: TransformHelper,
     mut applied: ResMut<Applied>,
+    mut failures: super::field_view::Failures,
 ) {
     if state.live.as_ref().is_some_and(|s| !s.ready_for_field) {
         return;
@@ -274,34 +275,44 @@ pub(super) fn render(
     let Some(camera) = &world.field_camera else {
         return;
     };
-    if art.textures.iter().any(|h| !images.contains(h)) {
-        for &id in world.billboards.keys() {
-            applied.loading(Request::Billboard(id));
-        }
-        for &id in world.emotes.keys() {
-            applied.loading(Request::Emote(id));
-        }
-        if world.paralysis.is_some() {
-            applied.loading(Request::Paralysis);
-        }
-        for particle in &world.particles {
-            applied.loading(Request::Particle(particle.handle));
-        }
-        return;
-    }
+    let loaded = |layer| {
+        images.contains(&art.textures[layer])
+            && (layer != STATUS || images.contains(&art.textures[EMOTES]))
+    };
     let camera = Transform::from_translation(Vec3::from_array(camera.position))
         .looking_at(Vec3::from_array(camera.target), Vec3::Z);
     let side = Vec3::new(camera.right().x, camera.right().y, 0.).normalize_or_zero();
     let forward = Vec3::Z.cross(side);
     let brightness = world.brightness();
     let mut batches: Vec<_> = (0..art.layers.len()).map(|_| Batch::default()).collect();
+    let mut pending = vec![Vec::new(); art.layers.len()];
     for particle in &world.particles {
         let Some((recipe, layer)) = art.particles.get(&particle.kind) else {
+            if !failures.skip(
+                "field particle",
+                anyhow!(
+                    "particle {} has no recipe for kind {}",
+                    particle.handle,
+                    particle.kind
+                ),
+            ) {
+                return;
+            }
             continue;
         };
         let Some(flutter) = &particle.flutter else {
+            if !failures.skip(
+                "field particle",
+                anyhow!("particle {} has no flutter state", particle.handle),
+            ) {
+                return;
+            }
             continue;
         };
+        if !loaded(*layer) {
+            applied.loading(Request::Particle(particle.handle));
+            continue;
+        }
         let [x, y, z] = flutter.rotation.map(f32::to_radians);
         let rgb = particle.rgba.map(|v| (v * 4. / 255.).min(1.) * brightness);
         batches[*layer].sprite(
@@ -316,19 +327,30 @@ pub(super) fn render(
                 particle.alpha(world.tick).clamp(0., 255.) / 255.,
             ],
         );
-        applied.ack(Request::Particle(particle.handle));
+        pending[*layer].push(Request::Particle(particle.handle));
     }
     for (&id, effect) in &world.billboards {
         let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
+            if !failures.skip(
+                "field billboard",
+                anyhow!("billboard {id} has no recipe {}", effect.recipe),
+            ) {
+                return;
+            }
             continue;
         };
+        let layer = art.sprites[&effect.recipe];
+        if !loaded(layer) {
+            applied.loading(Request::Billboard(id));
+            continue;
+        }
         let rotation = camera.rotation * Quat::from_rotation_z(effect.rotation[2].to_radians());
         // Authored sprite colors use a gain of four.
         let rgb = effect.rgba[..3]
             .iter()
             .map(|v| (f32::from(*v) * 4. / 255.).min(1.) * brightness)
             .collect::<Vec<_>>();
-        batches[art.sprites[&effect.recipe]].sprite(
+        batches[layer].sprite(
             Vec3::from_array(effect.position),
             rotation,
             effect.size,
@@ -340,7 +362,7 @@ pub(super) fn render(
                 effect.alpha(world.tick).clamp(0., 255.) / 255.,
             ],
         );
-        applied.ack(Request::Billboard(id));
+        pending[layer].push(Request::Billboard(id));
     }
     let roots: BTreeMap<_, _> = actors
         .iter()
@@ -371,6 +393,9 @@ pub(super) fn render(
     });
     for (request, actor, track, age, phase, offset, layer) in emotes.chain(paralysis) {
         let Some(track) = track else {
+            if !failures.skip("field symbol", anyhow!("{request:?} has no emote track")) {
+                return;
+            }
             continue;
         };
         let sprites = track.frame_with_phase(age, phase);
@@ -378,7 +403,17 @@ pub(super) fn render(
             applied.ack(request);
             continue;
         }
+        if !loaded(layer) {
+            applied.loading(request);
+            continue;
+        }
         let Some((part, rig)) = roots.get(&actor) else {
+            if !failures.skip(
+                "field symbol",
+                anyhow!("{request:?} has no actor root {actor}"),
+            ) {
+                return;
+            }
             continue;
         };
         let Some(rig) = rig.filter(|_| part.prepared) else {
@@ -386,10 +421,22 @@ pub(super) fn render(
             continue;
         };
         let Some(actor) = world.actors.get(&actor) else {
+            if !failures.skip(
+                "field symbol",
+                anyhow!("{request:?} refers to missing actor {actor}"),
+            ) {
+                return;
+            }
             continue;
         };
-        let Some(anchor) = anchor_position(rig, track, actor.position, &names, &helper) else {
-            continue;
+        let anchor = match anchor_position(rig, track, actor.position, &names, &helper) {
+            Ok(anchor) => anchor,
+            Err(error) => {
+                if !failures.skip("field symbol", error.context(format!("{request:?} anchor"))) {
+                    return;
+                }
+                continue;
+            }
         };
         for sprite in sprites {
             let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
@@ -413,7 +460,7 @@ pub(super) fn render(
                 sprite.vertical_anchor,
             );
         }
-        applied.ack(request);
+        pending[layer].push(request);
     }
     for (index, batch) in batches.into_iter().enumerate() {
         if batch.positions.is_empty() {
@@ -422,12 +469,30 @@ pub(super) fn render(
             }
             continue;
         }
-        let mesh = batch.mesh();
-        let (entity, handle) = art.layers[index]
-            .as_ref()
-            .expect("effect layer was not prepared");
-        *meshes.get_mut(handle).expect("effect mesh is retained") = mesh;
+        let Some((entity, handle)) = art.layers[index].as_ref() else {
+            if !failures.skip(
+                "field effect layer",
+                anyhow!("effect layer {index} was not prepared"),
+            ) {
+                return;
+            }
+            continue;
+        };
+        let Some(mut mesh) = meshes.get_mut(handle) else {
+            commands.entity(*entity).insert(Visibility::Hidden);
+            if !failures.skip(
+                "field effect layer",
+                anyhow!("effect layer {index} lost its mesh"),
+            ) {
+                return;
+            }
+            continue;
+        };
+        *mesh = batch.mesh();
         commands.entity(*entity).insert(Visibility::Inherited);
+        for request in pending[index].drain(..) {
+            applied.ack(request);
+        }
     }
 }
 
@@ -437,13 +502,16 @@ fn anchor_position(
     actor: [f32; 3],
     names: &Query<&Name>,
     helper: &TransformHelper,
-) -> Option<Vec3> {
-    match rig.bone(&track.anchor, names).ok()? {
+) -> Result<Vec3> {
+    match rig
+        .bone(&track.anchor, names)
+        .context("emote anchor bone lookup")?
+    {
         Some(bone) => helper
             .compute_global_transform(bone)
-            .ok()
-            .map(|t| t.translation()),
-        None => Some(Vec3::from_array(actor) + Vec3::from_array(track.missing_anchor_offset)),
+            .map(|t| t.translation())
+            .context("emote anchor transform"),
+        None => Ok(Vec3::from_array(actor) + Vec3::from_array(track.missing_anchor_offset)),
     }
 }
 
@@ -489,16 +557,16 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(
-            sample(&[prefix, head_b, head_a], [0., 0., 128.]),
-            Some(Vec3::new(907., 808., 709.))
+            sample(&[prefix, head_b, head_a], [0., 0., 128.]).unwrap(),
+            Vec3::new(907., 808., 709.)
         );
         assert_eq!(
-            sample(&[prefix, wrong_case], [0., 0., 128.]),
-            Some(Vec3::new(10., 20., 158.))
+            sample(&[prefix, wrong_case], [0., 0., 128.]).unwrap(),
+            Vec3::new(10., 20., 158.)
         );
-        assert_eq!(sample(&[], [0.; 3]), Some(Vec3::new(10., 20., 30.)));
-        assert_eq!(sample(&[broken], [0., 0., 128.]), None);
-        assert_eq!(sample(&[unlabeled], [0., 0., 128.]), None);
+        assert_eq!(sample(&[], [0.; 3]).unwrap(), Vec3::new(10., 20., 30.));
+        assert!(sample(&[broken], [0., 0., 128.]).is_err());
+        assert!(sample(&[unlabeled], [0., 0., 128.]).is_err());
     }
 
     #[test]

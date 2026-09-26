@@ -1,0 +1,58 @@
+{
+  "source_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "source_capture": "local/battle-rewrite/oracle-weapon-death-01",
+  "capture_metadata_sha256": "df9fadcb6ffbf5be385e95bf659dee5a9b15882d39ea241db60b837edaacbeb5",
+  "trace_sha256": "67ca2293e9422f2e69ff7e9902186d9079c830eece7c46d7f6fccf33be492d74",
+  "comparison": {
+    "path": "local/battle-rewrite/stage3-weapon-death-replay-comparison.json",
+    "samples": 800,
+    "fields": 121,
+    "differences": 0
+  },
+  "scope": "Constructor direction input and expected direction sampled on the first visit after launch143. Source2D614 copies18E4 and replacesY; neither18E4 nor outbound direction changes between launch and sample144. Position is sampled after launch, not attachment construction. Initial Euler angles are checked separately against exact2D68C..2D6AC stores, not claimed captured here.",
+  "combat_tick": 144,
+  "heading_bits": 1119092739,
+  "forward_bits": [
+    1065353216,
+    0,
+    3007036718
+  ],
+  "profile_direction_y_bits": 3207803699,
+  "direction_bits": [
+    1062320430,
+    3205680749,
+    3004812608
+  ],
+  "position_bits": [
+    1128756862,
+    1126451801,
+    3253424641
+  ],
+  "source": {
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "cca025e090ae9fb070f93709cdc7842855ceb286989c397de5d02b8c201b1bfa",
+    "initial_state_sha256": "413288b45d37d8940dc2dfc1303fbfa420992691f2e39e4595e25f4c20ab5316",
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "timing": {
+      "cpu_clock": 1.0,
+      "fast_disc": false,
+      "diagnostic_override": true
+    }
+  }
+}

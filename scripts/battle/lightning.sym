@@ -1,0 +1,12 @@
+script battle;
+use battle;
+// fn_1_649B8 / fn_1_37ED0 captures the ground origin on release.
+// fn_1_64950 emits techniques projectile 4 at resident age 20.
+// Casting, hit rules and effect 28 are prepared separately.
+asset bolt: battle::Projectile = "battle/projectiles/techniques/4";
+pub task release() {
+    let target = battle::retarget_unavailable();
+    let origin = battle::ground_point(target, 0.0, 1.0);
+    await battle::at_age(ticks(20));
+    battle::emit(bolt, origin);
+}

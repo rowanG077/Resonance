@@ -1,14 +1,14 @@
 //! Offline media conversion. Rust owns parsing, validation, and conversion;
 //! pure Rust codecs run without opening an audio output device.
 mod cooked_music;
-mod field_audio;
+pub(crate) mod field_audio;
 pub(crate) mod voice_library;
 pub(crate) use field_audio::FieldAudioCooker;
 mod adx;
 pub(crate) mod library;
 mod movie;
-mod music;
-mod music_library;
+pub(crate) mod music;
+pub(crate) mod music_library;
 mod music_score;
 mod music_voice;
 mod pitched_sample;

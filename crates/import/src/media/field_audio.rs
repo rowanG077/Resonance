@@ -17,7 +17,6 @@ pub(crate) fn voice_gains(executable: &[u8]) -> Result<Vec<f32>> {
     crate::stream_mixer::Tables::read(executable)?.gains(&super::sound_buses::tables(executable)?)
 }
 
-#[cfg(test)]
 pub(crate) fn voice_pan(executable: &[u8]) -> Result<Vec<[f32; 2]>> {
     crate::stream_mixer::Tables::read(executable)?.pan(&super::sound_buses::tables(executable)?)
 }

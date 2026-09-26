@@ -1,6 +1,12 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
+#[path = "battle_ui.rs"]
+mod battle_ui;
 #[path = "field_ui_coverage.rs"]
 mod coverage;
+pub(super) use battle_ui::{Artwork as BattleHud, EnemyHud as BattleEnemyHud, FeedbackFrame};
+#[path = "game_over_ui.rs"]
+mod game_over_ui;
+pub(super) use game_over_ui::Artwork as GameOverArt;
 #[path = "field_ui_menu.rs"]
 mod menu;
 #[path = "field_ui_overlay.rs"]
@@ -18,7 +24,9 @@ use bevy::{
     image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
-    render::render_resource::AsBindGroup,
+    render::render_resource::{
+        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState,
+    },
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d},
 };
@@ -62,15 +70,43 @@ pub(super) struct Surface {
     #[uniform(6)]
     coverage: Coverage,
     opaque: bool,
+    /// Original battle glyph overlay: retain both passes in one ordered mesh.
+    layered: bool,
+    screen_break: bool,
+    additive: bool,
+}
+impl Surface {
+    /// BBA0 uses the textured UI pass with exact4ACB8 integer TEV modulation.
+    pub(super) fn captured(image: Handle<Image>) -> Self {
+        Self {
+            source: image.clone(),
+            sampling: image.clone(),
+            frame_mask: image.clone(),
+            color_mask: image,
+            coverage: Coverage::default(),
+            opaque: false,
+            layered: false,
+            screen_break: true,
+            additive: false,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) struct SurfaceKey(bool);
+pub(super) struct SurfaceKey(bool, bool, bool, bool);
 impl From<&Surface> for SurfaceKey {
     fn from(surface: &Surface) -> Self {
-        Self(surface.opaque)
+        Self(
+            surface.opaque,
+            surface.layered,
+            surface.screen_break,
+            surface.additive,
+        )
     }
 }
 impl Material2d for Surface {
+    fn vertex_shader() -> ShaderRef {
+        "embedded://resonance_presentation/field_ui.wgsl".into()
+    }
     fn fragment_shader() -> ShaderRef {
         "embedded://resonance_presentation/field_ui.wgsl".into()
     }
@@ -79,10 +115,43 @@ impl Material2d for Surface {
     }
     fn specialize(
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        _: &bevy::mesh::MeshVertexBufferLayoutRef,
+        layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         key: bevy::sprite_render::Material2dKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         descriptor.label = Some("resonance/field-ui".into());
+        if key.bind_group_data.3
+            && let Some(fragment) = &mut descriptor.fragment
+        {
+            // Original radar halo: GX source alpha / destination one.
+            let component = BlendComponent {
+                src_factor: BlendFactor::SrcAlpha,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            };
+            for target in fragment.targets.iter_mut().flatten() {
+                target.blend = Some(BlendState {
+                    color: component,
+                    alpha: component,
+                });
+            }
+        }
+        if key.bind_group_data.2
+            && let Some(fragment) = &mut descriptor.fragment
+        {
+            fragment.shader_defs.push("SCREEN_BREAK".into());
+        }
+        if key.bind_group_data.1 {
+            descriptor.vertex.buffers = vec![layout.0.get_layout(&[
+                Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+                Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
+                Mesh::ATTRIBUTE_COLOR.at_shader_location(4),
+                Mesh::ATTRIBUTE_UV_1.at_shader_location(5),
+            ])?];
+            descriptor.vertex.shader_defs.push("LAYERED_GLYPH".into());
+            if let Some(fragment) = &mut descriptor.fragment {
+                fragment.shader_defs.push("LAYERED_GLYPH".into());
+            }
+        }
         if key.bind_group_data.0
             && let Some(fragment) = &mut descriptor.fragment
         {
@@ -131,7 +200,13 @@ impl MenuOverlay {
         server: &AssetServer,
         materials: &mut Assets<Surface>,
     ) -> Result<Self> {
-        let read = |path: &str| -> Result<Vec<u8>> { Ok(fs::read(root.join(path))?) };
+        Self::load_with(|path| Ok(fs::read(root.join(path))?), server, materials)
+    }
+    pub fn load_with(
+        read: impl Fn(&str) -> Result<Vec<u8>>,
+        server: &AssetServer,
+        materials: &mut Assets<Surface>,
+    ) -> Result<Self> {
         let dialogue: DialogueArt = serde_json::from_slice(&read("ui/dialogue.json")?)?;
         dialogue.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&dialogue.font)?)?;
@@ -161,6 +236,9 @@ impl MenuOverlay {
                     frame_mask: source.clone(),
                     color_mask: source.clone(),
                     coverage: Coverage::default(),
+                    layered: false,
+                    screen_break: false,
+                    additive: false,
                     opaque: false,
                 })
             })
@@ -172,6 +250,12 @@ impl MenuOverlay {
             images,
             artwork,
         })
+    }
+    pub fn images(&self) -> impl Iterator<Item = &Handle<Image>> {
+        self.images.iter().chain(self.artwork.images())
+    }
+    pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
+        self.artwork.layers.iter().map(|layer| layer.entity)
     }
     pub fn prepare(&mut self, commands: &mut Commands, meshes: &mut Assets<Mesh>) {
         self.artwork.prepare(commands, meshes);
@@ -209,6 +293,16 @@ impl Layer {
         size: [u32; 2],
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
+        if batch.indices.is_empty() {
+            // Hidden layers retain valid warm/previous geometry. Bevy's mesh
+            // allocator skips zero-vertex allocations but still tries to upload
+            // them; publishing an empty mesh therefore reports use-after-free.
+            meshes
+                .get(&self.mesh)
+                .context("retained UI mesh was removed")?;
+            self.uploaded = Some((batch, size));
+            return Ok(());
+        }
         if self
             .uploaded
             .as_ref()
@@ -222,6 +316,11 @@ impl Layer {
         Ok(())
     }
     fn show(&mut self, visible: bool, commands: &mut Commands) {
+        let visible = visible
+            && self
+                .uploaded
+                .as_ref()
+                .is_none_or(|(batch, _)| !batch.indices.is_empty());
         if self.visible != visible {
             self.visible = visible;
             commands.entity(self.entity).insert(if visible {
@@ -318,6 +417,9 @@ impl Artwork {
                     frame_mask: images[0].clone(),
                     color_mask: images[1].clone(),
                     coverage: Coverage::default(),
+                    layered: false,
+                    screen_break: false,
+                    additive: false,
                     opaque: false,
                 })
             })
@@ -1267,6 +1369,8 @@ fn body_advance(advance: u32) -> f32 {
 struct Batch {
     positions: Vec<[f32; 3]>,
     uv: Vec<[f32; 2]>,
+    /// Normalized secondary samples; negative coordinates select the base pass.
+    secondary_uv: Vec<[f32; 2]>,
     colors: Vec<[f32; 4]>,
     indices: Vec<u32>,
 }
@@ -1281,6 +1385,8 @@ impl Batch {
             }
             for (a, b) in [(0, 3), (1, 2)] {
                 let (uv0, uv1) = (self.uv[i + a], self.uv[i + b]);
+                let secondary = (!self.secondary_uv.is_empty())
+                    .then(|| (self.secondary_uv[i + a], self.secondary_uv[i + b]));
                 let (c0, c1) = (self.colors[i + a], self.colors[i + b]);
                 for j in [i + a, i + b] {
                     let y = self.positions[j][1].clamp(bottom, top);
@@ -1288,12 +1394,24 @@ impl Batch {
                     self.positions[j][1] = y;
                     self.uv[j] = std::array::from_fn(|c| uv0[c] + (uv1[c] - uv0[c]) * t);
                     self.colors[j] = std::array::from_fn(|c| c0[c] + (c1[c] - c0[c]) * t);
+                    if let Some((a, b)) = secondary {
+                        self.secondary_uv[j] = std::array::from_fn(|c| a[c] + (b[c] - a[c]) * t);
+                    }
                 }
             }
         }
     }
     fn append(&mut self, other: Self) {
         let offset = self.positions.len() as u32;
+        if !self.secondary_uv.is_empty() || !other.secondary_uv.is_empty() {
+            self.secondary_uv.resize(self.positions.len(), [-1.; 2]);
+            if other.secondary_uv.is_empty() {
+                self.secondary_uv
+                    .resize(self.positions.len() + other.positions.len(), [-1.; 2]);
+            } else {
+                self.secondary_uv.extend(other.secondary_uv);
+            }
+        }
         self.positions.extend(other.positions);
         self.uv.extend(other.uv);
         self.colors.extend(other.colors);
@@ -1314,6 +1432,9 @@ impl Batch {
             [left - 320., 240. - bottom, 0.],
         ]);
         self.uv.extend([[u0, v0], [u1, v0], [u1, v1], [u0, v1]]);
+        if !self.secondary_uv.is_empty() {
+            self.secondary_uv.extend([[-1.; 2]; 4]);
+        }
         self.colors.extend([color; 4]);
         self.indices
             .extend([start, start + 2, start + 1, start, start + 3, start + 2]);
@@ -1323,20 +1444,151 @@ impl Batch {
             uv[0] /= width as f32;
             uv[1] /= height as f32;
         }
-        Mesh::new(
+        let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::default(),
         )
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uv)
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
-        .with_inserted_indices(Indices::U32(self.indices))
+        .with_inserted_indices(Indices::U32(self.indices));
+        if !self.secondary_uv.is_empty() {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, self.secondary_uv);
+        }
+        mesh
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captured_frame_uses_the_source_scale_two_tev_specialization() {
+        let material = Surface::captured(Handle::default());
+        assert_eq!(
+            SurfaceKey::from(&material),
+            SurfaceKey(false, false, true, false)
+        );
+        // Independent Dolphin2606 Software/Tev.cpp oracle for BBA0's raster128
+        // and4ACB8 Scale2. In particular64/128/192 are not identity modulation.
+        let raster = 128u32;
+        let factor = raster + (raster >> 7);
+        let samples = [0u32, 31, 63, 64, 127, 128, 191, 192, 254, 255];
+        let expected = [0u32, 31, 63, 65, 128, 129, 192, 194, 255, 255];
+        assert_eq!(
+            samples.map(|texel| (((texel * factor) * 2 + 128) >> 8).min(255)),
+            expected
+        );
+    }
+
+    #[test]
+    fn empty_layer_hides_without_uploading_empty_geometry_and_can_show_again() {
+        let mut world = World::new();
+        let entity = world.spawn(Visibility::Hidden).id();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut warm = Batch::default();
+        warm.quad([0., 0., 1., 1.], [0.; 4], [1.; 4]);
+        let mesh = meshes.add(warm.clone().mesh([1, 1]));
+        let mut layer = Layer {
+            entity,
+            mesh: mesh.clone(),
+            material: Handle::default(),
+            uploaded: None,
+            visible: false,
+        };
+        for previous in [None, Some(warm.clone())] {
+            if let Some(batch) = previous {
+                layer.update_mesh(batch, [1, 1], &mut meshes).unwrap();
+                layer.show(true, &mut world.commands());
+                world.flush();
+                assert_eq!(
+                    world.get::<Visibility>(entity),
+                    Some(&Visibility::Inherited)
+                );
+            }
+            let packed = meshes
+                .get(&mesh)
+                .unwrap()
+                .create_packed_vertex_buffer_data();
+            layer
+                .update_mesh(Batch::default(), [1, 1], &mut meshes)
+                .unwrap();
+            // Some callers, such as a skit's text panel, request visibility
+            // even when their logical batch is empty.
+            layer.show(true, &mut world.commands());
+            world.flush();
+            assert_eq!(world.get::<Visibility>(entity), Some(&Visibility::Hidden));
+            assert_eq!(
+                meshes
+                    .get(&mesh)
+                    .unwrap()
+                    .create_packed_vertex_buffer_data(),
+                packed
+            );
+            assert_eq!(meshes.get(&mesh).unwrap().indices().unwrap().len(), 6);
+        }
+        let mut visible = Batch::default();
+        visible.quad([20., 30., 60., 90.], [0., 0., 8., 16.], [0.5; 4]);
+        let expected = visible
+            .clone()
+            .mesh([8, 16])
+            .create_packed_vertex_buffer_data();
+        layer.update_mesh(visible, [8, 16], &mut meshes).unwrap();
+        layer.show(true, &mut world.commands());
+        world.flush();
+        assert_eq!(
+            world.get::<Visibility>(entity),
+            Some(&Visibility::Inherited)
+        );
+        assert_eq!(
+            meshes
+                .get(&mesh)
+                .unwrap()
+                .create_packed_vertex_buffer_data(),
+            expected
+        );
+        meshes.remove(mesh.id());
+        assert!(
+            layer
+                .update_mesh(Batch::default(), [1, 1], &mut meshes)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn ordinary_surface_keeps_original_vertices_and_no_secondary_stream() {
+        let mut batch = Batch::default();
+        batch.quad(
+            [10., 20., 30., 40.],
+            [2., 4., 6., 8.],
+            [0.25, 0.5, 0.75, 1.],
+        );
+        let mesh = batch.mesh([8, 16]);
+        assert!(mesh.attribute(Mesh::ATTRIBUTE_UV_1).is_none());
+        let bevy::mesh::VertexAttributeValues::Float32x2(uv) =
+            mesh.attribute(Mesh::ATTRIBUTE_UV_0).unwrap()
+        else {
+            panic!("wrong UV format")
+        };
+        assert_eq!(uv, &[[0.25, 0.25], [0.75, 0.25], [0.75, 0.5], [0.25, 0.5]]);
+        let image = Handle::<Image>::default();
+        let surface = Surface {
+            source: image.clone(),
+            sampling: image.clone(),
+            frame_mask: image.clone(),
+            color_mask: image,
+            coverage: Coverage::default(),
+            opaque: false,
+            layered: false,
+            screen_break: false,
+            additive: false,
+        };
+        assert_eq!(
+            SurfaceKey::from(&surface),
+            SurfaceKey(false, false, false, false)
+        );
+    }
 
     #[test]
     fn distant_speaker_gets_an_outlined_pointer_above_the_box() {

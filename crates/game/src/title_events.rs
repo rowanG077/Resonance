@@ -8,13 +8,32 @@ use resonance_events::{
 use std::sync::Arc;
 use symphonia_script::Program;
 
+/// Immutable decoded title resources can start a fresh entry after game over.
+pub struct Prepared {
+    program: Arc<Program>,
+    resources: Arc<ResourceLibrary>,
+}
+impl Prepared {
+    pub fn new(
+        bytes: &[u8],
+        scene: &TitleScene,
+        load: impl FnMut(&str) -> anyhow::Result<Arc<Motion>>,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            program: Arc::new(Program::decode(bytes)?),
+            resources: Arc::new(resources(scene, load)?),
+        })
+    }
+    pub fn enter(&self) -> anyhow::Result<EventRuntime> {
+        EventRuntime::new(self.program.clone(), self.resources.clone())
+    }
+}
 pub fn start(
     bytes: &[u8],
     scene: &TitleScene,
     load: impl FnMut(&str) -> anyhow::Result<Arc<Motion>>,
 ) -> anyhow::Result<EventRuntime> {
-    let program = Arc::new(Program::decode(bytes)?);
-    EventRuntime::new(program, Arc::new(resources(scene, load)?))
+    Prepared::new(bytes, scene, load)?.enter()
 }
 
 fn resources(

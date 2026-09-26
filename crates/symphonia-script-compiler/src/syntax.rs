@@ -274,11 +274,12 @@ impl Parser {
             return Err(self
                 .token()
                 .at
-                .error("expected 'script field;', 'script model;' or 'script library;'; script declaration must precede imports and definitions"));
+                .error("expected 'script field;', 'script model;', 'script battle;' or 'script library;'; script declaration must precede imports and definitions"));
         }
         let kind = match self.name()?.as_str() {
             "field" => ScriptKind::Field,
             "model" => ScriptKind::Model,
+            "battle" => ScriptKind::Battle,
             "library" => ScriptKind::Library,
             _ => {
                 return Err(self.tokens[self.index - 1]

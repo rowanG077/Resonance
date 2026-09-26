@@ -1,0 +1,27 @@
+script battle;
+use battle;
+asset fall_motion: battle::OptionalMotion = "battle/motions/death/fall";
+asset rest_motion: battle::OptionalMotion = "battle/motions/death/rest";
+
+// 28DF4 binds the falling clip during the lethal contact. The controller's
+// following visits (2E3F4) select the profile's dead pose once grounded.
+pub task fall() {
+    battle::try_play_motion(fall_motion, ticks(8), 0.0, 0.5, false);
+    await battle::next_update();
+    await rest();
+}
+
+// CEA8/1CAA8 route an actor already KO at entry directly here. This must not
+// replay the fall initializer, its grade/count changes, or its ally voices.
+pub task initial() {
+    await rest();
+}
+
+task rest() {
+    while true {
+        if battle::actor_point(battle::owner(), 0.0, 0.0).y <= 0.1 {
+            battle::try_play_motion(rest_motion, ticks(12), 0.0, 0.5, false);
+        }
+        await battle::next_update();
+    }
+}

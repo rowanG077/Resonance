@@ -3,6 +3,7 @@ mod authored;
 mod calculator;
 mod memory;
 mod native;
+mod tasks;
 pub use memory::Memory;
 pub use native::{
     Host, NativeBinding, NativeBindings, NativeHandler, NativeResult, NativeSignature,
@@ -13,6 +14,7 @@ use symphonia_script::authored::{
     SourceLocation, Type, VALUE_SLOT_LIMIT as AUTHORED_VALUE_LIMIT,
 };
 use symphonia_script::{Op, Program, Width};
+pub use tasks::Tasks;
 use thiserror::Error;
 
 const ARGUMENT_STACK_LIMIT: usize = 64;

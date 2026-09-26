@@ -182,7 +182,7 @@ pub enum Costume {
 }
 
 impl MenuData {
-    pub const VERSION: u32 = 26;
+    pub const VERSION: u32 = 27;
     pub fn validate(&self) -> Result<()> {
         self.rename.validate()?;
         self.item_group_prompt.validate()?;

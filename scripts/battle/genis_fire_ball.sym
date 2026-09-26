@@ -1,0 +1,17 @@
+script battle;
+use battle;
+use battle::casting;
+asset definition: battle::Casting = "battle/casting/genis/66";
+asset spell: battle::Spell = "battle/spells/fire_ball";
+asset common: battle::Effect = "battle/effects/common";
+asset start_sound: battle::Sound = "battle/sounds/common/109";
+asset release_sound: battle::Sound = "battle/sounds/common/123";
+asset chant_voice: battle::Voice = "battle/voices/techniques/genis/204/chant";
+asset fallback_voice: battle::Voice = "battle/voices/techniques/genis/204/fallback";
+asset release_voice: battle::Voice = "battle/voices/techniques/genis/204/release";
+pub task run() {
+    battle::sound(start_sound, 1);
+    await casting::prepared(definition, spell, common, release_sound, casting::Voices {
+        chant: chant_voice, fallback: fallback_voice, release: release_voice });
+    battle::finish();
+}

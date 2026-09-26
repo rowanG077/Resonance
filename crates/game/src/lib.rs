@@ -1,10 +1,12 @@
 //! High-level title behavior. No rendering, original RAM, or disc dependencies.
 pub mod authored;
+pub mod battle;
 pub mod boot;
 pub mod choice;
 pub mod clock;
 pub mod dialogue;
 pub mod field;
+pub mod game_over;
 pub mod menu;
 pub mod replay;
 pub mod title_events;

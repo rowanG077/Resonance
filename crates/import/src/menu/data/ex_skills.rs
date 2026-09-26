@@ -8,6 +8,13 @@ use resonance_content::menu_data::{
 use std::collections::BTreeSet;
 
 pub(super) fn cook(catalogue: &Catalogue) -> Result<ExSkillData> {
+    ensure!(
+        catalogue
+            .definitions
+            .first()
+            .is_some_and(|row| row.tendency == 0),
+        "empty EX slot contributes technique drift"
+    );
     let caster = usize::try_from(catalogue.save_point_rule.character_index)?;
     let save_point_skill = *catalogue
         .personal_skills
@@ -200,6 +207,12 @@ mod tests {
         assert_eq!(data.characters[0].compounds[0].required, [1, 2]);
         assert_eq!(data.characters[0].compounds[0].skill, 54);
         assert_eq!(data.skills[&54].name, "EX Attack");
+        assert!(
+            data.characters
+                .iter()
+                .flat_map(|c| &c.compounds)
+                .all(|c| data.skills[&c.skill].tendency.is_none())
+        );
         assert_eq!(data.characters[2].levels[0], [23, 2, 3, 5]);
         assert_eq!(data.skills[&24].name, "Personal");
         assert_eq!(data.skills[&24].save_point_tp_cost, None);
@@ -223,6 +236,12 @@ mod tests {
             crate::all_assets::ex_skills::read(&executable[..256]).is_err(),
             "truncated executable was accepted"
         );
+        catalogue.definitions[0].tendency = 1;
+        assert!(
+            cook(&catalogue).is_err(),
+            "nonzero empty-slot drift was discarded"
+        );
+        catalogue.definitions[0].tendency = 0;
         // Inactive definitions and unused requirement slots do not constrain runtime admission.
         catalogue.definitions[17].activation = 255;
         catalogue.definitions[17].tendency = i16::MIN;

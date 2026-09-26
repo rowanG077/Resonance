@@ -93,7 +93,7 @@ pub struct EventRuntime {
     failed: bool,
     interaction: Option<i32>,
     resource_waits: Option<VecDeque<ResourceWaitObservation>>,
-    tasks: crate::authored::Tasks,
+    tasks: symphonia_script_vm::Tasks,
 }
 impl EventRuntime {
     pub fn restore_field_leader(&mut self) -> Result<()> {
@@ -337,6 +337,20 @@ impl EventRuntime {
             && self.world.input_enabled
             && self.interaction.is_none()
             && self.world.field_exit.is_none()
+            && self.world.battle_request.is_none()
+            && !self
+                .instances
+                .iter()
+                .flatten()
+                .any(|instance| matches!(instance.wait, Some(Wait::Battle(_))))
+    }
+    /// Taking a request does not release the suspended field. Only completing
+    /// its operation allows the next field update to resume the caller.
+    pub fn battle_pending(&self) -> bool {
+        self.world.battle_request.as_ref().is_some_and(|r| r.is_pending())
+            || self.instances.iter().flatten().any(|instance| {
+                matches!(&instance.wait, Some(Wait::Battle(operation)) if operation.is_pending())
+            })
     }
     pub fn save_progress(&self) -> Result<crate::SavedProgress> {
         ensure!(!self.failed, "cannot save a failed event runtime");
@@ -402,7 +416,7 @@ impl EventRuntime {
     }
     fn start_foreground(&mut self, kind: u32, key: u32) -> Result<bool> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
-        if !self.world.input_enabled || self.interaction.is_some() {
+        if !self.world.input_enabled || self.interaction.is_some() || self.battle_pending() {
             return Ok(false);
         }
         let Some(pc) = self.program.event(kind, key) else {
@@ -528,6 +542,7 @@ impl EventRuntime {
         self.world.dialogue.clear();
         self.world.choices.clear();
         self.world.menu_request = None;
+        self.world.battle_request = None;
         self.world.movie = None;
         self.world.voice = None;
         self.world.field_transition = None;
@@ -556,7 +571,7 @@ impl EventRuntime {
         services: impl FnOnce(&mut Self) -> Result<()>,
     ) -> Result<()> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
-        if self.world.blocked_by_movie() {
+        if self.world.blocked_by_movie() || self.battle_pending() {
             return Ok(());
         }
         self.world.tick = self.world.tick.checked_add(1).context("clock overflow")?;
@@ -786,6 +801,7 @@ impl EventRuntime {
                     || b.require_control && !self.world.input_enabled
                     || self.world.field_transition.is_some()
                     || self.world.field_exit.is_some()
+                    || self.battle_pending()
             }) {
                 if let Some(Wait::Tick(wake)) = &mut instance.wait {
                     *wake = wake.checked_add(1).context("paused event clock overflow")?;
@@ -841,6 +857,15 @@ impl EventRuntime {
                             .write(address, symphonia_script::Width::S32, 0)?;
                     }
                     Some(0)
+                } else if let Wait::Battle(operation) = wait {
+                    let Some(crate::Outcome::Completed(Some(value))) = operation.progress().outcome
+                    else {
+                        anyhow::bail!("battle completed without a result");
+                    };
+                    crate::battle::Outcome::try_from(value).map_err(anyhow::Error::msg)?;
+                    self.memory
+                        .write(0x24, symphonia_script::Width::S32, value)?;
+                    Some(value)
                 } else if let Wait::Choice { result, .. } = wait {
                     let progress = result.progress();
                     let Some(crate::Outcome::Completed(Some(value))) = progress.outcome else {
@@ -928,9 +953,16 @@ impl EventRuntime {
             let program = instance.program.clone();
             match result.event {
                 RunEvent::Suspended { opcode } => {
-                    instance.wait = Some(wait.with_context(|| {
+                    let wait = wait.with_context(|| {
                         format!("native {opcode:#04x} suspended without a completion condition")
-                    })?);
+                    })?;
+                    if let Wait::Battle(operation) = &wait {
+                        instance
+                            .operations
+                            .track(operation)
+                            .map_err(anyhow::Error::msg)?;
+                    }
+                    instance.wait = Some(wait);
                     self.instances[slot] = Some(instance);
                 }
                 RunEvent::SuspendedTask { handle } => {

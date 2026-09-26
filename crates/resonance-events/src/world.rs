@@ -221,6 +221,7 @@ pub struct GameWorld {
     pub skit: Option<crate::skit::Scene>,
     pub skit_request: Option<crate::skit::Request>,
     pub menu_request: Option<crate::menu::Request>,
+    pub battle_request: Option<crate::battle::Request>,
     pub actors: BTreeMap<i32, Actor>,
     pub(crate) actor_order: Vec<i32>,
     pub(crate) next_actor_instance: u64,
@@ -405,7 +406,8 @@ impl GameWorld {
     }
 }
 
-pub(crate) fn random(state: &mut u32) -> u32 {
+/// Original libc stream (80124BF4), shared by field effects and stat growth.
+pub fn random(state: &mut u32) -> u32 {
     *state = state.wrapping_mul(0x41c64e6d).wrapping_add(0x3039);
     (*state >> 16) & 0x7fff
 }

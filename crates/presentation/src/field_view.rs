@@ -40,6 +40,52 @@ use std::{
 
 #[derive(Resource)]
 pub(super) struct Session(pub FieldSession);
+
+#[derive(Resource)]
+struct RecoverField;
+
+/// Field captures omit the policy resource and retain their strict failure mode.
+#[derive(SystemParam)]
+pub(super) struct Failures<'w, 's> {
+    diagnostics: Option<Res<'w, super::diagnostics::Diagnostics>>,
+    exit: MessageWriter<'w, AppExit>,
+    commands: Commands<'w, 's>,
+}
+impl Failures<'_, '_> {
+    pub(super) fn skip(&mut self, scope: &str, error: anyhow::Error) -> bool {
+        if let Some(diagnostics) = &self.diagnostics {
+            if diagnostics.0.report(scope, error).is_ok() {
+                return true;
+            }
+        } else {
+            error!("{scope}: {error:#}");
+        }
+        self.exit.write(AppExit::error());
+        false
+    }
+
+    fn fatal(&mut self, scope: &str, error: anyhow::Error) {
+        if self.skip(scope, error) {
+            self.commands.insert_resource(RecoverField);
+        }
+    }
+}
+
+fn recover(world: &mut World) {
+    if world.remove_resource::<RecoverField>().is_none() {
+        return;
+    }
+    if let Err(error) = super::game_over::return_to_title(world) {
+        let diagnostics = world.resource::<super::diagnostics::Diagnostics>();
+        if diagnostics.0.report("field recovery", error).is_err() {
+            world.write_message(AppExit::error());
+        }
+    }
+}
+
+fn has_session(state: State, recovery: Option<Res<RecoverField>>) -> bool {
+    recovery.is_none() && (state.checkpoint.is_some() || state.live.is_some())
+}
 #[derive(SystemParam)]
 pub(super) struct State<'w> {
     pub(super) checkpoint: Option<Res<'w, Session>>,
@@ -71,23 +117,35 @@ impl Plugin for FieldPlugin {
                 Update,
                 super::field_ui::subtitles
                     .after(super::movie::update)
-                    .after(load_live),
+                    .after(load_live)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(PreUpdate, gather_controls.after(bevy::input::InputSystems))
-            .add_systems(FixedUpdate, advance_live.before(super::new_game::advance))
+            .add_systems(
+                FixedUpdate,
+                (advance_live, recover)
+                    .chain()
+                    .before(super::new_game::advance)
+                    .run_if(super::battle::field_running),
+            )
             .add_systems(
                 Update,
                 (
-                    retire_live,
-                    load_live,
-                    scene_systems().run_if(resource_exists::<Art>),
+                    (retire_live, load_live, recover)
+                        .chain()
+                        .run_if(super::battle::field_running),
+                    scene_systems()
+                        .run_if(resource_exists::<Art>)
+                        .run_if(has_session)
+                        .run_if(super::battle::field_presenting),
                 )
                     .chain()
                     .after(super::new_game::movie_handoff)
                     .after(super::new_game::transition)
                     .in_set(FieldPreparation)
                     .after(super::layout),
-            );
+            )
+            .add_systems(Last, recover);
     }
 }
 
@@ -113,7 +171,9 @@ impl Plugin for FieldRendering {
                     super::field_animation::sample.run_if(resource_exists::<Art>),
                 )
                     .chain()
-                    .before(super::field_animation::blend),
+                    .before(super::field_animation::blend)
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
@@ -132,13 +192,17 @@ impl Plugin for FieldRendering {
                     // extraction sees their newly visible entities.
                     .before(bevy::asset::AssetEventSystems)
                     .before(bevy::transform::TransformSystems::Propagate)
-                    .run_if(resource_exists::<Art>),
+                    .run_if(resource_exists::<Art>)
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             )
             .add_systems(
                 PostUpdate,
                 audit::check
                     .after(bevy::transform::TransformSystems::Propagate)
-                    .run_if(resource_exists::<Art>),
+                    .run_if(resource_exists::<Art>)
+                    .run_if(has_session)
+                    .run_if(super::battle::field_presenting),
             );
         bevy::asset::embedded_asset!(app, "field_ui.wgsl");
     }
@@ -166,11 +230,15 @@ pub(super) struct Controls {
     held_menu: bool,
 }
 impl Controls {
-    fn clear_actions(&mut self) {
+    pub(super) fn clear_actions(&mut self) {
         self.input.interact = false;
         self.input.skit = false;
         self.input.cancel = false;
         self.input.menu = false;
+        self.input.start = false;
+        self.input.alternate = false;
+        self.input.previous_page = false;
+        self.input.next_page = false;
     }
 
     pub(super) fn consume(&mut self) -> FieldInput {
@@ -199,6 +267,8 @@ pub(super) struct Art {
     loading_since: Instant,
     shadows: shadows::Artwork,
     pub(super) toon_ramp: Handle<Image>,
+    unlit: bool,
+    disabled_shadows: bool,
 }
 pub(super) struct Part {
     pub(super) spec: ScenePart,
@@ -224,10 +294,18 @@ pub(super) struct ActorPart {
     pass: u8,
     materials: Vec<Handle<TitleSurface>>,
     pub(super) prepared: bool,
+    pub(super) disabled: bool,
     instantiated: bool,
     geometry: Vec<(usize, Entity)>,
     pub(super) active_clip: Option<usize>,
     shadow_anchor: Option<Entity>,
+}
+impl ActorPart {
+    pub(super) fn disable(&mut self) {
+        self.disabled = true;
+        self.prepared = true;
+        self.active_clip = None;
+    }
 }
 impl Art {
     /// Warmup and live actors must use the same textures and shader features.
@@ -250,7 +328,8 @@ impl Art {
                         images,
                         sampled,
                     ),
-                    toon_ramp: (resource < SCENERY_RESOURCE_BASE
+                    toon_ramp: (!self.unlit
+                        && resource < SCENERY_RESOURCE_BASE
                         && index == 0
                         && part.spec.bone_names.len() > 1
                         && spec.color.is_some())
@@ -362,7 +441,7 @@ pub(super) fn ready(world: &mut World) -> bool {
             .all(|part| part.prepared)
 }
 
-fn retire_live(world: &mut World) {
+pub(super) fn retire_live(world: &mut World) {
     if world.contains_resource::<Session>() {
         return;
     }
@@ -404,7 +483,7 @@ fn load_live(
     resident: Res<super::loading::Resident>,
     mut controls: ResMut<Controls>,
     mut retained: ResMut<RetainedFields>,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: Failures,
 ) {
     let Some(session) = session else {
         return;
@@ -429,8 +508,7 @@ fn load_live(
     {
         Ok(sources) => sources,
         Err(error) => {
-            error!("Could not prepare model behaviors: {error:#}");
-            exit.write(AppExit::error());
+            failures.fatal("field model behavior preparation", error);
             return;
         }
     };
@@ -444,8 +522,7 @@ fn load_live(
     ) {
         Ok(ui) => ui,
         Err(error) => {
-            error!("Could not prepare field presentation: {error:#}");
-            exit.write(AppExit::error());
+            failures.fatal("field artwork preparation", error);
             return;
         }
     };
@@ -458,8 +535,7 @@ fn load_live(
     ) {
         Ok(effects) => effects,
         Err(error) => {
-            error!("Could not prepare field effects: {error:#}");
-            exit.write(AppExit::error());
+            failures.fatal("field effect preparation", error);
             return;
         }
     };
@@ -553,7 +629,7 @@ pub(super) fn advance_live(
     images: Res<Assets<Image>>,
     parts: Query<&ActorPart>,
     mut controls: ResMut<Controls>,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: Failures,
     resident: Res<super::loading::Resident>,
     options: Res<super::RunOptions>,
 ) {
@@ -568,6 +644,7 @@ pub(super) fn advance_live(
         || !session.ready_for_field
         || session.audio.is_some()
         || session.field.events.world.field_transition.is_some()
+        || session.field.events.battle_pending()
     {
         controls.clear_actions();
         return;
@@ -585,9 +662,11 @@ pub(super) fn advance_live(
     }
     let input = controls.consume();
     if let Err(error) = session.field.step(input) {
-        error!("Field update failed: {error:#}");
+        // The VM may already have changed state. Cancel this lifetime and
+        // return to title; never retry a partially applied field update.
         session.field.events.cancel();
-        exit.write(AppExit::error());
+        session.ready_for_field = false;
+        failures.fatal("field update", error);
     }
 }
 
@@ -671,7 +750,7 @@ fn ui(
     children: Query<&Children>,
     names: Query<&Name>,
     transforms: super::sparse_animation::affine::Helper,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: Failures,
     mut applied: ResMut<Applied>,
     clock: Option<Res<super::Clock>>,
 ) {
@@ -726,8 +805,9 @@ fn ui(
             }
         }
         Err(error) => {
-            error!("Field overlay rendering failed: {error:#}");
-            exit.write(AppExit::error());
+            if !failures.skip("field overlay rendering", error) {
+                return;
+            }
         }
     }
     if let Err(error) = art.render(
@@ -737,10 +817,14 @@ fn ui(
         if state.checkpoint.is_some() {
             state.get().events.tick()
         } else {
-            clock
-                .expect("live field needs a presentation clock")
-                .0
-                .tick()
+            let Some(clock) = clock else {
+                failures.fatal(
+                    "field dialogue rendering",
+                    anyhow::anyhow!("missing presentation clock"),
+                );
+                return;
+            };
+            clock.0.tick()
         },
         &heads,
         &mut commands,
@@ -748,8 +832,7 @@ fn ui(
         &mut materials,
         &mut images,
     ) {
-        error!("Field dialogue rendering failed: {error:#}");
-        exit.write(AppExit::error());
+        failures.skip("field dialogue rendering", error);
     } else {
         if state.get().menu.is_some() || state.get().shop.is_some() {
             applied.ack(Request::Menu);
@@ -1282,6 +1365,8 @@ fn load_art(
         instances: BTreeMap::new(),
         ready: false,
         loading_since: Instant::now(),
+        unlit: false,
+        disabled_shadows: false,
         shadows: shadows::Artwork::load(&manifest.contact_shadow, server),
         toon_ramp: server
             .load_builder()
@@ -1305,128 +1390,140 @@ pub(super) fn prepared_test_art(manifest: &FieldAssets, server: &AssetServer) ->
     art
 }
 
+fn asset_ready(server: &AssetServer, id: bevy::asset::UntypedAssetId) -> Result<bool> {
+    if let Some((bevy::asset::LoadState::Failed(error), _, _)) = server.get_load_states(id) {
+        anyhow::bail!("asset {:?} failed to load: {error}", server.get_path(id));
+    }
+    if let Some(bevy::asset::RecursiveDependencyLoadState::Failed(error)) =
+        server.get_recursive_dependency_load_state(id)
+    {
+        anyhow::bail!("asset {:?} dependency failed: {error}", server.get_path(id));
+    }
+    Ok(server.is_loaded_with_dependencies(id))
+}
+
+fn prepare_part(
+    part: &mut Part,
+    server: &AssetServer,
+    gltfs: &Assets<bevy::gltf::Gltf>,
+    clips: &Assets<super::sparse_animation::Clip>,
+    images: &Assets<Image>,
+) -> Result<bool> {
+    let mut ready = asset_ready(server, part.gltf.id().untyped())?;
+    for handle in &part.clips {
+        ready &= asset_ready(server, handle.id().untyped())? && clips.contains(handle);
+    }
+    for (handle, _) in part
+        .materials
+        .iter()
+        .flat_map(|m| m.color.iter().chain(&m.multiply))
+    {
+        ready &= asset_ready(server, handle.id().untyped())? && images.contains(handle);
+    }
+    if !ready {
+        return Ok(false);
+    }
+    let gltf = gltfs
+        .get(&part.gltf)
+        .context("loaded field model is missing")?;
+    if !part.resolved {
+        let scene = gltf.scenes.first().context("field model has no scene")?;
+        ensure!(
+            gltf.meshes.len() == part.materials.len(),
+            "field material count differs from its recipe"
+        );
+        for handle in &part.clips {
+            clips
+                .get(handle)
+                .context("loaded field clip is missing")?
+                .0
+                .validate_bones(part.spec.bone_names.len())?;
+        }
+        part.scene = scene.clone();
+        part.resolved = true;
+    }
+    asset_ready(server, part.scene.id().untyped())
+}
+
 fn prepare(
     mut art: ResMut<Art>,
     server: Res<AssetServer>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
     images: Res<Assets<Image>>,
-    mut exit: MessageWriter<AppExit>,
+    mut failures: Failures,
 ) {
-    // A field owns these handles until teardown. Once its load jobs and
-    // dependencies have finished, do not lock the asset server for every clip
-    // on every rendered frame. A field change creates a new Art and gate.
     if art.ready {
         return;
     }
-    if art.loads.complete() {
-        for part in art.models.values_mut().flatten().filter(|p| !p.resolved) {
-            let Some(gltf) = gltfs.get(&part.gltf) else {
-                continue;
-            };
-            if !server.is_loaded_with_dependencies(part.gltf.id()) {
-                continue;
+    let timed_out = art.loading_since.elapsed().as_secs() >= 30;
+    let mut ready = true;
+    let mut stopped = false;
+    // A model's parts share a skeleton. Omit that model together, keeping all
+    // other model resources available and preventing an impossible ready gate.
+    art.models.retain(|resource, parts| {
+        let result = parts.iter_mut().try_fold(true, |ready, part| {
+            let loaded = prepare_part(part, &server, &gltfs, &clips, &images)
+                .with_context(|| format!("model {resource}, {}", part.spec.mesh))?;
+            ensure!(
+                loaded || !timed_out,
+                "model {resource} did not load within 30 seconds"
+            );
+            Ok::<_, anyhow::Error>(ready && loaded)
+        });
+        match result {
+            Ok(loaded) => {
+                ready &= loaded;
+                true
             }
-            let Some(scene) = gltf.scenes.first() else {
-                error!("Field model has no scene: {}", part.spec.mesh);
-                exit.write(AppExit::error());
-                return;
-            };
-            if !part.clips.iter().all(|handle| clips.contains(handle)) {
-                continue;
-            }
-            for handle in &part.clips {
-                if let Err(error) = clips
-                    .get(handle)
-                    .unwrap()
-                    .0
-                    .validate_bones(part.spec.bone_names.len())
-                {
-                    error!("Field animation binding failed: {error:#}");
-                    exit.write(AppExit::error());
-                    return;
+            Err(error) => {
+                if failures.skip("field model preparation", error) {
+                    false
+                } else {
+                    stopped = true;
+                    true
                 }
             }
-            part.scene = scene.clone();
-            if gltf.meshes.len() != part.materials.len() {
-                error!(
-                    "Field material count differs from its recipe: {}",
-                    part.spec.mesh
-                );
-                exit.write(AppExit::error());
-                return;
-            }
-            part.resolved = true;
         }
+    });
+    if stopped {
+        return;
     }
-    art.ready = art.loads.complete()
-        && images.contains(&art.toon_ramp)
-        && images.contains(&art.shadows.texture)
-        && art.models.values().flatten().all(|part| {
-            part.resolved
-                && server.is_loaded_with_dependencies(part.gltf.id())
-                && server.is_loaded_with_dependencies(part.scene.id())
-                && part
-                    .clips
-                    .iter()
-                    .all(|clip| server.is_loaded_with_dependencies(clip.id()))
-                && part.materials.iter().all(|m| {
-                    m.color
-                        .iter()
-                        .chain(&m.multiply)
-                        .all(|(h, _)| images.contains(h.id()))
-                })
-        });
-    if !art.ready {
-        let assets = art
-            .models
-            .values()
-            .flatten()
-            .flat_map(|p| {
-                [p.gltf.id().untyped(), p.scene.id().untyped()]
-                    .into_iter()
-                    .chain(p.clips.iter().map(|c| c.id().untyped()))
-                    .chain(p.materials.iter().flat_map(|m| {
-                        m.color
-                            .iter()
-                            .chain(&m.multiply)
-                            .map(|(h, _)| h.id().untyped())
-                    }))
-            })
-            .chain([
-                art.toon_ramp.id().untyped(),
-                art.shadows.texture.id().untyped(),
-            ]);
-        for id in assets {
-            if let Some((bevy::asset::LoadState::Failed(error), _, _)) = server.get_load_states(id)
-            {
-                error!(
-                    "Field asset failed to load: {:?}: {error}",
-                    server.get_path(id)
-                );
-                exit.write(AppExit::error());
-                return;
-            }
-            if let Some(bevy::asset::RecursiveDependencyLoadState::Failed(error)) =
-                server.get_recursive_dependency_load_state(id)
-            {
-                error!(
-                    "Field asset dependency failed: {:?}: {error}",
-                    server.get_path(id)
-                );
-                exit.write(AppExit::error());
-                return;
-            }
+    for (index, (handle, disabled)) in [
+        (art.toon_ramp.clone(), art.unlit),
+        (art.shadows.texture.clone(), art.disabled_shadows),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if disabled {
+            continue;
         }
-        if art.loading_since.elapsed().as_secs() >= 30 {
-            error!(
-                "Field {} presentation assets did not become ready within 30 seconds",
-                art.map
+        let result = asset_ready(&server, handle.id().untyped()).and_then(|loaded| {
+            let loaded = loaded && images.contains(&handle);
+            ensure!(
+                loaded || !timed_out,
+                "shared field image did not load within 30 seconds"
             );
-            exit.write(AppExit::error());
+            Ok(loaded)
+        });
+        match result {
+            Ok(loaded) => ready &= loaded,
+            Err(error) => {
+                if !failures.skip("field shared image", error) {
+                    return;
+                }
+                if index == 0 {
+                    art.unlit = true;
+                } else {
+                    art.disabled_shadows = true;
+                }
+            }
         }
     }
+    art.ready = ready && (art.loads.complete() || timed_out);
 }
+
 fn instances(
     mut commands: Commands,
     mut art: ResMut<Art>,
@@ -1488,6 +1585,7 @@ fn instances(
                             pass,
                             materials,
                             prepared: false,
+                            disabled: false,
                             instantiated: false,
                             geometry: Vec::new(),
                             active_clip: None,
@@ -1552,11 +1650,16 @@ fn pose(
     mut draw_orders: Query<&mut DrawOrder>,
     mut applied: ResMut<Applied>,
     effects: Res<super::field_effects::Artwork>,
+    mut failures: Failures,
 ) {
     let session = session.get();
     let world = &session.events.world;
     let tick = session.events.tick();
     for (root, mut instance, mut transform, mut visibility) in &mut roots {
+        if instance.disabled {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
         if !instance.instantiated {
             if let Some(index) = world
                 .save_points
@@ -1581,17 +1684,46 @@ fn pose(
         let Some(actor) = world.actors.get(&instance.actor) else {
             continue;
         };
-        let actor_order = world
+        let Some(actor_order) = world
             .actor_order()
             .iter()
             .position(|id| *id == instance.actor)
-            .expect("rendered actor has a submission order");
-        debug_assert_eq!(
-            instance.resource, actor.resource,
-            "VM actor {} changed its model without replacing the scene instance at tick {}",
-            instance.actor, tick
-        );
-        let part = &art.models[&instance.resource][instance.part];
+        else {
+            failures.skip(
+                "field actor rendering",
+                anyhow::anyhow!("actor {} has no submission order", instance.actor),
+            );
+            instance.disable();
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let part = art
+            .models
+            .get(&instance.resource)
+            .and_then(|parts| parts.get(instance.part));
+        let Some(part) = part.filter(|_| instance.resource == actor.resource) else {
+            failures.skip(
+                "field actor rendering",
+                anyhow::anyhow!("actor {} has an unavailable model binding", instance.actor),
+            );
+            instance.disable();
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        if instance.materials.len() != part.spec.materials.len()
+            || instance
+                .materials
+                .iter()
+                .any(|material| !surfaces.contains(material))
+        {
+            failures.skip(
+                "field actor rendering",
+                anyhow::anyhow!("actor {} has an unavailable material", instance.actor),
+            );
+            instance.disable();
+            *visibility = Visibility::Hidden;
+            continue;
+        }
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
         let brightness = world.brightness();
         let tint = Vec4::new(brightness, brightness, brightness, 1.)
@@ -1729,9 +1861,19 @@ fn pose(
                     instance.shadow_anchor = Some(entity);
                 }
                 if let Ok(slot) = meshes.get(entity) {
-                    let index = slot
-                        .index(instance.materials.len())
-                        .expect("field mesh must have a declared material slot");
+                    let index = match slot.index(instance.materials.len()) {
+                        Ok(index) => index,
+                        Err(error) => {
+                            commands.entity(entity).insert(Visibility::Hidden);
+                            if !failures.skip(
+                                "field mesh rendering",
+                                error.context(format!("actor {}", instance.actor)),
+                            ) {
+                                return;
+                            }
+                            continue;
+                        }
+                    };
                     instance.geometry.push((index, entity));
                     commands.entity(entity).insert((
                         MeshMaterial3d(instance.materials[index].clone()),

@@ -1,0 +1,462 @@
+{
+  "dolphin_version": "Dolphin [master] 2606",
+  "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+  "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+  "configs": {
+    "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+    "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+    "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+  },
+  "game_settings": {
+    "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+  },
+  "source_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "trace_sha256": "29cd845a65976069e1b6c899c79a1345f0a4c165c7869721a7da639a5d03fa1f",
+  "trace_memory_sha256": "eab48f6bce8db756f4030ffe5c1a2bc1ce541771f37febed607168824a2166b6",
+  "source_actions_sha256": "a62474e06344edbfac4a68583c56682d080c2515800ce850b90ca7d8b0f21b09",
+  "scope": "Lloyd neutral/finisher sound and voice request indices, priorities, modes and command ages. Not playback, screen positioning, full action timing or audio fidelity acceptance.",
+  "observations": [
+    {
+      "index": 155,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 329,
+      "presentation_counter": 43750,
+      "character": 1,
+      "side": 0,
+      "clip": 30,
+      "clock": 4,
+      "random_before": 755949091,
+      "requests": [
+        {
+          "kind": "voice",
+          "index": 1,
+          "priority": 2,
+          "mode": 2
+        }
+      ],
+      "clock_after": 4,
+      "random_after": 755949091
+    },
+    {
+      "index": 167,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 333,
+      "presentation_counter": 43754,
+      "character": 1,
+      "side": 0,
+      "clip": 30,
+      "clock": 8,
+      "random_before": 3340364773,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132491991
+        }
+      ],
+      "clock_after": 8,
+      "random_after": 3340364773
+    },
+    {
+      "index": 207,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 349,
+      "presentation_counter": 43770,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 4,
+      "random_before": 3005829403,
+      "requests": [
+        {
+          "kind": "voice",
+          "index": 3,
+          "priority": 2,
+          "mode": 2
+        }
+      ],
+      "clock_after": 4,
+      "random_after": 3005829403
+    },
+    {
+      "index": 219,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 353,
+      "presentation_counter": 43774,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 8,
+      "random_before": 1553498781,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132710738
+        }
+      ],
+      "clock_after": 8,
+      "random_after": 1553498781
+    },
+    {
+      "index": 231,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 357,
+      "presentation_counter": 43778,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 12,
+      "random_before": 88880627,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132539455
+        }
+      ],
+      "clock_after": 12,
+      "random_after": 88880627
+    },
+    {
+      "index": 355,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 415,
+      "presentation_counter": 43836,
+      "character": 1,
+      "side": 0,
+      "clip": 30,
+      "clock": 4,
+      "random_before": 3375859370,
+      "requests": [
+        {
+          "kind": "voice",
+          "index": 1,
+          "priority": 2,
+          "mode": 2
+        }
+      ],
+      "clock_after": 4,
+      "random_after": 3375859370
+    },
+    {
+      "index": 367,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 419,
+      "presentation_counter": 43840,
+      "character": 1,
+      "side": 0,
+      "clip": 30,
+      "clock": 8,
+      "random_before": 3644336991,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132713351
+        }
+      ],
+      "clock_after": 8,
+      "random_after": 3644336991
+    },
+    {
+      "index": 407,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 435,
+      "presentation_counter": 43856,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 4,
+      "random_before": 1980222814,
+      "requests": [
+        {
+          "kind": "voice",
+          "index": 3,
+          "priority": 2,
+          "mode": 2
+        }
+      ],
+      "clock_after": 4,
+      "random_after": 1980222814
+    },
+    {
+      "index": 419,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 439,
+      "presentation_counter": 43860,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 8,
+      "random_before": 2073926776,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132082508
+        }
+      ],
+      "clock_after": 8,
+      "random_after": 2073926776
+    },
+    {
+      "index": 427,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 443,
+      "presentation_counter": 43864,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 12,
+      "random_before": 352821508,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132229490
+        }
+      ],
+      "clock_after": 12,
+      "random_after": 352821508
+    },
+    {
+      "index": 573,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 505,
+      "presentation_counter": 43926,
+      "character": 1,
+      "side": 0,
+      "clip": 30,
+      "clock": 4,
+      "random_before": 336562044,
+      "requests": [
+        {
+          "kind": "voice",
+          "index": 1,
+          "priority": 2,
+          "mode": 2
+        }
+      ],
+      "clock_after": 4,
+      "random_after": 336562044
+    },
+    {
+      "index": 589,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 509,
+      "presentation_counter": 43930,
+      "character": 1,
+      "side": 0,
+      "clip": 30,
+      "clock": 8,
+      "random_before": 613154001,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1131715850
+        }
+      ],
+      "clock_after": 8,
+      "random_after": 613154001
+    },
+    {
+      "index": 639,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 525,
+      "presentation_counter": 43946,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 4,
+      "random_before": 1085891599,
+      "requests": [
+        {
+          "kind": "voice",
+          "index": 3,
+          "priority": 2,
+          "mode": 2
+        }
+      ],
+      "clock_after": 4,
+      "random_after": 1085891599
+    },
+    {
+      "index": 655,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 529,
+      "presentation_counter": 43950,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 8,
+      "random_before": 1217206743,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1131403180
+        }
+      ],
+      "clock_after": 8,
+      "random_after": 1217206743
+    },
+    {
+      "index": 671,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 533,
+      "presentation_counter": 43954,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 12,
+      "random_before": 2122973283,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1131770764
+        }
+      ],
+      "clock_after": 12,
+      "random_after": 2122973283
+    },
+    {
+      "index": 751,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 598,
+      "presentation_counter": 44019,
+      "character": 1,
+      "side": 0,
+      "clip": 30,
+      "clock": 4,
+      "random_before": 654477706,
+      "requests": [
+        {
+          "kind": "voice",
+          "index": 1,
+          "priority": 2,
+          "mode": 2
+        }
+      ],
+      "clock_after": 4,
+      "random_after": 654477706
+    },
+    {
+      "index": 767,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 602,
+      "presentation_counter": 44023,
+      "character": 1,
+      "side": 0,
+      "clip": 30,
+      "clock": 8,
+      "random_before": 3435885129,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132546262
+        }
+      ],
+      "clock_after": 8,
+      "random_after": 3435885129
+    },
+    {
+      "index": 799,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 618,
+      "presentation_counter": 44039,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 4,
+      "random_before": 1256364791,
+      "requests": [
+        {
+          "kind": "voice",
+          "index": 3,
+          "priority": 2,
+          "mode": 2
+        }
+      ],
+      "clock_after": 4,
+      "random_after": 1256364791
+    },
+    {
+      "index": 807,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 622,
+      "presentation_counter": 44043,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 8,
+      "random_before": 1256364791,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132596877
+        }
+      ],
+      "clock_after": 8,
+      "random_after": 1256364791
+    },
+    {
+      "index": 815,
+      "function": "commands",
+      "actor": 2167267008,
+      "combat_tick": 626,
+      "presentation_counter": 44047,
+      "character": 1,
+      "side": 0,
+      "clip": 31,
+      "clock": 12,
+      "random_before": 767839797,
+      "requests": [
+        {
+          "kind": "sound",
+          "index": 60,
+          "priority": 1,
+          "screen_position_bits": 1132326159
+        }
+      ],
+      "clock_after": 12,
+      "random_after": 767839797
+    }
+  ]
+}

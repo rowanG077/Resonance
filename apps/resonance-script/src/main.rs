@@ -15,6 +15,7 @@ struct Args {
 enum Host {
     Field,
     Model,
+    Battle,
 }
 
 #[derive(Subcommand)]
@@ -67,11 +68,12 @@ fn main() -> anyhow::Result<()> {
                 let natives = match kind {
                     ScriptKind::Field => resonance_events::authored::native_declarations(),
                     ScriptKind::Model => resonance_model_behavior::native_declarations(),
+                    ScriptKind::Battle => resonance_battle::native_declarations(),
                     ScriptKind::Library => Vec::new(),
                 };
                 check(module, &sources, &natives)
                     .with_context(|| if kind == ScriptKind::Library {
-                        format!("checking library '{module}' without host natives; for host services, check a field/model entry importing this library")
+                        format!("checking library '{module}' without host natives; for host services, check a field/model/battle entry importing this library")
                     } else {
                         format!("checking {kind} script '{module}'")
                     })?;
@@ -95,6 +97,7 @@ fn main() -> anyhow::Result<()> {
             let natives = match host {
                 Host::Field => resonance_events::authored::native_declarations(),
                 Host::Model => resonance_model_behavior::native_declarations(),
+                Host::Battle => resonance_battle::native_declarations(),
             };
             print!("{}", native_reference(&natives));
         }

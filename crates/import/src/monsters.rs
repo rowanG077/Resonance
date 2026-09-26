@@ -11,7 +11,7 @@ use resonance_content::{
     menu_data::Element,
     monster::{MONSTER_COUNT, MONSTER_VERSION, Monster, MonsterBook},
 };
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, path::Path};
 pub(crate) mod preview;
 mod source;
 
@@ -58,66 +58,123 @@ fn book(
     Ok(MonsterBook { labels, records })
 }
 
+fn metadata(
+    id: u8,
+    record: source::Record<'_>,
+    preview: resonance_content::model_preview::ModelPreview,
+    catalogue: &Catalogue,
+    ui: &inventory_ui::Catalogue,
+) -> Result<Monster> {
+    ensure!(record.attack_element <= 8, "invalid monster element");
+    let row = &catalogue.records[usize::from(id)];
+    let elements = |test: fn(i8) -> bool| {
+        Element::ALL
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, element)| test(record.affinities[i + 1]).then_some(element))
+            .collect()
+    };
+    let item = |id| (id != 0).then_some(id);
+    let monster = Monster {
+        version: MONSTER_VERSION,
+        id,
+        name: catalogue.required_text(row.name)?.into(),
+        location: catalogue.location(row.location)?.into(),
+        category: ui
+            .text(
+                *ui.inventory
+                    .monster
+                    .categories
+                    .get(usize::from(record.family))
+                    .context("invalid monster family")?,
+            )
+            .into(),
+        statistics: record.statistics,
+        drops: record.drops.map(item),
+        drop_chances: record.drop_chances,
+        grade: record.grade,
+        steal: item(record.steal),
+        attack_element: record
+            .attack_element
+            .checked_sub(1)
+            .map(|i| Element::ALL[usize::from(i)]),
+        affinities: record.affinities,
+        weaknesses: elements(|v| v == 1),
+        resistances: elements(|v| v > 1),
+        preview,
+    };
+    monster.validate(528)?;
+    Ok(monster)
+}
+
+/// Refresh semantic enemy records from original source while retaining already
+/// converted visual previews. Used for targeted development publications; no
+/// model conversion or runtime compatibility path is involved.
+pub fn publish_metadata(extracted: &Path, prepared: &Path, output: &Path) -> Result<Vec<String>> {
+    let executable = std::fs::read(extracted.join("sys/main.dol"))?;
+    let sources = crate::source_assets::Sources::read_with(extracted, &executable)?;
+    let usual = std::fs::read(extracted.join("files").join(&sources.usual))?;
+    let archive = extracted.join("files").join(&sources.enemy);
+    let catalogue = crate::all_assets::monster_catalogue::read(&executable)?;
+    let ui = inventory_ui::read(&executable)?;
+    ensure!(
+        catalogue.records.len() == MONSTER_COUNT,
+        "incomplete monster catalogue"
+    );
+    let mut records = Vec::new();
+    let mut paths = Vec::new();
+    for id in 0..MONSTER_COUNT as u8 {
+        let path = format!("monsters/{id:03}.json");
+        let previous: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(prepared.join(&path))?)?;
+        let preview = serde_json::from_value(previous["preview"].clone())?;
+        let bytes = crate::source_assets::enemy_package(&archive, &usual, u16::from(id))?;
+        let monster = metadata(id, source::read(&bytes)?, preview, &catalogue, &ui)?;
+        write_atomic(&output.join(&path), &serde_json::to_vec_pretty(&monster)?)?;
+        records.push(monster);
+        paths.push(path);
+    }
+    let book = book(&catalogue, &ui, records)?;
+    book.validate(528)?;
+    let mut menu: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(prepared.join("game/menu-data.json"))?)?;
+    menu["monsters"] = serde_json::to_value(book)?;
+    write_atomic(
+        &output.join("game/menu-data.json"),
+        &serde_json::to_vec_pretty(&menu)?,
+    )?;
+    paths.push("game/menu-data.json".into());
+    Ok(paths)
+}
+
 pub(crate) fn prepare(
     extracted: &Path,
     output: &Path,
-    executable: &[u8],
+    sources: &crate::source_assets::Sources,
+    usual: &[u8],
     catalogue: &Catalogue,
     ui: &inventory_ui::Catalogue,
 ) -> Result<MonsterBook> {
-    let sources = crate::source_assets::Sources::read_with(extracted, executable)?;
     let files = extracted.join("files");
-    let usual = fs::read(files.join(sources.usual))?;
-    let archive = files.join(sources.enemy);
+    let archive = files.join(&sources.enemy);
     ensure!(
         catalogue.records.len() == MONSTER_COUNT,
         "incomplete monster catalogue"
     );
     let mut records = Vec::new();
     let mut behaviors = crate::model_behavior::Bindings::new()?;
-    for (index, row) in catalogue.records.iter().enumerate() {
+    for index in 0..catalogue.records.len() {
         let id = u8::try_from(index)?;
-        let bytes = crate::source_assets::enemy_package(&archive, &usual, u16::from(id))?;
+        let bytes = crate::source_assets::enemy_package(&archive, usual, u16::from(id))?;
         let record = source::read(&bytes)?;
         let metadata = record.metadata;
-        let element = record.attack_element;
-        ensure!(element <= 8, "invalid monster element");
-        let elements = |test: fn(i8) -> bool| {
-            Element::ALL
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, element)| test(record.affinities[i]).then_some(element))
-                .collect()
-        };
-        let item = |id| (id != 0).then_some(id);
         let mut preview = preview::menu(
             preview::from_package(&bytes, metadata, id, &source::clips(&bytes)?, output)?,
             metadata,
         )?;
         preview.behavior = behaviors.bind(crate::model_behavior::Subject::Monster(id));
-        let monster = Monster {
-            version: MONSTER_VERSION,
-            id,
-            name: catalogue.required_text(row.name)?.into(),
-            location: catalogue.location(row.location)?.into(),
-            category: ui
-                .text(
-                    *ui.inventory
-                        .monster
-                        .categories
-                        .get(usize::from(record.family))
-                        .context("invalid monster family")?,
-                )
-                .into(),
-            statistics: record.statistics,
-            drops: record.drops.map(item),
-            steal: item(record.steal),
-            attack_element: element.checked_sub(1).map(|i| Element::ALL[usize::from(i)]),
-            weaknesses: elements(|v| v == 1),
-            resistances: elements(|v| v > 1),
-            preview,
-        };
-        monster.validate(528)?;
+        let monster = self::metadata(id, record, preview, catalogue, ui)?;
+        crate::battle_model::publish_enemy(&bytes, id, &monster.preview, output, output)?;
         write_atomic(
             &output.join(format!("monsters/{id:03}.json")),
             &serde_json::to_vec_pretty(&monster)?,

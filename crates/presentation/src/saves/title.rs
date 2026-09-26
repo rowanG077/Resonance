@@ -47,6 +47,7 @@ fn prepare(world: &mut World) {
         }
     }
 }
+#[allow(clippy::too_many_arguments)] // Bevy queries the existing input, menu and audio owners directly.
 fn advance(
     mut commands: Commands,
     mut menu: Option<ResMut<LoadMenu>>,
@@ -55,6 +56,8 @@ fn advance(
     mut controls: ResMut<field_view::Controls>,
     mut pending: ResMut<PendingInput>,
     sounds: Res<audio::MenuSounds>,
+    game_over: Option<Res<crate::game_over::Active>>,
+    battle_audio: Option<Res<crate::battle_audio::Playback>>,
 ) {
     let Some(menu) = &mut menu else {
         return;
@@ -63,17 +66,26 @@ fn advance(
     if art.is_none_or(|art| !art.ready(&images)) {
         return;
     }
-    if let Some(cue) = menu.0.step(input)
-        && let Some(control) = &sounds.control
-    {
-        let name = match cue {
-            1 => "navigate",
-            2 => "confirm",
-            3 => "back",
-            _ => "error",
-        };
-        if let Err(error) = control.play(name) {
-            error!("Menu cue failed: {error:#}");
+    if let Some(cue) = menu.0.step(input) {
+        if game_over.is_some() {
+            if let Some(audio) = &battle_audio {
+                let result = u16::try_from(cue)
+                    .context("invalid load-menu sound ID")
+                    .and_then(|cue| audio.system_cue(cue));
+                if let Err(error) = result {
+                    error!("Load menu cue failed: {error:#}");
+                }
+            }
+        } else if let Some(control) = &sounds.control {
+            let name = match cue {
+                1 => "navigate",
+                2 => "confirm",
+                3 => "back",
+                _ => "error",
+            };
+            if let Err(error) = control.play(name) {
+                error!("Menu cue failed: {error:#}");
+            }
         }
     }
     if menu.0.closed {

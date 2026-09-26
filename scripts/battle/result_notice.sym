@@ -1,0 +1,12 @@
+script battle;
+use battle;
+asset common: battle::Effect = "battle/effects/common";
+
+// 564D4 shares this effect for level and EX notices. Their encounter tasks own
+// the respective ages; this independent resident leaves the victory pose running.
+pub task run() {
+    let actor = battle::owner();
+    let origin = battle::actor_offset_point(actor, 1.75);
+    battle::show_scaled_at(common, 20, origin, battle::heading(actor), 0.8);
+    battle::finish();
+}

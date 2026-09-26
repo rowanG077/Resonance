@@ -220,7 +220,7 @@ native_calls! {
     RaisePartyMemberLevel = 0xca,
     UnknownCB = 0xcb,
     ReadActorAttachment = 0xcc,
-    UnknownCD = 0xcd,
+    StartBattle = 0xcd,
     StageCommand54 = 0xce,
     UnknownCF = 0xcf,
     CreateParticle = 0xd0,

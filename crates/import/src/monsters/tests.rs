@@ -1,5 +1,6 @@
 use super::*;
 use crate::figurines::tests::compare_scene_assets;
+use std::fs;
 
 #[test]
 #[ignore = "requires locally cooked monster assets"]
@@ -64,10 +65,13 @@ fn shared_monster_preparation_preserves_every_catalogue_record_and_preview() -> 
         let output = tempfile::tempdir()?;
         let extracted = local.join(format!("extracted/disc{disc}"));
         let executable = fs::read(extracted.join("sys/main.dol"))?;
+        let sources = crate::source_assets::Sources::read_with(&extracted, &executable)?;
+        let usual = fs::read(extracted.join("files").join(&sources.usual))?;
         let actual = prepare(
             &extracted,
             output.path(),
-            &executable,
+            &sources,
+            &usual,
             &crate::all_assets::monster_catalogue::read(&executable)?,
             &inventory_ui::read(&executable)?,
         )?;

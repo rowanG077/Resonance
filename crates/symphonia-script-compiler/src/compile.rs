@@ -802,6 +802,19 @@ impl Compiler {
             }
             E::Text(value) => (Ty::Scalar(Scalar::String), vec![self.string(value)]),
             E::Name(name) => return self.named_constant(module, name, &expr.at),
+            E::Call(name, arguments) if name == "ticks" => {
+                let [argument] = arguments.as_slice() else {
+                    return Err(expr.at.error("ticks expects one argument"));
+                };
+                let value = self.constant_expr(module, argument, None)?;
+                if value.ty != INT && value.ty != Ty::Scalar(Scalar::Ticks) {
+                    return Err(argument.at.error("ticks expects an i32 or Ticks value"));
+                }
+                if value.words[0] < 0 {
+                    return Err(argument.at.error("tick duration cannot be negative"));
+                }
+                (Ty::Scalar(Scalar::Ticks), value.words)
+            }
             E::Unary(op, value) if op == "-" => {
                 if let E::Number(number) = &value.kind {
                     let (ty, value) = number_value(&format!("-{number}"), &expr.at)?;
@@ -1991,15 +2004,6 @@ fn array_length(length: usize, at: &Location) -> Result<u16, Diagnostic> {
 }
 fn number_value(source: &str, at: &Location) -> Result<(Ty, i32), Diagnostic> {
     let text = source.replace('_', "");
-    if let Some(ticks) = text.strip_suffix("ticks") {
-        let value = ticks
-            .parse::<i32>()
-            .map_err(|_| at.error("tick literal is outside i32"))?;
-        if value < 0 {
-            return Err(at.error("tick duration cannot be negative"));
-        }
-        return Ok((Ty::Scalar(Scalar::Ticks), value));
-    }
     if text.contains('.') {
         let value = text
             .parse::<f32>()

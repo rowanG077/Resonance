@@ -1,0 +1,431 @@
+{
+  "scope": "Nine natural Common 3 constructor visits. Actual particle bindings, signed random yaw, velocity and RNG after immediate modifiers; initialization motion and full casting RNG are not established.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "source_ranges_sha256": {
+    "3f0c0..3fb84": "b7e718292f08832c3e5c713b1a0229100abba9508a5f0d9633dc43dd40067bcd",
+    "413b8..41504": "c0c1074ab7ca98a6fa1db517bfdcf13750fb550ee6433cc29ad511b5c2843bb2",
+    "418b4..420c4": "fada0d5d1b343b1b6216356950ccca82f86a48c25fd859f7a52ac966bea3d661"
+  },
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499"
+  },
+  "trace_sha256": "da736bd843b4f08103edcefc6cf78f3f92e142ecf41747201a65bf99ec51d3d4",
+  "memory_sha256": "92facdb8d842ef8fb3ad41b9ae3034d87df6b111ccc2c956156b48e2e5186ab5",
+  "ordinary_memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+  "comparison_sha256": "3640fc653e590d91df92f4d6987028f9530af57e80795bd7531cefb8950c92e1",
+  "comparison": {
+    "samples": 703,
+    "fields": 85,
+    "differences": 0
+  },
+  "sources_sha256": "a4920a112063ab4f0ea5f6ffccc94e9fae607d7a263ae0e072d0e8db8357338a",
+  "constructors": [
+    {
+      "combat_tick": 298,
+      "random_before": 3498939260,
+      "random_after": 2100456019,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 1125187584,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    },
+    {
+      "combat_tick": 306,
+      "random_before": 1458556903,
+      "random_after": 2301672930,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 3273759130,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    },
+    {
+      "combat_tick": 314,
+      "random_before": 2901002677,
+      "random_after": 3524320920,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 3267362816,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    },
+    {
+      "combat_tick": 322,
+      "random_before": 1778886633,
+      "random_after": 2176078524,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 3274519347,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    },
+    {
+      "combat_tick": 330,
+      "random_before": 2109700701,
+      "random_after": 584074784,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 1126904627,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    },
+    {
+      "combat_tick": 338,
+      "random_before": 1984817653,
+      "random_after": 1158027736,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 1125318656,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    },
+    {
+      "combat_tick": 346,
+      "random_before": 292849363,
+      "random_after": 3388377182,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 3270954189,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    },
+    {
+      "combat_tick": 354,
+      "random_before": 1398363239,
+      "random_after": 595404898,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 1091043328,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    },
+    {
+      "combat_tick": 362,
+      "random_before": 3992428991,
+      "random_after": 1585768154,
+      "particles": [
+        {
+          "member": 34,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "59973885258373af380e416a7bf6d2879e6907ca789894cc4a52c0720077d099",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 35,
+          "yaw_bits": 0,
+          "velocity_y_bits": 0,
+          "source_sha256": "0585a153238d1de85d34e9f9a5e05f452a3f857a19c645e278cb55ab58d254f3",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        },
+        {
+          "member": 36,
+          "yaw_bits": 1117729587,
+          "velocity_y_bits": 0,
+          "source_sha256": "4e5c9f05456350c870c3573584c9cca4e7a0588016a5a28267744e3723bdccec",
+          "origin_bits": [
+            3291414528,
+            0,
+            1125515264
+          ],
+          "heading_bits": 1119694609
+        }
+      ]
+    }
+  ]
+}

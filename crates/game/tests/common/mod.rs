@@ -10,6 +10,8 @@ pub fn asset_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"))
 }
 
+// Some integration targets load only verified Files inventories.
+#[allow(dead_code)]
 pub fn cooked<T: DeserializeOwned>(path: impl AsRef<Path>) -> T {
     let path = asset_root().join(path);
     let bytes = fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));

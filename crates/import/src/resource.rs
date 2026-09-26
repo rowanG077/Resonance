@@ -22,7 +22,6 @@ const INLINE_BYTES: usize = 12;
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum PartyResource {
     Body,
-    #[cfg(test)]
     BattleMotion,
 }
 
@@ -73,7 +72,6 @@ impl Catalogue {
     pub(crate) fn party(&self, kind: PartyResource, character: u8, costume: u8) -> Result<&str> {
         let rows = match kind {
             PartyResource::Body => &self.party_bodies,
-            #[cfg(test)]
             PartyResource::BattleMotion => &self.party_battle_motions,
         };
         rows.get(character.checked_sub(1).context("zero character ID")? as usize)

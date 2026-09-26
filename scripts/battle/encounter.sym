@@ -1,0 +1,145 @@
+script battle;
+use encounter;
+use battle::victory;
+
+// 381C/2828/30E8/57718/564D4: only the shared world owner advances models,
+// actors and effects. Result age belongs to this callback, not to combat time.
+task victory_result() {
+    victory::select();
+    let mut banner = !encounter::death_waiting();
+    if banner { encounter::victory_banner(); }
+    encounter::fade_out(128, 128, 128, 6);
+    encounter::world_update();
+    await encounter::next_update();
+
+    let mut ready = false;
+    while !ready {
+        encounter::world_update();
+        if encounter::death_ready() {
+            if !banner {
+                encounter::victory_banner();
+                banner = true;
+            }
+            ready = encounter::transition_step();
+        }
+        if ready { encounter::retire_combat(); }
+        await encounter::next_update();
+    }
+
+    // The first result callback constructs rewards after the shared world visit.
+    encounter::world_update();
+    encounter::construct_rewards();
+    encounter::fade_in(128, 128, 128, 5);
+    if !encounter::suppress_music() { encounter::request_music(95); }
+    await encounter::next_update();
+
+    let mut age = 0;
+    let mut minimum_age = 120;
+    if encounter::has_ex_notice() { minimum_age = 220; }
+    let mut music_started = false;
+    let mut performed = false;
+    let mut closing = false;
+    let mut done = false;
+    while !done {
+        encounter::world_update();
+        if !encounter::suppress_music() && !music_started && encounter::music_ready() {
+            encounter::play_music(95, 50);
+            music_started = true;
+        }
+        let mut transition_done = false;
+        if age > 10 { transition_done = encounter::transition_step(); }
+        if age > minimum_age && encounter::results_ready() && !closing
+            && encounter::confirm() && encounter::performance_finished() {
+            encounter::accept_victory();
+            encounter::wipe_out(4);
+            closing = true;
+            transition_done = false;
+        }
+        done = closing && transition_done;
+        if !done {
+            if age == 100 { encounter::level_notices(); }
+            if age == 180 { encounter::ex_notices(); }
+            encounter::update_results(age);
+            if age == 150 { encounter::recover_tp(); }
+            if age >= 40 && !performed && !encounter::suppress_performance()
+                && encounter::performance_ready() {
+                encounter::perform_victory();
+                performed = true;
+            }
+            if age >= 20 { encounter::result_camera(age); }
+            age += 1;
+        }
+        await encounter::next_update();
+    }
+}
+
+// 3194/537E8/536D0/5369C: defeat callbacks precede the shared world visit.
+task defeat() {
+    encounter::world_update();
+    await encounter::next_update();
+    encounter::defeat_notice();
+    encounter::stop_music(1500);
+    encounter::world_update();
+    await encounter::next_update();
+    let mut age = 0;
+    let mut music_started = false;
+    let mut accepted = false;
+    while !accepted {
+        if age == 90 { encounter::request_music(96); }
+        if age > 90 && !music_started && encounter::music_ready() {
+            encounter::play_music(96, 100);
+            music_started = true;
+        }
+        if age > 90 && encounter::confirm() {
+            encounter::wipe_out(2);
+            accepted = true;
+        }
+        if age <= 90 { age += 1; }
+        encounter::world_update();
+        await encounter::next_update();
+    }
+    let mut ready = false;
+    while !ready {
+        ready = encounter::transition_step();
+        encounter::world_update();
+        await encounter::next_update();
+    }
+}
+
+// 381C/2FD0: ordinary/forced escape have different transition speeds.
+task escape() {
+    if !encounter::forced_escape() { encounter::escape_notice(); }
+    encounter::world_update();
+    await encounter::next_update();
+    let mut age = 0;
+    // 2108 initializes the forced-escape timer to 75; ordinary 381C uses zero.
+    if encounter::forced_escape() { age = 75; }
+    let mut ready = false;
+    while !ready {
+        if age == 90 {
+            let mut speed = 8;
+            if encounter::forced_escape() { speed = 4; }
+            encounter::fade_out(0, 0, 0, speed);
+        }
+        if age > 90 { ready = encounter::transition_step(); }
+        if ready { encounter::record_escape(); }
+        age += 1;
+        encounter::world_update();
+        await encounter::next_update();
+    }
+}
+
+pub task run() {
+    let mut result = 0;
+    while result == 0 {
+        result = encounter::recognize();
+        if result == 0 {
+            encounter::world_update();
+            await encounter::next_update();
+        }
+    }
+    if result == 2 { await victory_result(); }
+    else if result == 3 { await defeat(); }
+    else { await escape(); }
+    encounter::finish();
+}

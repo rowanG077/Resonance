@@ -1,27 +1,31 @@
-//! Complete authored arte records; gameplay bindings select from these tables.
+//! Original technique records; gameplay bindings select from these tables.
 mod definition;
-mod schema;
 mod tables;
 
 use crate::dol;
 #[cfg(test)]
 use crate::embedded;
 use anyhow::Result;
-#[cfg(test)]
 use std::path::Path;
 
-pub(crate) use schema::{Catalogue, Definition};
+pub(crate) use resonance_content::arte::{Catalogue, Definition};
 
 #[cfg(test)]
 const FAMILY: &str = "arte-catalogue";
 
-pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
+pub fn read(executable: &[u8]) -> Result<Catalogue> {
     Ok(Catalogue {
         definitions: definition::definitions(executable)?,
         learning: tables::learning(executable)?,
         combinations: tables::combinations(executable)?,
         learning_storage: dol::slice(executable, 0x80202f8b, 5)?.try_into()?,
     })
+}
+
+pub fn publish(catalogue: &Catalogue, output: &Path) -> Result<String> {
+    let path = resonance_content::arte::PATH;
+    crate::write_atomic(&output.join(path), &serde_json::to_vec(catalogue)?)?;
+    Ok(path.into())
 }
 
 #[cfg(test)]
@@ -54,6 +58,15 @@ mod tests {
                 let destination = output.join(format!("disc{disc}"));
                 let paths = cook(&source, &executable, &destination)?;
                 let restored = cooked(&destination)?;
+                let shared = publish(&restored, &destination)?;
+                assert_eq!(shared, resonance_content::arte::PATH);
+                let shared: Catalogue =
+                    serde_json::from_slice(&fs::read(destination.join(shared))?)?;
+                shared.validate()?;
+                assert_eq!(
+                    serde_json::to_value(shared)?,
+                    serde_json::to_value(&restored)?
+                );
                 assert_eq!(
                     serde_json::to_value(&restored)?,
                     serde_json::to_value(read(&executable)?)?

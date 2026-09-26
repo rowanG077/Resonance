@@ -14,6 +14,7 @@ pub use format::format;
 pub enum ScriptKind {
     Field,
     Model,
+    Battle,
     Library,
 }
 
@@ -22,12 +23,13 @@ impl std::fmt::Display for ScriptKind {
         f.write_str(match self {
             Self::Field => "field",
             Self::Model => "model",
+            Self::Battle => "battle",
             Self::Library => "library",
         })
     }
 }
 
-/// Read and validate the required leading `script field|model|library;` header.
+/// Read and validate the required leading `script field|model|battle|library;` header.
 pub fn script_kind(module: &str, source: &str) -> Result<ScriptKind, Diagnostic> {
     syntax::parse(module, source).map(|module| module.kind)
 }

@@ -1,0 +1,216 @@
+script battle;
+use battle;
+// Ordinary 39974 -> 3898C -> 385A0 route. Parameters come from the selected
+// actor/technique records. Held release and modifiers still need their
+// callers; these tasks start in the casting actor phase.
+pub struct ReleaseMotion {
+    motion: battle::Motion,
+    rate: f32,
+    blend: Ticks,
+    loop_start: f32,
+    repeat: bool,
+}
+pub struct Effects {
+    effect: battle::Effect,
+    pulse_member: i32,
+    release_member: i32,
+    release_sound: battle::Sound,
+    scale: f32,
+    tint: battle::EffectTint,
+}
+pub struct Voices {
+    chant: battle::Voice,
+    fallback: battle::Voice,
+    release: battle::Voice,
+}
+// 3898C uses the unmodified countdown before admission/countdown work. A held
+// clock requests only once, including when voice priority rejects the request.
+pub fn chant_voice(voices: Voices, remaining: Ticks, last: Ticks) -> Ticks {
+    if remaining == last {
+        return last;
+    }
+    let actor = battle::owner();
+    if remaining == battle::voice_duration(actor, voices.chant) + ticks(20) {
+        battle::voice(actor, voices.chant, 2);
+        return remaining;
+    }
+    if battle::voice_idle(actor) && remaining == battle::voice_duration(actor, voices.fallback) + ticks(20) {
+        battle::voice(actor, voices.fallback, 2);
+        return remaining;
+    }
+    return last;
+}
+pub task ordinary(spell: battle::Spell, duration: Ticks, recovery: Ticks, pose: ReleaseMotion, effects: Effects, voices: Voices) {
+    battle::set_cast_remaining(duration);
+    // Initialization leaves the countdown intact. Its first callback is next update.
+    await battle::next_update();
+    let mut pulse_age = 0;
+    let mut last_voice = ticks(0);
+    while true {
+        let remaining = battle::cast_remaining();
+        // 3898C re-arms before voice/release gates on every chant callback.
+        battle::jitter_body(ticks(8));
+        last_voice = chant_voice(voices, remaining, last_voice);
+        // 27650 runs before the occupied-slot/countdown gates. Manual/semi-auto
+        // casters instead bind the zero-count fallback below.
+        if battle::automatic_control() && !battle::motion_is(pose.motion) {
+            let lead = i32(battle::motion_duration(pose.motion) / pose.rate) + i32(pose.blend);
+            if remaining > ticks(0) && i32(remaining) <= lead {
+                let start = 4.0 * pose.rate;
+                let mut loop_start = pose.loop_start;
+                if loop_start == 0.0 {
+                    loop_start = start;
+                }
+                battle::play_motion(pose.motion, pose.blend, start, pose.rate, pose.repeat, loop_start);
+            }
+        }
+        if remaining == ticks(0) && !battle::spell_active(false) {
+            if !battle::motion_is(pose.motion) {
+                battle::play_motion(pose.motion, ticks(4), 0.0, pose.rate, pose.repeat, 0.0);
+            }
+            battle::voice(battle::owner(), voices.release, 2);
+            // Original TP adjustment can fail if live TP changed; release still proceeds.
+            battle::pay_tp(battle::tp_cost());
+            battle::notice(ticks(90), 1);
+            // Entering release phase never invokes its callback in this same update.
+            await battle::next_update();
+            while !battle::animation_finished() {
+                battle::set_cast_remaining(battle::cast_remaining() + ticks(1));
+                await battle::next_update();
+            }
+            // Ordinary 3898C retains portrait state 12 until 385A0 runs.
+            battle::begin_cast_release();
+            battle::show_following(effects.effect, effects.release_member, battle::owner(), effects.scale, true, effects.tint);
+            battle::sound(effects.release_sound, 1);
+            battle::release(spell, false);
+            // 385A0 replaces the final chant jitter timer with spell recovery.
+            battle::jitter_body(recovery);
+            await battle::recover(recovery);
+            return;
+        }
+        if remaining > ticks(0) && !battle::spell_active(false) {
+            battle::set_cast_remaining(remaining - ticks(1));
+        }
+        // 3898C emits after countdown work, including an occupied-slot hold.
+        // Its first callback uses elapsed zero; entering release skips this tail.
+        if pulse_age == 0 {
+            battle::show_following(effects.effect, effects.pulse_member, battle::owner(), effects.scale, true, effects.tint);
+        }
+        pulse_age =(pulse_age + 1) % 8;
+        await battle::next_update();
+    }
+}
+// Ordinary stored-spell branch (3898C -> 3EB74 -> 3E42C -> 385A0).
+// begin_scene changes this action's dispatch to the end-of-update callback.
+// Its first next_update resumes there in the same simulation update; actor
+// callbacks remain held until activation, while the owner's model advances.
+pub task stored(spell: battle::Spell, duration: Ticks, recovery: Ticks, entry: battle::Motion, pose: battle::CastMotion, effects: Effects, entry_sound: battle::Sound, voices: Voices) {
+    battle::set_cast_remaining(duration);
+    await battle::next_update();
+    let mut pulse_age = 0;
+    let mut last_voice = ticks(0);
+    while true {
+        let remaining = battle::cast_remaining();
+        battle::jitter_body(ticks(8));
+        last_voice = chant_voice(voices, remaining, last_voice);
+        if remaining == ticks(0) && !battle::spell_active(false) && battle::scene_available() {
+            battle::voice(battle::owner(), voices.release, 2);
+            battle::play_motion(entry, ticks(4), 0.0, 0.5, false, 0.0);
+            battle::sound(entry_sound, 1);
+            battle::begin_scene(spell, ticks(60));
+            // 3EB74: transition channel takes priority over active scene color.
+            battle::tint_stage(1, battle::Color {
+                red: 16, green: 16, blue: 16, alpha: 255 }, ticks(60), 4);
+            battle::show_centered(effects.effect, 37, battle::owner(), effects.scale, true, effects.tint);
+            battle::pay_tp(battle::tp_cost());
+            battle::begin_cast_release();
+            battle::notice(ticks(315), 1);
+            await battle::next_update();
+            while battle::scene_remaining() > ticks(0) {
+                // 3E42C's early release pose applies to every control mode.
+                let lead = i32(battle::motion_duration(pose.motion) / pose.rate) + i32(pose.blend);
+                if !battle::motion_is(pose.motion) && i32(battle::scene_remaining()) <= lead {
+                    let mut loop_start = pose.loop_start;
+                    if loop_start == 0.0 {
+                        loop_start = pose.frame;
+                    }
+                    battle::play_motion(pose.motion, pose.blend, pose.frame, pose.rate, pose.repeat, loop_start);
+                }
+                await battle::next_update();
+            }
+            battle::activate_scene();
+            battle::sound(effects.release_sound, 1);
+            // Resource activation follows the resident pass. The next actor
+            // callback emits recovery feedback without releasing a second spell.
+            await battle::next_update();
+            while !battle::animation_finished() {
+                battle::set_cast_remaining(battle::cast_remaining() + ticks(1));
+                await battle::next_update();
+            }
+            battle::show_following(effects.effect, effects.release_member, battle::owner(), effects.scale, true, effects.tint);
+            // 385A0 replaces the final chant jitter timer with spell recovery.
+            battle::jitter_body(recovery);
+            await battle::recover(recovery);
+            return;
+        }
+        if remaining > ticks(0) && !battle::spell_active(false) {
+            battle::set_cast_remaining(remaining - ticks(1));
+        }
+        if pulse_age == 0 {
+            battle::show_following(effects.effect, effects.pulse_member, battle::owner(), effects.scale, true, effects.tint);
+        }
+        pulse_age =(pulse_age + 1) % 8;
+        await battle::next_update();
+    }
+}
+// Initialization leaves the row clock at zero; blended transitions hold it.
+// Other ordinary party profiles have one repeating chant pose.
+pub task chant(definition: battle::Casting) {
+    let parameters = battle::cast_parameters(definition);
+    let mut delay = ticks(1);
+    for i in 0 .. parameters.chant_count {
+        let step = battle::chant_step(definition, i);
+        if i > 0 {
+            await battle::at_age(step.age + delay);
+            if battle::motion_is(parameters.release.motion) {
+                return;
+            }
+            if step.blend > ticks(0) {
+                delay = delay + ticks(1);
+            }
+        }
+        battle::play_motion(step.motion, step.blend, step.frame, step.rate, step.repeat, step.loop_start);
+    }
+}
+pub task prepared(definition: battle::Casting, spell: battle::Spell, common: battle::Effect, release_sound: battle::Sound, voices: Voices) {
+    let parameters = battle::cast_parameters(definition);
+    let mut duration = parameters.base + parameters.extra;
+    if duration <= ticks(1) {
+        duration = ticks(1);
+    }
+    spawn chant(definition);
+    let pose = parameters.release;
+    let mut burst = 7;
+    if parameters.pulse_member == 4 {
+        burst = 8;
+    }
+    await ordinary(spell, duration, parameters.recovery, ReleaseMotion {
+        motion: pose.motion, rate: pose.rate, blend: pose.blend, loop_start: pose.loop_start, repeat: pose.repeat }, Effects {
+        effect: common, pulse_member: parameters.pulse_member, release_member: burst, release_sound: release_sound, scale: parameters.effect_scale, tint: parameters.tint }, voices);
+}
+// The same verified parameters feed the stored transition. The entry clip and
+// resident scene belong to the selected caster's prepared resources.
+pub task prepared_stored(definition: battle::Casting, spell: battle::Spell, common: battle::Effect, entry: battle::Motion, entry_sound: battle::Sound, release_sound: battle::Sound, voices: Voices) {
+    let parameters = battle::cast_parameters(definition);
+    let mut duration = parameters.base + parameters.extra;
+    if duration <= ticks(1) {
+        duration = ticks(1);
+    }
+    spawn chant(definition);
+    let mut burst = 7;
+    if parameters.pulse_member == 4 {
+        burst = 8;
+    }
+    await stored(spell, duration, parameters.recovery, entry, parameters.release, Effects {
+        effect: common, pulse_member: parameters.pulse_member, release_member: burst, release_sound: release_sound, scale: parameters.effect_scale, tint: parameters.tint }, entry_sound, voices);
+}

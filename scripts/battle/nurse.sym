@@ -1,0 +1,46 @@
+script battle;
+use battle;
+asset scene: battle::Effect = "battle/scenes/237.json";
+asset recovery_voice: battle::Voice = "battle/voices/relative/42";
+asset tints: battle::ActorTints = "battle/effects/tints.json";
+// US_r_Top2Btl fn_1_60510: the recovery part of the active callback.
+// 37B10/37E48 retain the slot after age 250; the next dispatch releases it.
+// Returning from this task does not end the enclosing resident action.
+pub task recover() {
+    battle::retain_resident();
+    await battle::at_age(ticks(120));
+    for slot in 0 .. battle::ally_count() {
+        let actor = battle::ally(slot);
+        if battle::eligible(actor) {
+            battle::show_on(scene, 6, actor);
+            battle::heal_percent(actor, 40);
+            battle::tint_actor(actor, tints, 0);
+            if actor != battle::owner() {
+                battle::voice(actor, recovery_voice, 1);
+            }
+        }
+    }
+}
+// 60694 hides bodies at resident initialization; simulation continues. Slot
+// cleanup (37DD8), including interruption, restores their drawing visibility.
+pub task run() {
+    // 60694/37B10: ordinary channel lasts 250 - 30 updates.
+    battle::tint_stage(0, battle::Color {
+        red: 16, green: 16, blue: 16, alpha: 255 }, ticks(220), 4);
+    // Framing request lasts 250 - 45 ordinary camera updates.
+    battle::camera_bounds(ticks(205), 1950.0, 8.0);
+    let owner = battle::owner();
+    let origin = battle::Point {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0 };
+    battle::show_at(scene, 1, origin, battle::heading(owner));
+    let mut phase = 15.0 + battle::heading(owner);
+    for slot in 0 .. battle::ally_count() {
+        battle::show_at(scene, slot + 2, origin, phase);
+        phase += 90.0;
+    }
+    battle::hide_actors();
+    await recover();
+    await battle::at_age(ticks(250));
+}

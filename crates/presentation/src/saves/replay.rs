@@ -1,7 +1,18 @@
 //! Deterministic keyboard replay from an ordinary field save, with file-only audio.
+mod scene;
 use super::*;
 use crate::Clock;
 use bevy::{app::PluginsState, time::TimeUpdateStrategy};
+pub(crate) fn recording_scene(world: &World) -> Result<serde_json::Value> {
+    let result = scene::diagnostic(world);
+    match world.get_resource::<crate::diagnostics::Diagnostics>() {
+        Some(diagnostics) => Ok(diagnostics
+            .0
+            .attempt("recording scene", result)?
+            .unwrap_or_else(|| serde_json::json!({"phase":"unavailable"}))),
+        None => result,
+    }
+}
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -25,6 +36,10 @@ pub struct CheckpointReplay {
     /// quickloads reset this clock; source savestates retain it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_origin: Option<u64>,
+    /// Observed entry seeds in field-request order. Each request keeps its seed
+    /// across preparation retries; the same encounter can occur more than once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    battle_seeds: Vec<BattleSeed>,
     /// Controlled fixtures change live progress at free field control or Main.
     /// Initialization runs at the saved story, matching a live source-state edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -32,6 +47,9 @@ pub struct CheckpointReplay {
     pub inputs: Vec<KeyboardInput>,
     /// Update zero is the initialized field, before the first input/update.
     pub captures: BTreeMap<u32, String>,
+    /// Select actual combat clocks without changing absolute inputs or time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    battle_captures: Vec<BattleCapture>,
     /// Updates during which the source produced no presentation (loading).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub presentation_pauses: Vec<PresentationStall>,
@@ -59,6 +77,104 @@ pub struct CheckpointReplay {
     /// installation converts them to this field runtime's clock once.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     resource_waits: Vec<resonance_events::ResourceWaitObservation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BattleCapture {
+    /// Zero-based active battle request ordinal within this replay.
+    index: u32,
+    encounter: u16,
+    combat_tick: u32,
+    name: String,
+}
+
+#[derive(Default)]
+struct BattleCaptures {
+    requests: BTreeMap<u64, u32>,
+    captured: std::collections::BTreeSet<usize>,
+}
+
+impl BattleCaptures {
+    fn select(&mut self, entries: &[BattleCapture], moment: Option<(u64, u16, u32)>) -> Vec<usize> {
+        let Some((request, encounter, combat_tick)) = moment else {
+            return Vec::new();
+        };
+        let next = self.requests.len() as u32;
+        let index = *self.requests.entry(request).or_insert(next);
+        entries
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, entry)| {
+                (entry.index == index
+                    && entry.encounter == encounter
+                    && entry.combat_tick == combat_tick
+                    && self.captured.insert(slot))
+                .then_some(slot)
+            })
+            .collect()
+    }
+
+    fn finish(&self, entries: &[BattleCapture]) -> Result<()> {
+        let missing: Vec<_> = entries
+            .iter()
+            .enumerate()
+            .filter(|(slot, _)| !self.captured.contains(slot))
+            .map(|(_, entry)| entry.name.as_str())
+            .collect();
+        ensure!(
+            missing.is_empty(),
+            "battle capture ticks were never reached: {}",
+            missing.join(", ")
+        );
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BattleSeed {
+    encounter: u16,
+    /// Source entry narrows the elapsed-millisecond seed to sixteen bits.
+    seed: u16,
+}
+
+/// Exists only while an explicit checkpoint replay seed list is installed.
+#[derive(Resource)]
+pub(crate) struct BattleSeeds {
+    entries: Vec<BattleSeed>,
+    assigned: BTreeMap<u64, BattleSeed>,
+}
+
+impl BattleSeeds {
+    pub(crate) fn for_request(&mut self, generation: u64, encounter: u16) -> Result<u32> {
+        if let Some(entry) = self.assigned.get(&generation) {
+            ensure!(
+                entry.encounter == encounter,
+                "battle request changed its encounter"
+            );
+            return Ok(u32::from(entry.seed));
+        }
+        let entry = *self
+            .entries
+            .get(self.assigned.len())
+            .context("replay has no seed for the next battle request")?;
+        ensure!(
+            entry.encounter == encounter,
+            "replay expected encounter {}, received {encounter}",
+            entry.encounter
+        );
+        self.assigned.insert(generation, entry);
+        Ok(u32::from(entry.seed))
+    }
+
+    fn finish(&self) -> Result<()> {
+        ensure!(
+            self.assigned.len() == self.entries.len(),
+            "replay did not reach every battle seed observation"
+        );
+        Ok(())
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
@@ -503,6 +619,10 @@ impl CheckpointReplay {
             "invalid checkpoint replay length/version"
         );
         ensure!(
+            self.battle_seeds.len() <= self.updates as usize,
+            "battle seed observations exceed replay duration"
+        );
+        ensure!(
             self.inputs.len() <= self.updates as usize
                 && self.inputs.windows(2).all(|w| w[0].update < w[1].update)
                 && self
@@ -511,24 +631,45 @@ impl CheckpointReplay {
                     .all(|i| (1..=self.updates).contains(&i.update) && i.keys.len() <= 10),
             "invalid checkpoint replay inputs"
         );
+        let capture_count = self.captures.len() + self.battle_captures.len();
+        let valid_name = |name: &str| {
+            !name.is_empty()
+                && name.len() <= 64
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        };
         ensure!(
-            !self.captures.is_empty()
-                && self.captures.len() <= 256
+            (1..=256).contains(&capture_count)
                 && self
                     .captures
                     .iter()
-                    .all(|(&tick, name)| tick <= self.updates
-                        && !name.is_empty()
-                        && name.len() <= 64
-                        && name
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')),
+                    .all(|(&tick, name)| tick <= self.updates && valid_name(name))
+                && self
+                    .battle_captures
+                    .iter()
+                    .all(|capture| capture.index < self.updates
+                        && (1..=self.updates).contains(&capture.combat_tick)
+                        && valid_name(&capture.name)),
             "invalid checkpoint replay captures"
         );
-        let names: std::collections::BTreeSet<_> = self.captures.values().collect();
+        let names: std::collections::BTreeSet<_> = self
+            .captures
+            .values()
+            .chain(self.battle_captures.iter().map(|capture| &capture.name))
+            .collect();
         ensure!(
-            names.len() == self.captures.len(),
+            names.len() == capture_count,
             "duplicate checkpoint capture name"
+        );
+        let moments: std::collections::BTreeSet<_> = self
+            .battle_captures
+            .iter()
+            .map(|capture| (capture.index, capture.encounter, capture.combat_tick))
+            .collect();
+        ensure!(
+            moments.len() == self.battle_captures.len(),
+            "duplicate battle capture tick"
         );
         ensure!(
             self.expected
@@ -585,7 +726,9 @@ impl CheckpointReplay {
         }
         if let Some(origin) = &self.ambient_origin {
             ensure!(
-                origin.update == *self.captures.first_key_value().unwrap().0
+                self.captures
+                    .first_key_value()
+                    .is_some_and(|(&tick, _)| origin.update == tick)
                     && origin.samples.len() <= 32
                     && origin.eyes.len() <= 32
                     && origin.actors.len() <= 32
@@ -645,8 +788,63 @@ pub fn record_checkpoint_with_display(
     spec: &CheckpointReplay,
     resolution: crate::Resolution,
 ) -> Result<()> {
+    record_checkpoint_with_save_directory(root, save, output, spec, resolution, None)
+}
+
+/// An optional private store permits ordinary menu loads during a recording.
+/// The output directory must still be fresh, independently of the save store.
+pub fn record_checkpoint_with_save_directory(
+    root: &Path,
+    save: &Path,
+    output: &Path,
+    spec: &CheckpointReplay,
+    resolution: crate::Resolution,
+    save_directory: Option<&Path>,
+) -> Result<()> {
+    record_checkpoint_with_options(
+        root,
+        save,
+        output,
+        spec,
+        CheckpointRecordingOptions {
+            resolution,
+            save_directory,
+            paranoid: false,
+        },
+    )
+}
+
+/// Recording policy is shared with the live application's diagnostic session.
+#[derive(Default)]
+pub struct CheckpointRecordingOptions<'a> {
+    pub resolution: crate::Resolution,
+    pub save_directory: Option<&'a Path>,
+    pub paranoid: bool,
+}
+
+pub fn record_checkpoint_with_options(
+    root: &Path,
+    save: &Path,
+    output: &Path,
+    spec: &CheckpointReplay,
+    options: CheckpointRecordingOptions<'_>,
+) -> Result<()> {
     spec.validate()?;
-    let mut app = probe::app(root, save, output, resolution)?;
+    let mut app = probe::app_with_saves_mode(
+        root,
+        output,
+        SaveOptions {
+            directory: Some(
+                options
+                    .save_directory
+                    .map_or_else(|| output.join("slots"), Path::to_path_buf),
+            ),
+            quick_slot: Some("probe".into()),
+            load: Some(save.into()),
+        },
+        options.resolution,
+        options.paranoid,
+    )?;
     let began = Instant::now();
     while app.plugins_state() == PluginsState::Adding {
         ensure!(
@@ -671,6 +869,11 @@ pub(crate) fn record_live(
     audio: &mut impl Iterator<Item = f32>,
 ) -> Result<()> {
     spec.validate()?;
+    let diagnostics = app
+        .world()
+        .resource::<crate::diagnostics::Diagnostics>()
+        .0
+        .clone();
     ensure!(
         !output.join("replay.json").exists(),
         "replay output already exists"
@@ -685,26 +888,55 @@ pub(crate) fn record_live(
         std::time::Duration::ZERO,
     ));
     app.init_resource::<crate::field_audio::Trace>();
-    wait_ready(app, true)?;
+    if !spec.battle_seeds.is_empty() {
+        ensure!(
+            !app.world().contains_resource::<BattleSeeds>(),
+            "battle replay seeds are already installed"
+        );
+        app.insert_resource(BattleSeeds {
+            entries: spec.battle_seeds.clone(),
+            assigned: BTreeMap::new(),
+        });
+    }
+    let mut preparation_timed_out = false;
+    wait_ready(app, true, &mut preparation_timed_out)?;
+    let identity = app
+        .world()
+        .get_resource::<new_game::Session>()
+        .map(|s| s.identity.clone());
     if let Some(tick) = spec.presentation_origin {
         *app.world_mut().resource_mut::<Clock>() =
             Clock(resonance_game::clock::PresentationClock::new(tick));
     }
-    if let Some(session) = spec.session_origin {
-        let field = &mut app.world_mut().resource_mut::<new_game::Session>().field;
-        field.play_time =
-            resonance_game::clock::PlayTime::with_session(field.play_time.total(), session)
+    if let Some(session_ticks) = spec.session_origin {
+        diagnostics.attempt(
+            "checkpoint session origin",
+            (|| {
+                let mut session = app
+                    .world_mut()
+                    .get_resource_mut::<new_game::Session>()
+                    .context("session origin requires a live field session")?;
+                let field = &mut session.field;
+                field.play_time = resonance_game::clock::PlayTime::with_session(
+                    field.play_time.total(),
+                    session_ticks,
+                )
                 .context("observed session time exceeds total play time")?;
+                Ok(())
+            })(),
+        )?;
     }
-    let mut initial = serde_json::to_value(checkpoint(app.world_mut())?)?;
+    let mut initial = diagnostics
+        .attempt("checkpoint initial state", checkpoint(app.world_mut()))?
+        .map(serde_json::to_value)
+        .transpose()?
+        .unwrap_or_else(|| serde_json::json!({}));
     initial["presentation_counter"] =
         serde_json::json!(app.world().resource::<crate::Clock>().0.tick());
     let resource_wait_origin_tick = app
         .world()
-        .resource::<new_game::Session>()
-        .field
-        .events
-        .tick();
+        .get_resource::<new_game::Session>()
+        .map_or(0, |s| s.field.events.tick());
     if !spec.resource_waits.is_empty() {
         let observations = spec
             .resource_waits
@@ -721,13 +953,19 @@ pub(crate) fn record_live(
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        app.world_mut()
-            .resource_mut::<new_game::Session>()
-            .field
-            .events
-            .register_resource_wait_observations(observations)?;
+        diagnostics.attempt(
+            "checkpoint resource waits",
+            (|| {
+                app.world_mut()
+                    .get_resource_mut::<new_game::Session>()
+                    .context("resource waits require a live field session")?
+                    .field
+                    .events
+                    .register_resource_wait_observations(observations)
+            })(),
+        )?;
     }
-    attach(app, mixer)?;
+    diagnostics.attempt("checkpoint audio attachment", attach(app, mixer))?;
     let mut wave = hound::WavWriter::create(
         output.join("audio.partial.wav"),
         hound::WavSpec {
@@ -740,17 +978,23 @@ pub(crate) fn record_live(
     let failure = std::sync::Arc::new(AtomicBool::new(false));
     let written = std::sync::Arc::new(AtomicU32::new(0));
     let mut captures = Vec::new();
+    let mut battle_captures = BattleCaptures::default();
     let mut frames = 0;
     let mut held = Vec::<Key>::new();
     let mut inputs = spec.inputs.iter().peekable();
     let mut preview_instance = None;
     let mut preview_registered = false;
+    let mut resource_waits_finished = spec.resource_waits.is_empty();
     let began = Instant::now();
+    let mut completed_updates = 0;
     for update in 0..=spec.updates {
-        ensure!(
-            began.elapsed().as_secs() < 600,
-            "checkpoint replay timed out at update {update}"
-        );
+        if began.elapsed().as_secs() >= 600 {
+            diagnostics.report(
+                "checkpoint replay",
+                anyhow::anyhow!("checkpoint replay timed out at update {update}"),
+            )?;
+            break;
+        }
         if update > 0 {
             if let Some(&ticks) = spec.presentation_advances.get(&update) {
                 let mut clock = app.world_mut().resource_mut::<Clock>();
@@ -758,14 +1002,20 @@ pub(crate) fn record_live(
                     clock.0.tick().wrapping_add(ticks),
                 );
             }
-            spec.register_effect_clock(
-                update,
-                &mut app
-                    .world_mut()
-                    .resource_mut::<new_game::Session>()
-                    .field
-                    .effect_clock,
-            );
+            if let Some(mut session) = app.world_mut().get_resource_mut::<new_game::Session>() {
+                // These registrations describe field visits. A retained field
+                // consumes no effect tick while its battle caller is suspended.
+                if !session.field.events.battle_pending() {
+                    spec.register_effect_clock(update, &mut session.field.effect_clock);
+                }
+                if !resource_waits_finished {
+                    resource_waits_finished = session
+                        .field
+                        .events
+                        .finish_resource_wait_observations()
+                        .is_ok();
+                }
+            }
             app.world_mut().resource_mut::<crate::PresentationPause>().0 = spec
                 .presentation_pauses
                 .iter()
@@ -789,98 +1039,170 @@ pub(crate) fn record_live(
             ));
             app.update();
             crate::playthrough::check_exit(app)?;
-            wait_ready(app, false)?;
-            attach(app, mixer)?;
+            wait_ready(app, false, &mut preparation_timed_out)?;
+            diagnostics.attempt("checkpoint audio attachment", attach(app, mixer))?;
             let end = u64::from(update) * 32028 * resonance_game::clock::UPDATE_RATE_DENOMINATOR
                 / resonance_game::clock::UPDATE_RATE_NUMERATOR;
             for _ in frames..end {
                 for _ in 0..2 {
-                    let sample = audio.next().context("checkpoint audio stopped")?;
-                    ensure!(sample.is_finite(), "nonfinite checkpoint audio");
+                    let sample = diagnostics
+                        .attempt(
+                            "checkpoint audio",
+                            (|| {
+                                let sample = audio.next().context("checkpoint audio stopped")?;
+                                ensure!(sample.is_finite(), "nonfinite checkpoint audio");
+                                Ok(sample)
+                            })(),
+                        )?
+                        .unwrap_or(0.);
                     wave.write_sample((sample * 32768.).round().clamp(-32768., 32767.) as i16)?;
                 }
             }
             frames = end;
             if let Some(control) = app.world().get_resource::<crate::field_audio::Control>() {
-                control.check()?;
+                diagnostics.attempt("checkpoint audio", control.check())?;
             }
         }
         if let Some(origin) = &spec.story_origin
             && origin.update == update
         {
-            let mut session = app.world_mut().resource_mut::<new_game::Session>();
-            let field = &mut session.field;
-            ensure!(
-                field.story_progress()? == origin.from,
-                "story origin differs from the live field"
-            );
-            if let Some(menu) = &mut field.menu {
-                ensure!(
-                    menu.page == resonance_game::menu::Page::Main,
-                    "story fixture must start at the main menu"
-                );
-                let progress = &mut menu
-                    .checkpoint
-                    .as_mut()
-                    .context("missing menu checkpoint")?
-                    .progress;
-                ensure!(
-                    progress.script_globals[16] == origin.from,
-                    "story origin differs from the saved field"
-                );
-                progress.script_globals[16] = origin.to;
-            } else {
-                ensure!(
-                    field.player_has_control(),
-                    "story fixture requires free field control"
-                );
-            }
-            field.events.set_global(16, origin.to)?;
+            diagnostics.attempt(
+                "checkpoint story origin",
+                (|| {
+                    let mut session = app
+                        .world_mut()
+                        .get_resource_mut::<new_game::Session>()
+                        .context("story origin requires a live field session")?;
+                    let field = &mut session.field;
+                    ensure!(
+                        field.story_progress()? == origin.from,
+                        "story origin differs from the live field"
+                    );
+                    if let Some(menu) = &mut field.menu {
+                        ensure!(
+                            menu.page == resonance_game::menu::Page::Main,
+                            "story fixture must start at the main menu"
+                        );
+                        let progress = &mut menu
+                            .checkpoint
+                            .as_mut()
+                            .context("missing menu checkpoint")?
+                            .progress;
+                        ensure!(
+                            progress.script_globals[16] == origin.from,
+                            "story origin differs from the saved field"
+                        );
+                        progress.script_globals[16] = origin.to;
+                    } else {
+                        ensure!(
+                            field.player_has_control(),
+                            "story fixture requires free field control"
+                        );
+                    }
+                    field.events.set_global(16, origin.to)?;
+                    Ok(())
+                })(),
+            )?;
         }
         if let Some(origin) = &spec.ambient_origin
             && origin.update == update
         {
-            origin.apply(&mut app.world_mut().resource_mut::<new_game::Session>().field)?;
+            diagnostics.attempt(
+                "checkpoint ambient origin",
+                (|| {
+                    let mut session = app
+                        .world_mut()
+                        .get_resource_mut::<new_game::Session>()
+                        .context("ambient origin requires a live field session")?;
+                    origin.apply(&mut session.field)?;
+                    Ok(())
+                })(),
+            )?;
         }
         let preview = app
             .world()
-            .resource::<new_game::Session>()
-            .field
-            .menu
-            .as_ref()
-            .and_then(|m| m.preview().map(|p| p.id));
+            .get_resource::<new_game::Session>()
+            .and_then(|session| session.field.menu.as_ref())
+            .and_then(|menu| menu.preview().map(|preview| preview.id));
         if preview != preview_instance {
             preview_instance = preview;
             preview_registered = false;
         }
         if let Some(origin) = spec.preview_origins.get(&update) {
-            ensure!(
-                !preview_registered,
-                "preview animation can only be registered once per selection"
-            );
-            let mut session = app.world_mut().resource_mut::<new_game::Session>();
-            let menu = session
-                .field
-                .menu
-                .as_mut()
-                .context("preview origin requires a catalogue menu")?;
-            let (id, tick) = origin.selection();
-            ensure!(
-                menu.register_preview(id, tick),
-                "preview origin must select a sample in the displayed model's animation"
-            );
-            preview_registered = true;
+            diagnostics.attempt(
+                "checkpoint preview origin",
+                (|| {
+                    ensure!(
+                        !preview_registered,
+                        "preview animation can only be registered once per selection"
+                    );
+                    let mut session = app
+                        .world_mut()
+                        .get_resource_mut::<new_game::Session>()
+                        .context("preview origin requires a live field session")?;
+                    let menu = session
+                        .field
+                        .menu
+                        .as_mut()
+                        .context("preview origin requires a catalogue menu")?;
+                    let (id, tick) = origin.selection();
+                    ensure!(
+                        menu.register_preview(id, tick),
+                        "preview origin must select a sample in the displayed model's animation"
+                    );
+                    preview_registered = true;
+                    Ok(())
+                })(),
+            )?;
         }
-        if let Some(name) = spec.captures.get(&update) {
-            crate::new_game_capture::screenshot(
+        let moment = app
+            .world()
+            .get_resource::<crate::battle::Owner>()
+            .and_then(|battle| battle.capture_combat());
+        let selected = battle_captures.select(&spec.battle_captures, moment);
+        let names = spec
+            .captures
+            .get(&update)
+            .map(|name| (name, None))
+            .into_iter()
+            .chain(selected.iter().map(|&slot| {
+                let capture = &spec.battle_captures[slot];
+                (&capture.name, Some(capture))
+            }));
+        for (name, battle_capture) in names {
+            if let Err(error) = crate::new_game_capture::screenshot_held(
                 app,
                 output.join(format!("{name}.png")),
                 failure.clone(),
                 written.clone(),
-            )?;
-            let session = app.world().resource::<new_game::Session>();
+            ) {
+                if failure.load(Ordering::Acquire) {
+                    return Err(error);
+                }
+                diagnostics.report(&format!("checkpoint capture {name}"), error)?;
+                continue;
+            }
+            let scene = diagnostics.attempt("checkpoint scene", recording_scene(app.world()))?;
+            let Some(session) = app.world().get_resource::<new_game::Session>() else {
+                if spec.expected.contains_key(&update) {
+                    diagnostics.report(
+                        "checkpoint expected field",
+                        anyhow::anyhow!(
+                            "capture {name} expects a field after its session was retired"
+                        ),
+                    )?;
+                }
+                captures.push(serde_json::json!({
+                    "name":name, "update":update, "audio_frame":frames,
+                    "presentation_counter":app.world().resource::<crate::Clock>().0.tick(),
+                    "scene":scene, "battle_capture":battle_capture,
+                    "audio_settings":app.world().get_resource::<crate::field_audio::Control>().map(|c|c.settings()),
+                }));
+                continue;
+            };
             let field = &session.field;
             if let Some(expected) = spec.expected.get(&update) {
+                diagnostics.attempt("checkpoint expected field", (|| {
                 ensure!(
                     field.map_id == expected.map_id
                         && field.story_progress()? == expected.story
@@ -916,8 +1238,18 @@ pub(crate) fn record_live(
                         "capture {name} has no matching durable menu save"
                     );
                 }
+                    Ok(())
+                })())?;
             }
-            let actor = &field.events.world.actors[&field.events.world.controlled_actor];
+            let actor = diagnostics.attempt(
+                "checkpoint controlled actor",
+                field
+                    .events
+                    .world
+                    .actors
+                    .get(&field.events.world.controlled_actor)
+                    .context("missing controlled actor"),
+            )?;
             let menu = field.menu.as_ref().map(|m| {
                 let mut state = serde_json::json!({
                 "page":format!("{:?}",m.page),"focus":format!("{:?}",m.focus),
@@ -1025,8 +1357,11 @@ pub(crate) fn record_live(
             });
             captures.push(
                 serde_json::json!({"name":name, "update":update, "audio_frame":frames,
+                "scene":scene,
+                "battle_capture":battle_capture,
                 "audio_settings":app.world().get_resource::<crate::field_audio::Control>().map(|c|c.settings()),
                 "presentation_counter":app.world().resource::<crate::Clock>().0.tick(),
+                "battle":app.world().get_resource::<crate::battle::Owner>().and_then(|battle|battle.diagnostic()),
                 "effect_counter":field.effect_clock.tick(),
                 "flutters":flutters,
                 "background_waits":field.events.background_waits(),
@@ -1052,8 +1387,8 @@ pub(crate) fn record_live(
                             "rate":a.rate,"blend":a.blend_weight(field.events.tick())}))
                     })))
                 }).collect::<BTreeMap<_,_>>(),
-                "map_id":field.map_id, "story":field.story_progress()?, "tick":field.events.tick(),
-                "position":actor.position, "heading":actor.heading,
+                "map_id":field.map_id, "story":diagnostics.attempt("checkpoint story", field.story_progress())?, "tick":field.events.tick(),
+                "position":actor.map(|actor| actor.position), "heading":actor.map(|actor| actor.heading),
                 "action_prompt":field.action_prompt().map(|p| serde_json::json!({
                     "id":p.action as u8,"opacity":p.opacity,"text_opacity":p.text_opacity})),
                 "save_prompt":field.action_prompt().filter(|p|p.action == resonance_game::field::FieldAction::Save).map(|p| serde_json::json!({
@@ -1079,72 +1414,198 @@ pub(crate) fn record_live(
                 "checkpoint":field.checkpoint().ok()}),
             );
         }
+        completed_updates = update;
     }
+    diagnostics.attempt(
+        "checkpoint battle captures",
+        battle_captures.finish(&spec.battle_captures),
+    )?;
+    // An observer reporting a write failure must still fail the command. A
+    // missing requested moment is a diagnostic, not an output I/O failure.
     ensure!(
-        !failure.load(Ordering::Acquire)
-            && written.load(Ordering::Acquire) as usize == spec.captures.len(),
-        "checkpoint replay did not capture every requested frame"
+        !failure.load(Ordering::Acquire),
+        "checkpoint capture write failed"
     );
-    if !spec.resource_waits.is_empty() {
-        app.world()
-            .resource::<new_game::Session>()
-            .field
-            .events
-            .finish_resource_wait_observations()?;
+    diagnostics.attempt(
+        "checkpoint captures",
+        (|| {
+            ensure!(
+                written.load(Ordering::Acquire) as usize
+                    == spec.captures.len() + spec.battle_captures.len(),
+                "checkpoint replay did not capture every requested frame"
+            );
+            Ok(())
+        })(),
+    )?;
+    if !resource_waits_finished {
+        diagnostics.attempt(
+            "checkpoint resource waits",
+            (|| {
+                app.world()
+                    .get_resource::<new_game::Session>()
+                    .context("field retired before its resource wait observations were completed")?
+                    .field
+                    .events
+                    .finish_resource_wait_observations()
+            })(),
+        )?;
     }
-    wave.finalize()?;
-    fs::rename(output.join("audio.partial.wav"), output.join("audio.wav"))?;
+    if let Some(seeds) = app.world().get_resource::<BattleSeeds>() {
+        diagnostics.attempt("checkpoint battle seeds", seeds.finish())?;
+    }
     let late = app
         .world()
         .resource::<loading::Resident>()
         .late_reads
         .load(Ordering::Relaxed);
-    ensure!(late == 0, "checkpoint replay read an unprepared asset");
     let resolution = app.world().resource::<crate::display::Display>().0;
-    fs::write(
-        output.join("recording.json"),
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "complete":true,"audio_device":false,"keyboard_input":true,"width":resolution.width,"height":resolution.height,
+    let final_scene =
+        diagnostics.attempt("checkpoint final scene", recording_scene(app.world()))?;
+    finish_recording(
+        output,
+        &diagnostics,
+        wave,
+        late,
+        serde_json::json!({
+            "complete":completed_updates == spec.updates,"audio_device":false,"keyboard_input":true,"width":resolution.width,"height":resolution.height,
+            "completed_updates":completed_updates,
             "output_stage":app.world().resource::<crate::display::OutputStage>(),
             "resource_waits":spec.resource_waits,"resource_wait_origin_tick":resource_wait_origin_tick,
+            "battle_seeds":spec.battle_seeds,
             "updates":spec.updates,"audio_frames":frames,"late_reads":late,"initial":initial,"captures":captures,
-            "identity":app.world().resource::<new_game::Session>().identity,
+            "identity":identity,
+            "final_scene":final_scene,
+            "current_identity":app.world().get_resource::<new_game::Session>().map(|session|&session.identity),
             "audio_commands":app.world().resource::<crate::field_audio::Trace>().0,
-        }))?,
+        }),
+    )?;
+    app.world_mut().remove_resource::<BattleSeeds>();
+    Ok(())
+}
+fn finish_recording<W: std::io::Write + std::io::Seek>(
+    output: &Path,
+    diagnostics: &resonance_content::diagnostics::Diagnostics,
+    wave: hound::WavWriter<W>,
+    late_reads: u64,
+    mut metadata: serde_json::Value,
+) -> Result<()> {
+    wave.finalize()?;
+    fs::rename(output.join("audio.partial.wav"), output.join("audio.wav"))?;
+    if late_reads != 0 {
+        diagnostics.report(
+            "checkpoint late reads",
+            anyhow::anyhow!("checkpoint replay read an unprepared asset"),
+        )?;
+    }
+    metadata["mode"] = serde_json::json!(if diagnostics.paranoid() {
+        "paranoid"
+    } else {
+        "tolerant"
+    });
+    metadata["paranoid"] = serde_json::json!(diagnostics.paranoid());
+    metadata["valid"] = serde_json::json!(!diagnostics.has_errors());
+    metadata["diagnostics"] = serde_json::to_value(diagnostics.entries())?;
+    fs::write(
+        output.join("recording.json"),
+        serde_json::to_vec_pretty(&metadata)?,
     )?;
     Ok(())
 }
+
 fn attach(app: &mut App, mixer: &resonance_playback::Control) -> Result<()> {
     crate::playthrough::attach::<crate::field_audio::FieldSource>(app.world_mut(), mixer)?;
     crate::playthrough::attach::<crate::GameAudio>(app.world_mut(), mixer)
 }
-fn wait_ready(app: &mut App, initial: bool) -> Result<()> {
+fn wait_ready(app: &mut App, initial: bool, timed_out: &mut bool) -> Result<()> {
+    let diagnostics = app
+        .world()
+        .resource::<crate::diagnostics::Diagnostics>()
+        .0
+        .clone();
     app.insert_resource(TimeUpdateStrategy::ManualDuration(
         std::time::Duration::ZERO,
     ));
     let began = Instant::now();
     let mut settled = 0;
     while settled < 2 {
-        ensure!(
-            began.elapsed().as_secs() < 60,
-            "checkpoint field preparation timed out"
-        );
+        let battle_clock = app
+            .world()
+            .get_resource::<crate::battle::Owner>()
+            .and_then(|battle| battle.capture_clock());
+        let entry_clock = app
+            .world()
+            .get_resource::<crate::battle::Owner>()
+            .and_then(|battle| battle.entry_clock());
+        let presentation_tick = app.world().resource::<Clock>().0.tick();
+        let timeout = if app.world().contains_resource::<crate::battle::Owner>() {
+            120
+        } else {
+            60
+        };
+        if began.elapsed().as_secs() >= timeout {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("checkpoint scene preparation timed out"),
+            )?;
+            *timed_out = true;
+            return Ok(());
+        }
         app.update();
         crate::playthrough::check_exit(app)?;
         let world = app.world_mut();
-        let ready = field_view::ready(world)
+        if world.resource::<Clock>().0.tick() != presentation_tick {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("presentation advanced during checkpoint preparation"),
+            )?;
+        }
+        if let Some(clock) = battle_clock
             && world
-                .resource::<loading::Resident>()
-                .active
-                .load(Ordering::Acquire)
-            && world.get_resource::<new_game::Session>().is_some_and(|s| {
-                s.ready_for_field
-                    && s.audio.is_none()
-                    && s.field.events.world.field_transition.is_none()
-                    && s.field.menu.as_ref().is_none_or(|m| !m.busy)
-            })
+                .get_resource::<crate::battle::Owner>()
+                .and_then(|battle| battle.capture_clock())
+                != Some(clock)
+        {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("battle advanced during checkpoint preparation"),
+            )?;
+        }
+        if let Some(clock) = entry_clock
+            && world
+                .get_resource::<crate::battle::Owner>()
+                .and_then(|battle| battle.entry_clock())
+                != Some(clock)
+        {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("entry transition advanced during checkpoint preparation"),
+            )?;
+        }
+        if world
+            .get_resource::<crate::battle::Owner>()
+            .is_some_and(|battle| battle.failed())
+        {
+            diagnostics.report(
+                "checkpoint preparation",
+                anyhow::anyhow!("battle preparation failed during checkpoint replay"),
+            )?;
+            return Ok(());
+        }
+        let Some(phase) = diagnostics.attempt("checkpoint scene owner", scene::phase(world))?
+        else {
+            return Ok(());
+        };
+        let ready = scene::ready(world, phase)
             && !world.resource::<Persistence>().is_writing()
             && (!initial || checkpoint(world).is_ok());
+        // After one bounded timeout, keep submitting updates and collecting
+        // later diagnostics instead of repeating that wait at every tick.
+        if !ready && *timed_out {
+            return Ok(());
+        }
+        if ready {
+            *timed_out = false;
+        }
         settled = if ready { settled + 1 } else { 0 };
         if !ready {
             thread::sleep(std::time::Duration::from_millis(1));
@@ -1157,6 +1618,251 @@ fn wait_ready(app: &mut App, initial: bool) -> Result<()> {
 mod tests {
     use super::*;
     use resonance_game::clock::{PlayTime, PresentationClock};
+
+    struct Output(PathBuf);
+    impl Output {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "resonance-diagnostic-recording-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, Ordering::Relaxed),
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn wave(&self) -> hound::WavWriter<std::io::BufWriter<fs::File>> {
+            let mut wave = hound::WavWriter::create(
+                self.0.join("audio.partial.wav"),
+                hound::WavSpec {
+                    channels: 2,
+                    sample_rate: 32028,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )
+            .unwrap();
+            wave.write_sample(123i16).unwrap();
+            wave.write_sample(-123i16).unwrap();
+            wave
+        }
+    }
+    impl Drop for Output {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn tolerant_recording_finalizes_audio_and_reports_all_errors_as_invalid() {
+        let output = Output::new();
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(false);
+        let captures = BattleCaptures::default();
+        let requested = [BattleCapture {
+            index: 0,
+            encounter: 1,
+            combat_tick: 5,
+            name: "missing".into(),
+        }];
+        diagnostics
+            .attempt("checkpoint battle captures", captures.finish(&requested))
+            .unwrap();
+        diagnostics
+            .report("battle effect", anyhow::anyhow!("missing texture"))
+            .unwrap();
+        finish_recording(
+            &output.0,
+            &diagnostics,
+            output.wave(),
+            2,
+            serde_json::json!({"complete":true}),
+        )
+        .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.0.join("recording.json")).unwrap()).unwrap();
+        assert_eq!(metadata["complete"], true);
+        assert_eq!(metadata["mode"], "tolerant");
+        assert_eq!(metadata["valid"], false);
+        assert_eq!(metadata["diagnostics"].as_array().unwrap().len(), 3);
+        assert!(!output.0.join("audio.partial.wav").exists());
+        let samples = hound::WavReader::open(output.0.join("audio.wav"))
+            .unwrap()
+            .into_samples::<i16>()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(samples, [123, -123]);
+    }
+
+    #[test]
+    fn paranoid_recording_preserves_late_read_failure_and_no_success_manifest() {
+        let output = Output::new();
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
+        let error = finish_recording(
+            &output.0,
+            &diagnostics,
+            output.wave(),
+            1,
+            serde_json::json!({"complete":true}),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "checkpoint replay read an unprepared asset"
+        );
+        assert!(!output.0.join("recording.json").exists());
+        assert!(output.0.join("audio.wav").is_file());
+    }
+
+    #[test]
+    fn tolerant_recording_keeps_output_write_failures_actionable() {
+        let output = Output::new();
+        fs::create_dir(output.0.join("recording.json")).unwrap();
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(false);
+        assert!(
+            finish_recording(
+                &output.0,
+                &diagnostics,
+                output.wave(),
+                0,
+                serde_json::json!({"complete":true})
+            )
+            .is_err()
+        );
+        assert!(
+            !diagnostics.has_errors(),
+            "output errors must not be converted to recoverable diagnostics"
+        );
+    }
+
+    #[test]
+    fn battle_capture_uses_actual_clock_once_and_distinguishes_repeated_encounters() {
+        let entry = |index, tick, name: &str| BattleCapture {
+            index,
+            encounter: 1,
+            combat_tick: tick,
+            name: name.into(),
+        };
+        let entries = [
+            entry(0, 5, "first-5"),
+            entry(0, 10, "first-10"),
+            entry(1, 5, "second-5"),
+        ];
+        let mut selector = BattleCaptures::default();
+        assert!(selector.select(&entries, None).is_empty());
+        assert!(selector.select(&entries, Some((31, 1, 0))).is_empty());
+        assert_eq!(selector.select(&entries, Some((31, 1, 5))), vec![0]);
+        // Selector/menu holds and extra zero-duration renders cannot recapture.
+        assert!(selector.select(&entries, Some((31, 1, 5))).is_empty());
+        assert!(selector.select(&entries, None).is_empty());
+        assert_eq!(selector.select(&entries, Some((31, 1, 10))), vec![1]);
+        assert!(selector.finish(&entries).is_err());
+        assert_eq!(selector.select(&entries, Some((45, 1, 5))), vec![2]);
+        selector.finish(&entries).unwrap();
+
+        let mut missed = BattleCaptures::default();
+        assert!(missed.select(&entries, Some((80, 2, 5))).is_empty());
+        // A later matching encounter cannot replace a missed first request.
+        assert_eq!(missed.select(&entries, Some((81, 1, 5))), vec![2]);
+        assert!(
+            missed
+                .finish(&entries)
+                .unwrap_err()
+                .to_string()
+                .contains("first-5")
+        );
+        let mut skipped = BattleCaptures::default();
+        skipped.select(&entries, Some((90, 1, 4)));
+        assert!(skipped.select(&entries, Some((90, 1, 6))).is_empty());
+        assert!(skipped.finish(&entries).is_err());
+    }
+
+    #[test]
+    fn battle_capture_validation_shares_names_and_limits_with_absolute_captures() {
+        let mut replay: CheckpointReplay = serde_json::from_value(serde_json::json!({
+            "version":1,"updates":300,"inputs":[],"captures":{"0":"initial"},
+            "battle_captures":[{"index":0,"encounter":1,"combat_tick":5,"name":"combat-005"}]
+        }))
+        .unwrap();
+        replay.validate().unwrap();
+        replay.battle_captures[0].name = "initial".into();
+        assert!(replay.validate().is_err());
+        replay.battle_captures[0].name = "combat-005".into();
+        for tick in [0, 301] {
+            replay.battle_captures[0].combat_tick = tick;
+            assert!(replay.validate().is_err());
+        }
+        replay.battle_captures[0].combat_tick = 5;
+        replay.battle_captures.push(BattleCapture {
+            name: "duplicate-tick".into(),
+            ..replay.battle_captures[0].clone()
+        });
+        assert!(replay.validate().is_err());
+        replay.battle_captures.pop();
+        replay.captures = (0..256)
+            .map(|tick| (tick, format!("absolute-{tick}")))
+            .collect();
+        assert!(replay.validate().is_err());
+        replay.captures.clear();
+        replay.validate().unwrap(); // A battle-only recording is valid.
+        replay.battle_captures.clear();
+        assert!(replay.validate().is_err());
+    }
+
+    #[test]
+    fn observed_battle_seed_is_bound_once_to_its_request_generation() {
+        let mut seeds = BattleSeeds {
+            entries: vec![
+                BattleSeed {
+                    encounter: 10,
+                    seed: 123,
+                },
+                BattleSeed {
+                    encounter: 10,
+                    seed: 456,
+                },
+                BattleSeed {
+                    encounter: 11,
+                    seed: 789,
+                },
+            ],
+            assigned: BTreeMap::new(),
+        };
+        assert_eq!(seeds.for_request(17, 10).unwrap(), 123);
+        // A retried preparation keeps the seed; a later identical encounter
+        // gets the next observation because its requesting operation is new.
+        assert_eq!(seeds.for_request(17, 10).unwrap(), 123);
+        assert_eq!(seeds.for_request(24, 10).unwrap(), 456);
+        assert!(seeds.for_request(17, 11).is_err());
+        assert!(seeds.for_request(25, 12).is_err());
+        assert!(seeds.finish().is_err());
+        assert_eq!(seeds.for_request(25, 11).unwrap(), 789);
+        seeds.finish().unwrap();
+        assert!(seeds.for_request(30, 11).is_err());
+    }
+
+    #[test]
+    fn replay_battle_seeds_are_explicit_source_width_values() {
+        let mut json: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tools/oracle/cases/classroom-return-keyboard.json"
+        ))
+        .unwrap();
+        let ordinary: CheckpointReplay = serde_json::from_value(json.clone()).unwrap();
+        assert!(ordinary.battle_seeds.is_empty());
+        json["battle_seeds"] = serde_json::json!([
+            {"encounter": 10, "seed": 65535},
+            {"encounter": 11, "seed": 0}
+        ]);
+        let replay: CheckpointReplay = serde_json::from_value(json.clone()).unwrap();
+        replay.validate().unwrap();
+        assert_eq!(replay.battle_seeds[0].seed, 65535);
+        json["battle_seeds"][0]["seed"] = serde_json::json!(65536);
+        assert!(serde_json::from_value::<CheckpointReplay>(json).is_err());
+    }
 
     #[test]
     fn classroom_loading_registers_source_effect_ticks_without_skipping_updates() {

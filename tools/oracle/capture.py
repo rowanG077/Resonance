@@ -94,6 +94,46 @@ def main():
                         help="Diagnostic read-only GDB trace through the first 12 movie frames")
     parser.add_argument("--trace-random", type=int,
                         help="Diagnostic read-only GDB trace of 1..4096 random calls")
+    parser.add_argument("--trace-distance", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 SDK vector length calls")
+    parser.add_argument("--trace-geometry", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 battle hurt-shape tests")
+    parser.add_argument("--trace-damage", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 battle damage calls")
+    parser.add_argument("--trace-stun", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 stunned controller updates")
+    parser.add_argument("--trace-stun-rolls", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 eligible contact stun rolls")
+    parser.add_argument("--trace-particles", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 common particle updates")
+    parser.add_argument("--trace-particle-uv", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 particle UV updates")
+    parser.add_argument("--trace-guard", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 guard controller updates")
+    parser.add_argument("--trace-hurt", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 hurt controller updates")
+    parser.add_argument("--trace-reactions", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 complete contact responses")
+    parser.add_argument("--trace-melee", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 melee stream updates")
+    parser.add_argument("--trace-motion", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 model clock updates")
+    parser.add_argument("--trace-movement", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 actor movement/braking calls")
+    parser.add_argument("--trace-residents", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 released-spell updates")
+    parser.add_argument("--trace-casting", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 casting controller calls")
+    parser.add_argument("--trace-effects", type=int,
+                        help="Diagnostic read-only GDB trace of 1..4096 effect timeline updates")
+    parser.add_argument("--trace-weapon-flights", type=int,
+                        help="Read-only trace of 1..4096 active equipped-weapon updates and catch operands")
+    parser.add_argument("--trace-weapon-stack-writes", action="store_true",
+                        help="Attribute the catch operand's preceding stack writes during active-owner dispatch")
+    parser.add_argument("--trace-weapon-stack-from-combat", type=int, default=0,
+                        help="Begin weapon stack observations at this combat tick (default: 0)")
+    parser.add_argument("--trace-voices", type=int,
+                        help="Read-only trace of 1..4096 battle voice requests and dispatches")
     parser.add_argument("--watch-state", action="store_true",
                         help="Record named game words every VI without enabling the debugger")
     parser.add_argument("--watch-locations", type=Path, action="append", default=[],
@@ -107,9 +147,15 @@ def main():
     parser.add_argument("--watch-volume-group", type=int, action="append", default=[],
                         help="Observe a music/effect volume envelope (0..31); repeat up to eight times")
     args = parser.parse_args()
-    if args.trace_random is not None and (
-            not 1 <= args.trace_random <= 4096 or args.trace_startup or not args.initial_state):
-        parser.error("--trace-random needs an initial state and 1..4096 calls, without --trace-startup")
+    if args.trace_weapon_stack_writes and not args.trace_weapon_flights:
+        parser.error("--trace-weapon-stack-writes requires --trace-weapon-flights")
+    if args.trace_weapon_stack_from_combat < 0 or (args.trace_weapon_stack_from_combat and not args.trace_weapon_stack_writes):
+        parser.error("--trace-weapon-stack-from-combat needs a nonnegative tick and --trace-weapon-stack-writes")
+    bounded_traces = [args.trace_random, args.trace_distance, args.trace_geometry, args.trace_damage, args.trace_melee, args.trace_motion, args.trace_movement, args.trace_residents, args.trace_casting, args.trace_effects, args.trace_reactions, args.trace_hurt, args.trace_guard, args.trace_particle_uv, args.trace_stun_rolls, args.trace_stun, args.trace_particles, args.trace_voices, args.trace_weapon_flights]
+    if any(n is not None for n in bounded_traces):
+        if (sum(n is not None for n in bounded_traces) != 1 or args.trace_startup
+                or not args.initial_state or any(n is not None and not 1 <= n <= 4096 for n in bounded_traces)):
+            parser.error("a bounded trace needs an initial state and 1..4096 calls, without another trace")
     if (args.frame or args.watch_vis or 0) < 1 or args.timeout <= 0:
         parser.error("frame and timeout must be positive")
     if args.video and args.watch_vis is None:
@@ -188,6 +234,11 @@ def main():
             parser.error("initial-state requires its recorded .dtm companion for prefix validation")
         from state import inspect
         observation = inspect(initial_state)
+        if (args.trace_geometry or args.trace_damage or args.trace_melee or args.trace_motion or args.trace_movement or args.trace_residents or args.trace_casting or args.trace_effects or args.trace_reactions or args.trace_hurt or args.trace_guard or args.trace_particle_uv or args.trace_stun_rolls or args.trace_stun or args.trace_particles or args.trace_voices or args.trace_weapon_flights) and not observation.get("battle", {}).get("pool"):
+            parser.error("battle traces require a loaded battle checkpoint")
+        if args.watch_state and "battle" in observation:
+            from battle_state import watch_locations
+            actor_locations.update(watch_locations(observation["battle"]))
         if args.watch_state:
             actor_locations["8035A73C"] = "field_save_point_word"
             for controller in range(4):
@@ -394,7 +445,9 @@ def main():
             parser.error("DTM input before the initial checkpoint differs from its recorded history")
         # Addresses are discovered from this recorded state. The id word makes
         # a reused actor slot detectable; these observations span one field.
-        actors = [observation["controlled_actor"], *observation.get("actors", [])]
+        actors = observation.get("actors", [])[:]
+        if "controlled_actor" in observation:
+            actors.append(observation["controlled_actor"])
         for actor_id in set(args.watch_actor):
             matches = [a for a in actors if a["id"] == actor_id]
             if len(matches) != 1:
@@ -464,7 +517,9 @@ def main():
         "requested_vi_samples": args.watch_vis,
         "audio": {"backend": "No Audio Output", "muted": True, "dump": True},
         "timing": {"cpu_clock": args.cpu_clock, "fast_disc": args.fast_disc,
-                   "diagnostic_override": args.cpu_clock != 1.0 or args.fast_disc or args.trace_startup},
+                   "diagnostic_override": bool(args.cpu_clock != 1.0 or args.fast_disc
+                                               or args.trace_startup or args.trace_random
+                                               or args.trace_distance or args.trace_geometry or args.trace_damage or args.trace_melee or args.trace_motion or args.trace_movement or args.trace_residents or args.trace_casting or args.trace_effects or args.trace_reactions or args.trace_hurt or args.trace_guard or args.trace_particle_uv or args.trace_stun_rolls or args.trace_stun or args.trace_particles or args.trace_voices or args.trace_weapon_flights)},
         "complete": False,
     }
     # A Nix launcher is a wrapper; retain the actual executable's identity too.
@@ -530,7 +585,7 @@ def main():
                         "-C", f"Dolphin.Core.Overclock={args.cpu_clock}"]
         if args.fast_disc:
             command += ["-C", "Dolphin.Core.FastDiscSpeed=True"]
-        if args.trace_startup or args.trace_random:
+        if args.trace_startup or args.trace_random or args.trace_distance or args.trace_geometry or args.trace_damage or args.trace_melee or args.trace_motion or args.trace_movement or args.trace_residents or args.trace_casting or args.trace_effects or args.trace_reactions or args.trace_hurt or args.trace_guard or args.trace_particle_uv or args.trace_stun_rolls or args.trace_stun or args.trace_particles or args.trace_voices or args.trace_weapon_flights:
             trace_directory = tempfile.TemporaryDirectory(prefix="resonance-trace-")
             trace_socket = Path(trace_directory.name) / "gdb.sock"
             command += ["-d", "-C", f"Dolphin.General.GDBSocket={trace_socket}"]
@@ -539,11 +594,35 @@ def main():
         metadata["command"] = command
         with (output / "dolphin.log").open("w") as log:
             process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
-        if args.trace_startup or args.trace_random:
+        if args.trace_startup or args.trace_random or args.trace_distance or args.trace_geometry or args.trace_damage or args.trace_melee or args.trace_motion or args.trace_movement or args.trace_residents or args.trace_casting or args.trace_effects or args.trace_reactions or args.trace_hurt or args.trace_guard or args.trace_particle_uv or args.trace_stun_rolls or args.trace_stun or args.trace_particles or args.trace_voices or args.trace_weapon_flights:
             from startup_trace import trace
-            trace_kind = "random_trace" if args.trace_random else "startup_trace"
+            trace_kind = ("weapon_flight_trace" if args.trace_weapon_flights else
+                          "voice_trace" if args.trace_voices else
+                          "particle_trace" if args.trace_particles else
+                          "stun_trace" if args.trace_stun else
+                          "stun_roll_trace" if args.trace_stun_rolls else
+                          "particle_uv_trace" if args.trace_particle_uv else
+                          "guard_trace" if args.trace_guard else
+                          "hurt_trace" if args.trace_hurt else
+                          "reaction_trace" if args.trace_reactions else
+                          "effect_trace" if args.trace_effects else
+                          "casting_trace" if args.trace_casting else
+                          "residents_trace" if args.trace_residents else
+                          "movement_trace" if args.trace_movement else
+                          "motion_trace" if args.trace_motion else
+                          "melee_trace" if args.trace_melee else
+                          "damage_trace" if args.trace_damage else
+                          "geometry_trace" if args.trace_geometry else
+                          "distance_trace" if args.trace_distance else
+                          "random_trace" if args.trace_random else "startup_trace")
             trace_output = output / f"{trace_kind.replace('_', '-')}.jsonl"
-            metadata[trace_kind] = trace(trace_socket, trace_output, process, args.timeout, args.trace_random)
+            metadata[trace_kind] = trace(trace_socket, trace_output, process, args.timeout,
+                                        args.trace_random, args.trace_distance,
+                                        args.trace_geometry,
+                                        observation["battle"]["sections"][1]["address"] if (args.trace_geometry or args.trace_damage or args.trace_melee or args.trace_motion or args.trace_movement or args.trace_residents or args.trace_casting or args.trace_effects or args.trace_reactions or args.trace_hurt or args.trace_guard or args.trace_particle_uv or args.trace_stun_rolls or args.trace_stun or args.trace_particles or args.trace_voices or args.trace_weapon_flights) else None,
+                                        args.trace_damage,
+                                        observation["battle"]["pool"] if (args.trace_damage or args.trace_melee or args.trace_motion or args.trace_movement or args.trace_residents or args.trace_casting or args.trace_effects or args.trace_reactions or args.trace_hurt or args.trace_guard or args.trace_particle_uv or args.trace_stun_rolls or args.trace_stun or args.trace_particles or args.trace_voices or args.trace_weapon_flights) else None,
+                                        args.trace_melee, args.trace_motion, args.trace_movement, args.trace_residents, args.trace_casting, args.trace_effects, args.trace_reactions, args.trace_hurt, args.trace_guard, args.trace_particle_uv, args.trace_stun_rolls, args.trace_stun, args.trace_particles, args.trace_voices, args.trace_weapon_flights, args.trace_weapon_stack_writes, args.trace_weapon_stack_from_combat)
             metadata[trace_kind].update(path=trace_output.name, sha256=sha256(trace_output))
         frame = (output / "user" / "Dump" / "Frames" / f"framedump_{args.frame}.png"
                  if args.frame is not None else None)

@@ -1,0 +1,20 @@
+{
+  "source": {
+    "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+    "path": "BTL/BTLusual.dat",
+    "sha256": "daf67bba141841c6a317c4bad950dc7dcfc5d3a90cfc7659d76b37e277af5d50",
+    "member": 7,
+    "row": 4,
+    "offset": 867424,
+    "flags": 1098
+  },
+  "lifetime": 20,
+  "velocity": [0.0, 0.0, 0.0],
+  "acceleration": [0.0, 0.0, 0.0],
+  "offset": [0.0, 0.0, 0.0],
+  "clamp_ground": true,
+  "active_start": 4,
+  "active_duration": 0,
+  "birth_effect": 28,
+  "scope": "Original parameter observation; no damage, collision, rendering or Dolphin timing acceptance."
+}

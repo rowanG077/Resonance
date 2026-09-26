@@ -63,6 +63,16 @@ pub(super) fn app_with_saves(
     saves: SaveOptions,
     resolution: crate::Resolution,
 ) -> Result<App> {
+    app_with_saves_mode(root, output, saves, resolution, true)
+}
+
+pub(super) fn app_with_saves_mode(
+    root: &Path,
+    output: &Path,
+    saves: SaveOptions,
+    resolution: crate::Resolution,
+    paranoid: bool,
+) -> Result<App> {
     ensure!(!output.exists(), "probe output must be a fresh directory");
     fs::create_dir_all(output)?;
     let (mut app, _) = crate::build_app_with_display(
@@ -73,6 +83,7 @@ pub(super) fn app_with_saves(
             saves,
             capture: Some(output.join("unused.png")),
             silent: true,
+            paranoid,
             skip_intro: true,
             tick: None,
             presentation_start: None,

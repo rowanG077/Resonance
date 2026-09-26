@@ -1,0 +1,1286 @@
+{
+  "scope": "Read-only diagnostic trace of original DOL fn_800FE6F8 inputs and results. Arithmetic evidence only; debugger timing is not acceptance. No emulated input, memory or instruction was changed.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    }
+  },
+  "trace_sha256": "d1c31a42fbe945af179c40cb5daac9eff460a77bc7a48640b5f6c00cb9dcd099",
+  "observations": [
+    {
+      "index": 0,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063915008,
+        1090921184,
+        1060635956
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091005371
+    },
+    {
+      "index": 1,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065839872,
+        1090778832,
+        1062747572
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090894570
+    },
+    {
+      "index": 2,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065304576,
+        1089582016,
+        1061962204
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089806822
+    },
+    {
+      "index": 3,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063627776,
+        1090724192,
+        1060414628
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090807134
+    },
+    {
+      "index": 4,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065808384,
+        1090788512,
+        1062691556
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090903272
+    },
+    {
+      "index": 5,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065330688,
+        1089618752,
+        1061982038
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089843727
+    },
+    {
+      "index": 6,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063498752,
+        1090619472,
+        1060317704
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090702026
+    },
+    {
+      "index": 7,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065739264,
+        1090751744,
+        1062576426
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090865175
+    },
+    {
+      "index": 8,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065286144,
+        1089588928,
+        1061945804
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089813123
+    },
+    {
+      "index": 9,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063414272,
+        1090544720,
+        1060255324
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090627086
+    },
+    {
+      "index": 10,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065669888,
+        1090708576,
+        1062461826
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090820762
+    },
+    {
+      "index": 11,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065229312,
+        1089546816,
+        1061899936
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089770078
+    },
+    {
+      "index": 12,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063346688,
+        1090448288,
+        1060205332
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090565893
+    },
+    {
+      "index": 13,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065607680,
+        1090668000,
+        1062359512
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090779097
+    },
+    {
+      "index": 14,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065175552,
+        1089505888,
+        1061855982
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089728276
+    },
+    {
+      "index": 15,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063288320,
+        1090343712,
+        1060161924
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090507925
+    },
+    {
+      "index": 16,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065553408,
+        1090631824,
+        1062270548
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090741985
+    },
+    {
+      "index": 17,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065126400,
+        1089469088,
+        1061816438
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089690678
+    },
+    {
+      "index": 18,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063236096,
+        1090252928,
+        1060123452
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090416898
+    },
+    {
+      "index": 19,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065506560,
+        1090599936,
+        1062193622
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090709298
+    },
+    {
+      "index": 20,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065083904,
+        1089436640,
+        1061781436
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089657539
+    },
+    {
+      "index": 21,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063190528,
+        1090173664,
+        1060089180
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090337418
+    },
+    {
+      "index": 22,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065465856,
+        1090572048,
+        1062127184
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090680720
+    },
+    {
+      "index": 23,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065046016,
+        1089408192,
+        1061750660
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089628472
+    },
+    {
+      "index": 24,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063149568,
+        1090104448,
+        1060058732
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090267993
+    },
+    {
+      "index": 25,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065430528,
+        1090547616,
+        1062069686
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090655695
+    },
+    {
+      "index": 26,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065013248,
+        1089383296,
+        1061723652
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089603041
+    },
+    {
+      "index": 27,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1063113728,
+        1090043936,
+        1060031712
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090207292
+    },
+    {
+      "index": 28,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1065400064,
+        1090526256,
+        1062019888
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090633825
+    },
+    {
+      "index": 29,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1064984064,
+        1089361568,
+        1061699986
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089580837
+    },
+    {
+      "index": 30,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1077163008,
+        3233878752,
+        3203457216
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1087739921
+    },
+    {
+      "index": 31,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1077185920,
+        3232498176,
+        3201514176
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1086502138
+    },
+    {
+      "index": 32,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080358400,
+        3235096160,
+        3202753408
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089539717
+    },
+    {
+      "index": 33,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080629248,
+        3235267072,
+        3199023104
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089742112
+    },
+    {
+      "index": 34,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082834560,
+        3238045608,
+        3195950848
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091713123
+    },
+    {
+      "index": 35,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081197952,
+        3236460352,
+        3186746368
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090717149
+    },
+    {
+      "index": 36,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082254016,
+        3238273800,
+        3156695040
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091779537
+    },
+    {
+      "index": 37,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081000704,
+        3238068896,
+        3164230656
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091446389
+    },
+    {
+      "index": 38,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1079741056,
+        3238036544,
+        1019471872
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091288852
+    },
+    {
+      "index": 39,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1078672768,
+        3238185416,
+        3187946624
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091326859
+    },
+    {
+      "index": 40,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1077053056,
+        3233708048,
+        3203235904
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1087561470
+    },
+    {
+      "index": 41,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1077153664,
+        3232512912,
+        3201494080
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1086507612
+    },
+    {
+      "index": 42,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080378240,
+        3235127136,
+        3202765568
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089571672
+    },
+    {
+      "index": 43,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080648960,
+        3235289584,
+        3199063424
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089766686
+    },
+    {
+      "index": 44,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082839808,
+        3238052856,
+        3196057984
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091720791
+    },
+    {
+      "index": 45,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081205120,
+        3236466960,
+        3186831872
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090720916
+    },
+    {
+      "index": 46,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082257792,
+        3238275272,
+        3158358016
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091781693
+    },
+    {
+      "index": 47,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081005056,
+        3238069288,
+        3164080128
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091447201
+    },
+    {
+      "index": 48,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1079746432,
+        3238036336,
+        1019102208
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091289187
+    },
+    {
+      "index": 49,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1078679168,
+        3238185432,
+        3187896704
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091327442
+    },
+    {
+      "index": 50,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1077010048,
+        3233612880,
+        3203107648
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1087465859
+    },
+    {
+      "index": 51,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1077098112,
+        3232496032,
+        3201434624
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1086479607
+    },
+    {
+      "index": 52,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080369024,
+        3235131616,
+        3202744832
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089573345
+    },
+    {
+      "index": 53,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080654720,
+        3235299472,
+        3199090944
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089776817
+    },
+    {
+      "index": 54,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082842240,
+        3238057528,
+        3196109696
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091725522
+    },
+    {
+      "index": 55,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081211648,
+        3236473040,
+        3186921728
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090724376
+    },
+    {
+      "index": 56,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082261504,
+        3238276728,
+        3160016896
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091783820
+    },
+    {
+      "index": 57,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081010048,
+        3238070016,
+        3163939840
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091448384
+    },
+    {
+      "index": 58,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1079752576,
+        3238036576,
+        1018736640
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091290008
+    },
+    {
+      "index": 59,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1078685440,
+        3238185308,
+        3187846656
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091327883
+    },
+    {
+      "index": 60,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1076989312,
+        3233546048,
+        3203013952
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1087400735
+    },
+    {
+      "index": 61,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1077044736,
+        3232474848,
+        3201371008
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1086448300
+    },
+    {
+      "index": 62,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080349056,
+        3235126432,
+        3202711296
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089563932
+    },
+    {
+      "index": 63,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080651648,
+        3235301424,
+        3199108928
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089777845
+    },
+    {
+      "index": 64,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082842304,
+        3238060032,
+        3196157184
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091727781
+    },
+    {
+      "index": 65,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081216000,
+        3236477104,
+        3187011840
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090726691
+    },
+    {
+      "index": 66,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082264960,
+        3238277872,
+        3161665536
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091785612
+    },
+    {
+      "index": 67,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081015424,
+        3238070840,
+        3163811840
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091449697
+    },
+    {
+      "index": 68,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1079758720,
+        3238036860,
+        1018373120
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091290872
+    },
+    {
+      "index": 69,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1078691840,
+        3238185168,
+        3187796736
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091328322
+    },
+    {
+      "index": 70,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1076978304,
+        3233493744,
+        3202937728
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1087350888
+    },
+    {
+      "index": 71,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1076996992,
+        3232453984,
+        3201309312
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1086418592
+    },
+    {
+      "index": 72,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080325248,
+        3235117280,
+        3202672320
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089550108
+    },
+    {
+      "index": 73,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080643456,
+        3235298960,
+        3199120576
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089773760
+    },
+    {
+      "index": 74,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082840640,
+        3238060856,
+        3196201216
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091728150
+    },
+    {
+      "index": 75,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081218304,
+        3236479232,
+        3187101184
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090727911
+    },
+    {
+      "index": 76,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082267904,
+        3238278600,
+        3162900480
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091786918
+    },
+    {
+      "index": 77,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081020416,
+        3238071472,
+        3163693056
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091450794
+    },
+    {
+      "index": 78,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1079764736,
+        3238037064,
+        1018011648
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091291649
+    },
+    {
+      "index": 79,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1078698240,
+        3238184980,
+        3187746816
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091328715
+    },
+    {
+      "index": 80,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1076972288,
+        3233450288,
+        3202871936
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1087310149
+    },
+    {
+      "index": 81,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1076954240,
+        3232434256,
+        3201250816
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1086391059
+    },
+    {
+      "index": 82,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080299904,
+        3235106512,
+        3202631104
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089534493
+    },
+    {
+      "index": 83,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080632192,
+        3235293872,
+        3199127744
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089766631
+    },
+    {
+      "index": 84,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082837632,
+        3238060472,
+        3196242240
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091727136
+    },
+    {
+      "index": 85,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081218688,
+        3236479664,
+        3187188992
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090728157
+    },
+    {
+      "index": 86,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082270400,
+        3238278832,
+        3163704320
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091787680
+    },
+    {
+      "index": 87,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081024768,
+        3238071832,
+        3163586560
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091451578
+    },
+    {
+      "index": 88,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1079770496,
+        3238037104,
+        1017654272
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091292250
+    },
+    {
+      "index": 89,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1078704640,
+        3238184712,
+        3187697024
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091329035
+    },
+    {
+      "index": 90,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1076968960,
+        3233412784,
+        3202813120
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1087275395
+    },
+    {
+      "index": 91,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1076916096,
+        3232415776,
+        3201195392
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1086365707
+    },
+    {
+      "index": 92,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080274176,
+        3235095168,
+        3202589248
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089518281
+    },
+    {
+      "index": 93,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1080619264,
+        3235287216,
+        3199131712
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1089757716
+    },
+    {
+      "index": 94,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1082833728,
+        3238059216,
+        3196280512
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1091725138
+    },
+    {
+      "index": 95,
+      "function": "vector_length",
+      "lr": "80069b5c",
+      "input_bits": [
+        1081217408,
+        3236478752,
+        3187275008
+      ],
+      "fpscr": "00000004",
+      "presentation_counter": 43646,
+      "result_bits": 1090727615
+    }
+  ],
+  "replay_cross_check": {
+    "ordinary_capture_memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+    "diagnostic_capture_memory_sha256": "02d6ba9772a9e6c3a46200218b7eb40615eae12832521a9551680b1b92b1408e",
+    "matching_vi_samples": 383,
+    "matching_battle_fields": 73,
+    "differences": 0,
+    "alignment": "Identical VI indices, no retiming. State only, not image/audio acceptance."
+  }
+}

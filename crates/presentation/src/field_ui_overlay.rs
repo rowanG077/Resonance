@@ -74,6 +74,9 @@ impl Artwork {
                     frame_mask: source.clone(),
                     color_mask: source,
                     coverage: Coverage::default(),
+                    layered: false,
+                    screen_break: false,
+                    additive: false,
                     opaque: false,
                 }));
                 loaded.extend(pages);

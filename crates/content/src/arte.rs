@@ -1,6 +1,8 @@
-//! Original technique and learning records shared by menu preparation.
+//! Original technique and learning records shared by menus and battle loading.
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+
+pub const PATH: &str = "game/techniques.json";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -62,10 +64,9 @@ impl Catalogue {
             .active()
     }
 
-    #[cfg(test)]
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.definitions.len() == resonance_content::menu_data::TECHNIQUE_COUNT
+            self.definitions.len() == crate::menu_data::TECHNIQUE_COUNT
                 && self.learning.len() == 11
                 && self.combinations.len() == 20,
             "incomplete arte catalogue"

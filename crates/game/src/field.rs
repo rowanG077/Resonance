@@ -237,6 +237,9 @@ impl FieldSession {
         self.authored_entry = event;
     }
     pub fn step(&mut self, input: FieldInput) -> Result<()> {
+        if self.events.battle_pending() {
+            return Ok(());
+        }
         self.play_time.advance();
         self.effect_clock.advance();
         if self.field_control_available()

@@ -116,4 +116,19 @@ impl Playback {
     pub(crate) fn voice_position(&self) -> Option<u64> {
         self.frames.voice.as_ref().map(|voice| voice.frame)
     }
+
+    #[cfg(test)]
+    pub(crate) fn control(&self) -> Control {
+        self.control.clone()
+    }
+
+    /// Device-free host tests consume the same mixer queue as live playback.
+    #[cfg(test)]
+    pub(crate) fn sample_battle(&mut self, frames: u32) -> Result<(bool, Option<i16>)> {
+        for _ in 0..frames {
+            self.frame()?;
+        }
+        self.control.acknowledge_frames(self.frames.frame);
+        Ok((self.frames.battle.is_some(), self.frames.music_id))
+    }
 }

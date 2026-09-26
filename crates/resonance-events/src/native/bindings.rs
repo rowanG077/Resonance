@@ -73,6 +73,7 @@ impl Host for NativeHost<'_> {
         RandomMod(1) -> i32 = field;
         ShowChoice(5) -> i32 = dispatch;
         OpenMenu(1) -> i32 = request_menu;
+        StartBattle(12) -> i32 = request_battle;
         SetEventBit(1) -> () = field;
         ClearEventBit(1) -> () = field;
         TestEventBit(1) -> i32 = field;

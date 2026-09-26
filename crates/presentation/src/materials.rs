@@ -156,6 +156,10 @@ pub(super) struct TitleSurface {
     #[texture(2)]
     #[sampler(3)]
     pub multiply: Option<Handle<Image>>,
+    /// Battle dual-palette effects take RGB from `color` and alpha from `multiply`.
+    pub multiply_alpha_only: bool,
+    /// Battle screen-list particles sample the current scene through an atlas mask.
+    pub screen_texture: bool,
     pub uv_offsets: Vec4,
     pub uv_scales: Vec4,
     pub tint: Vec4,
@@ -165,11 +169,15 @@ pub(super) struct TitleSurface {
     /// World-space light position and channel strength (0..255).
     pub field_light: Vec4,
     pub shade_colors: [Vec4; 2],
+    /// Native ambient channels are applied before byte-quantized toon shading.
+    pub ambient_scale: Vec3,
     pub vertex_color: bool,
     pub constant_color: bool,
     pub blend: bool,
     pub additive: bool,
     pub depth_test: bool,
+    /// Preserve native LEQUAL for translucent battle geometry without writes.
+    pub depth_equal: bool,
     pub depth_write: bool,
     pub cull: resonance_content::CullFace,
 }
@@ -180,17 +188,21 @@ impl Default for TitleSurface {
             color: None,
             sampling: None,
             multiply: None,
+            multiply_alpha_only: false,
+            screen_texture: false,
             toon_ramp: None,
             uv_offsets: Vec4::ZERO,
             uv_scales: Vec4::ONE,
             tint: Vec4::ONE,
             field_light: Vec4::ZERO,
             shade_colors: [Vec4::ONE; 2],
+            ambient_scale: Vec3::ONE,
             vertex_color: true,
             constant_color: false,
             blend: false,
             additive: false,
             depth_test: true,
+            depth_equal: false,
             depth_write: true,
             cull: resonance_content::CullFace::Back,
         }
@@ -216,6 +228,7 @@ pub(super) struct SurfaceUniform {
     tint: Vec4,
     field_light: Vec4,
     shade_colors: [Vec4; 2],
+    ambient_scale: Vec4,
 }
 impl From<&TitleSurface> for SurfaceUniform {
     fn from(value: &TitleSurface) -> Self {
@@ -225,6 +238,7 @@ impl From<&TitleSurface> for SurfaceUniform {
             tint: value.tint,
             field_light: value.field_light,
             shade_colors: value.shade_colors,
+            ambient_scale: value.ambient_scale.extend(0.),
         }
     }
 }
@@ -235,9 +249,12 @@ pub(super) struct SurfaceKey {
     field_lighting: bool,
     constant_color: bool,
     depth_test: bool,
+    depth_equal: bool,
     depth_write: bool,
     blend: bool,
     additive: bool,
+    multiply_alpha_only: bool,
+    screen_texture: bool,
     cull: resonance_content::CullFace,
 }
 
@@ -248,9 +265,12 @@ impl From<&TitleSurface> for SurfaceKey {
             field_lighting: material.toon_ramp.is_some(),
             constant_color: material.constant_color,
             depth_test: material.depth_test,
+            depth_equal: material.depth_equal,
             depth_write: material.depth_write,
             blend: material.blend,
             additive: material.additive,
+            multiply_alpha_only: material.multiply_alpha_only,
+            screen_texture: material.screen_texture,
             cull: material.cull,
         }
     }
@@ -308,6 +328,12 @@ impl Material for TitleSurface {
             fragment.shader_defs.push("CONSTANT_COLOR".into());
         }
         if let Some(fragment) = &mut descriptor.fragment {
+            if key.bind_group_data.screen_texture {
+                fragment.shader_defs.push("SCREEN_TEXTURE".into());
+            }
+            if key.bind_group_data.multiply_alpha_only {
+                fragment.shader_defs.push("MULTIPLY_ALPHA_ONLY".into());
+            }
             for target in fragment.targets.iter_mut().flatten() {
                 if key.bind_group_data.additive {
                     let component = BlendComponent {
@@ -329,7 +355,7 @@ impl Material for TitleSurface {
             // Convert strict/non-strict depth tests to Bevy’s reverse-Z convention.
             depth.depth_compare = Some(if !key.bind_group_data.depth_test {
                 CompareFunction::Always
-            } else if key.bind_group_data.depth_write {
+            } else if key.bind_group_data.depth_write || key.bind_group_data.depth_equal {
                 CompareFunction::GreaterEqual
             } else {
                 CompareFunction::Greater

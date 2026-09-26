@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/resonance", "apps/resonance-import", "apps/resonance-script", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content"]
+members = ["crates/battle", "apps/resonance", "apps/resonance-import", "apps/resonance-script", "crates/content", "crates/game", "crates/import", "crates/presentation", "tools/oracle", "crates/symphonia-script", "crates/symphonia-script-vm", "crates/symphonia-script-compiler", "crates/symphonia-script-tools", "crates/resonance-events", "crates/media", "crates/audio-cook", "crates/audio", "crates/playback", "crates/audio-device", "crates/persistence", "crates/asset-writer", "crates/model-behavior", "crates/script-content"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ rust-version = "1.97"
 license = "MIT"
 
 [workspace.dependencies]
+resonance-battle = { path = "crates/battle" }
 resonance-model-behavior = { path = "crates/model-behavior" }
 resonance-script-content = { path = "crates/script-content" }
 resonance-asset-writer = { path = "crates/asset-writer" }
@@ -30,6 +31,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 time = { version = "0.3.55", default-features = false, features = ["std"] }
 sha2 = "0.10"
+glam = { version = "0.32.1", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 bevy = { version = "=0.19.1", default-features = false, features = ["std", "reflect_auto_register", "async_executor", "multi_threaded", "bevy_asset", "bevy_winit", "bevy_window", "bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_sprite_render", "bevy_camera", "bevy_color", "bevy_image", "bevy_log", "bevy_gilrs", "bevy_pbr", "bevy_gltf", "bevy_scene", "png", "ktx2", "zstd_rust", "x11", "wayland"] }
 resonance-content = { path = "crates/content" }

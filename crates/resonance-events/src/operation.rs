@@ -132,6 +132,7 @@ pub(crate) enum Wait {
         window: Box<Wait>,
     },
     Menu(Operation),
+    Battle(Operation),
     Ready(Operation),
     Position(Operation, u32),
 }
@@ -204,7 +205,11 @@ impl Wait {
                         .is_none_or(|m| m.settled(*channel)));
             }
             Self::Choice { result, .. } => result,
-            Self::Complete(op) | Self::Menu(op) | Self::Ready(op) | Self::Position(op, _) => op,
+            Self::Complete(op)
+            | Self::Menu(op)
+            | Self::Battle(op)
+            | Self::Ready(op)
+            | Self::Position(op, _) => op,
         };
         let progress = operation.progress();
         match progress.outcome {
@@ -214,7 +219,7 @@ impl Wait {
                 _ => Ok(true),
             },
             None => Ok(match self {
-                Self::Complete(_) | Self::Choice { .. } | Self::Menu(_) => false,
+                Self::Complete(_) | Self::Choice { .. } | Self::Menu(_) | Self::Battle(_) => false,
                 Self::Ready(_) => progress.ready,
                 Self::Position(_, target) => progress.ready && progress.position >= *target,
                 _ => unreachable!("non-operation waits returned above"),

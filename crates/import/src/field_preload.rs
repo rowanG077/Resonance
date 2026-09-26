@@ -174,6 +174,21 @@ fn build_field(
         .features
         .extend([Feature::Billboards, Feature::Emotes]);
 
+    // Battle packages are prepared only when an encounter is requested, but its
+    // descriptor belongs to this verified snapshot. It is produced after the
+    // shared field descriptors, before final inventory publication.
+    if inventory
+        .files
+        .contains_key(resonance_content::battle_formation::PATH)
+    {
+        let path = resonance_content::battle_audio::PATH;
+        if input_exists(root, path)? {
+            let audio: resonance_content::battle_audio::Audio =
+                inventory.json(path, None, Role::Data)?;
+            audio.validate()?;
+        }
+    }
+
     for path in &manifest.inputs.audio {
         manifest.features.insert(Feature::Audio);
         if !input_exists(root, path)? {

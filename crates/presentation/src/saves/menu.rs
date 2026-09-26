@@ -12,6 +12,10 @@ struct Pending(loading::Task<Completion>);
 #[derive(Resource)]
 struct Loading(loading::Pending);
 
+pub(super) fn loading(world: &World) -> bool {
+    world.contains_resource::<Loading>()
+}
+
 pub(super) fn update(world: &mut World) {
     if let Some(pending) = world.get_resource::<Pending>() {
         let result = match pending.0.poll() {
@@ -47,6 +51,7 @@ pub(super) fn update(world: &mut World) {
         world.remove_resource::<Loading>();
         match result {
             Ok(candidate) => {
+                crate::game_over::loaded(world);
                 if let Some(mut session) = world.get_resource_mut::<new_game::Session>() {
                     let changing = session.assets.map_id != candidate.assets.map_id;
                     session.replace_loaded(candidate);

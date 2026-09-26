@@ -9,11 +9,14 @@ pub(super) fn properties(row: &Definition) -> Result<EquipmentProperties> {
             .attack_element
             .checked_sub(1)
             .map(|i| Element::ALL[usize::from(i)]),
+        neutral_resistance: row.resistance_modifiers[0],
         resistance: Element::ALL
             .into_iter()
             .zip(&row.resistance_modifiers[1..9])
             .filter_map(|(element, &v)| (v != 0).then_some((element, v)))
             .collect(),
+        critical_chance_bonus: row.critical_chance_bonus,
+        technique_drift: row.technique_drift,
         effects: std::iter::once(row.primary_effect)
             .chain(row.effects.iter().map(|slot| slot.effect))
             .filter(|&id| id != 0)
@@ -24,6 +27,7 @@ pub(super) fn properties(row: &Definition) -> Result<EquipmentProperties> {
 #[test]
 fn equipment_properties_keep_element_bounds_and_authored_effect_order() {
     let mut row = [0; 60];
+    row[0x12] = 17;
     row[0x13] = 8;
     row[0x14] = 99;
     row[0x1b] = 5;
@@ -33,9 +37,13 @@ fn equipment_properties_keep_element_bounds_and_authored_effect_order() {
     row[0x26] = 102;
     row[0x28] = 3;
     row[0x2c] = 1;
+    row[0x31] = (-2i8) as u8;
     let mut definition = Definition::decode(&[], &row).unwrap();
     let value = properties(&definition).unwrap();
     assert_eq!(value.attack_element, Some(Element::Darkness));
+    assert_eq!(value.neutral_resistance, 5);
+    assert_eq!(value.critical_chance_bonus, 17);
+    assert_eq!(value.technique_drift, -2);
     assert_eq!(
         value.resistance,
         [(Element::Water, -2), (Element::Darkness, 3)].into()

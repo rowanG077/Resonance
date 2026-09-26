@@ -10,7 +10,9 @@ pub(super) fn recover(current: &mut u16, maximum: u16, percent: u16) -> bool {
 
 pub struct EquipmentTraits {
     pub attack_element: Option<Element>,
+    pub neutral_resistance: i16,
     pub resistance: [i16; 8],
+    pub critical_chance_bonus: u8,
     pub effects: Vec<u8>,
 }
 
@@ -29,6 +31,27 @@ pub struct Stats {
 }
 
 impl Member {
+    /// One original level's seven ordered random draws. The caller owns EXP,
+    /// technique learning and whether a scripted level change heals the member.
+    pub(super) fn grow_level(
+        &mut self,
+        definition: &resonance_content::session::CharacterDefinition,
+        title_growth: Option<[u8; 7]>,
+        random: &mut impl FnMut() -> u32,
+    ) {
+        self.level += 1;
+        for (index, growth) in definition.growth.iter().enumerate() {
+            let gain = u32::from(growth.base)
+                + random() % (u32::from(growth.random) + 1)
+                + u32::from(title_growth.map_or(growth.title_bonus, |title| title[index]));
+            self.base_stats[index] = (u32::from(self.base_stats[index]) + gain).min(match index {
+                0 => 9999,
+                1 => 999,
+                _ => 32767,
+            }) as u16;
+        }
+    }
+
     pub(super) fn clamp_vitals(&mut self) {
         let [hp, tp] = self.maximum_vitals();
         self.hp = self.hp.min(hp);
@@ -48,6 +71,8 @@ impl Member {
                 .filter_map(|slot| properties(slot).attack_element)
                 .next_back(),
             resistance: [0; 8],
+            neutral_resistance: 0,
+            critical_chance_bonus: 0,
             effects: effects
                 .iter()
                 .copied()
@@ -60,6 +85,10 @@ impl Member {
         };
         for slot in 0..6 {
             if self.equipment[slot] != 0 {
+                traits.neutral_resistance += i16::from(properties(slot).neutral_resistance);
+                traits.critical_chance_bonus = traits
+                    .critical_chance_bonus
+                    .wrapping_add(properties(slot).critical_chance_bonus);
                 for (&element, &value) in &properties(slot).resistance {
                     traits.resistance[element as usize] += i16::from(value);
                 }
@@ -102,8 +131,14 @@ impl Member {
         vitals
     }
     pub fn stats(&self, data: &MenuData) -> Stats {
+        self.stats_for(data, self.ex_rules.as_ref().map_or(0, |r| r.character))
+    }
+
+    /// Derive statistics with an explicit zero-based roster identity. Battle
+    /// preparation can use the loaded rules without rebinding saved members.
+    pub fn stats_for(&self, data: &MenuData, character: usize) -> Stats {
         let [_, _, strength, defense, intelligence, evasion, accuracy] = self.base_stats;
-        let [hp, tp] = self.maximum_vitals();
+        let [hp, tp] = self.vitals_with_ex(Some(&data.ex_skills), character);
         let mut stats = Stats {
             hp,
             tp,
@@ -158,10 +193,7 @@ impl Member {
                 _ => {}
             }
         }
-        for bonus in self.ex_bonuses(
-            Some(&data.ex_skills),
-            self.ex_rules.as_ref().map_or(0, |r| r.character),
-        ) {
+        for bonus in self.ex_bonuses(Some(&data.ex_skills), character) {
             let (target, base, cap) = match bonus.stat {
                 ExStat::Strength => {
                     for value in [&mut stats.strength, &mut stats.slash, &mut stats.thrust] {

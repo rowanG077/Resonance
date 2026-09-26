@@ -1,0 +1,162 @@
+script battle;
+use battle;
+// Lloyd's seven normal selectors, in original order: neutral, rising, thrust,
+// low, finisher, aerial slash, aerial thrust (REL data 1434 / 1494).
+// The shared controller selects and chains these tasks from the original table.
+asset right: battle::Melee = "battle/melee/lloyd/right";
+asset left: battle::Melee = "battle/melee/lloyd/left";
+asset neutral_motion: battle::Motion = "battle/motions/lloyd/30";
+asset finisher_motion: battle::Motion = "battle/motions/lloyd/31";
+asset swing: battle::Sound = "battle/sounds/common/60";
+asset neutral_voice: battle::Voice = "battle/voices/absolute/1";
+asset finisher_voice: battle::Voice = "battle/voices/absolute/3";
+asset rising_hit: battle::Melee = "battle/melee/lloyd/rising";
+asset thrust_hit: battle::Melee = "battle/melee/lloyd/thrust";
+asset low_hit: battle::Melee = "battle/melee/lloyd/low";
+asset aerial_slash_hit: battle::Melee = "battle/melee/lloyd/aerial_slash";
+asset aerial_thrust_hit: battle::Melee = "battle/melee/lloyd/aerial_thrust";
+asset rising_motion: battle::Motion = "battle/motions/lloyd/38";
+asset thrust_motion: battle::Motion = "battle/motions/lloyd/32";
+asset low_motion: battle::Motion = "battle/motions/lloyd/33";
+asset aerial_slash_motion: battle::Motion = "battle/motions/lloyd/41";
+asset aerial_thrust_motion: battle::Motion = "battle/motions/lloyd/40";
+asset landing_motion: battle::Motion = "battle/motions/lloyd/16";
+asset low_voice: battle::Voice = "battle/voices/absolute/2";
+
+pub task neutral() {
+    battle::braking(0.41250002);
+    await battle::animate(neutral_motion, ticks(4), 1.0, 0.5, false);
+    battle::end_animation();
+    spawn neutral_hits();
+    await battle::at_command_age(ticks(4));
+    battle::forward_speed(6.0, battle::combo_index() == 0);
+    battle::voice(battle::owner(), neutral_voice, 2);
+    await battle::at_command_age(ticks(8));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task rising() {
+    battle::braking(0.41250002);
+    await battle::animate(rising_motion, ticks(4), 0.0, 0.7, false);
+    spawn rising_hits();
+    await battle::at_command_age(ticks(2));
+    battle::voice(battle::owner(), neutral_voice, 2);
+    battle::forward_speed(4.0, false);
+    battle::vertical_speed(19.0);
+    battle::sound(swing, 1);
+    await battle::at_animation_age(ticks(40));
+    await battle::animate(landing_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task thrust() {
+    battle::braking(0.41250002);
+    await battle::animate(thrust_motion, ticks(6), 1.0, 1.0, false);
+    battle::end_animation();
+    spawn thrust_hits();
+    await battle::at_command_age(ticks(4));
+    battle::forward_speed(6.0, battle::combo_index() == 0);
+    battle::voice(battle::owner(), neutral_voice, 2);
+    await battle::at_command_age(ticks(8));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task low() {
+    battle::braking(0.41250002);
+    await battle::animate(low_motion, ticks(4), 1.0, 0.5, false);
+    battle::end_animation();
+    spawn low_hits();
+    await battle::at_command_age(ticks(4));
+    battle::forward_speed(6.0, battle::combo_index() == 0);
+    battle::voice(battle::owner(), low_voice, 2);
+    await battle::at_command_age(ticks(8));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task finisher() {
+    battle::braking(0.41250002);
+    await battle::animate(finisher_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn finisher_hits();
+    await battle::at_command_age(ticks(4));
+    battle::voice(battle::owner(), finisher_voice, 2);
+    battle::forward_speed(6.0, false);
+    await battle::at_command_age(ticks(8));
+    battle::sound(swing, 1);
+    await battle::at_command_age(ticks(12));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(8)));
+    battle::finish();
+}
+
+pub task aerial_slash() {
+    battle::braking(0.41250002);
+    await battle::animate(aerial_slash_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn aerial_slash_hits();
+    await battle::at_command_age(ticks(6));
+    battle::voice(battle::owner(), low_voice, 2);
+    await battle::at_command_age(ticks(8));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task aerial_thrust() {
+    battle::braking(0.41250002);
+    await battle::animate(aerial_thrust_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn aerial_thrust_hits();
+    await battle::at_command_age(ticks(6));
+    battle::voice(battle::owner(), low_voice, 2);
+    await battle::at_command_age(ticks(8));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task neutral_hits() {
+    await battle::hit_window(right, ticks(8), ticks(10));
+}
+pub task rising_hits() {
+    await battle::hit_window(rising_hit, ticks(1), ticks(16));
+}
+pub task thrust_hits() {
+    await battle::hit_window(thrust_hit, ticks(14), ticks(4));
+}
+pub task low_hits() {
+    await battle::hit_window(low_hit, ticks(8), ticks(10));
+}
+pub task finisher_hits() {
+    await battle::hit_window(right, ticks(10), ticks(6));
+    await battle::hit_window(left, ticks(17), ticks(6));
+}
+pub task aerial_slash_hits() {
+    await battle::hit_window(aerial_slash_hit, ticks(8), ticks(9));
+}
+pub task aerial_thrust_hits() {
+    await battle::hit_window(aerial_thrust_hit, ticks(4), ticks(15));
+}
+
+// Grounded normal recovery adds four updates for each completed chain link.
+fn recovery_ticks(base: Ticks) -> Ticks {
+    if battle::actor_point(battle::owner(), 0.0, 0.0).y <= 0.1 {
+        return base + ticks(battle::combo_index() * 4);
+    }
+    return base;
+}

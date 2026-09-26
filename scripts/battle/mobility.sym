@@ -1,0 +1,79 @@
+script battle;
+use battle;
+asset rise: battle::OptionalMotion = "battle/motions/control/14";
+asset fall: battle::OptionalMotion = "battle/motions/control/15";
+asset land: battle::OptionalMotion = "battle/motions/control/16";
+asset backstep: battle::OptionalMotion = "battle/motions/control/28";
+asset common: battle::Effect = "battle/effects/common";
+asset step_sound: battle::Sound = "battle/sounds/common/137";
+
+// The ordinary player decision calls this once per actor visit. Contact can
+// replace its activity at any time; menu pause holds the entire decision visit.
+pub fn update() {
+    let state = battle::mobility_state();
+    if state.kind == 1 {
+        if state.initial {
+            // 29770's admission visit has no vertical impulse yet.
+            battle::mobility_begin();
+            battle::vertical_speed(0.0);
+            battle::gravity(0.0);
+            battle::mobility_count(0);
+            battle::try_play_motion(rise, ticks(4), 0.0, 0.5, false);
+            let owner = battle::owner();
+            battle::show_scaled_at(common, 17, battle::actor_point(owner, 0.0, 0.0),
+                battle::heading(owner), battle::effect_scale(owner));
+            battle::mobility_integrate(state.recoil);
+        } else {
+            let mut count = state.count;
+            if count == 0 {
+                // First2EEE4 callback starts the arc, before integration.
+                battle::vertical_speed(20.5);
+                battle::gravity(-1.0);
+            } else if count > 0 {
+                if state.vertical <= 0.0 {
+                    battle::try_play_motion(fall, ticks(4), 0.0, 0.5, false);
+                }
+                if state.height <= 0.1 {
+                    battle::mobility_land();
+                    battle::try_play_motion(land, ticks(4), 0.0, 0.5, false);
+                    count = 16;
+                }
+            }
+            battle::mobility_integrate(false);
+            battle::mobility_count(count + 1);
+        }
+    } else if state.kind == 2 {
+        if state.initial {
+            // 2A1F4/2F284 omit integration on the backstep admission visit.
+            battle::mobility_begin();
+            battle::forward_speed(11.0, false);
+            battle::vertical_speed(12.5);
+            battle::gravity(-1.5);
+            battle::try_play_motion(backstep, ticks(8), 0.0, 0.5, false);
+            battle::sound(step_sound, 0);
+            battle::mobility_count(20);
+            battle::mobility_face();
+        } else {
+            if state.height <= 0.1 && state.count < 10 {
+                battle::try_play_motion(land, ticks(5), 0.0, 0.5, false);
+            }
+            if battle::mobility_integrate(true) {
+                battle::idle_pose(ticks(8));
+                battle::mobility_finish(false);
+                // 2E764 decrements2B18C's newly reset count30, not the old one.
+                battle::mobility_count(29);
+            } else {
+                battle::mobility_count(state.count - 1);
+            }
+        }
+    } else if state.kind == 3 {
+        // 301A4 observes zero before decrement;2EEE4's landing tail left17.
+        if state.count <= 0 && state.height <= 0.1 {
+            battle::idle_pose(ticks(16));
+            battle::mobility_finish(true);
+        } else {
+            battle::mobility_count(state.count - 1);
+        }
+        battle::mobility_integrate(false);
+    }
+}

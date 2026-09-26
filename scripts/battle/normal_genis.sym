@@ -1,0 +1,140 @@
+script battle;
+use battle;
+// Genis's seven original selectors. His weapon animation follows body clip+60;
+// contacts and ribbon samples use that live weapon pose in the shared model.
+asset neutral_hit: battle::Melee = "battle/melee/genis/neutral";
+asset rising_hit: battle::Melee = "battle/melee/genis/rising";
+asset thrust_hit: battle::Melee = "battle/melee/genis/thrust";
+asset low_hit: battle::Melee = "battle/melee/genis/low";
+asset finisher_hit: battle::Melee = "battle/melee/genis/finisher";
+asset aerial_slash_hit: battle::Melee = "battle/melee/genis/aerial_slash";
+asset aerial_thrust_hit: battle::Melee = "battle/melee/genis/aerial_thrust";
+asset neutral_motion: battle::Motion = "battle/motions/genis/43";
+asset rising_motion: battle::Motion = "battle/motions/genis/46";
+asset thrust_motion: battle::Motion = "battle/motions/genis/44";
+asset low_motion: battle::Motion = "battle/motions/genis/45";
+asset aerial_thrust_motion: battle::Motion = "battle/motions/genis/47";
+asset swing: battle::Sound = "battle/sounds/common/115";
+asset neutral_voice: battle::Voice = "battle/voices/absolute/243";
+asset rising_voice: battle::Voice = "battle/voices/absolute/242";
+
+pub task neutral() {
+    battle::braking(0.41250002);
+    await battle::animate(neutral_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn neutral_hits();
+    await battle::at_command_age(ticks(12));
+    battle::voice(battle::owner(), neutral_voice, 2);
+    await battle::at_command_age(ticks(14));
+    battle::forward_speed(4.0, battle::combo_index() == 0);
+    await battle::at_command_age(ticks(18));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks());
+    battle::finish();
+}
+
+pub task rising() {
+    battle::braking(0.41250002);
+    await battle::animate(rising_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn rising_hits();
+    await battle::at_command_age(ticks(2));
+    battle::forward_speed(4.0, false);
+    battle::vertical_speed(20.0);
+    await battle::at_command_age(ticks(4));
+    battle::sound(swing, 1);
+    battle::voice(battle::owner(), rising_voice, 2);
+    await battle::action_end();
+    await battle::recover(recovery_ticks());
+    battle::finish();
+}
+
+pub task thrust() {
+    battle::braking(0.41250002);
+    await battle::animate(thrust_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn thrust_hits();
+    await battle::at_command_age(ticks(8));
+    battle::voice(battle::owner(), rising_voice, 2);
+    await battle::at_command_age(ticks(10));
+    battle::forward_speed(4.0, battle::combo_index() == 0);
+    await battle::at_command_age(ticks(12));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks());
+    battle::finish();
+}
+
+pub task low() {
+    battle::braking(0.41250002);
+    await battle::animate(low_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn low_hits();
+    await battle::at_command_age(ticks(12));
+    battle::voice(battle::owner(), neutral_voice, 2);
+    await battle::at_command_age(ticks(14));
+    battle::forward_speed(4.0, battle::combo_index() == 0);
+    await battle::at_command_age(ticks(18));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks());
+    battle::finish();
+}
+
+pub task finisher() {
+    battle::braking(0.41250002);
+    await battle::animate(neutral_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn finisher_hits();
+    await battle::at_command_age(ticks(12));
+    battle::voice(battle::owner(), neutral_voice, 2);
+    await battle::at_command_age(ticks(14));
+    battle::forward_speed(4.0, false);
+    await battle::at_command_age(ticks(18));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks());
+    battle::finish();
+}
+
+pub task aerial_slash() {
+    battle::braking(0.41250002);
+    await battle::animate(rising_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn aerial_slash_hits();
+    await battle::at_command_age(ticks(15));
+    battle::sound(swing, 1);
+    battle::voice(battle::owner(), neutral_voice, 2);
+    await battle::action_end();
+    await battle::recover(recovery_ticks());
+    battle::finish();
+}
+
+pub task aerial_thrust() {
+    battle::braking(0.41250002);
+    await battle::animate(aerial_thrust_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn aerial_thrust_hits();
+    await battle::at_command_age(ticks(18));
+    battle::voice(battle::owner(), neutral_voice, 2);
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks());
+    battle::finish();
+}
+
+pub task neutral_hits() { await battle::hit_window(neutral_hit, ticks(20), ticks(8)); }
+pub task rising_hits() { await battle::hit_window(rising_hit, ticks(12), ticks(8)); }
+pub task thrust_hits() { await battle::hit_window(thrust_hit, ticks(20), ticks(4)); }
+pub task low_hits() { await battle::hit_window(low_hit, ticks(20), ticks(8)); }
+pub task finisher_hits() { await battle::hit_window(finisher_hit, ticks(12), ticks(8)); }
+pub task aerial_slash_hits() { await battle::hit_window(aerial_slash_hit, ticks(18), ticks(8)); }
+pub task aerial_thrust_hits() { await battle::hit_window(aerial_thrust_hit, ticks(20), ticks(8)); }
+
+fn recovery_ticks() -> Ticks {
+    if battle::actor_point(battle::owner(), 0.0, 0.0).y <= 0.1 {
+        return ticks(10 + battle::combo_index() * 4);
+    }
+    return ticks(10);
+}

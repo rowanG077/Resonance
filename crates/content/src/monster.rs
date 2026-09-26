@@ -3,7 +3,7 @@ use crate::{menu_data::Element, model_preview::ModelPreview};
 use serde::{Deserialize, Serialize};
 
 pub const MONSTER_COUNT: usize = 251;
-pub const MONSTER_VERSION: u32 = 3;
+pub const MONSTER_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonsterBook {
@@ -67,19 +67,34 @@ pub struct Monster {
     pub category: String,
     pub statistics: Vec<MonsterStats>,
     pub drops: [Option<u16>; 2],
+    /// Both slots compare against one shared random roll per enemy instance.
+    pub drop_chances: [u8; 2],
+    /// Signed hundredths added in enemy roster order during victory rewards.
+    pub grade: i16,
     pub steal: Option<u16>,
     pub attack_element: Option<Element>,
+    /// Original neutral, water, wind, fire, earth, lightning, ice, light and dark responses.
+    pub affinities: [i8; 9],
     pub weaknesses: Vec<Element>,
     pub resistances: Vec<Element>,
     pub preview: ModelPreview,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonsterStats {
     pub hp: u32,
     pub tp: u16,
+    /// A source value of zero starts the enemy at its maximum HP/TP.
+    pub initial_hp: u32,
+    pub initial_tp: u16,
     pub attack: u16,
+    pub thrust: i16,
     pub defense: u16,
+    pub intelligence: i16,
+    pub accuracy: i16,
+    pub evasion: i16,
+    pub luck: u8,
+    pub level: u8,
     pub experience: u32,
     pub gald: u32,
 }
@@ -92,6 +107,7 @@ impl Monster {
                 && !self.name.is_empty()
                 && (1..=16).contains(&self.statistics.len())
                 && self.statistics[0].hp > 0
+                && self.drop_chances.iter().all(|&chance| chance <= 100)
                 && self
                     .drops
                     .iter()

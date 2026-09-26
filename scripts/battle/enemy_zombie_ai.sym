@@ -1,0 +1,7 @@
+script battle;
+use battle;
+use battle::enemy_ai;
+asset walk: battle::Motion = "battle/motions/enemies/036/1";
+asset idle: battle::Motion = "battle/motions/enemies/036/0";
+pub task decide() { await enemy_ai::ordinary(idle, walk); }
+pub task initialize() { let choice = enemy_ai::choose(); }

@@ -1,0 +1,137 @@
+script battle;
+use battle;
+
+// Ordinary 355EC selection. Eligibility always performs the target query first,
+// even when a later distance, TP or difficulty test rejects the row (34DC8).
+fn eligible(row: battle::EnemyChoice, state: battle::EnemyParameters) -> bool {
+    let mut policy = row.target_policy;
+    if policy == 0 { policy = state.strategy; }
+    let queried_target = battle::ai_select_target(policy);
+    if state.distance < row.minimum || state.distance > row.maximum { return false; }
+    if state.tp < row.tp { return false; }
+    if (row.requirements & 536870912) != 0 && state.difficulty != 0 { return false; }
+    if (row.requirements & 4) != 0 && state.difficulty < 1 { return false; }
+    if (row.requirements & 8) != 0 && state.difficulty < 2 { return false; }
+    if (row.requirements & 1048576) != 0 && state.hp_percent > 75 { return false; }
+    if (row.requirements & 2) != 0 && state.hp_percent > 50 { return false; }
+    if (row.requirements & 1) != 0 && state.hp_percent > 25 { return false; }
+    return true;
+}
+
+fn commit(index: i32, state: battle::EnemyParameters) -> i32 {
+    let row = battle::ai_enemy_choice(index);
+    let mut policy = row.target_policy;
+    if policy == 0 { policy = state.strategy; }
+    battle::ai_set_target(battle::ai_select_target(policy));
+    battle::ai_enemy_commit(index);
+    return index;
+}
+
+pub fn choose() -> i32 {
+    // 355EC publishes row zero before any selection or early-return branch.
+    battle::ai_enemy_commit(0);
+    let state = battle::ai_enemy_parameters();
+    if state.rank >= state.cap {
+        if state.back_count == 0 { return -1; }
+        let threshold = battle::ai_random_mod(100);
+        let mut accumulated = 0;
+        let mut index = 0;
+        while index < state.back_count {
+            let back = battle::ai_enemy_back_row(index);
+            accumulated = accumulated + back.weight;
+            if threshold < accumulated && eligible(battle::ai_enemy_choice(back.choice), state) {
+                return commit(back.choice, state);
+            }
+            index = index + 1;
+        }
+        return -1;
+    }
+
+    let mut index = 0;
+    while index < state.count {
+        let row = battle::ai_enemy_choice(index);
+        if (row.requirements & 524288) != 0 && eligible(row, state) {
+            return commit(index, state);
+        }
+        index = index + 1;
+    }
+
+    // A bitset preserves the eligibility pass without repeating target draws.
+    let mut candidates = 0;
+    let mut total = 0;
+    let mut bit = 1;
+    index = 0;
+    while index < state.count {
+        let row = battle::ai_enemy_choice(index);
+        if eligible(row, state) {
+            candidates = candidates | bit;
+            total = total + row.weight;
+        }
+        index = index + 1;
+        bit = bit * 2;
+    }
+    if total == 0 { return commit(0, state); }
+    let threshold = battle::ai_random_mod(total);
+    let mut accumulated = 0;
+    index = 0;
+    bit = 1;
+    while index < state.count {
+        if (candidates & bit) != 0 {
+            let row = battle::ai_enemy_choice(index);
+            accumulated = accumulated + row.weight;
+            if threshold < accumulated || (row.requirements & 524288) != 0 {
+                return commit(index, state);
+            }
+        }
+        index = index + 1;
+        bit = bit * 2;
+    }
+    return commit(0, state);
+}
+
+// 40C8 calls this same chooser before camera entry, without admitting an attack.
+pub task initialize() { let choice = choose(); }
+
+fn idle_pose(idle: battle::Motion, walk: battle::Motion) {
+    battle::forward_speed(0.0, false);
+    if battle::motion_is(walk) || battle::animation_finished() {
+        battle::idle_pose(ticks(8));
+    }
+}
+
+pub task ordinary(idle: battle::Motion, walk: battle::Motion) {
+    let parameters = battle::ai_enemy_parameters();
+    while true {
+        if battle::ai_idle_initializing() {
+            // 31B68 runs after control dispatch, so selection resumes next visit.
+            battle::ai_reset_idle();
+            idle_pose(idle, walk);
+            battle::ai_face_current(180.0 / f32(parameters.turn_ticks));
+        } else if battle::ai_ready() {
+            let mut requested = false;
+            let delay = battle::ai_idle_timer();
+            if delay > 0 {
+                battle::ai_set_idle_timer(delay - 1);
+                idle_pose(idle, walk);
+            } else if battle::ai_hover_ready() {
+                let index = choose();
+                if index >= 0 {
+                    let row = battle::ai_enemy_choice(index);
+                    let state = battle::ai_enemy_parameters();
+                    // 294AC leaves motion unchanged for ordinary enemy rows.
+                    requested = battle::ai_request_without_stop(row.action,
+                        row.approach_minimum, row.approach_range, walk,
+                        0.5, state.speed, state.turn_ticks);
+                }
+            } else {
+                idle_pose(idle, walk);
+            }
+            // 31290 uses cached18E4 here. Accepted requests perform this tail
+            // in the shared approach callback, exactly once on that visit.
+            if !requested {
+                battle::ai_face_current(180.0 / f32(parameters.turn_ticks));
+            }
+        }
+        await battle::next_update();
+    }
+}

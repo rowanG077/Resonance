@@ -1,0 +1,2193 @@
+{
+  "scope": "Original Fire Ball casting request order: initial sound, countdown pulses, release burst then sound 123 then spell. Two complete casts and one prefix; sound requests do not establish audio playback or full Lightning acceptance.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499"
+  },
+  "trace_sha256": "c83f4f0ad1e0f0d9b9899e0bcb2c24c3e8d0b0cce3227c113f9790df5d326134",
+  "memory_sha256": "ed015e3c3f1b6d817df2942be347d52a94b6ab52f2ab907eab574f1572f2f397",
+  "same_vi_comparison_sha256": "c611134a252581590a7987bf37e44f86613a73db077d84067fb43a26570796d5",
+  "observations": [
+    {
+      "index": 0,
+      "combat_tick": 297,
+      "requests": [
+        {
+          "caller": 236824,
+          "kind": "sound",
+          "index": 109,
+          "priority": 1
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "combat_tick": 298,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "combat_tick": 299,
+      "requests": []
+    },
+    {
+      "index": 3,
+      "combat_tick": 300,
+      "requests": []
+    },
+    {
+      "index": 4,
+      "combat_tick": 301,
+      "requests": []
+    },
+    {
+      "index": 5,
+      "combat_tick": 302,
+      "requests": []
+    },
+    {
+      "index": 6,
+      "combat_tick": 303,
+      "requests": []
+    },
+    {
+      "index": 7,
+      "combat_tick": 304,
+      "requests": []
+    },
+    {
+      "index": 8,
+      "combat_tick": 305,
+      "requests": []
+    },
+    {
+      "index": 9,
+      "combat_tick": 306,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "combat_tick": 307,
+      "requests": []
+    },
+    {
+      "index": 11,
+      "combat_tick": 308,
+      "requests": []
+    },
+    {
+      "index": 12,
+      "combat_tick": 309,
+      "requests": []
+    },
+    {
+      "index": 13,
+      "combat_tick": 310,
+      "requests": []
+    },
+    {
+      "index": 14,
+      "combat_tick": 311,
+      "requests": []
+    },
+    {
+      "index": 15,
+      "combat_tick": 312,
+      "requests": []
+    },
+    {
+      "index": 16,
+      "combat_tick": 313,
+      "requests": []
+    },
+    {
+      "index": 17,
+      "combat_tick": 314,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 18,
+      "combat_tick": 315,
+      "requests": []
+    },
+    {
+      "index": 19,
+      "combat_tick": 316,
+      "requests": []
+    },
+    {
+      "index": 20,
+      "combat_tick": 317,
+      "requests": []
+    },
+    {
+      "index": 21,
+      "combat_tick": 318,
+      "requests": []
+    },
+    {
+      "index": 22,
+      "combat_tick": 319,
+      "requests": []
+    },
+    {
+      "index": 23,
+      "combat_tick": 320,
+      "requests": []
+    },
+    {
+      "index": 24,
+      "combat_tick": 321,
+      "requests": []
+    },
+    {
+      "index": 25,
+      "combat_tick": 322,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 26,
+      "combat_tick": 323,
+      "requests": []
+    },
+    {
+      "index": 27,
+      "combat_tick": 324,
+      "requests": []
+    },
+    {
+      "index": 28,
+      "combat_tick": 325,
+      "requests": []
+    },
+    {
+      "index": 29,
+      "combat_tick": 326,
+      "requests": []
+    },
+    {
+      "index": 30,
+      "combat_tick": 327,
+      "requests": []
+    },
+    {
+      "index": 31,
+      "combat_tick": 328,
+      "requests": []
+    },
+    {
+      "index": 32,
+      "combat_tick": 329,
+      "requests": []
+    },
+    {
+      "index": 33,
+      "combat_tick": 330,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 34,
+      "combat_tick": 331,
+      "requests": []
+    },
+    {
+      "index": 35,
+      "combat_tick": 332,
+      "requests": []
+    },
+    {
+      "index": 36,
+      "combat_tick": 333,
+      "requests": []
+    },
+    {
+      "index": 37,
+      "combat_tick": 334,
+      "requests": []
+    },
+    {
+      "index": 38,
+      "combat_tick": 335,
+      "requests": []
+    },
+    {
+      "index": 39,
+      "combat_tick": 336,
+      "requests": []
+    },
+    {
+      "index": 40,
+      "combat_tick": 337,
+      "requests": []
+    },
+    {
+      "index": 41,
+      "combat_tick": 338,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 42,
+      "combat_tick": 339,
+      "requests": []
+    },
+    {
+      "index": 43,
+      "combat_tick": 340,
+      "requests": []
+    },
+    {
+      "index": 44,
+      "combat_tick": 341,
+      "requests": []
+    },
+    {
+      "index": 45,
+      "combat_tick": 342,
+      "requests": []
+    },
+    {
+      "index": 46,
+      "combat_tick": 343,
+      "requests": []
+    },
+    {
+      "index": 47,
+      "combat_tick": 344,
+      "requests": []
+    },
+    {
+      "index": 48,
+      "combat_tick": 345,
+      "requests": []
+    },
+    {
+      "index": 49,
+      "combat_tick": 346,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 50,
+      "combat_tick": 347,
+      "requests": []
+    },
+    {
+      "index": 51,
+      "combat_tick": 348,
+      "requests": []
+    },
+    {
+      "index": 52,
+      "combat_tick": 349,
+      "requests": []
+    },
+    {
+      "index": 53,
+      "combat_tick": 350,
+      "requests": []
+    },
+    {
+      "index": 54,
+      "combat_tick": 351,
+      "requests": []
+    },
+    {
+      "index": 55,
+      "combat_tick": 352,
+      "requests": []
+    },
+    {
+      "index": 56,
+      "combat_tick": 353,
+      "requests": []
+    },
+    {
+      "index": 57,
+      "combat_tick": 354,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 58,
+      "combat_tick": 355,
+      "requests": []
+    },
+    {
+      "index": 59,
+      "combat_tick": 356,
+      "requests": []
+    },
+    {
+      "index": 60,
+      "combat_tick": 357,
+      "requests": []
+    },
+    {
+      "index": 61,
+      "combat_tick": 358,
+      "requests": []
+    },
+    {
+      "index": 62,
+      "combat_tick": 359,
+      "requests": []
+    },
+    {
+      "index": 63,
+      "combat_tick": 360,
+      "requests": []
+    },
+    {
+      "index": 64,
+      "combat_tick": 361,
+      "requests": []
+    },
+    {
+      "index": 65,
+      "combat_tick": 362,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 66,
+      "combat_tick": 363,
+      "requests": []
+    },
+    {
+      "index": 67,
+      "combat_tick": 364,
+      "requests": []
+    },
+    {
+      "index": 68,
+      "combat_tick": 365,
+      "requests": []
+    },
+    {
+      "index": 69,
+      "combat_tick": 366,
+      "requests": []
+    },
+    {
+      "index": 70,
+      "combat_tick": 367,
+      "requests": []
+    },
+    {
+      "index": 71,
+      "combat_tick": 368,
+      "requests": []
+    },
+    {
+      "index": 72,
+      "combat_tick": 369,
+      "requests": []
+    },
+    {
+      "index": 73,
+      "combat_tick": 370,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 74,
+      "combat_tick": 371,
+      "requests": []
+    },
+    {
+      "index": 75,
+      "combat_tick": 372,
+      "requests": []
+    },
+    {
+      "index": 76,
+      "combat_tick": 373,
+      "requests": []
+    },
+    {
+      "index": 77,
+      "combat_tick": 374,
+      "requests": []
+    },
+    {
+      "index": 78,
+      "combat_tick": 375,
+      "requests": []
+    },
+    {
+      "index": 79,
+      "combat_tick": 376,
+      "requests": []
+    },
+    {
+      "index": 80,
+      "combat_tick": 377,
+      "requests": []
+    },
+    {
+      "index": 81,
+      "combat_tick": 378,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 82,
+      "combat_tick": 379,
+      "requests": []
+    },
+    {
+      "index": 83,
+      "combat_tick": 380,
+      "requests": []
+    },
+    {
+      "index": 84,
+      "combat_tick": 381,
+      "requests": []
+    },
+    {
+      "index": 85,
+      "combat_tick": 382,
+      "requests": []
+    },
+    {
+      "index": 86,
+      "combat_tick": 383,
+      "requests": []
+    },
+    {
+      "index": 87,
+      "combat_tick": 384,
+      "requests": []
+    },
+    {
+      "index": 88,
+      "combat_tick": 385,
+      "requests": []
+    },
+    {
+      "index": 89,
+      "combat_tick": 386,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 90,
+      "combat_tick": 387,
+      "requests": []
+    },
+    {
+      "index": 91,
+      "combat_tick": 388,
+      "requests": []
+    },
+    {
+      "index": 92,
+      "combat_tick": 389,
+      "requests": []
+    },
+    {
+      "index": 93,
+      "combat_tick": 390,
+      "requests": []
+    },
+    {
+      "index": 94,
+      "combat_tick": 391,
+      "requests": []
+    },
+    {
+      "index": 95,
+      "combat_tick": 392,
+      "requests": []
+    },
+    {
+      "index": 96,
+      "combat_tick": 393,
+      "requests": []
+    },
+    {
+      "index": 97,
+      "combat_tick": 394,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 98,
+      "combat_tick": 395,
+      "requests": []
+    },
+    {
+      "index": 99,
+      "combat_tick": 396,
+      "requests": []
+    },
+    {
+      "index": 100,
+      "combat_tick": 397,
+      "requests": []
+    },
+    {
+      "index": 101,
+      "combat_tick": 398,
+      "requests": []
+    },
+    {
+      "index": 102,
+      "combat_tick": 399,
+      "requests": []
+    },
+    {
+      "index": 103,
+      "combat_tick": 400,
+      "requests": []
+    },
+    {
+      "index": 104,
+      "combat_tick": 401,
+      "requests": []
+    },
+    {
+      "index": 105,
+      "combat_tick": 402,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 106,
+      "combat_tick": 403,
+      "requests": []
+    },
+    {
+      "index": 107,
+      "combat_tick": 404,
+      "requests": []
+    },
+    {
+      "index": 108,
+      "combat_tick": 405,
+      "requests": []
+    },
+    {
+      "index": 109,
+      "combat_tick": 406,
+      "requests": []
+    },
+    {
+      "index": 110,
+      "combat_tick": 407,
+      "requests": []
+    },
+    {
+      "index": 111,
+      "combat_tick": 408,
+      "requests": []
+    },
+    {
+      "index": 112,
+      "combat_tick": 409,
+      "requests": []
+    },
+    {
+      "index": 113,
+      "combat_tick": 410,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 114,
+      "combat_tick": 411,
+      "requests": []
+    },
+    {
+      "index": 115,
+      "combat_tick": 412,
+      "requests": []
+    },
+    {
+      "index": 116,
+      "combat_tick": 413,
+      "requests": []
+    },
+    {
+      "index": 117,
+      "combat_tick": 414,
+      "requests": []
+    },
+    {
+      "index": 118,
+      "combat_tick": 415,
+      "requests": []
+    },
+    {
+      "index": 119,
+      "combat_tick": 416,
+      "requests": []
+    },
+    {
+      "index": 120,
+      "combat_tick": 417,
+      "requests": []
+    },
+    {
+      "index": 121,
+      "combat_tick": 418,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 122,
+      "combat_tick": 419,
+      "requests": []
+    },
+    {
+      "index": 123,
+      "combat_tick": 420,
+      "requests": []
+    },
+    {
+      "index": 124,
+      "combat_tick": 421,
+      "requests": []
+    },
+    {
+      "index": 125,
+      "combat_tick": 422,
+      "requests": []
+    },
+    {
+      "index": 126,
+      "combat_tick": 423,
+      "requests": []
+    },
+    {
+      "index": 127,
+      "combat_tick": 424,
+      "requests": []
+    },
+    {
+      "index": 128,
+      "combat_tick": 425,
+      "requests": []
+    },
+    {
+      "index": 129,
+      "combat_tick": 426,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 130,
+      "combat_tick": 427,
+      "requests": []
+    },
+    {
+      "index": 131,
+      "combat_tick": 428,
+      "requests": []
+    },
+    {
+      "index": 132,
+      "combat_tick": 429,
+      "requests": []
+    },
+    {
+      "index": 133,
+      "combat_tick": 430,
+      "requests": []
+    },
+    {
+      "index": 134,
+      "combat_tick": 431,
+      "requests": []
+    },
+    {
+      "index": 135,
+      "combat_tick": 432,
+      "requests": []
+    },
+    {
+      "index": 136,
+      "combat_tick": 433,
+      "requests": []
+    },
+    {
+      "index": 137,
+      "combat_tick": 434,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 138,
+      "combat_tick": 435,
+      "requests": []
+    },
+    {
+      "index": 139,
+      "combat_tick": 436,
+      "requests": []
+    },
+    {
+      "index": 140,
+      "combat_tick": 437,
+      "requests": []
+    },
+    {
+      "index": 141,
+      "combat_tick": 438,
+      "requests": []
+    },
+    {
+      "index": 142,
+      "combat_tick": 439,
+      "requests": [
+        {
+          "caller": 231608,
+          "kind": "effect",
+          "bank": 0,
+          "member": 7,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287644,
+          "late": 1,
+          "scale_bits": 1063675494
+        },
+        {
+          "caller": 231636,
+          "kind": "sound",
+          "index": 123,
+          "priority": 1
+        },
+        {
+          "caller": 231676,
+          "kind": "release",
+          "owner": 2167281152,
+          "technique": 204
+        }
+      ]
+    },
+    {
+      "index": 143,
+      "combat_tick": 664,
+      "requests": [
+        {
+          "caller": 236824,
+          "kind": "sound",
+          "index": 109,
+          "priority": 1
+        }
+      ]
+    },
+    {
+      "index": 144,
+      "combat_tick": 665,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 145,
+      "combat_tick": 666,
+      "requests": []
+    },
+    {
+      "index": 146,
+      "combat_tick": 667,
+      "requests": []
+    },
+    {
+      "index": 147,
+      "combat_tick": 668,
+      "requests": []
+    },
+    {
+      "index": 148,
+      "combat_tick": 669,
+      "requests": []
+    },
+    {
+      "index": 149,
+      "combat_tick": 670,
+      "requests": []
+    },
+    {
+      "index": 150,
+      "combat_tick": 671,
+      "requests": []
+    },
+    {
+      "index": 151,
+      "combat_tick": 672,
+      "requests": []
+    },
+    {
+      "index": 152,
+      "combat_tick": 673,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 153,
+      "combat_tick": 674,
+      "requests": []
+    },
+    {
+      "index": 154,
+      "combat_tick": 675,
+      "requests": []
+    },
+    {
+      "index": 155,
+      "combat_tick": 676,
+      "requests": []
+    },
+    {
+      "index": 156,
+      "combat_tick": 677,
+      "requests": []
+    },
+    {
+      "index": 157,
+      "combat_tick": 678,
+      "requests": []
+    },
+    {
+      "index": 158,
+      "combat_tick": 679,
+      "requests": []
+    },
+    {
+      "index": 159,
+      "combat_tick": 680,
+      "requests": []
+    },
+    {
+      "index": 160,
+      "combat_tick": 681,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 161,
+      "combat_tick": 682,
+      "requests": []
+    },
+    {
+      "index": 162,
+      "combat_tick": 683,
+      "requests": []
+    },
+    {
+      "index": 163,
+      "combat_tick": 684,
+      "requests": []
+    },
+    {
+      "index": 164,
+      "combat_tick": 685,
+      "requests": []
+    },
+    {
+      "index": 165,
+      "combat_tick": 686,
+      "requests": []
+    },
+    {
+      "index": 166,
+      "combat_tick": 687,
+      "requests": []
+    },
+    {
+      "index": 167,
+      "combat_tick": 688,
+      "requests": []
+    },
+    {
+      "index": 168,
+      "combat_tick": 689,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 169,
+      "combat_tick": 690,
+      "requests": []
+    },
+    {
+      "index": 170,
+      "combat_tick": 691,
+      "requests": []
+    },
+    {
+      "index": 171,
+      "combat_tick": 692,
+      "requests": []
+    },
+    {
+      "index": 172,
+      "combat_tick": 693,
+      "requests": []
+    },
+    {
+      "index": 173,
+      "combat_tick": 694,
+      "requests": []
+    },
+    {
+      "index": 174,
+      "combat_tick": 695,
+      "requests": []
+    },
+    {
+      "index": 175,
+      "combat_tick": 696,
+      "requests": []
+    },
+    {
+      "index": 176,
+      "combat_tick": 697,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 177,
+      "combat_tick": 698,
+      "requests": []
+    },
+    {
+      "index": 178,
+      "combat_tick": 699,
+      "requests": []
+    },
+    {
+      "index": 179,
+      "combat_tick": 700,
+      "requests": []
+    },
+    {
+      "index": 180,
+      "combat_tick": 701,
+      "requests": []
+    },
+    {
+      "index": 181,
+      "combat_tick": 702,
+      "requests": []
+    },
+    {
+      "index": 182,
+      "combat_tick": 703,
+      "requests": []
+    },
+    {
+      "index": 183,
+      "combat_tick": 704,
+      "requests": []
+    },
+    {
+      "index": 184,
+      "combat_tick": 705,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 185,
+      "combat_tick": 706,
+      "requests": []
+    },
+    {
+      "index": 186,
+      "combat_tick": 707,
+      "requests": []
+    },
+    {
+      "index": 187,
+      "combat_tick": 708,
+      "requests": []
+    },
+    {
+      "index": 188,
+      "combat_tick": 709,
+      "requests": []
+    },
+    {
+      "index": 189,
+      "combat_tick": 710,
+      "requests": []
+    },
+    {
+      "index": 190,
+      "combat_tick": 711,
+      "requests": []
+    },
+    {
+      "index": 191,
+      "combat_tick": 712,
+      "requests": []
+    },
+    {
+      "index": 192,
+      "combat_tick": 713,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 193,
+      "combat_tick": 714,
+      "requests": []
+    },
+    {
+      "index": 194,
+      "combat_tick": 715,
+      "requests": []
+    },
+    {
+      "index": 195,
+      "combat_tick": 716,
+      "requests": []
+    },
+    {
+      "index": 196,
+      "combat_tick": 717,
+      "requests": []
+    },
+    {
+      "index": 197,
+      "combat_tick": 718,
+      "requests": []
+    },
+    {
+      "index": 198,
+      "combat_tick": 719,
+      "requests": []
+    },
+    {
+      "index": 199,
+      "combat_tick": 720,
+      "requests": []
+    },
+    {
+      "index": 200,
+      "combat_tick": 721,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 201,
+      "combat_tick": 722,
+      "requests": []
+    },
+    {
+      "index": 202,
+      "combat_tick": 723,
+      "requests": []
+    },
+    {
+      "index": 203,
+      "combat_tick": 724,
+      "requests": []
+    },
+    {
+      "index": 204,
+      "combat_tick": 725,
+      "requests": []
+    },
+    {
+      "index": 205,
+      "combat_tick": 726,
+      "requests": []
+    },
+    {
+      "index": 206,
+      "combat_tick": 727,
+      "requests": []
+    },
+    {
+      "index": 207,
+      "combat_tick": 728,
+      "requests": []
+    },
+    {
+      "index": 208,
+      "combat_tick": 729,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 209,
+      "combat_tick": 730,
+      "requests": []
+    },
+    {
+      "index": 210,
+      "combat_tick": 731,
+      "requests": []
+    },
+    {
+      "index": 211,
+      "combat_tick": 732,
+      "requests": []
+    },
+    {
+      "index": 212,
+      "combat_tick": 733,
+      "requests": []
+    },
+    {
+      "index": 213,
+      "combat_tick": 734,
+      "requests": []
+    },
+    {
+      "index": 214,
+      "combat_tick": 735,
+      "requests": []
+    },
+    {
+      "index": 215,
+      "combat_tick": 736,
+      "requests": []
+    },
+    {
+      "index": 216,
+      "combat_tick": 737,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 217,
+      "combat_tick": 738,
+      "requests": []
+    },
+    {
+      "index": 218,
+      "combat_tick": 739,
+      "requests": []
+    },
+    {
+      "index": 219,
+      "combat_tick": 740,
+      "requests": []
+    },
+    {
+      "index": 220,
+      "combat_tick": 741,
+      "requests": []
+    },
+    {
+      "index": 221,
+      "combat_tick": 742,
+      "requests": []
+    },
+    {
+      "index": 222,
+      "combat_tick": 743,
+      "requests": []
+    },
+    {
+      "index": 223,
+      "combat_tick": 744,
+      "requests": []
+    },
+    {
+      "index": 224,
+      "combat_tick": 745,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 225,
+      "combat_tick": 746,
+      "requests": []
+    },
+    {
+      "index": 226,
+      "combat_tick": 747,
+      "requests": []
+    },
+    {
+      "index": 227,
+      "combat_tick": 748,
+      "requests": []
+    },
+    {
+      "index": 228,
+      "combat_tick": 749,
+      "requests": []
+    },
+    {
+      "index": 229,
+      "combat_tick": 750,
+      "requests": []
+    },
+    {
+      "index": 230,
+      "combat_tick": 751,
+      "requests": []
+    },
+    {
+      "index": 231,
+      "combat_tick": 752,
+      "requests": []
+    },
+    {
+      "index": 232,
+      "combat_tick": 753,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 233,
+      "combat_tick": 754,
+      "requests": []
+    },
+    {
+      "index": 234,
+      "combat_tick": 755,
+      "requests": []
+    },
+    {
+      "index": 235,
+      "combat_tick": 756,
+      "requests": []
+    },
+    {
+      "index": 236,
+      "combat_tick": 757,
+      "requests": []
+    },
+    {
+      "index": 237,
+      "combat_tick": 758,
+      "requests": []
+    },
+    {
+      "index": 238,
+      "combat_tick": 759,
+      "requests": []
+    },
+    {
+      "index": 239,
+      "combat_tick": 760,
+      "requests": []
+    },
+    {
+      "index": 240,
+      "combat_tick": 761,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 241,
+      "combat_tick": 762,
+      "requests": []
+    },
+    {
+      "index": 242,
+      "combat_tick": 763,
+      "requests": []
+    },
+    {
+      "index": 243,
+      "combat_tick": 764,
+      "requests": []
+    },
+    {
+      "index": 244,
+      "combat_tick": 765,
+      "requests": []
+    },
+    {
+      "index": 245,
+      "combat_tick": 766,
+      "requests": []
+    },
+    {
+      "index": 246,
+      "combat_tick": 767,
+      "requests": []
+    },
+    {
+      "index": 247,
+      "combat_tick": 768,
+      "requests": []
+    },
+    {
+      "index": 248,
+      "combat_tick": 769,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 249,
+      "combat_tick": 770,
+      "requests": []
+    },
+    {
+      "index": 250,
+      "combat_tick": 771,
+      "requests": []
+    },
+    {
+      "index": 251,
+      "combat_tick": 772,
+      "requests": []
+    },
+    {
+      "index": 252,
+      "combat_tick": 773,
+      "requests": []
+    },
+    {
+      "index": 253,
+      "combat_tick": 774,
+      "requests": []
+    },
+    {
+      "index": 254,
+      "combat_tick": 775,
+      "requests": []
+    },
+    {
+      "index": 255,
+      "combat_tick": 776,
+      "requests": []
+    },
+    {
+      "index": 256,
+      "combat_tick": 777,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 257,
+      "combat_tick": 778,
+      "requests": []
+    },
+    {
+      "index": 258,
+      "combat_tick": 779,
+      "requests": []
+    },
+    {
+      "index": 259,
+      "combat_tick": 780,
+      "requests": []
+    },
+    {
+      "index": 260,
+      "combat_tick": 781,
+      "requests": []
+    },
+    {
+      "index": 261,
+      "combat_tick": 782,
+      "requests": []
+    },
+    {
+      "index": 262,
+      "combat_tick": 783,
+      "requests": []
+    },
+    {
+      "index": 263,
+      "combat_tick": 784,
+      "requests": []
+    },
+    {
+      "index": 264,
+      "combat_tick": 785,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 265,
+      "combat_tick": 786,
+      "requests": []
+    },
+    {
+      "index": 266,
+      "combat_tick": 787,
+      "requests": []
+    },
+    {
+      "index": 267,
+      "combat_tick": 788,
+      "requests": []
+    },
+    {
+      "index": 268,
+      "combat_tick": 789,
+      "requests": []
+    },
+    {
+      "index": 269,
+      "combat_tick": 790,
+      "requests": []
+    },
+    {
+      "index": 270,
+      "combat_tick": 791,
+      "requests": []
+    },
+    {
+      "index": 271,
+      "combat_tick": 792,
+      "requests": []
+    },
+    {
+      "index": 272,
+      "combat_tick": 793,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 273,
+      "combat_tick": 794,
+      "requests": []
+    },
+    {
+      "index": 274,
+      "combat_tick": 795,
+      "requests": []
+    },
+    {
+      "index": 275,
+      "combat_tick": 796,
+      "requests": []
+    },
+    {
+      "index": 276,
+      "combat_tick": 797,
+      "requests": []
+    },
+    {
+      "index": 277,
+      "combat_tick": 798,
+      "requests": []
+    },
+    {
+      "index": 278,
+      "combat_tick": 799,
+      "requests": []
+    },
+    {
+      "index": 279,
+      "combat_tick": 800,
+      "requests": []
+    },
+    {
+      "index": 280,
+      "combat_tick": 801,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 281,
+      "combat_tick": 802,
+      "requests": []
+    },
+    {
+      "index": 282,
+      "combat_tick": 803,
+      "requests": []
+    },
+    {
+      "index": 283,
+      "combat_tick": 804,
+      "requests": []
+    },
+    {
+      "index": 284,
+      "combat_tick": 805,
+      "requests": []
+    },
+    {
+      "index": 285,
+      "combat_tick": 806,
+      "requests": [
+        {
+          "caller": 231608,
+          "kind": "effect",
+          "bank": 0,
+          "member": 7,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287644,
+          "late": 1,
+          "scale_bits": 1063675494
+        },
+        {
+          "caller": 231636,
+          "kind": "sound",
+          "index": 123,
+          "priority": 1
+        },
+        {
+          "caller": 231676,
+          "kind": "release",
+          "owner": 2167281152,
+          "technique": 204
+        }
+      ]
+    },
+    {
+      "index": 286,
+      "combat_tick": 1051,
+      "requests": [
+        {
+          "caller": 236824,
+          "kind": "sound",
+          "index": 109,
+          "priority": 1
+        }
+      ]
+    },
+    {
+      "index": 287,
+      "combat_tick": 1052,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 288,
+      "combat_tick": 1053,
+      "requests": []
+    },
+    {
+      "index": 289,
+      "combat_tick": 1054,
+      "requests": []
+    },
+    {
+      "index": 290,
+      "combat_tick": 1055,
+      "requests": []
+    },
+    {
+      "index": 291,
+      "combat_tick": 1056,
+      "requests": []
+    },
+    {
+      "index": 292,
+      "combat_tick": 1057,
+      "requests": []
+    },
+    {
+      "index": 293,
+      "combat_tick": 1058,
+      "requests": []
+    },
+    {
+      "index": 294,
+      "combat_tick": 1059,
+      "requests": []
+    },
+    {
+      "index": 295,
+      "combat_tick": 1060,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 296,
+      "combat_tick": 1061,
+      "requests": []
+    },
+    {
+      "index": 297,
+      "combat_tick": 1062,
+      "requests": []
+    },
+    {
+      "index": 298,
+      "combat_tick": 1063,
+      "requests": []
+    },
+    {
+      "index": 299,
+      "combat_tick": 1064,
+      "requests": []
+    },
+    {
+      "index": 300,
+      "combat_tick": 1065,
+      "requests": []
+    },
+    {
+      "index": 301,
+      "combat_tick": 1066,
+      "requests": []
+    },
+    {
+      "index": 302,
+      "combat_tick": 1067,
+      "requests": []
+    },
+    {
+      "index": 303,
+      "combat_tick": 1068,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 304,
+      "combat_tick": 1069,
+      "requests": []
+    },
+    {
+      "index": 305,
+      "combat_tick": 1070,
+      "requests": []
+    },
+    {
+      "index": 306,
+      "combat_tick": 1071,
+      "requests": []
+    },
+    {
+      "index": 307,
+      "combat_tick": 1072,
+      "requests": []
+    },
+    {
+      "index": 308,
+      "combat_tick": 1073,
+      "requests": []
+    },
+    {
+      "index": 309,
+      "combat_tick": 1074,
+      "requests": []
+    },
+    {
+      "index": 310,
+      "combat_tick": 1075,
+      "requests": []
+    },
+    {
+      "index": 311,
+      "combat_tick": 1076,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    },
+    {
+      "index": 312,
+      "combat_tick": 1077,
+      "requests": []
+    },
+    {
+      "index": 313,
+      "combat_tick": 1078,
+      "requests": []
+    },
+    {
+      "index": 314,
+      "combat_tick": 1079,
+      "requests": []
+    },
+    {
+      "index": 315,
+      "combat_tick": 1080,
+      "requests": []
+    },
+    {
+      "index": 316,
+      "combat_tick": 1081,
+      "requests": []
+    },
+    {
+      "index": 317,
+      "combat_tick": 1082,
+      "requests": []
+    },
+    {
+      "index": 318,
+      "combat_tick": 1083,
+      "requests": []
+    },
+    {
+      "index": 319,
+      "combat_tick": 1084,
+      "requests": [
+        {
+          "caller": 235320,
+          "kind": "effect",
+          "bank": 0,
+          "member": 3,
+          "owner": 2167281152,
+          "target": 2167281152,
+          "follow": 2167287488,
+          "late": 1,
+          "scale_bits": 1063675494
+        }
+      ]
+    }
+  ]
+}

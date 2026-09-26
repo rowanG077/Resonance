@@ -18,6 +18,7 @@ use std::{
     time::Duration,
 };
 
+#[derive(Clone)]
 pub(crate) struct PlaybackAssets {
     music: Option<TitleMusic>,
     cues: Option<Arc<Loaded>>,

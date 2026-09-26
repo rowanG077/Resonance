@@ -1,0 +1,80 @@
+script battle;
+use battle;
+// Enemy 49's ordinary action rows. Controller selection and approach stay
+// separate from their command, contact and animation stream clocks.
+asset idle: battle::Motion = "battle/motions/enemies/049/0";
+asset strike_motion: battle::Motion = "battle/motions/enemies/049/30";
+asset spit_motion: battle::Motion = "battle/motions/enemies/049/31";
+asset strike_contact: battle::Melee = "battle/melee/enemies/049/0/0";
+asset spit_projectile: battle::Projectile = "battle/projectiles/enemies/049/0";
+asset strike_sound: battle::Sound = "battle/sounds/common/60";
+asset spit_sound: battle::Sound = "battle/sounds/common/61";
+
+pub task strike() {
+    // 3DF34 resets normal braking for enemy rows as well as party normals.
+    battle::braking(0.41250002);
+    battle::action_guard(25, ticks(1), ticks(4));
+    spawn strike_commands();
+    spawn strike_hits();
+    await battle::animate(strike_motion, ticks(8), 0.0, 0.4, false);
+    battle::end_animation();
+    await battle::action_end();
+    battle::play_motion(idle, ticks(30), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(30));
+    battle::finish();
+}
+
+pub task spit() {
+    // 3DF34 resets normal braking for enemy rows as well as party normals.
+    battle::braking(0.41250002);
+    battle::action_guard(25, ticks(1), ticks(4));
+    spawn spit_commands();
+    spawn spit_hits();
+    await battle::animate(spit_motion, ticks(8), 0.0, 0.5, false);
+    battle::end_animation();
+    await battle::action_end();
+    battle::play_motion(idle, ticks(30), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(30));
+    battle::finish();
+}
+
+task strike_commands() {
+    battle::vertical_speed(-5.0);
+    battle::forward_speed(-3.0, false);
+    await battle::at_command_age(ticks(10));
+    battle::vertical_speed(2.0);
+    battle::forward_speed(2.0, false);
+    battle::acceleration(1.0);
+    battle::gravity(1.0);
+    await battle::at_command_age(ticks(22));
+    battle::sound(strike_sound, 1);
+    battle::vertical_speed(-2.0);
+    battle::gravity(-2.0);
+    await battle::at_command_age(ticks(24));
+    battle::weapon_trail(0, ticks(6));
+    await battle::at_command_age(ticks(29));
+    battle::vertical_speed(0.0);
+    battle::gravity(0.0);
+    battle::forward_speed(0.0, false);
+    battle::acceleration(0.0);
+}
+
+task strike_hits() {
+    await battle::hit_window(strike_contact, ticks(22), ticks(18));
+}
+
+task spit_commands() {
+    battle::acceleration(0.0);
+    battle::gravity(0.0);
+    battle::weapon_trail(0, ticks(40));
+    await battle::at_command_age(ticks(32));
+    battle::sound(spit_sound, 1);
+    battle::weapon_visible(0, false);
+    await battle::at_command_age(ticks(40));
+    battle::weapon_visible(0, true);
+}
+
+task spit_hits() {
+    await battle::at_hit_age(ticks(32));
+    battle::emit(spit_projectile, battle::actor_point(battle::owner(), 0.0, 0.0));
+}

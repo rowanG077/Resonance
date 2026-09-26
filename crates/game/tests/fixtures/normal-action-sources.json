@@ -1,0 +1,133 @@
+{
+  "dolphin_version": "Dolphin [master] 2606",
+  "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+  "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+  "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+  "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+  "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+  "configs": {
+    "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+    "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+    "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+  },
+  "effective_configs": {
+    "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+    "RetroAchievements.ini": "3c0dd9a34631867226e2cbdd407075550de57ee09aff91a15ba74d9670dc58d3",
+    "GBA.ini": "da87f7564bc33321b15c4824bc83a35d95d6703aa90563013bc48162e2264255",
+    "Qt.ini": "bbe20f1e0e88ab646992709d5570cd7a2c3da86aa1306f11d051cd63fb09852c",
+    "FreeLook.ini": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+    "Dolphin.ini": "700342032625dbfa2f3d3744754aa82dd818d7ca2040ed2596c98bbff3272aad",
+    "GCPadNew.ini": "396ec02cbb5acb99e935ddac942ef0264533d1e65438f39f2380e770c2492170",
+    "TimePlayed.ini": "a8cf7ff3a6f8c2ebbe566d09dfa9826fbbacce0300a78cfa3355c8c996c51c07",
+    "GCKeyNew.ini": "48a3c9ccf16c86e9a70b3df2e8fd4ff0a56ff60ee0513a79617ad99df5061d19",
+    "FreeLookController.ini": "ad9ce95aadbd0ca48a57b6a1c03518f9c2075f335c2a2311fece5853e505d955",
+    "DSUClient.ini": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "Logger.ini": "562251e06bf393ce22407d510947dcd04e1a10babad1cc147cd6b84571eb163c",
+    "WiimoteNew.ini": "178010ac594018157ac0f7b5e56b2d37cd8545b305e47e68fe861484d612f395"
+  },
+  "game_settings": {
+    "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+  },
+  "presentation": {
+    "profile": "no-blur-v1",
+    "disable_copy_filter": true,
+    "gecko": "Remove Blur",
+    "gecko_verified": true,
+    "keep_duplicate_frames": false
+  },
+  "scope": "Three Lloyd normal hit rows and their shared rule observed in the original melee callback; source/loading evidence only.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "source_module_sha256": "b2acfb222246fbbecf5ab8025fb08241c736da65031104fd4be9c51c301df214",
+  "capture": "local/battle-rewrite/oracle-melee-01",
+  "trace_sha256": "49f62c12f5784863b50510b4713904f0de90cba6e4ce4c7a6030ab383b3b41f0",
+  "observations": [
+    {
+      "index": 58,
+      "combat_tick": 325,
+      "presentation_counter": 43746,
+      "hit_index": 0,
+      "start": 8,
+      "emission": 10,
+      "attachment_count": 1,
+      "emission_operands": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "radius_bits": 1106247680,
+      "height_bits": 1106247680,
+      "shape": 0,
+      "damage_kind": 0,
+      "rule_index": 0,
+      "hit_class": 1,
+      "reaction": 1,
+      "flags": 0,
+      "element": 0,
+      "hitstun": 30,
+      "cooldown": 120,
+      "stun_chance": 0,
+      "stagger": 2,
+      "guard_pressure": 1
+    },
+    {
+      "index": 74,
+      "combat_tick": 345,
+      "presentation_counter": 43766,
+      "hit_index": 8,
+      "start": 10,
+      "emission": 6,
+      "attachment_count": 1,
+      "emission_operands": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "radius_bits": 1106247680,
+      "height_bits": 1106247680,
+      "shape": 0,
+      "damage_kind": 0,
+      "rule_index": 0,
+      "hit_class": 1,
+      "reaction": 1,
+      "flags": 0,
+      "element": 0,
+      "hitstun": 30,
+      "cooldown": 120,
+      "stun_chance": 0,
+      "stagger": 2,
+      "guard_pressure": 1
+    },
+    {
+      "index": 91,
+      "combat_tick": 362,
+      "presentation_counter": 43783,
+      "hit_index": 9,
+      "start": 17,
+      "emission": 6,
+      "attachment_count": 1,
+      "emission_operands": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "radius_bits": 1106247680,
+      "height_bits": 1106247680,
+      "shape": 0,
+      "damage_kind": 0,
+      "rule_index": 0,
+      "hit_class": 1,
+      "reaction": 1,
+      "flags": 0,
+      "element": 0,
+      "hitstun": 30,
+      "cooldown": 120,
+      "stun_chance": 0,
+      "stagger": 2,
+      "guard_pressure": 1
+    }
+  ]
+}

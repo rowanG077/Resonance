@@ -111,9 +111,9 @@ fn compiled_field_branch_and_wait_share_the_existing_event_dispatcher() {
         pub task main() {
             if (!story::flag(CustomFlag)) {
                 story::set_flag(41, true);
-                await field::wait_ticks(0ticks);
+                await field::wait_ticks(ticks(0));
                 story::set_flag(43, true);
-                await field::wait_ticks(2ticks);
+                await field::wait_ticks(ticks(2));
                 story::set_flag(CustomFlag, true);
             }
         }
@@ -238,8 +238,8 @@ fn concurrent_children_join_fixed_results_in_the_existing_stable_slot_order() {
         use game::story;
         struct Pair { x: i32, y: i32 }
         pub task main() {
-            let slow = spawn work(2ticks, 10);
-            let fast = spawn work(1ticks, 20);
+            let slow = spawn work(ticks(2), 10);
+            let fast = spawn work(ticks(1), 20);
             let a = await slow;
             let b = await fast;
             if (a.x + b.x == 30 && a.y + b.y == 32) { story::set_flag(42, true); }

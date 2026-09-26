@@ -280,8 +280,7 @@ pub(crate) fn palette(data: &[u8], texture: &TplTexture) -> Result<Option<Palett
 
 /// Effect bindings move the palette base without reducing its entry count.
 /// A window can therefore reach the following data in the same resource.
-#[cfg(test)]
-fn decode_palette_window(
+pub(crate) fn decode_palette_window(
     data: &[u8],
     texture: &TplTexture,
     first_color: usize,

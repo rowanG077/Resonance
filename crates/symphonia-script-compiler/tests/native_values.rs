@@ -111,8 +111,8 @@ fn native_records_and_arrays_use_existing_value_fields_indexing_and_flat_argumen
         pub fn main() -> i32 {
             let original = data::settings();
             let mut changed: data::Settings = original;
-            changed.rows[0].age += 2ticks;
-            changed.rows[1] = Row { age: 7ticks, enabled: true, scale: 3.0 };
+            changed.rows[0].age += ticks(2);
+            changed.rows[1] = Row { age: ticks(7), enabled: true, scale: 3.0 };
             data::put(11, identity(changed), 13);
             let table = data::table();
             return i32(original.rows[0].age) + i32(table[1].age);

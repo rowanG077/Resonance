@@ -28,8 +28,15 @@ fn collect(directory: &Path, files: &mut Vec<std::path::PathBuf>) -> io::Result<
 fn main() -> io::Result<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
     let mut files = Vec::new();
-    for directory in ["std", "preview"] {
+    for directory in ["std", "preview", "battle"] {
         collect(&root.join(directory), &mut files)?;
+    }
+    // The reviewed ID-only audio closure is generated from cold battle binding.
+    // An absent closure stays absent; the production publisher rejects it.
+    let battle_audio = root.join("battle/audio-requirements.json");
+    println!("cargo:rerun-if-changed={}", battle_audio.display());
+    if battle_audio.is_file() {
+        files.push(battle_audio);
     }
     files.sort();
     let mut modules = String::from("pub const MODULES: &[(&str, &str)] = &[\n");

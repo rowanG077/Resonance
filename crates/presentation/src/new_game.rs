@@ -27,7 +27,7 @@ pub(super) struct Session {
     story_movie: Option<MovieAsset>,
     pub(super) prepared_movie: Option<movie::Prepared>,
     movie_started: bool,
-    data: Arc<resonance_content::session::SessionData>,
+    pub(super) data: Arc<resonance_content::session::SessionData>,
     skits: Arc<resonance_content::skit::SkitCatalog>,
     fields: BTreeMap<u32, Arc<FieldPackage>>,
     available_fields: BTreeSet<u32>,
@@ -153,13 +153,18 @@ impl Session {
             },
         );
         let story_movie = if saved.is_none() {
-            let movie: MovieAsset = files.json("movies/1.json")?;
-            movie.validate()?;
-            ensure!(
-                root.join(&movie.path).is_file(),
-                "New Game story movie is missing"
-            );
-            Some(movie)
+            files.diagnostics().attempt(
+                "New Game movie",
+                (|| {
+                    let movie: MovieAsset = files.json("movies/1.json")?;
+                    movie.validate()?;
+                    ensure!(
+                        !files.is_rejected(&movie.path) && root.join(&movie.path).is_file(),
+                        "New Game story movie is missing or failed verification"
+                    );
+                    Ok(movie)
+                })(),
+            )?
         } else {
             None
         };
@@ -277,13 +282,23 @@ impl Session {
         root: &Path,
         cancelled: impl Fn() -> bool,
     ) -> Result<()> {
-        self.prepared_movie = Some(movie::Prepared::load(
-            root,
-            self.story_movie
-                .as_ref()
-                .context("session has no startup movie")?,
-            cancelled,
-        )?);
+        ensure!(!cancelled(), "movie preparation cancelled");
+        let diagnostics = self.files().diagnostics().clone();
+        let Some(movie) = self.story_movie.as_ref() else {
+            diagnostics.report(
+                "New Game movie",
+                anyhow::anyhow!("session has no startup movie; skipping video"),
+            )?;
+            return Ok(());
+        };
+        let stopped = std::cell::Cell::new(false);
+        let prepared = movie::Prepared::load(root, movie, || {
+            let stop = cancelled();
+            stopped.set(stopped.get() || stop);
+            stop
+        });
+        ensure!(!stopped.get(), "movie preparation cancelled");
+        self.prepared_movie = diagnostics.attempt("New Game movie preparation", prepared)?;
         Ok(())
     }
 }
@@ -370,8 +385,7 @@ pub(super) fn enter(world: &mut World) {
         ) {
             Ok(pending) => world.insert_resource(pending),
             Err(error) => {
-                error!("Could not prepare New Game: {error:#}");
-                world.write_message(AppExit::error());
+                entry_failed(world, "New Game preparation", error);
                 return;
             }
         }
@@ -389,8 +403,7 @@ pub(super) fn enter(world: &mut World) {
     let session = match result {
         Ok(session) => session,
         Err(error) => {
-            error!("Could not start New Game: {error:#}");
-            world.write_message(AppExit::error());
+            entry_failed(world, "New Game entry", error);
             return;
         }
     };
@@ -402,6 +415,20 @@ pub(super) fn enter(world: &mut World) {
         files.reused_bytes
     );
     activate(world, session);
+}
+
+fn entry_failed(world: &mut World, scope: &str, error: anyhow::Error) {
+    let diagnostics = world
+        .resource::<super::loading::Resident>()
+        .diagnostics
+        .clone();
+    // The title has not been retired yet. Clearing the one-shot request/worker
+    // leaves it available for another action instead of retrying every update.
+    world.remove_resource::<Request>();
+    world.remove_resource::<super::loading::Pending>();
+    if diagnostics.report(scope, error).is_err() {
+        world.write_message(AppExit::error());
+    }
 }
 
 /// A fully validated candidate can replace the title only after preparation succeeds.
@@ -511,9 +538,18 @@ pub(super) fn transition(world: &mut World) {
         Ok(())
     })();
     if let Err(error) = result {
-        error!("Field transition failed: {error:#}");
+        let diagnostics = world
+            .resource::<super::loading::Resident>()
+            .diagnostics
+            .clone();
+        world.remove_resource::<super::loading::FieldPending>();
         world.resource_mut::<Session>().field.events.cancel();
-        world.write_message(AppExit::error());
+        if diagnostics.report("field transition", error).is_err() {
+            world.write_message(AppExit::error());
+        } else if let Err(error) = super::game_over::return_to_title(world) {
+            let _ = diagnostics.report("field transition recovery", error);
+            world.remove_resource::<Session>();
+        }
     }
 }
 
@@ -560,9 +596,23 @@ pub(super) fn advance(
         Ok(())
     })();
     if let Err(error) = result {
-        error!("New Game entry failed: {error:#}");
-        session.field.events.cancel();
-        exit.write(AppExit::error());
+        let diagnostics = session.files().diagnostics().clone();
+        if diagnostics
+            .report("New Game movie; skipping video", error)
+            .is_err()
+        {
+            session.field.events.cancel();
+            exit.write(AppExit::error());
+        } else {
+            if let Some(request) = &session.field.events.world.movie
+                && request.operation.is_pending()
+                && let Err(error) = request.operation.complete(None)
+            {
+                let _ = diagnostics.report("skipped movie completion", anyhow::Error::msg(error));
+            }
+            session.movie_started = true;
+            session.ready_for_field = true;
+        }
     }
 }
 

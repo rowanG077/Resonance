@@ -1,0 +1,5767 @@
+{
+  "scope": "128 natural Common particle 5 UV updates, rows 0..3. Shared UV state only: the particle attachment/controller is not accepted. No observed loop, palette-key, scroll or owner-hold branch; those have source-derived native tests.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "source_audit": {
+    "revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+    "targets": {
+      "fn_1_403F4": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_403F4.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "0e793eb13deb1b510b70e8510c6aee25ffa50a422e24afe21b321e4906638aea"
+      },
+      "fn_1_40E40": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_40E40.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "cc49e38a43e370094e76713350c1e91510bbdca9ef943f509db8d5c022c49900"
+      },
+      "fn_1_418B4": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_418B4.c",
+        "match_status": "partial",
+        "match_tier": "partial",
+        "match_percent": 92.3934,
+        "link_status": "unlinked",
+        "source_sha256": "87f63fab1e5644dc7a681db693a2f2ca45b142f7efe8880f3644aea3bd9118c4"
+      },
+      "fn_1_426A4": {
+        "source": "game/rel/US_r_Top2Btl/fn_1_426A4.c",
+        "match_status": "exact",
+        "match_tier": "native",
+        "match_percent": 100.0,
+        "link_status": "unlinked",
+        "source_sha256": "86db84ee1f1a0708602e7f21c7c9b5b66d4bc646ad8a8a4732ab1137a5affd03"
+      }
+    },
+    "rel_sha256": "b2acfb222246fbbecf5ab8025fb08241c736da65031104fd4be9c51c301df214",
+    "instruction_ranges": {
+      "40b1c..40cd8": "e08a781af8205d7e2f6c7c293e8b8bea7909c8ec74c9795543325e1305cf0f66",
+      "40e00..40e40": "2c04775fb217e2635b484ad4aef461ce37685f9f2cc31dfa693c660b6fd7ed26",
+      "40e40..41284": "7b82b2a2026242a5f5ac015065ce3ab96c48a8189ebc1c6019d9a29fad8d66a1",
+      "426a4..426f0": "bd0eaeae8614e1553f4d2700ccab41af686f6df051ee2c5487e7e6b57a4fa845"
+    }
+  },
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499"
+  },
+  "trace_sha256": "c5740ba6673ba7bc3eecf72f1147a64480e3d3dcd5fc55f99a0a1c79f697633e",
+  "memory_sha256": "f1779834b8146c1c63020eea5b2fb2efdfac5a0503c6e541409881464785d31d",
+  "ordinary_memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+  "comparison_sha256": "efc27fcf7ab1c50dce2688d779b0f52d9e81e3634fe294854fbb092f44e86669",
+  "comparison": {
+    "samples": 705,
+    "fields": 85,
+    "differences": 0
+  },
+  "bank_source_sha256": "2c72d54fcdf809b93f10d0c9213790710b4f0144a4f55253ebab415f4e69a48b",
+  "track": [
+    {
+      "timing": 4,
+      "control": 0,
+      "values": [
+        129,
+        209,
+        30,
+        30
+      ]
+    },
+    {
+      "timing": 4,
+      "control": 0,
+      "values": [
+        161,
+        209,
+        30,
+        30
+      ]
+    },
+    {
+      "timing": 4,
+      "control": 0,
+      "values": [
+        193,
+        209,
+        30,
+        30
+      ]
+    },
+    {
+      "timing": 4,
+      "control": 0,
+      "values": [
+        225,
+        209,
+        30,
+        30
+      ]
+    },
+    {
+      "timing": 254,
+      "control": 0,
+      "values": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "observations": [
+    {
+      "index": 0,
+      "combat_tick": 267,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 1,
+      "combat_tick": 268,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 2,
+      "combat_tick": 269,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 3,
+      "combat_tick": 269,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 4,
+      "combat_tick": 270,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 5,
+      "combat_tick": 270,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 6,
+      "combat_tick": 271,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 7,
+      "combat_tick": 271,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 8,
+      "combat_tick": 272,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 9,
+      "combat_tick": 272,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 10,
+      "combat_tick": 273,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 11,
+      "combat_tick": 273,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 12,
+      "combat_tick": 274,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 13,
+      "combat_tick": 274,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 14,
+      "combat_tick": 275,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 15,
+      "combat_tick": 275,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 16,
+      "combat_tick": 276,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 17,
+      "combat_tick": 276,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 18,
+      "combat_tick": 277,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 19,
+      "combat_tick": 277,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 20,
+      "combat_tick": 278,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 21,
+      "combat_tick": 278,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 22,
+      "combat_tick": 279,
+      "particle": 2167588168,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 23,
+      "combat_tick": 279,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 24,
+      "combat_tick": 280,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 25,
+      "combat_tick": 281,
+      "particle": 2167581040,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 26,
+      "combat_tick": 422,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 27,
+      "combat_tick": 423,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 28,
+      "combat_tick": 424,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 29,
+      "combat_tick": 424,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 30,
+      "combat_tick": 425,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 31,
+      "combat_tick": 425,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 32,
+      "combat_tick": 426,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 33,
+      "combat_tick": 426,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 34,
+      "combat_tick": 427,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 35,
+      "combat_tick": 427,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 36,
+      "combat_tick": 428,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 37,
+      "combat_tick": 428,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 38,
+      "combat_tick": 429,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 39,
+      "combat_tick": 429,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 40,
+      "combat_tick": 430,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 41,
+      "combat_tick": 430,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 42,
+      "combat_tick": 431,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 43,
+      "combat_tick": 431,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 44,
+      "combat_tick": 432,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 45,
+      "combat_tick": 432,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 46,
+      "combat_tick": 433,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 47,
+      "combat_tick": 433,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 48,
+      "combat_tick": 434,
+      "particle": 2167608256,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 49,
+      "combat_tick": 434,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 50,
+      "combat_tick": 435,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 51,
+      "combat_tick": 436,
+      "particle": 2167609552,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 52,
+      "combat_tick": 442,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 53,
+      "combat_tick": 442,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 54,
+      "combat_tick": 443,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 55,
+      "combat_tick": 443,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 56,
+      "combat_tick": 444,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 57,
+      "combat_tick": 444,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 58,
+      "combat_tick": 444,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 59,
+      "combat_tick": 444,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 60,
+      "combat_tick": 445,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 61,
+      "combat_tick": 445,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 62,
+      "combat_tick": 445,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 63,
+      "combat_tick": 445,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 64,
+      "combat_tick": 446,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 65,
+      "combat_tick": 446,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 66,
+      "combat_tick": 446,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 67,
+      "combat_tick": 446,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 68,
+      "combat_tick": 447,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 69,
+      "combat_tick": 447,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 70,
+      "combat_tick": 447,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 71,
+      "combat_tick": 447,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 72,
+      "combat_tick": 448,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 73,
+      "combat_tick": 448,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 74,
+      "combat_tick": 448,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 75,
+      "combat_tick": 448,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 76,
+      "combat_tick": 449,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 77,
+      "combat_tick": 449,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 78,
+      "combat_tick": 449,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 79,
+      "combat_tick": 449,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 80,
+      "combat_tick": 450,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 81,
+      "combat_tick": 450,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 82,
+      "combat_tick": 450,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 83,
+      "combat_tick": 450,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 84,
+      "combat_tick": 450,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 85,
+      "combat_tick": 451,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 86,
+      "combat_tick": 451,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 87,
+      "combat_tick": 451,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 88,
+      "combat_tick": 451,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 89,
+      "combat_tick": 451,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 90,
+      "combat_tick": 452,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 91,
+      "combat_tick": 452,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 92,
+      "combat_tick": 452,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 93,
+      "combat_tick": 452,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 94,
+      "combat_tick": 452,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 95,
+      "combat_tick": 452,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 0,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 0
+      }
+    },
+    {
+      "index": 96,
+      "combat_tick": 453,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 97,
+      "combat_tick": 453,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 98,
+      "combat_tick": 453,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 99,
+      "combat_tick": 453,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 100,
+      "combat_tick": 453,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 101,
+      "combat_tick": 453,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 1
+      }
+    },
+    {
+      "index": 102,
+      "combat_tick": 454,
+      "particle": 2167593352,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 103,
+      "combat_tick": 454,
+      "particle": 2167580392,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 104,
+      "combat_tick": 454,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 105,
+      "combat_tick": 454,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 106,
+      "combat_tick": 454,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 107,
+      "combat_tick": 454,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 2
+      }
+    },
+    {
+      "index": 108,
+      "combat_tick": 455,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 109,
+      "combat_tick": 455,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 110,
+      "combat_tick": 455,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 111,
+      "combat_tick": 455,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      },
+      "after": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 3
+      }
+    },
+    {
+      "index": 112,
+      "combat_tick": 456,
+      "particle": 2167586872,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 113,
+      "combat_tick": 456,
+      "particle": 2167611496,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 114,
+      "combat_tick": 456,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 115,
+      "combat_tick": 456,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          129,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 0,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 4
+      }
+    },
+    {
+      "index": 116,
+      "combat_tick": 457,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 117,
+      "combat_tick": 457,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 5
+      }
+    },
+    {
+      "index": 118,
+      "combat_tick": 458,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 119,
+      "combat_tick": 458,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 6
+      }
+    },
+    {
+      "index": 120,
+      "combat_tick": 459,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 121,
+      "combat_tick": 459,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      },
+      "after": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 7
+      }
+    },
+    {
+      "index": 122,
+      "combat_tick": 460,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    },
+    {
+      "index": 123,
+      "combat_tick": 460,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          161,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 1,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 8
+      }
+    },
+    {
+      "index": 124,
+      "combat_tick": 461,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 11
+      }
+    },
+    {
+      "index": 125,
+      "combat_tick": 461,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 9
+      }
+    },
+    {
+      "index": 126,
+      "combat_tick": 462,
+      "particle": 2167573912,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 4,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      },
+      "after": {
+        "uv": [
+          225,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 3,
+        "age": 1,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 12
+      }
+    },
+    {
+      "index": 127,
+      "combat_tick": 462,
+      "particle": 2167596592,
+      "hold_uv": false,
+      "before": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 2,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      },
+      "after": {
+        "uv": [
+          193,
+          209,
+          30,
+          30
+        ],
+        "palettes": [
+          24,
+          0
+        ],
+        "row": 2,
+        "age": 3,
+        "scroll": [
+          0,
+          0
+        ],
+        "particle_age": 10
+      }
+    }
+  ]
+}

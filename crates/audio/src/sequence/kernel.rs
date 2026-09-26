@@ -16,6 +16,7 @@ pub(super) struct Kernel<'a> {
     looping: bool,
     frame: u64,
     ended: bool,
+    paused: bool,
     controls: [Controls; 16],
     events: Peekable<Iter<'a, Event>>,
     tempos: Peekable<Iter<'a, Tempo>>,
@@ -102,6 +103,7 @@ impl<'a> Kernel<'a> {
             looping,
             frame: 0,
             ended: false,
+            paused: false,
             controls,
             events,
             tempos,
@@ -120,6 +122,28 @@ impl<'a> Kernel<'a> {
             block: [[[0; 2]; 3]; 160],
             random: None,
         })
+    }
+    /// seqPause (80132348) removes active notes but preserves the score cursor.
+    pub(super) fn pause(&mut self, paused: bool) {
+        if paused && !self.paused {
+            self.sync_slots();
+            for active in self.voices.iter_mut().filter(|v| !v.retired) {
+                active.voice.kill();
+                if let Some(random) = &self.random {
+                    random.free(active.lease.unwrap(), &active.voice);
+                } else {
+                    self.available.push_back(active.slot);
+                }
+                active.retired = true;
+            }
+            self.voices.clear();
+            self.studio_order.clear();
+            self.callbacks.clear();
+        }
+        self.paused = paused;
+    }
+    pub(super) fn paused(&self) -> bool {
+        self.paused
     }
     pub(super) fn next_block(
         &mut self,
@@ -376,7 +400,7 @@ impl<'a> Kernel<'a> {
     }
     pub(super) fn prepare_millisecond(&mut self, input: LiveControls) -> Result<()> {
         self.sync_slots();
-        if self.ended {
+        if self.ended || self.paused {
             return Ok(());
         }
         let frame = self.frame;
@@ -600,7 +624,8 @@ impl<'a> Kernel<'a> {
         let length = ((self.frame - 1) % 160 + 1) as usize;
         // Source handles end with their macros. The shared studio owns
         // reverb tails; silent padding must not retain voice priority.
-        self.ended = !self.looping && self.events.peek().is_none() && self.voices.is_empty();
+        self.ended =
+            !self.paused && !self.looping && self.events.peek().is_none() && self.voices.is_empty();
         self.block = block;
         Ok(Some(&self.block[..length]))
     }

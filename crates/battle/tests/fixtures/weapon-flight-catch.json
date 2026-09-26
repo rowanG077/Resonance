@@ -1,0 +1,412 @@
+{
+  "source_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "scope": "Observed original outbound catch operands during ordinary hurt/death, zero-difference replay timing. Pointer coordinates use the separately proved origin-distance equivalence; death Z must match the native f64 high word exactly.",
+  "cases": [
+    {
+      "kind": "death",
+      "probe": "local/battle-rewrite/oracle-weapon-second-death-probe-01",
+      "replay": "local/battle-rewrite/oracle-weapon-second-death-replay-01",
+      "comparison": "local/battle-rewrite/stage3-weapon-second-death-comparison.json",
+      "source_identities": {
+        "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+        "movie_sha256": "90d4fa35dd37e721cf3999dd181088569bf921f5c803cc2d4e53ae0dd69d6d3c",
+        "initial_state_sha256": "413288b45d37d8940dc2dfc1303fbfa420992691f2e39e4595e25f4c20ab5316",
+        "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced"
+      },
+      "hashes": {
+        "local/battle-rewrite/oracle-weapon-second-death-probe-01/capture.json": "2d9f56b6d4f5bf4c97db5b13da9680a4fe3e9add4e9925334eeb1bd9a2aeb540",
+        "local/battle-rewrite/oracle-weapon-second-death-probe-01/weapon-flight-trace.jsonl": "34b57bdddf42bb4510e1b0e61a7830f3b4ef8d74678ba411b462092580bc4357",
+        "local/battle-rewrite/oracle-weapon-second-death-replay-01/capture.json": "28327e9ec2bcb25ab08c8ed2f756dd5c1124fad68f88aeeee75bf3f11682fca1",
+        "local/battle-rewrite/oracle-weapon-second-death-replay-01/memory.jsonl": "ffee24191c8b3f3d91f8cf5d2d18ce931d570eef988f2f1e69863d6552e7e3ce"
+      },
+      "samples": [
+        {
+          "combat_tick": 245,
+          "presentation_counter": 39438,
+          "outbound": 6,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080152,
+            2148700892,
+            1073291770
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            1073291770
+          ],
+          "writer_pcs": [
+            "0x80129ad4",
+            "0x80129ae0",
+            "0x80127ad4",
+            "0x8012928c",
+            "0x80129298",
+            "0x80127ad4"
+          ],
+          "position_bits": [
+            3269734783,
+            1123083115,
+            1105940958
+          ],
+          "catch_distance_bits": 1126705708
+        },
+        {
+          "combat_tick": 245,
+          "presentation_counter": 39439,
+          "outbound": 5,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            2148700892,
+            1073291770
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            1073291770
+          ],
+          "writer_pcs": [
+            "0x80129ad4",
+            "0x80129ae0",
+            "0x80127ad4",
+            "0x8012928c",
+            "0x80129298",
+            "0x80127ad4"
+          ],
+          "position_bits": [
+            3271988181,
+            1121203994,
+            1105940958
+          ],
+          "catch_distance_bits": 1127059552
+        },
+        {
+          "combat_tick": 245,
+          "presentation_counter": 39440,
+          "outbound": 4,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            2148700892,
+            1073291770
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            1073291770
+          ],
+          "writer_pcs": [
+            "0x80129ad4",
+            "0x80129ae0",
+            "0x80127ad4",
+            "0x8012928c",
+            "0x80129298",
+            "0x80127ad4"
+          ],
+          "position_bits": [
+            3273330410,
+            1119324873,
+            1105940958
+          ],
+          "catch_distance_bits": 1127629600
+        },
+        {
+          "combat_tick": 245,
+          "presentation_counter": 39441,
+          "outbound": 3,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            2148700892,
+            1073291770
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            1073291770
+          ],
+          "writer_pcs": [
+            "0x80129ad4",
+            "0x80129ae0",
+            "0x80127ad4",
+            "0x8012928c",
+            "0x80129298",
+            "0x80127ad4"
+          ],
+          "position_bits": [
+            3274672640,
+            1117445752,
+            1105940958
+          ],
+          "catch_distance_bits": 1128386780
+        },
+        {
+          "combat_tick": 245,
+          "presentation_counter": 39442,
+          "outbound": 2,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            2148700892,
+            1073291770
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            1073291770
+          ],
+          "writer_pcs": [
+            "0x80129ad4",
+            "0x80129ae0",
+            "0x80127ad4",
+            "0x8012928c",
+            "0x80129298",
+            "0x80127ad4"
+          ],
+          "position_bits": [
+            3276014870,
+            1115448398,
+            1105940958
+          ],
+          "catch_distance_bits": 1129299906
+        },
+        {
+          "combat_tick": 245,
+          "presentation_counter": 39443,
+          "outbound": 1,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            2148700892,
+            1073291770
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            1073291770
+          ],
+          "writer_pcs": [
+            "0x80129ad4",
+            "0x80129ae0",
+            "0x80127ad4",
+            "0x8012928c",
+            "0x80129298",
+            "0x80127ad4"
+          ],
+          "position_bits": [
+            3277357100,
+            1111690156,
+            1105940958
+          ],
+          "catch_distance_bits": 1130339854
+        }
+      ]
+    },
+    {
+      "kind": "hurt",
+      "probe": "local/battle-rewrite/oracle-weapon-second-hurt-probe-01",
+      "replay": "local/battle-rewrite/oracle-weapon-second-hurt-replay-01",
+      "comparison": "local/battle-rewrite/stage3-weapon-second-hurt-comparison.json",
+      "source_identities": {
+        "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+        "movie_sha256": "90d4fa35dd37e721cf3999dd181088569bf921f5c803cc2d4e53ae0dd69d6d3c",
+        "initial_state_sha256": "fe59afb40e4b6c964d6b48d0e6e7d4c02815d535a7ce189b3b96893417b93256",
+        "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced"
+      },
+      "hashes": {
+        "local/battle-rewrite/oracle-weapon-second-hurt-probe-01/capture.json": "432f572b3cc8cb3f2d6fa82e0d7ddd03f25d1f689780868c8bd4b14631c86264",
+        "local/battle-rewrite/oracle-weapon-second-hurt-probe-01/weapon-flight-trace.jsonl": "c43cdc4e940562c3949609675e338676baaee9b833fbd85cd48aba906e3a528c",
+        "local/battle-rewrite/oracle-weapon-second-hurt-replay-01/capture.json": "7bbe454a01267c28b70bea6f147eb0060fbf188f897c4b9f8c1eeb0c41e20516",
+        "local/battle-rewrite/oracle-weapon-second-hurt-replay-01/memory.jsonl": "4c802370136926fe005405c97d011a2fa7d0ed78ce323cd9cb2fb72f1145b6a1"
+      },
+      "samples": [
+        {
+          "combat_tick": 246,
+          "presentation_counter": 39438,
+          "outbound": 6,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            0,
+            0
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            0
+          ],
+          "writer_pcs": [
+            "0x812245bc",
+            "0x8122468c",
+            "0x80129ae4",
+            "0x8012929c",
+            "0x812246f8",
+            "0x81223c34",
+            "0x81223c44"
+          ],
+          "position_bits": [
+            3269734783,
+            1123083115,
+            1105940958
+          ],
+          "catch_distance_bits": 1126727260
+        },
+        {
+          "combat_tick": 247,
+          "presentation_counter": 39439,
+          "outbound": 5,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            0,
+            0
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            0
+          ],
+          "writer_pcs": [
+            "0x812245bc",
+            "0x8122468c",
+            "0x80129ae4",
+            "0x8012929c",
+            "0x812246f8",
+            "0x81223c34",
+            "0x81223c44"
+          ],
+          "position_bits": [
+            3271988181,
+            1121203994,
+            1105940958
+          ],
+          "catch_distance_bits": 1127080434
+        },
+        {
+          "combat_tick": 248,
+          "presentation_counter": 39440,
+          "outbound": 4,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            0,
+            0
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            0
+          ],
+          "writer_pcs": [
+            "0x812245bc",
+            "0x8122468c",
+            "0x80129ae4",
+            "0x8012929c",
+            "0x812246f8",
+            "0x81223c34",
+            "0x81223c44"
+          ],
+          "position_bits": [
+            3273330410,
+            1119324873,
+            1105940958
+          ],
+          "catch_distance_bits": 1127649489
+        },
+        {
+          "combat_tick": 249,
+          "presentation_counter": 39441,
+          "outbound": 3,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            0,
+            0
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            0
+          ],
+          "writer_pcs": [
+            "0x812245bc",
+            "0x8122468c",
+            "0x80129ae4",
+            "0x8012929c",
+            "0x812246f8",
+            "0x81223c34",
+            "0x81223c44"
+          ],
+          "position_bits": [
+            3274672640,
+            1117445752,
+            1105940958
+          ],
+          "catch_distance_bits": 1128405484
+        },
+        {
+          "combat_tick": 250,
+          "presentation_counter": 39442,
+          "outbound": 2,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            0,
+            0
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            0
+          ],
+          "writer_pcs": [
+            "0x812245bc",
+            "0x8122468c",
+            "0x80129ae4",
+            "0x8012929c",
+            "0x812246f8",
+            "0x81223c34",
+            "0x81223c44"
+          ],
+          "position_bits": [
+            3276014870,
+            1115448398,
+            1105940958
+          ],
+          "catch_distance_bits": 1129317357
+        },
+        {
+          "combat_tick": 251,
+          "presentation_counter": 39443,
+          "outbound": 1,
+          "body_yaw_bits": 3266576387,
+          "original_point_bits": [
+            2151080200,
+            0,
+            0
+          ],
+          "semantic_point_bits": [
+            0,
+            0,
+            0
+          ],
+          "writer_pcs": [
+            "0x812245bc",
+            "0x8122468c",
+            "0x80129ae4",
+            "0x8012929c",
+            "0x812246f8",
+            "0x81223c34",
+            "0x81223c44"
+          ],
+          "position_bits": [
+            3277357100,
+            1111690156,
+            1105940958
+          ],
+          "catch_distance_bits": 1130356069
+        }
+      ]
+    }
+  ]
+}

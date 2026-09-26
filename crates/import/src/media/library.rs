@@ -841,7 +841,11 @@ fn available_objects(pools: &Pools) -> Result<BTreeSet<(ObjectKind, u16)>> {
     Ok(objects)
 }
 
-fn bank_archive(extracted: &Path, source: &str, usual: &str) -> Result<(fs::File, Vec<u32>)> {
+pub(crate) fn bank_archive(
+    extracted: &Path,
+    source: &str,
+    usual: &str,
+) -> Result<(fs::File, Vec<u32>)> {
     resonance_content::validate_asset_path(source)?;
     let archive = fs::File::open(extracted.join("files").join(source))?;
     let directory = payload_directory(
@@ -893,7 +897,7 @@ fn payload_directory(source: &Path, length: u64) -> Result<Vec<u32>> {
     Ok(offsets)
 }
 
-fn payload(archive: &mut fs::File, start: u32, end: u32) -> Result<Vec<u8>> {
+pub(crate) fn payload(archive: &mut fs::File, start: u32, end: u32) -> Result<Vec<u8>> {
     ensure!(
         end >= start
             && end - start <= 128 * 1024 * 1024

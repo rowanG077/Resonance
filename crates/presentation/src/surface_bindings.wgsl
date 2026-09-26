@@ -6,6 +6,7 @@ struct SurfaceUniform {
     tint: vec4<f32>,
     field_light: vec4<f32>,
     shade_colors: array<vec4<f32>, 2>,
+    ambient_scale: vec4<f32>,
 };
 
 #ifdef BINDLESS

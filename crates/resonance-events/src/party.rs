@@ -1,7 +1,9 @@
 //! Session-owned party state. Rendering and event bytecode do not own inventory.
 use resonance_content::session::SessionData;
 use std::collections::{BTreeMap, BTreeSet};
+mod battles;
 mod bestiary;
+pub use battles::BattleStatistics;
 mod cooking;
 mod ex_skills;
 pub use bestiary::MonsterKnowledge;
@@ -73,6 +75,14 @@ pub struct Member {
     pub recent_compound_ex_skills: BTreeSet<u8>,
 }
 
+/// Battle growth preserves every learned arte, but the original level routine
+/// returns only the last learned arte for each level's result notice.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExperienceGain {
+    pub techniques: Vec<u16>,
+    pub notices: Vec<u16>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TechniqueShortcut {
     pub character: usize,
@@ -124,6 +134,16 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn new_game_history_is_known_while_legacy_party_history_stays_unknown() {
+        let party = Party::new(&data(), Default::default()).unwrap();
+        assert_eq!(party.battles.previous_formation, Some(0));
+        let mut value = serde_json::to_value(party).unwrap();
+        value.as_object_mut().unwrap().remove("battles");
+        let legacy: Party = serde_json::from_value(value).unwrap();
+        assert_eq!(legacy.battles.previous_formation, None);
     }
 
     #[test]
@@ -201,6 +221,50 @@ mod tests {
         assert_eq!(party.spent_gald, 500);
         assert_eq!(party.add_gald(i32::MAX), 99_999_999);
     }
+
+    #[test]
+    fn battle_growth_preserves_experience_vitals_and_technique_owner_order() {
+        let mut data = data();
+        data.characters[0].allowed_techniques = vec![12, 10, 11];
+        data.characters[0].level_techniques = [(2, vec![10, 11, 12])].into();
+        data.characters[0].growth[0].random = 0;
+        let mut party = Party::new(&data, Default::default()).unwrap();
+        party.members[0].hp = 17;
+        party.members[0].tp = 3;
+        party.members[0].conditions = 0x20;
+        let mut draws = 0;
+        let learned = party
+            .gain_experience(
+                &data,
+                0,
+                37,
+                [1; 7],
+                |id| id != 11,
+                || {
+                    draws += 1;
+                    3
+                },
+            )
+            .unwrap();
+        assert_eq!(draws, 14); // Even a zero-random growth range consumes a draw.
+        assert_eq!(party.members[0].level, 3);
+        assert_eq!(party.members[0].experience, 37);
+        assert_eq!((party.members[0].hp, party.members[0].tp), (17, 3));
+        assert_eq!(party.members[0].conditions, 0x20);
+        assert_eq!(party.members[0].base_stats[0], 104);
+        assert_eq!(learned.techniques, [12, 10]);
+        assert_eq!(learned.notices, [10]);
+        assert_eq!(party.members[0].shortcuts, [12, 10, 0, 0]);
+        party
+            .gain_experience(&data, 0, 0, [1; 7], |_| true, || panic!("no new level"))
+            .unwrap();
+        assert_eq!(party.members[0].experience, 37);
+        party
+            .gain_experience(&data, 0, u32::MAX, [1; 7], |_| true, || 0)
+            .unwrap();
+        assert_eq!(party.members[0].experience, 9_999_999);
+        assert_eq!((party.members[0].hp, party.members[0].tp), (17, 3));
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -221,6 +285,8 @@ impl Default for Settings {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Party {
+    #[serde(default)]
+    pub battles: BattleStatistics,
     #[serde(default)]
     pub figurines: BTreeSet<u16>,
     #[serde(default)]
@@ -274,6 +340,7 @@ impl Party {
             "invalid saved character name"
         );
         self.settings.preferences.validate()?;
+        self.battles.validate()?;
         self.travel.validate()?;
         ensure!(
             self.monsters.iter().all(|(&id, knowledge)| usize::from(id)
@@ -388,6 +455,10 @@ impl Party {
     pub fn new(data: &SessionData, settings: Settings) -> anyhow::Result<Self> {
         data.validate()?;
         Ok(Self {
+            battles: BattleStatistics {
+                previous_formation: Some(0),
+                ..Default::default()
+            },
             cooking: Cooking::default(),
             encounter_modifier: None,
             members: data
@@ -521,19 +592,8 @@ impl Party {
         let definition = data.characters.get(index).ok_or("unknown party member")?;
         let member = self.members.get_mut(index).ok_or("unknown party member")?;
         while member.level < level {
-            member.level += 1;
+            member.grow_level(definition, title_growth, &mut random);
             member.experience = data.experience[usize::from(member.level)];
-            for (index, growth) in definition.growth.iter().enumerate() {
-                let gain = u32::from(growth.base)
-                    + random() % (u32::from(growth.random) + 1)
-                    + u32::from(title_growth.map_or(growth.title_bonus, |title| title[index]));
-                member.base_stats[index] =
-                    (u32::from(member.base_stats[index]) + gain).min(match index {
-                        0 => 9999,
-                        1 => 999,
-                        _ => 32767,
-                    }) as u16;
-            }
         }
         member.hp = member.base_stats[0];
         member.tp = member.base_stats[1];
@@ -547,6 +607,54 @@ impl Party {
             }
         }
         Ok(())
+    }
+
+    /// Battle growth retains accumulated EXP and current HP/TP. The caller
+    /// supplies the active/reserve technique gate from the prepared catalogue.
+    pub fn gain_experience(
+        &mut self,
+        data: &SessionData,
+        index: usize,
+        amount: u32,
+        title_growth: [u8; 7],
+        can_learn: impl Fn(u16) -> bool,
+        mut random: impl FnMut() -> u32,
+    ) -> Result<ExperienceGain, String> {
+        let definition = data.characters.get(index).ok_or("unknown party member")?;
+        let member = self.members.get_mut(index).ok_or("unknown party member")?;
+        member.experience = member.experience.saturating_add(amount).min(9_999_999);
+        let mut learned = ExperienceGain::default();
+        while member.level < 250
+            && data
+                .experience
+                .get(usize::from(member.level) + 1)
+                .is_some_and(|&threshold| member.experience >= threshold)
+        {
+            member.grow_level(definition, Some(title_growth), &mut random);
+            let mut notice = None;
+            // The source scans the owner's catalogue order after each level,
+            // which also determines the first empty shortcut's assignment.
+            for &technique in &definition.allowed_techniques {
+                if can_learn(technique)
+                    && definition
+                        .level_techniques
+                        .range(..=member.level)
+                        .any(|(_, ids)| ids.contains(&technique))
+                    && member.techniques.insert(technique)
+                {
+                    learned.techniques.push(technique);
+                    notice = Some(technique);
+                    if let Some(slot) = member.shortcuts.iter_mut().find(|slot| **slot == 0) {
+                        *slot = technique;
+                    }
+                }
+            }
+            if let Some(technique) = notice {
+                learned.notices.push(technique);
+            }
+            member.clamp_vitals();
+        }
+        Ok(learned)
     }
 }
 

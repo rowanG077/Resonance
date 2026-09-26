@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 [dependencies]
+resonance-battle.workspace = true
 resonance-model-behavior.workspace = true
 resonance-playback.workspace = true
 resonance-audio-device.workspace = true

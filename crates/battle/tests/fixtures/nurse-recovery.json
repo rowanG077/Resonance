@@ -1,0 +1,413 @@
+{
+  "scope": "Controlled original Nurse callback: living party healing at active age120, retained slot at inclusive age250 and completion on the following dispatch. Does not establish stored-scene entry, resource/visibility ownership, rendering, camera or audio.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "cc0d770f7ac7e0d85a1902259cd9870e6a78f8028e155de721d5fa06819aaba8",
+    "initial_state_sha256": "ac7f7e580c91ed917299dfe615f95aa02945642036ae52f9535bc7eb2c627f06",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    }
+  },
+  "controlled_fixture": {
+    "catalogued_monsters": [],
+    "collected_figurines": [],
+    "disabled_techniques": [
+      "3:98"
+    ],
+    "discover_all": false,
+    "dolphin_state_sha256": "836f063475aa9792630d0bf977d37f7ae23db86b599985fe6bf4c06cb4b533dc",
+    "encountered_monsters": [],
+    "formation": [
+      1,
+      2,
+      4
+    ],
+    "granted_items": [],
+    "item_counts": [],
+    "kind": "controlled_inventory_fixture",
+    "learned_ex_compounds": [],
+    "learned_manual_topics": [],
+    "learned_recipes": [],
+    "learned_techniques": [
+      "3:99"
+    ],
+    "member_vitals": [
+      "0:100:36:0",
+      "1:50:32:0",
+      "3:150:90:0"
+    ],
+    "monster_variants": [],
+    "native_save_sha256": "737f22caa974c95cca04aaa1a4646bb02361f8b409ab391fc9a17169c8c87bab",
+    "new_ex_compounds": [],
+    "observed_monsters": {},
+    "observed_travel": {
+      "current_location": 2,
+      "visited_locations": [
+        2
+      ],
+      "visited_shops": []
+    },
+    "prefix_sha256": "593655207a29e1b50b4740414e6d07a7f51a95575d8cde91104689eee9776600",
+    "source_native": {
+      "path": "local/milestone-4/oracle/paired-school-battle.json",
+      "sha256": "f195f2508f7142916253c9063c2c0d86abb25bc0d8593f40ca23677e2939f202"
+    },
+    "source_state": {
+      "path": "local/milestone-3/oracle-savepoint-dismiss/user/StateSaves/GQSEAF.s01",
+      "sha256": "cde34b48ed92f423f470d08ce6cfb650d3b4c2aaeda85f595ca2576f808cff72"
+    },
+    "story_origin": null,
+    "synopsis_records": [],
+    "viewed_skits": [],
+    "visited_locations": [],
+    "visited_shops": [],
+    "voice_volume": null,
+    "window_background": null,
+    "window_style": null
+  },
+  "artifacts": {
+    "local/battle-rewrite/oracle-nurse-residents-01/residents-trace.jsonl": "de9bd6a2b773191e745c36ded434730568b96a9efdbbe726934647f7df2d7147",
+    "local/battle-rewrite/oracle-nurse-residents-01/memory.jsonl": "15ba89325473e875910b2654759f796f75271b60cb87edfd79ef23f12162e2b1",
+    "local/battle-rewrite/nurse-replay-comparison.json": "a872e69e5736237a3cd9356857bd77309fb365db3a20b6e242f9f9b761e7678e"
+  },
+  "owner": 2,
+  "initial_tick": 377,
+  "heal_tick": 498,
+  "heal_age": 120,
+  "duration": 250,
+  "actors": [
+    {
+      "side": 0,
+      "slot": 0,
+      "max_hp": 328,
+      "before_hp": 100,
+      "after_hp": 231
+    },
+    {
+      "side": 0,
+      "slot": 1,
+      "max_hp": 172,
+      "before_hp": 50,
+      "after_hp": 118
+    },
+    {
+      "side": 0,
+      "slot": 2,
+      "max_hp": 413,
+      "before_hp": 150,
+      "after_hp": 315
+    },
+    {
+      "side": 1,
+      "slot": 4,
+      "max_hp": 800,
+      "before_hp": 548,
+      "after_hp": 548
+    }
+  ],
+  "resident_boundaries": [
+    {
+      "combat_tick": 377,
+      "before": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 0,
+        "age": 0,
+        "duration": 0,
+        "technique": 237,
+        "retained": 1,
+        "hp": 150,
+        "callback": 2166753152,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      },
+      "after": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 0,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 150,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "combat_tick": 378,
+      "before": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 0,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 150,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      },
+      "after": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 1,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 150,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "combat_tick": 497,
+      "before": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 119,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 150,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      },
+      "after": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 120,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 150,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "combat_tick": 498,
+      "before": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 120,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 150,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      },
+      "after": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 121,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 315,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "combat_tick": 627,
+      "before": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 249,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 315,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      },
+      "after": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 250,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 315,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "combat_tick": 628,
+      "before": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 1,
+        "age": 250,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 315,
+        "callback": 2166587188,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      },
+      "after": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 2,
+        "age": 251,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 315,
+        "callback": 2166587076,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "combat_tick": 629,
+      "before": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 1,
+        "phase": 2,
+        "age": 251,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 315,
+        "callback": 2166587076,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      },
+      "after": {
+        "actor": 2167281152,
+        "side": 0,
+        "roster": 2,
+        "slot": 0,
+        "mode": 0,
+        "phase": 2,
+        "age": 251,
+        "duration": 250,
+        "technique": 237,
+        "retained": 1,
+        "hp": 315,
+        "callback": null,
+        "origin_bits": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  ]
+}

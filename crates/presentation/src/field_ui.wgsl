@@ -1,4 +1,35 @@
-#import bevy_sprite::mesh2d_vertex_output::VertexOutput
+#import bevy_sprite::mesh2d_functions
+struct Vertex {
+    @builtin(instance_index) instance_index: u32,
+    @location(0) position: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(4) color: vec4<f32>,
+#ifdef LAYERED_GLYPH
+    @location(5) secondary_uv: vec2<f32>,
+#endif
+};
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) world_position: vec4<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(4) color: vec4<f32>,
+#ifdef LAYERED_GLYPH
+    @location(5) secondary_uv: vec2<f32>,
+#endif
+};
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+    out.world_position = mesh2d_functions::mesh2d_position_local_to_world(
+        mesh2d_functions::get_world_from_local(vertex.instance_index), vec4(vertex.position, 1.0));
+    out.position = mesh2d_functions::mesh2d_position_world_to_clip(out.world_position);
+    out.uv = vertex.uv;
+    out.color = vertex.color;
+#ifdef LAYERED_GLYPH
+    out.secondary_uv = vertex.secondary_uv;
+#endif
+    return out;
+}
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var source: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var source_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var frame_mask: texture_2d<f32>;
@@ -38,8 +69,25 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
     var sampled = textureSample(source, source_sampler, in.uv);
+#ifdef LAYERED_GLYPH
+    if in.secondary_uv.x >= 0.0 {
+        let overlay = textureSampleLevel(color_mask, color_sampler, in.secondary_uv, 0.0);
+        // 4AB74 stage 1 uses APREV * RASA. Stage 0 already multiplied
+        // the glyph alpha by RASA; the scrolling texture supplies RGB only.
+        sampled = vec4(overlay.rgb, sampled.a * in.color.a);
+    }
+#endif
 #ifdef OPAQUE_IMAGE
     sampled.a = 1.0;
 #endif
+#ifdef SCREEN_BREAK
+    // BBA0 emits RGB128;4ACB8 selects (texture*RASA)*2. GX expands the
+    // 8-bit interpolation factor128 to129 before the scale and rounded shift.
+    // Keep this integer TEV operation, rather than a brightness approximation.
+    let texel = vec3<u32>(round(clamp(sampled.rgb, vec3<f32>(0.), vec3<f32>(1.)) * 255.));
+    let rgb = min((texel * 258u + vec3<u32>(128u)) >> vec3<u32>(8u), vec3<u32>(255u));
+    return vec4<f32>(vec3<f32>(rgb) / 255., in.color.a);
+#else
     return sampled * in.color;
+#endif
 }

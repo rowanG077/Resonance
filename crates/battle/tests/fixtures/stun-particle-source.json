@@ -1,0 +1,323 @@
+{
+  "source_sha256": "2c72d54fcdf809b93f10d0c9213790710b4f0144a4f55253ebab415f4e69a48b",
+  "member": 19,
+  "declaration": {
+    "prefix": {
+      "kind": 7,
+      "blend": 0,
+      "resource_slot": 0,
+      "palettes": [
+        17,
+        0
+      ],
+      "retained_slot": 0,
+      "palette_stride": 16,
+      "reserved_header": 0,
+      "uv": [
+        1,
+        65,
+        30,
+        30
+      ],
+      "lifetime": 0,
+      "geometry_count": 4,
+      "geometry_phase": 0,
+      "flags_or_shake_amplitude": 75497472,
+      "colors": [
+        [
+          128,
+          128,
+          128,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "brighten": [
+        0,
+        0,
+        0,
+        32
+      ],
+      "darken": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "brighten_until": 8,
+      "darken_from": 0,
+      "uv_track": 0,
+      "copy_axis_or_phase_period": 0,
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "velocity": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "acceleration": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "angles": [
+        -90.0,
+        0.0,
+        0.0
+      ],
+      "angular_velocity": [
+        0.0,
+        0.0,
+        -2.5
+      ],
+      "acceleration_change_or_segment_offset": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reserved_motion": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "angle_step": 0.0,
+      "dimension_acceleration_until": 0,
+      "reserved_dimensions": [
+        0,
+        0
+      ],
+      "bone": 0,
+      "texture_frame_or_joint_slot": 0,
+      "additional_copies": 0,
+      "copy_rotation": 0,
+      "reserved_secondary": 0,
+      "secondary": {
+        "flags": 0,
+        "periodic_program": 0,
+        "period": 0,
+        "animation_change_age": 0,
+        "ground_program": 0
+      },
+      "reserved_attachment": [
+        0,
+        0
+      ],
+      "local_offset": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "local_velocity": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "body": {
+      "kind": "particle",
+      "geometry": {
+        "kind": "parameters",
+        "dimensions": {
+          "value": [
+            32.0,
+            32.0,
+            50.0
+          ],
+          "velocity": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "acceleration": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "radius_step": 0.0,
+        "texture_offset_words": [
+          0,
+          0
+        ],
+        "storage": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "stored_elevation": 0.0
+      },
+      "context": {
+        "stored_origin": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "stored_uv_binding": 0,
+        "stored_heading": 0.0,
+        "stored_program_binding": 0
+      }
+    }
+  },
+  "uv": [
+    {
+      "timing": 4,
+      "control": 0,
+      "values": [
+        0,
+        64,
+        32,
+        32
+      ]
+    },
+    {
+      "timing": 4,
+      "control": 0,
+      "values": [
+        32,
+        64,
+        32,
+        32
+      ]
+    },
+    {
+      "timing": 4,
+      "control": 0,
+      "values": [
+        64,
+        64,
+        32,
+        32
+      ]
+    },
+    {
+      "timing": 4,
+      "control": 0,
+      "values": [
+        32,
+        64,
+        32,
+        32
+      ]
+    },
+    {
+      "timing": 255,
+      "control": 0,
+      "values": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

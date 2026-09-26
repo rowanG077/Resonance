@@ -1,0 +1,3783 @@
+{
+  "scope": "32 admitted contact damage/guard/TP/local-hit-stop observations, including repeated Fire Ball hits. Replays resolver inputs and contact TP and local hit-stop; does not validate geometry, recoil, stun/contact-tail RNG, effect/audio output or complete actions. EX bonus enabled routes remain source-derived.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    },
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499"
+  },
+  "reaction_trace_sha256": "ae022e0cc9f2a8f5e0ac5981d3f9a76e7236648178d6791c6489cd7e5d56ae1f",
+  "memory_sha256": "ed015e3c3f1b6d817df2942be347d52a94b6ab52f2ab907eab574f1572f2f397",
+  "ordinary_memory_sha256": "9dcde0333d2cbca3a1b444fd72e3e871a17ecbd612eb7d4cc1740f90c127b1c6",
+  "comparison_sha256": "5656aeb6a84f60038921f83b61337d2ebbf753669309fa562ce0589cd23ac799",
+  "comparison": {
+    "samples": 1150,
+    "fields": 85,
+    "differences": 0
+  },
+  "observations": [
+    {
+      "index": 0,
+      "combat_tick": 266,
+      "presentation_counter": 43687,
+      "power": 100,
+      "random_before": 3498043765,
+      "incoming_direction_bits": [
+        1098613440,
+        0,
+        1077865883
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 32,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 26,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3281387520,
+          0,
+          0
+        ],
+        "heading_bits": 1117684253,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 48,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 209,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 4,
+        "clock": 4,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1116091040,
+          1112334746,
+          1116427860
+        ],
+        "heading_bits": 3267984871,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 61,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 0,
+      "power_mode": 1,
+      "power_value": 120,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 30,
+      "hp_after": 179,
+      "result": 131073,
+      "random_after": 334094489,
+      "tp_requests": 0,
+      "tp_after": 32,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 1,
+      "combat_tick": 335,
+      "presentation_counter": 43756,
+      "power": 100,
+      "random_before": 4279240301,
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 32,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 11,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          3224755438,
+          0,
+          1113691304
+        ],
+        "heading_bits": 1117684253,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 48,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 179,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 3,
+        "clock": 0,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1124624740,
+          1107495485,
+          1118152017
+        ],
+        "heading_bits": 3267984871,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 84,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 6,
+      "hp_after": 173,
+      "result": 32784,
+      "random_after": 3886732561,
+      "tp_requests": 0,
+      "tp_after": 32,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 2,
+      "combat_tick": 355,
+      "presentation_counter": 43776,
+      "power": 85,
+      "random_before": 1854127141,
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 32,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 11,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          3207347152,
+          0,
+          1113799203
+        ],
+        "heading_bits": 1117684253,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 48,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 173,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 11,
+        "clock": 10,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1125236414,
+          1107495485,
+          1118384186
+        ],
+        "heading_bits": 3267984871,
+        "guard": {
+          "active": true,
+          "special": false,
+          "pressure": 1,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 100,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 8,
+      "hp_after": 165,
+      "result": 16,
+      "random_after": 131083849,
+      "tp_requests": 0,
+      "tp_after": 32,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 3,
+      "combat_tick": 363,
+      "presentation_counter": 43784,
+      "power": 85,
+      "random_before": 2657476285,
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 32,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 19,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1089243769,
+          0,
+          1114200425
+        ],
+        "heading_bits": 1117684253,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 48,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 165,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 11,
+        "clock": 22,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1125848399,
+          1107495485,
+          1118616474
+        ],
+        "heading_bits": 3267984871,
+        "guard": {
+          "active": true,
+          "special": false,
+          "pressure": 2,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 100,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 5,
+      "hp_after": 160,
+      "result": 16,
+      "random_after": 2223891041,
+      "tp_requests": 0,
+      "tp_after": 32,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 4,
+      "combat_tick": 421,
+      "presentation_counter": 43842,
+      "power": 100,
+      "random_before": 546536231,
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 32,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 11,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1109307550,
+          0,
+          1115745625
+        ],
+        "heading_bits": 1117684253,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 49,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 160,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 0,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1126427880,
+          1112042233,
+          1118836424
+        ],
+        "heading_bits": 3267984872,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 60,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 24,
+      "hp_after": 136,
+      "result": 131073,
+      "random_after": 1574320628,
+      "tp_requests": 1,
+      "tp_after": 33,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 5,
+      "combat_tick": 441,
+      "presentation_counter": 43862,
+      "power": 85,
+      "random_before": 1045635997,
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 33,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 11,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1116238689,
+          0,
+          1116455880
+        ],
+        "heading_bits": 1117684253,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 49,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 136,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 10,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1130782034,
+          0,
+          1120489097
+        ],
+        "heading_bits": 3267984872,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 60,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 21,
+      "hp_after": 115,
+      "result": 131073,
+      "random_after": 1739390306,
+      "tp_requests": 1,
+      "tp_after": 34,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 6,
+      "combat_tick": 441,
+      "presentation_counter": 43862,
+      "power": 85,
+      "random_before": 3137627464,
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 34,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 11,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1116238689,
+          0,
+          1116455880
+        ],
+        "heading_bits": 1117684253,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 49,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 785,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 4,
+        "clock": 222,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1132751903,
+          0,
+          3261268284
+        ],
+        "heading_bits": 3270649825,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 49,
+      "hp_after": 736,
+      "result": 1,
+      "random_after": 1897252508,
+      "tp_requests": 1,
+      "tp_after": 35,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 7,
+      "combat_tick": 449,
+      "presentation_counter": 43870,
+      "power": 85,
+      "random_before": 2125954983,
+      "incoming_direction_bits": [
+        1065059007,
+        0,
+        1044311474
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 35,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 19,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1117928842,
+          0,
+          1116776641
+        ],
+        "heading_bits": 1117684253,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 49,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 115,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 22,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1132346632,
+          0,
+          1121082961
+        ],
+        "heading_bits": 3267984872,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 60,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 20,
+      "hp_after": 95,
+      "result": 131073,
+      "random_after": 2468046964,
+      "tp_requests": 1,
+      "tp_after": 36,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 8,
+      "combat_tick": 488,
+      "presentation_counter": 43909,
+      "power": 100,
+      "random_before": 2216888609,
+      "incoming_direction_bits": [
+        1064814918,
+        3189454577,
+        3192731901
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 40,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 41,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3291414528,
+          0,
+          1125515264
+        ],
+        "heading_bits": 1119694609,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 58,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 736,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 3,
+        "clock": 0,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1133593516,
+          0,
+          3264386577
+        ],
+        "heading_bits": 3270649825,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 72,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 1,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 54,
+      "hp_after": 682,
+      "result": 8193,
+      "random_after": 127789195,
+      "tp_requests": 0,
+      "tp_after": 40,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 9,
+      "combat_tick": 495,
+      "presentation_counter": 43916,
+      "power": 100,
+      "random_before": 2063992892,
+      "incoming_direction_bits": [
+        1064641917,
+        3176159186,
+        3197185864
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 40,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 34,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3291414528,
+          0,
+          1125515264
+        ],
+        "heading_bits": 1119694609,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 58,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 95,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 3,
+        "clock": 1,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1133387864,
+          1083283864,
+          1121829568
+        ],
+        "heading_bits": 3267984872,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 85,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 32,
+      "hp_after": 63,
+      "result": 1,
+      "random_after": 3175401630,
+      "tp_requests": 0,
+      "tp_after": 40,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 10,
+      "combat_tick": 508,
+      "presentation_counter": 43929,
+      "power": 100,
+      "random_before": 2950412000,
+      "incoming_direction_bits": [
+        1059247461,
+        0,
+        1061521845
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          102,
+          34,
+          19,
+          50,
+          65,
+          68,
+          1
+        ],
+        "max_hp": 172,
+        "hp": 172,
+        "max_tp": 32,
+        "tp": 27,
+        "luck": 62,
+        "control": 2,
+        "activity": 5,
+        "clock": 44,
+        "guard_window": [
+          16076,
+          -13107
+        ],
+        "position_bits": [
+          1121385450,
+          0,
+          3268132048
+        ],
+        "heading_bits": 1109262152,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 55,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 63,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 7,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1133387864,
+          0,
+          1121829568
+        ],
+        "heading_bits": 3267984872,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 85,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 19,
+      "hp_after": 44,
+      "result": 131073,
+      "random_after": 1629048769,
+      "tp_requests": 1,
+      "tp_after": 28,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 11,
+      "combat_tick": 508,
+      "presentation_counter": 43929,
+      "power": 100,
+      "random_before": 1006816431,
+      "incoming_direction_bits": [
+        1064990622,
+        3185346361,
+        3191129080
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 40,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 21,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3291414528,
+          0,
+          1125515264
+        ],
+        "heading_bits": 1119694609,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 58,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 682,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 0,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1134570072,
+          0,
+          3265267150
+        ],
+        "heading_bits": 3270649825,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 72,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 1,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 54,
+      "hp_after": 628,
+      "result": 8193,
+      "random_after": 1776585161,
+      "tp_requests": 0,
+      "tp_after": 40,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 12,
+      "combat_tick": 509,
+      "presentation_counter": 43930,
+      "power": 100,
+      "random_before": 1503302296,
+      "incoming_direction_bits": [
+        1059247461,
+        0,
+        1061521845
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          102,
+          34,
+          19,
+          50,
+          65,
+          68,
+          1
+        ],
+        "max_hp": 172,
+        "hp": 172,
+        "max_tp": 32,
+        "tp": 28,
+        "luck": 62,
+        "control": 2,
+        "activity": 5,
+        "clock": 45,
+        "guard_window": [
+          16076,
+          -13107
+        ],
+        "position_bits": [
+          1121385450,
+          0,
+          3268132048
+        ],
+        "heading_bits": 1109262152,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 55,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 628,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 19,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1134697935,
+          0,
+          3265382446
+        ],
+        "heading_bits": 3270649825,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 72,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 76,
+      "hp_after": 552,
+      "result": 513,
+      "random_after": 3611150553,
+      "tp_requests": 1,
+      "tp_after": 29,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 13,
+      "combat_tick": 512,
+      "presentation_counter": 43933,
+      "power": 100,
+      "random_before": 3129427863,
+      "incoming_direction_bits": [
+        1065059008,
+        0,
+        1044311459
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 12,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1122622638,
+          0,
+          1117667437
+        ],
+        "heading_bits": 1117684254,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 52,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 44,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 41,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1133387864,
+          1109393408,
+          1121829568
+        ],
+        "heading_bits": 3267984872,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 85,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 26,
+      "hp_after": 18,
+      "result": 131073,
+      "random_after": 336069924,
+      "tp_requests": 1,
+      "tp_after": 36,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 14,
+      "combat_tick": 514,
+      "presentation_counter": 43935,
+      "power": 100,
+      "random_before": 717137698,
+      "incoming_direction_bits": [
+        1065059008,
+        0,
+        1044311459
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 14,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1123264896,
+          0,
+          1117789326
+        ],
+        "heading_bits": 1117684254,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 52,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 552,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 40,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1135024090,
+          1109393408,
+          3265256176
+        ],
+        "heading_bits": 3270649825,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 72,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 62,
+      "hp_after": 490,
+      "result": 1,
+      "random_after": 1010280043,
+      "tp_requests": 1,
+      "tp_after": 36,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 15,
+      "combat_tick": 531,
+      "presentation_counter": 43952,
+      "power": 85,
+      "random_before": 3591812379,
+      "incoming_direction_bits": [
+        1065059008,
+        0,
+        1044311459
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 11,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1126139220,
+          0,
+          1118726862
+        ],
+        "heading_bits": 1117684254,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 52,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          144,
+          144,
+          10,
+          31,
+          73,
+          48,
+          4
+        ],
+        "max_hp": 320,
+        "hp": 18,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 11,
+        "guard_window": [
+          1,
+          4
+        ],
+        "position_bits": [
+          1135436162,
+          0,
+          1123384486
+        ],
+        "heading_bits": 3267984872,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 85,
+          "enemy_chance": 25,
+          "allow_airborne": true,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 2,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 21,
+      "hp_after": 0,
+      "result": 1,
+      "random_after": 1582392184,
+      "tp_requests": 1,
+      "tp_after": 36,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 16,
+      "combat_tick": 605,
+      "presentation_counter": 44026,
+      "power": 100,
+      "random_before": 3435885129,
+      "incoming_direction_bits": [
+        1060933155,
+        0,
+        3207407586
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 12,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1133256107,
+          0,
+          3239896192
+        ],
+        "heading_bits": 1124372460,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 51,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 490,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 8,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136089762,
+          0,
+          3266151208
+        ],
+        "heading_bits": 3258916077,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 54,
+          "enemy_chance": 33,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 15,
+      "hp_after": 475,
+      "result": 32784,
+      "random_after": 2596741805,
+      "tp_requests": 0,
+      "tp_after": 36,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 17,
+      "combat_tick": 624,
+      "presentation_counter": 44045,
+      "power": 85,
+      "random_before": 2144342962,
+      "incoming_direction_bits": [
+        1061124939,
+        0,
+        3207195137
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 11,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1133045588,
+          0,
+          3230492244
+        ],
+        "heading_bits": 1124308403,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 51,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 475,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 11,
+        "clock": 11,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136489034,
+          0,
+          3267570300
+        ],
+        "heading_bits": 3258916077,
+        "guard": {
+          "active": true,
+          "special": false,
+          "pressure": 1,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 100,
+          "enemy_chance": 33,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 12,
+      "hp_after": 463,
+      "result": 16,
+      "random_after": 815722918,
+      "tp_requests": 0,
+      "tp_after": 36,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 18,
+      "combat_tick": 632,
+      "presentation_counter": 44053,
+      "power": 85,
+      "random_before": 767839797,
+      "incoming_direction_bits": [
+        1061124939,
+        0,
+        3207195137
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 5,
+        "clock": 19,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1133103449,
+          0,
+          3233792379
+        ],
+        "heading_bits": 1124308403,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 51,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 463,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 11,
+        "clock": 22,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136722159,
+          0,
+          3268397015
+        ],
+        "heading_bits": 3258916077,
+        "guard": {
+          "active": true,
+          "special": false,
+          "pressure": 2,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 100,
+          "enemy_chance": 33,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 13,
+      "hp_after": 450,
+      "result": 16,
+      "random_after": 267374937,
+      "tp_requests": 0,
+      "tp_after": 36,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 19,
+      "combat_tick": 703,
+      "presentation_counter": 44124,
+      "power": 100,
+      "random_before": 1953994074,
+      "incoming_direction_bits": [
+        3208614092,
+        0,
+        1059705282
+      ],
+      "owner": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 450,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 34,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090499,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 46,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 300,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 3,
+        "clock": 0,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1133103449,
+          0,
+          3233792379
+        ],
+        "heading_bits": 1124308403,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 76,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 7,
+      "hp_after": 293,
+      "result": 32784,
+      "random_after": 3271615950,
+      "tp_requests": 0,
+      "tp_after": 0,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 20,
+      "combat_tick": 712,
+      "presentation_counter": 44133,
+      "power": 100,
+      "random_before": 2636797915,
+      "incoming_direction_bits": [
+        3208614092,
+        0,
+        1059705282
+      ],
+      "owner": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 450,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 42,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090499,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 46,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 293,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 11,
+        "clock": 21,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1132870505,
+          0,
+          1050573254
+        ],
+        "heading_bits": 1124308403,
+        "guard": {
+          "active": true,
+          "special": false,
+          "pressure": 1,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 100,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 7,
+      "hp_after": 286,
+      "result": 16,
+      "random_after": 2724450143,
+      "tp_requests": 0,
+      "tp_after": 0,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 21,
+      "combat_tick": 758,
+      "presentation_counter": 44179,
+      "power": 100,
+      "random_before": 1074117914,
+      "incoming_direction_bits": [
+        1100936119,
+        0,
+        3222422255
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          102,
+          34,
+          19,
+          50,
+          65,
+          68,
+          1
+        ],
+        "max_hp": 172,
+        "hp": 172,
+        "max_tp": 32,
+        "tp": 24,
+        "luck": 62,
+        "control": 2,
+        "activity": 5,
+        "clock": 44,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          3272700116,
+          0,
+          3259039094
+        ],
+        "heading_bits": 1119952743,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 58,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 450,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 3,
+        "clock": 96,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090499,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 76,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 0,
+      "power_mode": 1,
+      "power_value": 130,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 63,
+      "hp_after": 387,
+      "result": 1,
+      "random_after": 1000982926,
+      "tp_requests": 0,
+      "tp_after": 24,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 22,
+      "combat_tick": 844,
+      "presentation_counter": 44265,
+      "power": 100,
+      "random_before": 2254671473,
+      "incoming_direction_bits": [
+        1063578072,
+        3194222039,
+        3200703811
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 33,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 52,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3281680163,
+          0,
+          1130379196
+        ],
+        "heading_bits": 1122431160,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 61,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 387,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 19,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090499,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 1,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 49,
+      "hp_after": 338,
+      "result": 8193,
+      "random_after": 3236345435,
+      "tp_requests": 0,
+      "tp_after": 33,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 23,
+      "combat_tick": 852,
+      "presentation_counter": 44273,
+      "power": 100,
+      "random_before": 1761480116,
+      "incoming_direction_bits": [
+        1062912158,
+        3177721912,
+        3204722502
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 33,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 44,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3281680163,
+          0,
+          1130379196
+        ],
+        "heading_bits": 1122431160,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 61,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 338,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 12,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090499,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 1,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 49,
+      "hp_after": 289,
+      "result": 8193,
+      "random_after": 4047058646,
+      "tp_requests": 0,
+      "tp_after": 33,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 24,
+      "combat_tick": 862,
+      "presentation_counter": 44283,
+      "power": 100,
+      "random_before": 2049962981,
+      "incoming_direction_bits": [
+        1064192305,
+        3189736870,
+        3198766093
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 33,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 34,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3281680163,
+          0,
+          1130379196
+        ],
+        "heading_bits": 1122431160,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 61,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 289,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 10,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090499,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 1,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 49,
+      "hp_after": 240,
+      "result": 8193,
+      "random_after": 3492551407,
+      "tp_requests": 0,
+      "tp_after": 33,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 25,
+      "combat_tick": 932,
+      "presentation_counter": 44353,
+      "power": 100,
+      "random_before": 1432293967,
+      "incoming_direction_bits": [
+        3208614092,
+        0,
+        1059705282
+      ],
+      "owner": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 240,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 27,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090499,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 15,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 286,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 3,
+        "clock": 0,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1132637561,
+          0,
+          1087606961
+        ],
+        "heading_bits": 1124308403,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 79,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 7,
+      "hp_after": 279,
+      "result": 32784,
+      "random_after": 1025228051,
+      "tp_requests": 0,
+      "tp_after": 0,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 26,
+      "combat_tick": 1038,
+      "presentation_counter": 44459,
+      "power": 100,
+      "random_before": 3123638934,
+      "incoming_direction_bits": [
+        1065195111,
+        0,
+        1040990207
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          102,
+          34,
+          19,
+          50,
+          65,
+          68,
+          1
+        ],
+        "max_hp": 172,
+        "hp": 172,
+        "max_tp": 32,
+        "tp": 24,
+        "luck": 62,
+        "control": 2,
+        "activity": 5,
+        "clock": 52,
+        "guard_window": [
+          16102,
+          26214
+        ],
+        "position_bits": [
+          3265123170,
+          0,
+          3274667310
+        ],
+        "heading_bits": 1118060921,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 55,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 240,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 3,
+        "clock": 70,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090499,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 79,
+          "enemy_chance": 15,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 12,
+      "hp_after": 228,
+      "result": 32784,
+      "random_after": 1389812426,
+      "tp_requests": 0,
+      "tp_after": 24,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 27,
+      "combat_tick": 1097,
+      "presentation_counter": 44518,
+      "power": 100,
+      "random_before": 2768965544,
+      "incoming_direction_bits": [
+        1100905984,
+        0,
+        1076842475
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          102,
+          34,
+          19,
+          50,
+          65,
+          68,
+          1
+        ],
+        "max_hp": 172,
+        "hp": 172,
+        "max_tp": 32,
+        "tp": 19,
+        "luck": 62,
+        "control": 2,
+        "activity": 5,
+        "clock": 38,
+        "guard_window": [
+          16102,
+          26214
+        ],
+        "position_bits": [
+          3257924334,
+          0,
+          3274350906
+        ],
+        "heading_bits": 1118060921,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 55,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 228,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 22,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090501,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 53,
+          "enemy_chance": 15,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 0,
+      "power_mode": 1,
+      "power_value": 130,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 68,
+      "hp_after": 160,
+      "result": 1,
+      "random_after": 3664639273,
+      "tp_requests": 0,
+      "tp_after": 19,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 28,
+      "combat_tick": 1193,
+      "presentation_counter": 44614,
+      "power": 100,
+      "random_before": 3526806685,
+      "incoming_direction_bits": [
+        3208614093,
+        0,
+        1059705281
+      ],
+      "owner": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 160,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 28,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090501,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 15,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "party",
+        "stats": [
+          122,
+          112,
+          30,
+          43,
+          78,
+          66,
+          3
+        ],
+        "max_hp": 328,
+        "hp": 279,
+        "max_tp": 36,
+        "tp": 36,
+        "luck": 3,
+        "control": 1,
+        "activity": 3,
+        "clock": 0,
+        "guard_window": [
+          16128,
+          0
+        ],
+        "position_bits": [
+          1132347154,
+          0,
+          1095671011
+        ],
+        "heading_bits": 1124308403,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 6,
+          "reduction": 75,
+          "party_chance": 71,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": false,
+      "kind": 0,
+      "power_mode": 0,
+      "power_value": 0,
+      "affinity": 0,
+      "guard_rule": {
+        "enabled": true,
+        "pressure": 1,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 7,
+      "hp_after": 272,
+      "result": 32784,
+      "random_after": 1857015361,
+      "tp_requests": 0,
+      "tp_after": 0,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 29,
+      "combat_tick": 1224,
+      "presentation_counter": 44645,
+      "power": 100,
+      "random_before": 3773881976,
+      "incoming_direction_bits": [
+        1063222735,
+        3197762759,
+        3200553200
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 26,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 59,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3275626132,
+          0,
+          1127712997
+        ],
+        "heading_bits": 1122596530,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 62,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 160,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 5,
+        "clock": 58,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090501,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 15,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 1,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 49,
+      "hp_after": 111,
+      "result": 8193,
+      "random_after": 3647913786,
+      "tp_requests": 0,
+      "tp_after": 26,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 30,
+      "combat_tick": 1233,
+      "presentation_counter": 44654,
+      "power": 100,
+      "random_before": 1032703031,
+      "incoming_direction_bits": [
+        1062271205,
+        3177980006,
+        3205702309
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 26,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 50,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3275626132,
+          0,
+          1127712997
+        ],
+        "heading_bits": 1122596530,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 62,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 111,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 11,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090501,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 15,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 1,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 54,
+      "hp_after": 57,
+      "result": 8193,
+      "random_after": 1840195729,
+      "tp_requests": 0,
+      "tp_after": 26,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    },
+    {
+      "index": 31,
+      "combat_tick": 1243,
+      "presentation_counter": 44664,
+      "power": 100,
+      "random_before": 38277508,
+      "incoming_direction_bits": [
+        1064206690,
+        3192938115,
+        3197770877
+      ],
+      "owner": {
+        "side": "party",
+        "stats": [
+          89,
+          29,
+          20,
+          66,
+          50,
+          51,
+          2
+        ],
+        "max_hp": 184,
+        "hp": 184,
+        "max_tp": 58,
+        "tp": 26,
+        "luck": 34,
+        "control": 2,
+        "activity": 8,
+        "clock": 40,
+        "guard_window": [
+          0,
+          0
+        ],
+        "position_bits": [
+          3275626132,
+          0,
+          1127712997
+        ],
+        "heading_bits": 1122596530,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 4,
+          "reduction": 75,
+          "party_chance": 62,
+          "enemy_chance": 0,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": false
+        },
+        "hit_stop": 0
+      },
+      "target": {
+        "side": "enemy",
+        "stats": [
+          130,
+          130,
+          0,
+          32,
+          31,
+          23,
+          1
+        ],
+        "max_hp": 800,
+        "hp": 57,
+        "max_tp": 0,
+        "tp": 0,
+        "luck": 25,
+        "control": 3,
+        "activity": 9,
+        "clock": 10,
+        "guard_window": [
+          0,
+          12
+        ],
+        "position_bits": [
+          1136955103,
+          0,
+          3269223016
+        ],
+        "heading_bits": 3259090501,
+        "guard": {
+          "active": false,
+          "special": false,
+          "pressure": 0,
+          "break_pressure": 10,
+          "reduction": 75,
+          "party_chance": 50,
+          "enemy_chance": 15,
+          "allow_airborne": false,
+          "auto_disabled": false,
+          "recently_hurt": true
+        },
+        "hit_stop": 0
+      },
+      "arte": true,
+      "kind": 2,
+      "power_mode": 1,
+      "power_value": 60,
+      "affinity": 1,
+      "guard_rule": {
+        "enabled": false,
+        "pressure": 0,
+        "breaks": false,
+        "unbreakable": false
+      },
+      "amount": 54,
+      "hp_after": 3,
+      "result": 8193,
+      "random_after": 1618994982,
+      "tp_requests": 0,
+      "tp_after": 26,
+      "owner_hit_stop_after": 0,
+      "target_hit_stop_after": 0
+    }
+  ],
+  "local_hit_stop_scope": "All 32 targets begin outside Over Limit. These contacts do not create local hit-stop. The Over Limit contact branch at REL 3CDA8..3CE04 and its model/global-pause side effects are not exercised."
+}

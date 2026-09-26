@@ -15,16 +15,14 @@ pub(super) fn prepare(
     field: Res<FieldAssets>,
     renderer: Res<RenderReady>,
     art: Res<Art>,
+    images: Res<Assets<Image>>,
     server: Res<AssetServer>,
     boot: Res<boot::Playback>,
 ) {
     ready.0 |= field.ready
         && boot.ready(&server)
         && renderer.0.load(Ordering::Acquire)
-        && art
-            .images
-            .iter()
-            .all(|h| server.is_loaded_with_dependencies(h.id()));
+        && art.images.iter().all(|handle| images.contains(handle));
 }
 
 #[allow(clippy::too_many_arguments)] // Shared clock with title, movie and field readiness gates.
@@ -39,12 +37,23 @@ pub(super) fn advance_clock(
     resident: Option<Res<super::loading::Resident>>,
     mut session: Option<ResMut<super::new_game::Session>>,
     pause: Option<Res<super::PresentationPause>>,
+    battle: Option<Res<super::battle::Owner>>,
+    game_over: Option<Res<super::game_over::Active>>,
 ) {
     // Presentation age continues across movies and title entries;
     // pure loading waits do not advance it.
     if options.capture.is_none()
         && loading.is_none()
-        && (session.is_none() || resident.is_none_or(|r| r.active.load(Ordering::Acquire)))
+        && (battle.as_ref().is_some_and(|battle| battle.presenting())
+            || session.is_none()
+            || resident
+                .as_ref()
+                .is_none_or(|r| r.active.load(Ordering::Acquire)))
+        && session.as_ref().is_none_or(|session| {
+            !session.field.events.battle_pending()
+                || game_over.is_some()
+                || battle.as_ref().is_some_and(|battle| battle.presenting())
+        })
         && session
             .as_ref()
             .is_none_or(|s| s.field.events.world.field_transition.is_none())

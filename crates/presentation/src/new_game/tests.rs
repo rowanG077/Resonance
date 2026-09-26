@@ -44,7 +44,7 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
         r#"{"332":{"module":"entry","task":"run","on":"entry"}}"#,
     )
     .unwrap();
-    let source = "use game::story; use game::field; pub task run() { await field::wait_ticks(2ticks); story::set_flag(2000, true); }";
+    let source = "use game::story; use game::field; pub task run() { await field::wait_ticks(ticks(2)); story::set_flag(2000, true); }";
     fs::write(source_root.0.join("entry.sym"), source).unwrap();
     let root = asset_root();
     let identity = Session::identity(&root).unwrap();
@@ -794,5 +794,40 @@ fn moving_slope_checkpoint_survives_cold_and_warm_loads() {
         let grounded = session.field.checkpoint().unwrap();
         assert_ne!(grounded.position[2], saved.position[2]);
         session.restore(saved.clone()).unwrap();
+    }
+}
+
+#[test]
+fn failed_entry_leaves_title_usable_in_diagnostic_mode_and_exits_in_paranoid_mode() {
+    for paranoid in [false, true] {
+        let diagnostics = resonance_content::diagnostics::Diagnostics::new(paranoid);
+        let mut resident = super::super::loading::Resident::default();
+        resident.diagnostics = diagnostics.clone();
+        let mut app = App::new();
+        app.add_message::<AppExit>();
+        app.insert_resource(resident);
+        app.insert_resource(Request(None));
+        app.insert_resource(super::super::Menu(resonance_game::TitleState {
+            selected: 1,
+            revealed: true,
+            opacity: 255,
+            ..Default::default()
+        }));
+        entry_failed(
+            app.world_mut(),
+            "test field entry",
+            anyhow::anyhow!("missing mandatory script"),
+        );
+        assert!(!app.world().contains_resource::<Request>());
+        assert!(
+            !app.world()
+                .contains_resource::<super::super::loading::Pending>()
+        );
+        assert_eq!(app.world().resource::<super::super::Menu>().0.selected, 1);
+        assert_eq!(
+            app.world().resource::<Messages<AppExit>>().len(),
+            usize::from(paranoid)
+        );
+        assert_eq!(diagnostics.entries().len(), 1);
     }
 }

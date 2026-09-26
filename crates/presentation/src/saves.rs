@@ -5,8 +5,12 @@ mod menu_probe;
 mod probe;
 mod replay;
 pub use fixture::prepare_checkpoint_fixture;
-pub(crate) use replay::record_live;
-pub use replay::{CheckpointReplay, record_checkpoint, record_checkpoint_with_display};
+pub(crate) use replay::{BattleSeeds, record_live, recording_scene};
+pub use replay::{
+    CheckpointRecordingOptions, CheckpointReplay, record_checkpoint,
+    record_checkpoint_with_display, record_checkpoint_with_options,
+    record_checkpoint_with_save_directory,
+};
 pub(super) mod title;
 mod title_probe;
 use super::{field_view, loading, new_game};

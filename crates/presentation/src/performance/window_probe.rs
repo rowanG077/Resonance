@@ -78,6 +78,7 @@ fn run(
             reveal: true,
             selected: 0,
             silent: true,
+            paranoid: true,
             replay: None,
             movie_frame: None,
             boot_frame: None,

@@ -18,6 +18,10 @@ pub struct FieldCheckpoint {
 impl FieldSession {
     pub fn checkpoint(&self) -> Result<FieldCheckpoint> {
         ensure!(
+            !self.events.battle_pending(),
+            "quicksave unavailable during battle"
+        );
+        ensure!(
             self.authored_entry.is_none(),
             "quicksave unavailable before an authored entry event"
         );

@@ -1,5 +1,7 @@
 //! Authored bone chains for hair and cloth; model behavior is prepared at runtime.
 mod profiles;
+mod simulation;
+pub use simulation::{Environment, Simulation, UpAxis};
 
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};

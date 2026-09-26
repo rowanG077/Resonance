@@ -5,6 +5,7 @@ use recipe::Bank;
 use resonance_content::menu::{MenuArt, MenuSprites, MenuTexture, WindowArt};
 use std::path::Path;
 mod data;
+pub use data::items;
 pub(crate) use data::text::source as source_text;
 pub(crate) use data::world_map::cook as world_map;
 pub(crate) use data::{Inputs, Source, Tables, assemble};
@@ -18,12 +19,15 @@ pub(crate) fn cook(
     output: &Path,
     executable: &[u8],
     catalogues: &crate::all_assets::Catalogues,
+    battle_sources: &crate::source_assets::Sources,
+    usual: &[u8],
 ) -> Result<()> {
     let mut tables = catalogues.menu()?;
     tables.data.monsters = crate::monsters::prepare(
         extracted,
         output,
-        executable,
+        battle_sources,
+        usual,
         &catalogues.monsters,
         &catalogues.menu.inventory,
     )?;

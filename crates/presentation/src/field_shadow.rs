@@ -90,7 +90,7 @@ pub(super) fn sync(
     mut meshes: ResMut<Assets<Mesh>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
 ) {
-    if !art.ready {
+    if !art.ready || art.disabled_shadows {
         return;
     }
     let shadows = &mut art.shadows;
@@ -154,6 +154,7 @@ pub(super) fn pose(
         Query<(&mut Shadow, &mut Transform, &mut Visibility, &mut DrawOrder)>,
     )>,
     mut applied: ResMut<Applied>,
+    mut failures: super::Failures,
 ) {
     // Animation has run, but propagation has not. Compute this tick's joint
     // transforms explicitly so moving characters do not leave a delayed shadow.
@@ -166,7 +167,7 @@ pub(super) fn pose(
     }
     let anchors: BTreeMap<_, _> = actors
         .iter()
-        .filter(|part| part.part == 0)
+        .filter(|part| part.part == 0 && !part.disabled)
         .filter_map(|part| {
             Some((
                 part.actor,
@@ -182,14 +183,23 @@ pub(super) fn pose(
             continue;
         };
         // Overlapping black-alpha quads still round differently when reordered.
-        let actor_order = state
+        let Some(actor_order) = state
             .get()
             .events
             .world
             .actor_order()
             .iter()
             .position(|id| *id == shadow.0)
-            .expect("shadow actor has a submission order");
+        else {
+            *visibility = Visibility::Hidden;
+            if !failures.skip(
+                "field shadow",
+                anyhow::anyhow!("actor {} has no submission order", shadow.0),
+            ) {
+                return;
+            }
+            continue;
+        };
         order.set_if_neq(DrawOrder(crate::draw_order::CONTACT_SHADOWS, actor_order));
         let surface = state.get().ground_surface(actor.position);
         let anchor = anchors.get(&shadow.0);

@@ -81,6 +81,9 @@ impl Artwork {
                 frame_mask: image.clone(),
                 color_mask: image.clone(),
                 coverage: Coverage::default(),
+                layered: false,
+                screen_break: false,
+                additive: false,
                 opaque: false,
             });
             canvases.push(Canvas {

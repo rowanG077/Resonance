@@ -67,7 +67,8 @@ pub(super) fn install(app: &mut App) {
         .add_systems(
             PostUpdate,
             sync.after(super::field_effects::render)
-                .before(super::field_audit::check),
+                .before(super::field_audit::check)
+                .run_if(super::battle::field_presenting),
         );
     app.sub_app_mut(RenderApp)
         .insert_resource(ready)

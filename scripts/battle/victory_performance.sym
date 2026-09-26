@@ -1,0 +1,102 @@
+script battle;
+use battle;
+
+// BTLwin's five ordinary packages per character. The loader binds the package's
+// sparse clip to an immutable selector slot instead of replacing native slot23.
+asset lloyd_0: battle::Motion = "battle/motions/victory/1/0";
+asset lloyd_1: battle::Motion = "battle/motions/victory/1/1";
+asset lloyd_2: battle::Motion = "battle/motions/victory/1/2";
+asset lloyd_3: battle::Motion = "battle/motions/victory/1/3";
+asset lloyd_4: battle::Motion = "battle/motions/victory/1/4";
+asset colette_0: battle::Motion = "battle/motions/victory/2/0";
+asset colette_1: battle::Motion = "battle/motions/victory/2/1";
+asset colette_2: battle::Motion = "battle/motions/victory/2/2";
+asset colette_3: battle::Motion = "battle/motions/victory/2/3";
+asset colette_4: battle::Motion = "battle/motions/victory/2/4";
+asset genis_0: battle::Motion = "battle/motions/victory/3/0";
+asset genis_1: battle::Motion = "battle/motions/victory/3/1";
+asset genis_2: battle::Motion = "battle/motions/victory/3/2";
+asset genis_3: battle::Motion = "battle/motions/victory/3/3";
+asset genis_4: battle::Motion = "battle/motions/victory/3/4";
+asset colette_idle: battle::Motion = "battle/motions/colette/0";
+
+fn lloyd_trails() {
+    battle::weapon_trail(0, ticks(180));
+    battle::weapon_trail(1, ticks(180));
+}
+
+// 564D4 binds the initial clip immediately. Its next callback starts 2B910's
+// animation counter at zero; unlike ordinary attacks it runs during blending.
+// Native start operands are multiplied by abs(rate) before model playback.
+task repeating(motion: battle::Motion, age: Ticks, start: f32, rate: f32, expression: i32) {
+    battle::play_motion(motion, ticks(15), 0.0, rate, false, 0.0);
+    await battle::next_update();
+    battle::texture_layers(expression, 0, 0, 0);
+    await battle::at_age(age);
+    battle::play_motion(motion, ticks(0), start, rate, true, start);
+    battle::finish();
+}
+
+pub task character_1_0() {
+    lloyd_trails();
+    await repeating(lloyd_0, ticks(111), 48.0, 0.5, 4);
+}
+pub task character_1_1() {
+    lloyd_trails();
+    await repeating(lloyd_1, ticks(91), 38.0, 0.5, 4);
+}
+pub task character_1_2() {
+    lloyd_trails();
+    battle::play_motion(lloyd_2, ticks(12), 0.0, 0.5, false, 0.0);
+    await battle::next_update();
+    battle::texture_layers(4, 0, 0, 0);
+    battle::finish();
+}
+pub task character_1_3() {
+    lloyd_trails();
+    await repeating(lloyd_3, ticks(231), 216.0, 1.0, 4);
+}
+pub task character_1_4() {
+    lloyd_trails();
+    await repeating(lloyd_4, ticks(91), 38.0, 0.5, 4);
+}
+pub task character_2_0() {
+    await repeating(colette_0, ticks(79), 32.0, 0.5, 4);
+}
+pub task character_2_1() {
+    await repeating(colette_1, ticks(215), 100.0, 0.5, 4);
+}
+pub task character_2_2() {
+    battle::play_motion(colette_2, ticks(12), 0.0, 1.0, false, 0.0);
+    await battle::next_update();
+    battle::texture_layers(4, 0, 0, 0);
+    await battle::animation_end();
+    battle::play_motion(colette_idle, ticks(4), 0.0, 0.5, true, 0.0);
+    battle::finish();
+}
+pub task character_2_3() {
+    battle::play_motion(colette_3, ticks(12), 0.0, 1.0, false, 0.0);
+    await battle::next_update();
+    battle::texture_layers(4, 0, 0, 0);
+    await battle::animation_end();
+    battle::play_motion(colette_idle, ticks(0), 0.0, 0.5, true, 0.0);
+    battle::finish();
+}
+pub task character_2_4() {
+    await repeating(colette_4, ticks(163), 74.0, 0.5, 4);
+}
+pub task character_3_0() {
+    await repeating(genis_0, ticks(239), 112.0, 0.5, 0);
+}
+pub task character_3_1() {
+    await repeating(genis_1, ticks(231), 108.0, 0.5, 0);
+}
+pub task character_3_2() {
+    await repeating(genis_2, ticks(115), 50.0, 0.5, 0);
+}
+pub task character_3_3() {
+    await repeating(genis_3, ticks(95), 40.0, 0.5, 0);
+}
+pub task character_3_4() {
+    await repeating(genis_4, ticks(63), 24.0, 0.5, 0);
+}

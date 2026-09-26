@@ -28,7 +28,12 @@ impl Element {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EquipmentProperties {
     pub attack_element: Option<Element>,
+    /// Original resistance modifier for attacks without an element.
+    pub neutral_resistance: i8,
     pub resistance: BTreeMap<Element, i8>,
+    pub critical_chance_bonus: u8,
+    /// Signed T/S contribution recomputed with the six equipped item rows.
+    pub technique_drift: i8,
     pub effects: Vec<u8>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]

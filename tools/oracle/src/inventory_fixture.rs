@@ -38,6 +38,9 @@ pub(super) struct Changes {
     /// Learn a technique as CHARACTER:TECHNIQUE (zero-based character, cooked technique ID).
     #[arg(long, num_args = 1..)]
     learn_technique: Vec<String>,
+    /// Disable AI use of a learned technique as CHARACTER:TECHNIQUE in both copies.
+    #[arg(long, num_args = 1..)]
+    disable_technique: Vec<String>,
     /// Learn dishes by their zero-based cooked recipe IDs in both checkpoint copies.
     #[arg(long, num_args = 1..)]
     learn_recipe: Vec<u8>,
@@ -123,6 +126,7 @@ pub(super) fn run(
         record_synopsis,
         member_vitals,
         learn_technique,
+        disable_technique,
         learn_recipe,
         grant_item: grants,
         item_count,
@@ -375,11 +379,15 @@ pub(super) fn run(
         }
         party["viewed_skits"] = serde_json::to_value(viewed)?;
     }
-    if !learn_technique.is_empty() {
+    if !learn_technique.is_empty() || !disable_technique.is_empty() {
         let definitions: resonance_content::session::SessionData =
             serde_json::from_slice(&fs::read(cooked.join("game/session-data.json"))?)?;
         definitions.validate()?;
-        for tag in learn_technique {
+        for (tag, learn) in learn_technique
+            .iter()
+            .map(|tag| (tag, true))
+            .chain(disable_technique.iter().map(|tag| (tag, false)))
+        {
             let (character, technique): (usize, u16) = pair(tag, "expected CHARACTER:TECHNIQUE")?;
             let allowed = &definitions
                 .characters
@@ -400,16 +408,16 @@ pub(super) fn run(
                 "cooked technique order differs from original table"
             );
             let at = session + 0x2b8 + character * 0x118 + 0x70;
-            let bits = u64::from_be_bytes(ram[at..at + 8].try_into()?);
+            let mut bits = u64::from_be_bytes(ram[at..at + 8].try_into()?);
             let mut known: BTreeSet<u16> =
                 serde_json::from_value(party["members"][character]["techniques"].clone())?;
-            let disabled: BTreeSet<u16> = serde_json::from_value(
+            let mut disabled: BTreeSet<u16> = serde_json::from_value(
                 party["members"][character]
                     .get("disabled_techniques")
                     .cloned()
                     .unwrap_or(json!([])),
             )?;
-            let enabled = u64::from_be_bytes(ram[at + 8..at + 16].try_into()?);
+            let mut enabled = u64::from_be_bytes(ram[at + 8..at + 16].try_into()?);
             ensure!(
                 allowed
                     .iter()
@@ -424,12 +432,24 @@ pub(super) fn run(
                     || (enabled & (1 << i) == 0) == disabled.contains(id)),
                 "starting technique AI flags differ"
             );
-            ram[at..at + 8].copy_from_slice(&(bits | (1 << index)).to_be_bytes());
-            if !disabled.contains(&technique) {
-                ram[at + 8..at + 16].copy_from_slice(&(enabled | (1 << index)).to_be_bytes());
+            if learn {
+                bits |= 1 << index;
+                known.insert(technique);
+                if !disabled.contains(&technique) {
+                    enabled |= 1 << index;
+                }
+            } else {
+                ensure!(
+                    known.contains(&technique),
+                    "cannot disable an unlearned technique"
+                );
+                enabled &= !(1 << index);
+                disabled.insert(technique);
             }
-            known.insert(technique);
+            ram[at..at + 8].copy_from_slice(&bits.to_be_bytes());
+            ram[at + 8..at + 16].copy_from_slice(&enabled.to_be_bytes());
             party["members"][character]["techniques"] = serde_json::to_value(known)?;
+            party["members"][character]["disabled_techniques"] = serde_json::to_value(disabled)?;
         }
     }
     let mut inventory: BTreeMap<u16, u8> = serde_json::from_value(party["items"].clone())?;
@@ -768,7 +788,7 @@ pub(super) fn run(
     let prefix = fs::read(PathBuf::from(format!("{}.dtm", source.display())))?;
     let native_bytes = serde_json::to_vec_pretty(&save)?;
     let hash = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
-    let report = json!({"kind":"controlled_inventory_fixture","story_origin":story_change,"formation":formation,"member_vitals":member_vitals,"learned_techniques":learn_technique,"granted_items":grants,"discover_all":discover_all,
+    let report = json!({"kind":"controlled_inventory_fixture","story_origin":story_change,"formation":formation,"member_vitals":member_vitals,"learned_techniques":learn_technique,"disabled_techniques":disable_technique,"granted_items":grants,"discover_all":discover_all,
         "observed_travel":observed_travel,"visited_locations":visit_location,"visited_shops":visit_shop,
         "observed_monsters":observed_monsters,"catalogued_monsters":catalogue_monster,
         "encountered_monsters":encounter_monster,"monster_variants":monster_variant,

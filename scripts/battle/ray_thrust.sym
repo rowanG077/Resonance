@@ -1,0 +1,32 @@
+script battle;
+use battle;
+// Colette's phase-zero martial descriptor (3823C / 37FD4, technique 35).
+asset motion: battle::Motion = "battle/motions/colette/43";
+asset idle: battle::Motion = "battle/motions/colette/0";
+asset voice: battle::Voice = "battle/voices/absolute/32950";
+asset swing: battle::Sound = "battle/sounds/common/61";
+asset ray: battle::Projectile = "battle/projectiles/martial/35";
+
+pub task attack() {
+    battle::pay_tp(battle::tp_cost());
+    battle::notice(ticks(90), 0);
+    battle::braking(0.55);
+    battle::gravity(-1.0);
+    await battle::animate(motion, ticks(4), 0.0, 0.35, false);
+    battle::end_animation();
+    spawn contact();
+    await battle::at_command_age(ticks(4));
+    battle::voice(battle::owner(), voice, 2);
+    await battle::at_command_age(ticks(20));
+    battle::forward_speed(6.0, false);
+    battle::sound(swing, 0);
+    await battle::action_end_at(ticks(94));
+    battle::play_motion(idle, ticks(10), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(10));
+    battle::finish();
+}
+
+pub task contact() {
+    await battle::at_hit_age(ticks(24));
+    battle::emit(ray, battle::actor_point(battle::owner(), 0.0, 0.0));
+}

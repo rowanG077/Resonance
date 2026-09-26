@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+resonance-battle.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 resonance-events.workspace = true

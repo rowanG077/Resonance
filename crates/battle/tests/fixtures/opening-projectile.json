@@ -1,0 +1,74 @@
+{
+  "scope": "Observed ballistic motion and lifetime only. Initialization, source resource selection, collision, rendering and Lightning timing are outside this comparison.",
+  "decomp_revision": "384dd3889598f7d7608f0f644b2ff13e283131cf",
+  "identity": {
+    "dolphin_version": "Dolphin [master] 2606",
+    "dolphin_binary_sha256": "d6f870e94e5189d1773f6c0eddd63521e25d6cd21f60722d547e064437aa8ced",
+    "dolphin_wrapped_binary_sha256": "13665283a1bc02f1f5204189aa10403fa694b19571d4d665d1787aa350476499",
+    "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
+    "movie_sha256": "667dd5161d52806a17025f05e193d5e796261b108100309c2ba0a5864c13e181",
+    "initial_state_sha256": "1071d253bb6d709c14f5f16b20656bd2ac27929dbc3ee3232931bfedaed92684",
+    "configs": {
+      "Hotkeys.ini": "e7f6fce48cd46b104e153fdf2aa7e6423e6320ab69babca8bc933fb8ea5e9d47",
+      "GFX.ini": "6b161af2eefcc6374767be5889d0586dc9da879c7b968f3fb856a4d4eaf2090a",
+      "Dolphin.ini": "44806493e2104a4b4cef915b7e266fdf9ca3b8967a0aae34162663107dc2c61c"
+    },
+    "game_settings": {
+      "GQSEAF.ini": "b4a00a6b49e82001a45233427439ec9d844da0934286d98da39822b9d70bfdda"
+    },
+    "presentation": {
+      "profile": "no-blur-v1",
+      "disable_copy_filter": true,
+      "gecko": "Remove Blur",
+      "gecko_verified": true,
+      "keep_duplicate_frames": false
+    }
+  },
+  "memory_sha256": "322314e310399ab0446ff613c8e2049039dbb4a1f8fdb72edd7520e8cd830398",
+  "watch_locations_sha256": "33fb376ddef0256c5acb9b606d673f180803d27a7d4c5773270ed45f1bb87334",
+  "flags": 9,
+  "lifetime": 30,
+  "velocity": [
+    19.869001388549805,
+    0.0,
+    -2.2853353023529053
+  ],
+  "acceleration": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "observations": [
+    {"vi": 514, "combat": 739, "tick": 798, "age": 1, "mode": 1, "position": [-80.41941833496094, 90.0, -55.726287841796875]},
+    {"vi": 515, "combat": 740, "tick": 799, "age": 2, "mode": 1, "position": [-60.5504150390625, 90.0, -58.01162338256836]},
+    {"vi": 516, "combat": 741, "tick": 800, "age": 3, "mode": 1, "position": [-40.68141174316406, 90.0, -60.296958923339844]},
+    {"vi": 517, "combat": 742, "tick": 801, "age": 4, "mode": 1, "position": [-20.812410354614258, 90.0, -62.58229446411133]},
+    {"vi": 518, "combat": 743, "tick": 802, "age": 5, "mode": 1, "position": [-0.9434089660644531, 90.0, -64.86763000488281]},
+    {"vi": 519, "combat": 744, "tick": 803, "age": 6, "mode": 1, "position": [18.92559242248535, 90.0, -67.15296173095703]},
+    {"vi": 520, "combat": 745, "tick": 804, "age": 7, "mode": 1, "position": [38.794593811035156, 90.0, -69.43829345703125]},
+    {"vi": 521, "combat": 746, "tick": 805, "age": 8, "mode": 1, "position": [58.663597106933594, 90.0, -71.72362518310547]},
+    {"vi": 522, "combat": 747, "tick": 806, "age": 9, "mode": 1, "position": [78.53260040283203, 90.0, -74.00895690917969]},
+    {"vi": 523, "combat": 748, "tick": 807, "age": 10, "mode": 1, "position": [98.40160369873047, 90.0, -76.2942886352539]},
+    {"vi": 524, "combat": 749, "tick": 808, "age": 11, "mode": 1, "position": [118.2706069946289, 90.0, -78.57962036132812]},
+    {"vi": 525, "combat": 750, "tick": 809, "age": 12, "mode": 1, "position": [138.1396026611328, 90.0, -80.86495208740234]},
+    {"vi": 526, "combat": 751, "tick": 810, "age": 13, "mode": 1, "position": [158.00860595703125, 90.0, -83.15028381347656]},
+    {"vi": 527, "combat": 752, "tick": 811, "age": 14, "mode": 1, "position": [177.8776092529297, 90.0, -85.43561553955078]},
+    {"vi": 528, "combat": 753, "tick": 812, "age": 15, "mode": 1, "position": [197.74661254882812, 90.0, -87.720947265625]},
+    {"vi": 529, "combat": 754, "tick": 813, "age": 16, "mode": 1, "position": [217.61561584472656, 90.0, -90.00627899169922]},
+    {"vi": 530, "combat": 755, "tick": 814, "age": 17, "mode": 1, "position": [237.484619140625, 90.0, -92.29161071777344]},
+    {"vi": 531, "combat": 756, "tick": 815, "age": 18, "mode": 1, "position": [257.3536071777344, 90.0, -94.57694244384766]},
+    {"vi": 532, "combat": 757, "tick": 816, "age": 19, "mode": 1, "position": [277.22259521484375, 90.0, -96.86227416992188]},
+    {"vi": 533, "combat": 758, "tick": 817, "age": 20, "mode": 1, "position": [297.0915832519531, 90.0, -99.1476058959961]},
+    {"vi": 534, "combat": 759, "tick": 818, "age": 21, "mode": 1, "position": [316.9605712890625, 90.0, -101.43293762207031]},
+    {"vi": 535, "combat": 760, "tick": 819, "age": 22, "mode": 1, "position": [336.8295593261719, 90.0, -103.71826934814453]},
+    {"vi": 536, "combat": 761, "tick": 820, "age": 23, "mode": 1, "position": [356.69854736328125, 90.0, -106.00360107421875]},
+    {"vi": 537, "combat": 762, "tick": 821, "age": 24, "mode": 1, "position": [376.5675354003906, 90.0, -108.28893280029297]},
+    {"vi": 538, "combat": 763, "tick": 822, "age": 25, "mode": 1, "position": [396.4365234375, 90.0, -110.57426452636719]},
+    {"vi": 539, "combat": 764, "tick": 823, "age": 26, "mode": 1, "position": [416.3055114746094, 90.0, -112.8595962524414]},
+    {"vi": 540, "combat": 765, "tick": 824, "age": 27, "mode": 1, "position": [436.17449951171875, 90.0, -115.14492797851562]},
+    {"vi": 541, "combat": 766, "tick": 825, "age": 28, "mode": 1, "position": [456.0434875488281, 90.0, -117.43025970458984]},
+    {"vi": 542, "combat": 767, "tick": 826, "age": 29, "mode": 1, "position": [475.9124755859375, 90.0, -119.71559143066406]},
+    {"vi": 543, "combat": 768, "tick": 827, "age": 30, "mode": 1, "position": [495.7814636230469, 90.0, -122.00092315673828]},
+    {"vi": 544, "combat": 769, "tick": 828, "age": 31, "mode": 2, "position": [515.6504516601562, 90.0, -124.2862548828125]}
+  ]
+}

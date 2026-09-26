@@ -1,0 +1,150 @@
+script battle;
+use battle;
+// Enemy 36's original action, animation, command and hit tables.
+// Selection and approach belong to the ordinary enemy controller.
+asset idle: battle::Motion = "battle/motions/enemies/036/0";
+asset windup: battle::Motion = "battle/motions/enemies/036/30";
+asset right_swing: battle::Motion = "battle/motions/enemies/036/31";
+asset right_end: battle::Motion = "battle/motions/enemies/036/32";
+asset push_start: battle::Motion = "battle/motions/enemies/036/33";
+asset left_swing: battle::Motion = "battle/motions/enemies/036/34";
+asset left_end: battle::Motion = "battle/motions/enemies/036/35";
+asset followup: battle::Motion = "battle/motions/enemies/036/36";
+asset counter_motion: battle::Motion = "battle/motions/enemies/036/38";
+asset right: battle::Melee = "battle/melee/enemies/036/0/0";
+asset push: battle::Melee = "battle/melee/enemies/036/1/0";
+asset combo_right: battle::Melee = "battle/melee/enemies/036/2/0";
+asset combo_left: battle::Melee = "battle/melee/enemies/036/2/1";
+asset swing: battle::Sound = "battle/sounds/common/60";
+
+pub task right_attack() {
+    // 3DF34 resets normal braking for enemy rows as well as party normals.
+    battle::braking(0.41250002);
+    battle::action_guard(0, ticks(0), ticks(12));
+    spawn right_commands();
+    spawn right_hits();
+    await battle::animate(windup, ticks(4), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(19));
+    await battle::animate(right_swing, ticks(2), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(39));
+    await battle::animate(right_end, ticks(2), 0.0, 0.5, false);
+    battle::end_animation();
+    await battle::action_end();
+    battle::play_motion(idle, ticks(10), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(10));
+    battle::finish();
+}
+
+pub task push_attack() {
+    // 3DF34 resets normal braking for enemy rows as well as party normals.
+    battle::braking(0.41250002);
+    battle::action_guard(15, ticks(0), ticks(12));
+    spawn push_commands();
+    spawn push_hits();
+    await battle::animate(push_start, ticks(4), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(12));
+    await battle::animate(left_swing, ticks(2), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(39));
+    await battle::animate(left_end, ticks(2), 0.0, 0.5, false);
+    battle::end_animation();
+    await battle::action_end();
+    battle::play_motion(idle, ticks(10), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(10));
+    battle::finish();
+}
+
+pub task double_attack() {
+    // 3DF34 resets normal braking for enemy rows as well as party normals.
+    battle::braking(0.41250002);
+    battle::action_guard(33, ticks(0), ticks(12));
+    spawn double_commands();
+    spawn double_hits();
+    await battle::animate(windup, ticks(4), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(19));
+    await battle::animate(right_swing, ticks(2), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(48));
+    await battle::animate(left_swing, ticks(2), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(77));
+    await battle::animate(left_end, ticks(2), 0.0, 0.5, false);
+    battle::end_animation();
+    await battle::action_end();
+    battle::play_motion(idle, ticks(10), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(10));
+    battle::finish();
+}
+
+pub task triple_attack() {
+    // 3DF34 resets normal braking for enemy rows as well as party normals.
+    battle::braking(0.41250002);
+    battle::action_guard(50, ticks(0), ticks(12));
+    spawn triple_commands();
+    spawn triple_hits();
+    await battle::animate(windup, ticks(4), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(19));
+    await battle::animate(right_swing, ticks(2), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(48));
+    await battle::animate(left_swing, ticks(2), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(77));
+    await battle::animate(followup, ticks(2), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(93));
+    await battle::animate(right_swing, ticks(4), 0.0, 0.5, false);
+    await battle::at_animation_age(ticks(121));
+    await battle::animate(right_end, ticks(2), 0.0, 0.5, false);
+    battle::end_animation();
+    await battle::action_end();
+    battle::play_motion(idle, ticks(10), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(10));
+    battle::finish();
+}
+
+pub task counter_attack() {
+    // 3DF34 resets normal braking for enemy rows as well as party normals.
+    battle::braking(0.41250002);
+    battle::action_guard(0, ticks(0), ticks(12));
+    spawn right_commands();
+    spawn right_hits();
+    await battle::animate(counter_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    await battle::action_end();
+    battle::play_motion(idle, ticks(25), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(25));
+    battle::finish();
+}
+
+task right_commands() {
+    await battle::at_command_age(ticks(23));
+    battle::sound(swing, 1);
+}
+task push_commands() {
+    await battle::at_command_age(ticks(20));
+    battle::sound(swing, 1);
+}
+task double_commands() {
+    await battle::at_command_age(ticks(22));
+    battle::sound(swing, 1);
+    await battle::at_command_age(ticks(58));
+    battle::sound(swing, 1);
+    await battle::at_command_age(ticks(60));
+    battle::forward_speed(8.0, false);
+}
+task triple_commands() {
+    await double_commands();
+    await battle::at_command_age(ticks(98));
+    battle::sound(swing, 1);
+    await battle::at_command_age(ticks(100));
+    battle::forward_speed(8.0, false);
+}
+task right_hits() {
+    await battle::hit_window(right, ticks(23), ticks(25));
+}
+task push_hits() {
+    await battle::hit_window(push, ticks(20), ticks(20));
+}
+task double_hits() {
+    await battle::hit_window(combo_right, ticks(22), ticks(20));
+    await battle::hit_window(combo_left, ticks(58), ticks(20));
+}
+task triple_hits() {
+    await double_hits();
+    await battle::hit_window(combo_right, ticks(98), ticks(20));
+}

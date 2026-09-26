@@ -1,0 +1,34 @@
+script battle;
+use battle;
+// Lloyd's phase-zero martial descriptor (3823C / 37FD4, technique 1).
+asset motion: battle::Motion = "battle/motions/lloyd/43";
+asset idle: battle::Motion = "battle/motions/lloyd/0";
+asset voice: battle::Voice = "battle/voices/absolute/32827";
+asset swing: battle::Sound = "battle/sounds/common/60";
+asset wave: battle::Projectile = "battle/projectiles/martial/1";
+asset startup: battle::Effect = "battle/effects/techniques/demon_fang";
+
+pub task attack() {
+    battle::pay_tp(battle::tp_cost());
+    battle::notice(ticks(90), 0);
+    battle::braking(0.55);
+    battle::gravity(-1.0);
+    battle::attach_effect(startup, 3);
+    await battle::animate(motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn contact();
+    battle::voice(battle::owner(), voice, 2);
+    battle::weapon_trail(1, ticks(90));
+    await battle::at_command_age(ticks(4));
+    battle::sound(swing, 0);
+    // 37FD4 increments before the duration comparison.
+    await battle::action_end_at(ticks(43));
+    battle::play_motion(idle, ticks(10), 0.0, 0.5, true, 0.0);
+    await battle::recover(ticks(10));
+    battle::finish();
+}
+
+pub task contact() {
+    await battle::at_hit_age(ticks(12));
+    battle::emit(wave, battle::actor_point(battle::owner(), 0.0, 0.0));
+}

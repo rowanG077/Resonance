@@ -1,4 +1,5 @@
 //! Desktop presentation for the high-level title controller.
+mod diagnostics;
 use anyhow::{Context, Result};
 use bevy::{
     camera::{RenderTarget, ScalingMode, visibility::RenderLayers},
@@ -24,6 +25,9 @@ use std::{
 };
 mod audio;
 mod audio_output;
+mod battle;
+mod battle_entry;
+mod battle_view;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
 mod camera;
@@ -36,6 +40,7 @@ mod choice_cursor;
 mod draw_order;
 mod field_animation;
 mod field_audio;
+pub(crate) use field_audio::battle as battle_audio;
 mod sparse_animation;
 pub use field_audio::record_field_audio;
 mod field_audit;
@@ -47,6 +52,7 @@ mod field_probe;
 mod field_refraction;
 mod field_ui;
 mod field_view;
+mod game_over;
 mod glow;
 mod materials;
 mod menu_backdrop;
@@ -55,8 +61,10 @@ mod movie;
 mod new_game;
 mod saves;
 pub use saves::{
-    CheckpointReplay, SaveOptions, prepare_checkpoint_fixture, record_checkpoint,
-    record_checkpoint_with_display, run_menu_probe, run_quicksave_probe, run_title_load_probe,
+    CheckpointRecordingOptions, CheckpointReplay, SaveOptions, prepare_checkpoint_fixture,
+    record_checkpoint, record_checkpoint_with_display, record_checkpoint_with_options,
+    record_checkpoint_with_save_directory, run_menu_probe, run_quicksave_probe,
+    run_title_load_probe,
 };
 mod new_game_capture;
 mod secondary_motion;
@@ -95,6 +103,8 @@ pub struct RunOptions {
     pub reveal: bool,
     pub selected: usize,
     pub silent: bool,
+    /// Stop at recoverable content/runtime errors instead of logging and continuing.
+    pub paranoid: bool,
     pub replay: Option<PathBuf>,
     pub movie_frame: Option<u32>,
     pub boot_frame: Option<u32>,
@@ -139,6 +149,8 @@ struct CaptureStart(Instant);
 struct Framebuffer(RenderTarget);
 #[derive(Component)]
 struct FieldCamera;
+#[derive(Component)]
+struct FieldOverlayCamera;
 #[derive(Resource, Default)]
 struct PendingInput {
     held: MenuInput,
@@ -208,6 +220,14 @@ fn build_app_with_display(
     mut options: RunOptions,
     resolution: Resolution,
 ) -> Result<(App, Option<PathBuf>)> {
+    let diagnostics = resonance_content::diagnostics::Diagnostics::new(options.paranoid);
+    if let Some(tick) = options.boot_frame {
+        anyhow::ensure!(
+            tick < resonance_game::boot::LOGO_TICKS,
+            "boot-frame must be below {}",
+            resonance_game::boot::LOGO_TICKS
+        );
+    }
     options.skip_intro |= options.saves.load.is_some();
     anyhow::ensure!(
         options.presentation_start.is_none()
@@ -219,7 +239,7 @@ fn build_app_with_display(
     let assets = fs::canonicalize(&options.assets)
         .context("missing cooked assets; run resonance-import cook-all first")?;
     let title_path = assets.join("title.json");
-    let manifest: TitleAssets = serde_json::from_slice(
+    let mut manifest: TitleAssets = serde_json::from_slice(
         &fs::read(&title_path).with_context(|| format!("reading {}", title_path.display()))?,
     )
     .with_context(|| {
@@ -230,43 +250,60 @@ fn build_app_with_display(
     })?;
     manifest.validate()?;
     for texture in &manifest.textures {
-        anyhow::ensure!(
-            assets.join(&texture.path).is_file(),
-            "missing cooked texture {}",
-            texture.path
-        );
+        if !assets.join(&texture.path).is_file() {
+            diagnostics.report(
+                "startup title texture",
+                anyhow::anyhow!("missing cooked texture {}", texture.path),
+            )?;
+        }
     }
+    // A partial title scene would keep its asynchronous readiness gate waiting
+    // forever. Retire that scene together with its script when a dependency is
+    // unavailable, while keeping the independent title UI usable.
     if let Some(scene) = &manifest.scene {
-        anyhow::ensure!(
-            assets.join(&scene.glow.texture).is_file(),
-            "missing glow texture; recook title assets"
-        );
-        for part in &scene.parts {
-            for path in std::iter::once(&part.mesh).chain(&part.textures) {
-                anyhow::ensure!(
-                    assets.join(path).is_file(),
-                    "missing cooked scene asset {path}"
-                );
+        let mut complete = true;
+        for path in
+            std::iter::once(&scene.glow.texture).chain(scene.parts.iter().flat_map(|part| {
+                std::iter::once(&part.mesh)
+                    .chain(&part.textures)
+                    .chain(part.clips.iter().map(|clip| &clip.motion))
+            }))
+        {
+            if !assets.join(path).is_file() {
+                diagnostics.report(
+                    "startup title scene",
+                    anyhow::anyhow!("missing cooked scene asset {path}"),
+                )?;
+                complete = false;
             }
+        }
+        if !complete {
+            manifest.scene = None;
         }
     }
     let mut prepared_clips = sparse_animation::Prepared::default();
     let mut events = if let Some(scene) = &manifest.scene {
-        use sha2::{Digest, Sha256};
-        let bytes = fs::read(assets.join(&scene.script.path))
-            .context("missing SymphoniaScript title resource; recook title assets")?;
-        anyhow::ensure!(
-            format!("{:x}", Sha256::digest(&bytes)) == scene.script.sha256,
-            "title script digest mismatch"
-        );
-        Some(resonance_game::title_events::start(
-            &bytes,
-            scene,
-            |path| prepared_clips.load(&assets, path),
-        )?)
+        diagnostics.attempt(
+            "startup title script",
+            (|| {
+                use sha2::{Digest, Sha256};
+                let bytes = fs::read(assets.join(&scene.script.path))
+                    .context("missing SymphoniaScript title resource; recook title assets")?;
+                anyhow::ensure!(
+                    format!("{:x}", Sha256::digest(&bytes)) == scene.script.sha256,
+                    "title script digest mismatch"
+                );
+                resonance_game::title_events::start(&bytes, scene, |path| {
+                    prepared_clips.load(&assets, path)
+                })
+            })(),
+        )?
     } else {
         None
     };
+    if events.is_none() {
+        manifest.scene = None;
+    }
     let replay = options
         .replay
         .as_ref()
@@ -292,17 +329,43 @@ fn build_app_with_display(
             if let Some(replay) = &replay {
                 pending.record_replay(replay, state.tick + 1);
             }
-            if let Some(events) = &mut events {
-                events.step()?;
+            if let Some(runtime) = &mut events
+                && diagnostics
+                    .attempt("startup title checkpoint", runtime.step())?
+                    .is_none()
+            {
+                events = None;
+                manifest.scene = None;
             }
             state.step(pending.consume(clock));
         }
     }
-    let audio = PlaybackAssets::load(&assets)?;
-    let music = (!audio.is_empty()).then_some(audio);
-    let movie = movie::Playback::load(&assets, &options)?;
-    let boot = boot::Playback::load(&assets, &options)?;
+    let music = diagnostics
+        .attempt("startup title audio", PlaybackAssets::load(&assets))?
+        .filter(|audio| !audio.is_empty());
+    let movie = diagnostics
+        .attempt("startup movie", movie::Playback::load(&assets, &options))?
+        .unwrap_or_default();
+    let mut boot = diagnostics
+        .attempt("startup logos", boot::Playback::load(&assets, &options))?
+        .unwrap_or_default();
+    if let Some(asset) = &boot.asset {
+        let mut complete = true;
+        for texture in &asset.textures {
+            if !assets.join(&texture.path).is_file() {
+                diagnostics.report(
+                    "startup logo texture",
+                    anyhow::anyhow!("missing cooked logo texture {}", texture.path),
+                )?;
+                complete = false;
+            }
+        }
+        if !complete {
+            boot = boot::Playback::default();
+        }
+    }
     let mut app = App::new();
+    app.insert_resource(crate::diagnostics::Diagnostics(diagnostics));
     app.insert_resource(prepared_clips);
     saves::install(&mut app, &options.saves)?;
     loading::install(&mut app, &assets);
@@ -401,7 +464,7 @@ fn build_app_with_display(
                 timing::advance_clock,
                 boot::advance,
                 advance,
-                new_game::advance,
+                new_game::advance.run_if(battle::field_running),
             )
                 .chain(),
         )
@@ -410,7 +473,7 @@ fn build_app_with_display(
             (
                 saves::update,
                 new_game::enter,
-                new_game::transition,
+                new_game::transition.run_if(battle::field_running),
                 scene::bind_animated,
                 prepare_field,
                 update_materials,
@@ -423,7 +486,7 @@ fn build_app_with_display(
                 movie::update,
                 new_game::movie_handoff,
                 start_audio,
-                field_audio::update,
+                field_audio::update.run_if(battle::field_running),
                 layout,
                 capture,
                 playthrough::capture,
@@ -452,6 +515,8 @@ fn build_app_with_display(
             check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
         );
     field_warm::install(&mut app);
+    battle::install(&mut app);
+    game_over::install(&mut app)?;
     renderer::configure(&mut app);
     Ok((app, recording))
 }
@@ -564,6 +629,7 @@ fn setup(
             clear_color: ClearColorConfig::None,
             ..default()
         },
+        FieldOverlayCamera,
         camera::overlay_alignment(),
         RenderTarget::Image(source.clone().into()),
         Projection::Orthographic(OrthographicProjection {
@@ -595,6 +661,9 @@ fn setup(
         .textures
         .iter()
         .map(|t| {
+            if !options.paranoid && !options.assets.join(&t.path).is_file() {
+                return images.add(Image::default());
+            }
             server
                 .load_builder()
                 .with_settings(|s: &mut ImageLoaderSettings| s.is_srgb = false)
@@ -790,7 +859,11 @@ fn gather_input(
 #[allow(clippy::too_many_arguments)] // Input, clock, readiness, and cue playback resources.
 fn advance(
     mut commands: Commands,
-    options: Res<RunOptions>,
+    (options, diagnostics, mut exit): (
+        Res<RunOptions>,
+        Res<crate::diagnostics::Diagnostics>,
+        MessageWriter<AppExit>,
+    ),
     mut menu: ResMut<Menu>,
     clock: Res<Clock>,
     mut events: Option<ResMut<Events>>,
@@ -804,8 +877,10 @@ fn advance(
     new_game: Option<Res<new_game::Session>>,
     loading: Option<Res<loading::Pending>>,
     load_menu: Option<Res<saves::title::LoadMenu>>,
+    game_over: Option<Res<game_over::Active>>,
 ) {
-    if new_game.is_some()
+    if game_over.is_some()
+        || new_game.is_some()
         || load_menu.is_some()
         || loading.is_some()
         || movie.active
@@ -821,8 +896,14 @@ fn advance(
     }
     let previous_selection = menu.0.selected;
     let input = pending.consume(clock.0);
-    if let Some(events) = &mut events {
-        events.0.step().unwrap_or_else(|e| panic!("{e:#}"));
+    if let Some(events) = &mut events
+        && let Err(error) = events.0.step()
+    {
+        if diagnostics.0.report("title script", error).is_err() {
+            exit.write(AppExit::error());
+            return;
+        }
+        commands.remove_resource::<Events>();
     }
     match menu.0.step(input) {
         Some(resonance_game::TitleAction::NewGame) => {
@@ -858,6 +939,8 @@ fn layout(
     movie: Res<movie::Playback>,
     boot: Res<boot::Playback>,
     load_menu: Option<Res<saves::title::LoadMenu>>,
+    diagnostics: Res<crate::diagnostics::Diagnostics>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     let state = &menu.0;
     TitleOutput::update(&mut outputs, |b| {
@@ -868,7 +951,17 @@ fn layout(
         };
     });
     for (quad, handle, mut transform) in &mut quads {
-        let mut material = materials.get_mut(&handle.0).expect("title material exists");
+        let Some(mut material) = materials.get_mut(&handle.0) else {
+            if diagnostics
+                .0
+                .report("title layout", anyhow::anyhow!("missing title material"))
+                .is_err()
+            {
+                exit.write(AppExit::error());
+                return;
+            }
+            continue;
+        };
         let selected = quad.row == Some(state.selected);
         let source = &art.images[quad.index - usize::from(selected)];
         let opacity_pulse = Vec4::new(
@@ -903,7 +996,11 @@ fn layout(
 fn capture(
     mut commands: Commands,
     options: Res<RunOptions>,
-    art: Res<Art>,
+    (art, images, diagnostics): (
+        Res<Art>,
+        Res<Assets<Image>>,
+        Res<crate::diagnostics::Diagnostics>,
+    ),
     server: Res<AssetServer>,
     mut ready: ResMut<ReadyFrames>,
     menu: Res<Menu>,
@@ -931,10 +1028,7 @@ fn capture(
     if !field.ready
         || !boot.ready(&server)
         || !renderer.0.load(Ordering::Relaxed)
-        || !art
-            .images
-            .iter()
-            .all(|h| server.is_loaded_with_dependencies(h.id()))
+        || !art.images.iter().all(|handle| images.contains(handle))
     {
         ready.0 = 0;
         return;
@@ -956,6 +1050,13 @@ fn capture(
             "output_width":WIDTH, "output_height":HEIGHT});
     }
     metadata["capture"] = serde_json::json!({"headless": true, "audio_device": false});
+    metadata["mode"] = serde_json::json!(if diagnostics.0.paranoid() {
+        "paranoid"
+    } else {
+        "tolerant"
+    });
+    metadata["valid"] = serde_json::json!(!diagnostics.0.has_errors());
+    metadata["diagnostics"] = serde_json::json!(diagnostics.0.entries());
     if let Some(events) = events {
         let world = &events.0.world;
         metadata["events"] = serde_json::json!({

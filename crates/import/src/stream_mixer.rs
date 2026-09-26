@@ -70,7 +70,6 @@ impl Tables {
             .collect())
     }
 
-    #[cfg(test)]
     pub fn pan(&self, mix: &resonance_audio::mix::Tables) -> Result<Vec<[f32; 2]>> {
         self.validate()?;
         mix.validate()?;

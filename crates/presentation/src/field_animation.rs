@@ -1,7 +1,8 @@
 //! Blend authored skeletal poses before script adjustments and secondary motion.
 mod frame;
-use super::field_view::{ActorPart, Art, State};
+use super::field_view::{ActorPart, Art, Failures, State};
 use super::sparse_animation::affine::{Helper, Locals, Pose};
+use anyhow::{Context, Result};
 use bevy::prelude::*;
 use frame::Frame;
 use std::collections::BTreeMap;
@@ -24,33 +25,66 @@ pub(super) struct Rig {
 pub(super) fn bind(
     mut commands: Commands,
     art: Res<Art>,
-    roots: Query<(Entity, &ActorPart), Without<Rig>>,
+    mut roots: Query<(Entity, &mut ActorPart), Without<Rig>>,
     children: Query<&Children>,
     nodes: Query<(&Transform, &bevy::gltf::GltfExtras)>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
+    mut failures: Failures,
 ) {
-    for (root, part) in &roots {
-        if !part.prepared {
+    for (root, mut part) in &mut roots {
+        if !part.prepared || part.disabled {
             continue;
         }
-        let spec = &art.models[&part.resource][part.part].spec;
-        let bones =
-            super::sparse_animation::Binding::new(root, spec.bone_names.len(), &children, &nodes)
-                .expect("prepared animation skeleton must contain every bone")
-                .0;
-        let mut rig = Rig::new(bones);
-        for clip in &art.models[&part.resource][part.part].clips {
-            for track in &clips.get(clip).expect("prepared sparse clip").0.tracks {
-                rig.bind_channels[usize::from(track.bone)] = track.bind_channels.0;
+        let result = (|| -> Result<Rig> {
+            let model = art
+                .models
+                .get(&part.resource)
+                .and_then(|parts| parts.get(part.part))
+                .context("missing field animation model")?;
+            let spec = &model.spec;
+            let bones = super::sparse_animation::Binding::new(
+                root,
+                spec.bone_names.len(),
+                &children,
+                &nodes,
+            )?
+            .0;
+            let mut rig = Rig::new(bones);
+            for clip in &model.clips {
+                for track in &clips
+                    .get(clip)
+                    .context("missing field animation clip")?
+                    .0
+                    .tracks
+                {
+                    *rig.bind_channels
+                        .get_mut(usize::from(track.bone))
+                        .context("field animation track exceeds skeleton")? = track.bind_channels.0;
+                }
+            }
+            for (i, &(_, rest)) in rig.bones.iter().enumerate() {
+                let frame = Frame::sample(rest.into(), 0, rig.bind_channels[i]);
+                rig.previous[i] = frame;
+                rig.from[i] = frame;
+                rig.presented[i] = frame;
+            }
+            Ok(rig)
+        })();
+        match result {
+            Ok(rig) => {
+                commands.entity(root).insert(rig);
+            }
+            Err(error) => {
+                part.disable();
+                commands.entity(root).insert(Visibility::Hidden);
+                if !failures.skip(
+                    "field animation binding",
+                    error.context(format!("actor {}", part.actor)),
+                ) {
+                    return;
+                }
             }
         }
-        for (i, &(_, rest)) in rig.bones.iter().enumerate() {
-            let frame = Frame::sample(rest.into(), 0, rig.bind_channels[i]);
-            rig.previous[i] = frame;
-            rig.from[i] = frame;
-            rig.presented[i] = frame;
-        }
-        commands.entity(root).insert(rig);
     }
 }
 
@@ -66,49 +100,90 @@ pub(super) fn restore(rigs: Query<&Rig>, mut nodes: Query<&mut Transform>) {
 }
 
 /// Evaluate the original sparse curves before blending and native adjustments.
+#[allow(clippy::too_many_arguments)] // Field pose resources and per-actor diagnostic recovery.
 pub(super) fn sample(
     state: State,
     art: Res<Art>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
-    mut rigs: Query<(&ActorPart, &mut Rig)>,
+    mut rigs: Query<(Entity, &mut ActorPart, &mut Rig)>,
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<Locals>,
     mut applied: ResMut<super::field_audit::Applied>,
+    mut commands: Commands,
+    mut failures: Failures,
 ) {
     let world = &state.get().events.world;
-    for (part, mut rig) in &mut rigs {
+    for (root, mut part, mut rig) in &mut rigs {
+        if part.disabled {
+            continue;
+        }
         rig.authored_channels.fill(0);
         let Some(index) = part.active_clip else {
             continue;
         };
-        let animation = world.actors[&part.actor].animation.as_ref().unwrap();
-        let model = &art.models[&part.resource][part.part];
-        let clip = &clips
-            .get(&model.clips[index])
-            .expect("prepared sparse clip")
-            .0;
-        let time = animation.sample(
-            world.tick,
-            0,
-            model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ,
-        );
-        for track in &clip.tracks {
-            rig.authored_channels[usize::from(track.bone)] = track.channels().0;
+        let result = (|| -> Result<_> {
+            let animation = world
+                .actors
+                .get(&part.actor)
+                .and_then(|actor| actor.animation.as_ref())
+                .context("missing field actor animation")?;
+            let model = art
+                .models
+                .get(&part.resource)
+                .and_then(|parts| parts.get(part.part))
+                .context("missing field animation model")?;
+            let clip = &clips
+                .get(
+                    model
+                        .clips
+                        .get(index)
+                        .context("unavailable field clip index")?,
+                )
+                .context("missing field animation clip")?
+                .0;
+            let time = animation.sample(
+                world.tick,
+                0,
+                model
+                    .spec
+                    .clips
+                    .get(index)
+                    .context("missing field clip recipe")?
+                    .duration_seconds
+                    * resonance_content::ANIMATION_HZ,
+            );
+            for track in &clip.tracks {
+                *rig.authored_channels
+                    .get_mut(usize::from(track.bone))
+                    .context("field animation track exceeds skeleton")? = track.channels().0;
+            }
+            super::sparse_animation::sample(
+                &rig.bones,
+                clip,
+                time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
+                &mut nodes,
+                &mut affine,
+            )?;
+            Ok(super::field_audit::Request::Animation {
+                actor: part.actor,
+                part: part.part,
+                resource: animation.resource,
+                slot: animation.slot,
+            })
+        })();
+        match result {
+            Ok(request) => applied.ack(request),
+            Err(error) => {
+                part.disable();
+                commands.entity(root).insert(Visibility::Hidden);
+                if !failures.skip(
+                    "field animation sampling",
+                    error.context(format!("actor {}", part.actor)),
+                ) {
+                    return;
+                }
+            }
         }
-        super::sparse_animation::sample(
-            &rig.bones,
-            clip,
-            time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
-            &mut nodes,
-            &mut affine,
-        )
-        .expect("validated sparse animation must evaluate");
-        applied.ack(super::field_audit::Request::Animation {
-            actor: part.actor,
-            part: part.part,
-            resource: animation.resource,
-            slot: animation.slot,
-        });
     }
 }
 

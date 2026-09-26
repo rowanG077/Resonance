@@ -1,0 +1,149 @@
+script battle;
+use battle;
+// Colette's original seven normal selectors. The thrown rings retain their
+// own contact rule and return toward the live hand after this action ends.
+asset neutral_hit: battle::Melee = "battle/melee/colette/neutral";
+asset rising_hit: battle::Melee = "battle/melee/colette/rising";
+asset finisher_hit: battle::Melee = "battle/melee/colette/finisher";
+asset aerial_slash_hit: battle::Melee = "battle/melee/colette/aerial_slash";
+asset thrust_flight: battle::WeaponFlight = "battle/flights/colette/thrust";
+asset low_flight: battle::WeaponFlight = "battle/flights/colette/low";
+asset aerial_thrust_flight: battle::WeaponFlight = "battle/flights/colette/aerial_thrust";
+asset neutral_motion: battle::Motion = "battle/motions/colette/31";
+asset rising_motion: battle::Motion = "battle/motions/colette/38";
+asset rising_tail_motion: battle::Motion = "battle/motions/colette/39";
+asset thrust_motion: battle::Motion = "battle/motions/colette/30";
+asset low_motion: battle::Motion = "battle/motions/colette/33";
+asset finisher_motion: battle::Motion = "battle/motions/colette/32";
+asset aerial_slash_motion: battle::Motion = "battle/motions/colette/41";
+asset aerial_thrust_motion: battle::Motion = "battle/motions/colette/40";
+asset neutral_recovery: battle::Motion = "battle/motions/colette/34";
+asset finisher_recovery: battle::Motion = "battle/motions/colette/35";
+asset throw_recovery: battle::Motion = "battle/motions/colette/91";
+asset swing: battle::Sound = "battle/sounds/common/60";
+asset throw_sound: battle::Sound = "battle/sounds/common/61";
+asset neutral_voice: battle::Voice = "battle/voices/absolute/121";
+asset throw_voice: battle::Voice = "battle/voices/absolute/122";
+asset rising_voice: battle::Voice = "battle/voices/absolute/123";
+
+pub task neutral() {
+    battle::braking(0.41250002);
+    await battle::animate(neutral_motion, ticks(3), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn neutral_hits();
+    battle::forward_speed(6.0, battle::combo_index() == 0);
+    await battle::at_command_age(ticks(8));
+    battle::voice(battle::owner(), neutral_voice, 2);
+    battle::sound(swing, 1);
+    await battle::action_end();
+    battle::play_motion(neutral_recovery, ticks(1), 0.0, 0.4, false, 0.0);
+    await battle::recover(recovery_ticks(ticks(32)));
+    battle::finish();
+}
+
+pub task rising() {
+    battle::braking(0.41250002);
+    await battle::animate(rising_motion, ticks(4), 0.0, 0.5, false);
+    spawn rising_hits();
+    battle::voice(battle::owner(), rising_voice, 2);
+    await battle::at_command_age(ticks(2));
+    battle::forward_speed(5.0, false);
+    battle::sound(swing, 1);
+    await battle::at_command_age(ticks(4));
+    battle::vertical_speed(20.0);
+    await battle::at_animation_age(ticks(20));
+    await battle::animate(rising_tail_motion, ticks(3), 0.0, 0.25, false);
+    battle::end_animation();
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task thrust() {
+    battle::braking(0.41250002);
+    await battle::animate(thrust_motion, ticks(3), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn thrust_throw();
+    battle::forward_speed(6.0, battle::combo_index() == 0);
+    await battle::at_command_age(ticks(30));
+    battle::voice(battle::owner(), throw_voice, 2);
+    await battle::at_command_age(ticks(40));
+    battle::sound(throw_sound, 1);
+    await battle::action_end();
+    battle::play_motion(throw_recovery, ticks(1), 0.0, 0.45, false, 0.0);
+    await battle::recover(recovery_ticks(ticks(6)));
+    battle::finish();
+}
+
+pub task low() {
+    battle::braking(0.41250002);
+    await battle::animate(low_motion, ticks(3), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn low_throw();
+    battle::forward_speed(6.0, battle::combo_index() == 0);
+    await battle::at_command_age(ticks(30));
+    battle::voice(battle::owner(), throw_voice, 2);
+    await battle::at_command_age(ticks(40));
+    battle::sound(throw_sound, 1);
+    await battle::action_end();
+    battle::play_motion(throw_recovery, ticks(1), 0.0, 0.45, false, 0.0);
+    await battle::recover(recovery_ticks(ticks(6)));
+    battle::finish();
+}
+
+pub task finisher() {
+    battle::braking(0.41250002);
+    await battle::animate(finisher_motion, ticks(3), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn finisher_hits();
+    battle::forward_speed(6.0, false);
+    await battle::at_command_age(ticks(8));
+    battle::voice(battle::owner(), neutral_voice, 2);
+    battle::sound(swing, 1);
+    await battle::action_end();
+    battle::play_motion(finisher_recovery, ticks(1), 0.0, 0.4, false, 0.0);
+    await battle::recover(recovery_ticks(ticks(32)));
+    battle::finish();
+}
+
+pub task aerial_slash() {
+    battle::braking(0.41250002);
+    await battle::animate(aerial_slash_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn aerial_slash_hits();
+    await battle::at_command_age(ticks(6));
+    battle::voice(battle::owner(), neutral_voice, 2);
+    await battle::at_command_age(ticks(12));
+    battle::sound(swing, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task aerial_thrust() {
+    battle::braking(0.41250002);
+    await battle::animate(aerial_thrust_motion, ticks(4), 0.0, 0.5, false);
+    battle::end_animation();
+    spawn aerial_thrust_throw();
+    battle::voice(battle::owner(), throw_voice, 2);
+    await battle::at_command_age(ticks(6));
+    battle::sound(throw_sound, 1);
+    await battle::action_end();
+    await battle::recover(recovery_ticks(ticks(10)));
+    battle::finish();
+}
+
+pub task neutral_hits() { await battle::hit_window(neutral_hit, ticks(10), ticks(8)); }
+pub task rising_hits() { await battle::hit_window(rising_hit, ticks(2), ticks(16)); }
+pub task finisher_hits() { await battle::hit_window(finisher_hit, ticks(12), ticks(8)); }
+pub task aerial_slash_hits() { await battle::hit_window(aerial_slash_hit, ticks(10), ticks(15)); }
+pub task thrust_throw() { await battle::throw_weapon(thrust_flight, ticks(42)); }
+pub task low_throw() { await battle::throw_weapon(low_flight, ticks(42)); }
+pub task aerial_thrust_throw() { await battle::throw_weapon(aerial_thrust_flight, ticks(6)); }
+
+fn recovery_ticks(base: Ticks) -> Ticks {
+    if battle::actor_point(battle::owner(), 0.0, 0.0).y <= 0.1 {
+        return base + ticks(battle::combo_index() * 4);
+    }
+    return base;
+}

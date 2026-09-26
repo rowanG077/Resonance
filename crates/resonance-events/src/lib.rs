@@ -3,6 +3,7 @@
 pub mod animation;
 pub mod authored;
 mod autonomy;
+pub mod battle;
 pub use autonomy::{Activity, ActorOrigin, Autonomy, Behavior};
 mod face;
 pub use face::EyeBlink;
@@ -16,6 +17,7 @@ pub use resources::{
     AnimationClip, AttachmentPose, ModelResource, ParticleKind, ResourceKind, ResourceLibrary,
 };
 pub use scheduler::{BackgroundWaitOrigin, EventRuntime, ResourceWaitObservation};
+pub use world::random as libc_random;
 pub use world::{
     Actor, ActorCreation, ActorMotion, Appearance, Attachment, AudioCommand, BoneAdjustment,
     BoneTarget, CameraTrack, Emote, EventRecord, Face, Fade, FieldTransition, GameWorld, Overlay,

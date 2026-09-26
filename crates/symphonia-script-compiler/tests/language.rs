@@ -183,26 +183,78 @@ fn external_arguments_are_checked_before_script_execution_including_aggregate_do
 }
 
 #[test]
+fn ticks_constructor_preserves_types_in_constants_and_native_calls() {
+    let (host, result) = execute(
+        r#"
+        script field;
+        use game;
+        const COUNT: i32 = 2;
+        const DELAY: Ticks = ticks(COUNT);
+        const STEPS: [Ticks; 2] = [ticks(0), ticks(DELAY)];
+        pub task main() -> Ticks {
+            await game::wait(ticks(2));
+            await game::wait(DELAY);
+            await game::wait(STEPS[0]);
+            let count = 3;
+            return ticks(count) + STEPS[1];
+        }
+        "#,
+    );
+    assert_eq!(host.waits, [2, 2, 0]);
+    assert_eq!(result, [5]);
+}
+
+#[test]
+fn invalid_duration_values_and_implicit_conversions_are_rejected() {
+    for (source, expected) in [
+        (
+            "pub task main() { await game::wait(2); }",
+            "expected Scalar(Ticks)",
+        ),
+        (
+            "const DELAY: Ticks = ticks(-1); pub fn main() {}",
+            "cannot be negative",
+        ),
+        (
+            "const DELAY = ticks(2.0); pub fn main() {}",
+            "expects an i32 or Ticks",
+        ),
+        (
+            "const DELAY = ticks(); pub fn main() {}",
+            "expects one argument",
+        ),
+    ] {
+        let error = compile(
+            "main",
+            &BTreeMap::from([("main".into(), format!("script field; use game; {source}"))]),
+            &[WAIT],
+        )
+        .unwrap_err();
+        assert!(error.message.contains(expected), "{source}: {error}");
+    }
+}
+
+#[test]
 fn duration_conversion_and_arithmetic_fault_before_invalid_values_escape() {
     for (body, fault) in [
         (
-            "let delay = ticks(-1); return delay < 0ticks;",
+            "let delay = ticks(-1); return delay < ticks(0);",
             Fault::Type(Type::Ticks),
         ),
         (
-            "let delay = 2ticks - 3ticks; return delay < 0ticks;",
+            "let delay = ticks(2) - ticks(3); return delay < ticks(0);",
             Fault::Type(Type::Ticks),
         ),
         (
-            "let mut delay = 2ticks; delay -= 3ticks; return delay < 0ticks;",
+            "let mut delay = ticks(2); delay -= ticks(3); return delay < ticks(0);",
             Fault::Type(Type::Ticks),
         ),
         (
-            "let delay = 2147483647ticks + 1ticks; return delay == 0ticks;",
+            "let delay = ticks(2147483647) + ticks(1); return delay == ticks(0);",
             Fault::Overflow,
         ),
         (
-            "let delay = 1ticks / 0ticks; return delay == 0ticks;",
+            "let delay = ticks(1) / ticks(0); return delay == ticks(0);",
             Fault::DivisionByZero,
         ),
     ] {
@@ -221,11 +273,11 @@ fn duration_conversion_and_arithmetic_fault_before_invalid_values_escape() {
         r#"
         script field;
         pub fn main() -> i32 {
-            let mut delay = ticks(3) + 2ticks;
-            delay *= 2ticks;
-            delay /= 2ticks;
-            delay -= 1ticks;
-            let remainder = delay % 3ticks;
+            let mut delay = ticks(3) + ticks(2);
+            delay *= ticks(2);
+            delay /= ticks(2);
+            delay -= ticks(1);
+            let remainder = delay % ticks(3);
             return i32(remainder) + (!0 & 15) + i32(ticks(0));
         }
     "#,
@@ -331,11 +383,11 @@ fn short_circuiting_loop_control_and_explicit_float_conversions() {
 fn diagnostics_reject_unimplemented_or_unsafe_semantics() {
     for (source, expected) in [
         (
-            "script field; use game; task main() { game::wait(1ticks); }",
+            "script field; use game; task main() { game::wait(ticks(1)); }",
             "requires await",
         ),
         (
-            "script field; use game; fn main() { await game::wait(1ticks); }",
+            "script field; use game; fn main() { await game::wait(ticks(1)); }",
             "inside a task",
         ),
         (
@@ -522,7 +574,7 @@ fn defer_unwinds_lexical_scopes_in_reverse_order_on_every_orderly_exit() {
 fn cleanup_cannot_suspend_spawn_escape_or_capture_later_bindings() {
     for (source, expected) in [
         (
-            "script field; use game; task main() { defer { await game::wait(1ticks); } }",
+            "script field; use game; task main() { defer { await game::wait(ticks(1)); } }",
             "cleanup cannot suspend",
         ),
         (
@@ -817,7 +869,7 @@ fn host_collection_iteration_retains_one_view_and_propagates_lifetime_and_bounds
         pub task main() -> i32 {
             let mut sum = 0;
             for value in view::all() {
-                await game::wait(1ticks);
+                await game::wait(ticks(1));
                 if value == 2 { continue; }
                 sum += value;
                 if sum >= 8 { break; }
@@ -931,7 +983,7 @@ fn collection_descriptors_are_checked_before_lowering() {
 
 #[test]
 fn formatting_preserves_comments_and_utf8_and_is_idempotent() {
-    let source = "// café\nscript field;\nuse game;pub task main(){/* keep 日本 */ await game::wait(1ticks);game::text(\"hello\\n世界\");}";
+    let source = "// café\nscript field;\nuse game;pub task main(){/* keep 日本 */ await game::wait(ticks(1));game::text(\"hello\\n世界\");}";
     let formatted = format("main", source).unwrap();
     assert!(formatted.contains("// café"));
     assert!(formatted.contains("/* keep 日本 */"));
@@ -942,7 +994,12 @@ fn formatting_preserves_comments_and_utf8_and_is_idempotent() {
 
 #[test]
 fn script_headers_are_required_unambiguous_and_preserved_by_formatting() {
-    for kind in [ScriptKind::Field, ScriptKind::Model, ScriptKind::Library] {
+    for kind in [
+        ScriptKind::Field,
+        ScriptKind::Model,
+        ScriptKind::Battle,
+        ScriptKind::Library,
+    ] {
         let source = format!("// Host declaration\nscript {kind};pub fn main(){{}}");
         assert_eq!(script_kind("main", &source).unwrap(), kind);
         assert_eq!(
@@ -961,7 +1018,7 @@ fn script_headers_are_required_unambiguous_and_preserved_by_formatting() {
     }
     for (source, expected) in [
         ("pub fn main() {}", "expected 'script field;'"),
-        ("script battle; fn main() {}", "unknown script kind"),
+        ("script audio; fn main() {}", "unknown script kind"),
         (
             "script model; script field; fn main() {}",
             "only be declared once",
@@ -989,8 +1046,18 @@ fn script_headers_are_required_unambiguous_and_preserved_by_formatting() {
 
 #[test]
 fn imports_respect_script_kinds_and_libraries_use_the_entry_hosts_natives() {
-    for root in [ScriptKind::Field, ScriptKind::Model, ScriptKind::Library] {
-        for imported in [ScriptKind::Field, ScriptKind::Model, ScriptKind::Library] {
+    for root in [
+        ScriptKind::Field,
+        ScriptKind::Model,
+        ScriptKind::Battle,
+        ScriptKind::Library,
+    ] {
+        for imported in [
+            ScriptKind::Field,
+            ScriptKind::Model,
+            ScriptKind::Battle,
+            ScriptKind::Library,
+        ] {
             for import in ["helpers", "helpers::value"] {
                 let sources = BTreeMap::from([
                     (

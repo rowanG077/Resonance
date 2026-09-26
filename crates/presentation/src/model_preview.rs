@@ -1,5 +1,5 @@
 //! Prepared, animated catalogue models. Loading belongs to the paused menu.
-mod gpu;
+pub(super) mod gpu;
 mod material;
 mod motion;
 mod source;
@@ -560,7 +560,7 @@ impl Part {
             &entities.meshes,
         );
         if !scene.secondary_motion.is_empty() {
-            let rig = crate::secondary_motion::Rig::new(root, scene, &names)
+            let rig = crate::secondary_motion::Rig::new(root, scene, &names)?
                 .context("preview secondary-motion rig is incomplete")?;
             commands.entity(root).insert(rig);
         }
