@@ -57,7 +57,7 @@ fn main() -> Result<()> {
         {
             stream.check()?;
             while frames.len() < resonance_media::VIDEO_LOOKAHEAD {
-                let Some(frame) = stream.try_video() else {
+                let Some(frame) = stream.try_video()? else {
                     break;
                 };
                 frames.push_back(frame);
@@ -80,7 +80,7 @@ fn main() -> Result<()> {
         while !handle.empty() && began.elapsed().as_secs_f64() < seconds {
             output.check()?;
             stream.check()?;
-            while let Some(frame) = stream.try_video() {
+            while let Some(frame) = stream.try_video()? {
                 frames.push_back(frame);
             }
             let position = handle.position();
