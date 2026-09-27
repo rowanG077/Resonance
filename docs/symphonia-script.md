@@ -289,8 +289,9 @@ cargo run -p resonance-script -- api model
 cargo run -p resonance-script -- fmt --check scripts
 ```
 
-The game command selects the native API from the script's mode. `api field` and
-`api model` print the corresponding host declarations.
+The game command selects the native API from the script's mode. Use
+`check --host world scripts world::rules` for overworld rules, which have a
+separate runtime API. `api field`, `api world`, and `api model` print each host's declarations.
 The engine-independent `symphonia-script-tools` binary can also check pure modules
 with an empty native API. Formatting validates syntax first, preserves comments
 and UTF-8 text, and is idempotent. Diagnostics include module, line and column;
