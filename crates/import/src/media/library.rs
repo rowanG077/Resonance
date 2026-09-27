@@ -165,7 +165,6 @@ pub(crate) struct ArchiveMember {
 pub(crate) struct Cooker {
     workspace: Workspace,
     executable: Vec<u8>,
-    coefficients: Vec<u8>,
     song_setups: BTreeMap<String, Vec<u16>>,
     pools: Arc<Pools>,
     environment: String,
@@ -181,7 +180,6 @@ impl Cooker {
     pub(crate) fn new(
         extracted: &Path,
         session: &Arc<media::OutputSession>,
-        coefficients: &Path,
         files: &BTreeMap<String, String>,
     ) -> Result<Self> {
         let executable = fs::read(extracted.join("sys/main.dol"))?;
@@ -192,12 +190,11 @@ impl Cooker {
             &crate::music_directory::Directory::read(&executable)?,
             files,
         )?;
-        let coefficients = fs::read(coefficients)?;
         let pools = Arc::new(Pools::read(extracted)?);
         let battle_sources = pools.sources()?;
         let mut dependencies = vec![
             crate::digest(&executable),
-            crate::digest(&coefficients),
+            crate::digest(&resonance_audio_cook::interpolation::coefficients()),
             pools.fingerprint()?,
         ];
         for source in [
@@ -215,7 +212,6 @@ impl Cooker {
         Ok(Self {
             workspace: session.workspace(extracted)?,
             executable,
-            coefficients,
             song_setups,
             pools,
             environment: crate::digest(&serde_json::to_vec(&dependencies)?),
@@ -370,7 +366,7 @@ impl Cooker {
                 let mut files: Vec<_> =
                     samples.values().map(|sample| sample.path.clone()).collect();
                 self.json(&path, &json!({"version":1, "setup":setup, "note_bindings":notes, "first_event_count":first_event_count, "programs":resources.programs,
-                "samples":samples, "tables":media::synthesis_tables(&self.executable, &self.coefficients)?,
+                "samples":samples, "tables":media::synthesis_tables(&self.executable)?,
                 "reverb":media::song_reverb_change(&self.executable, id)?}))?;
                 files.push(path.clone());
                 files.sort();
@@ -1004,7 +1000,6 @@ mod tests {
             let cooker = Cooker {
                 workspace: Workspace::open(&root, &output)?,
                 executable: vec![],
-                coefficients: vec![],
                 song_setups: BTreeMap::new(),
                 pools: Arc::new(pools),
                 environment: "synthetic".into(),
@@ -1222,11 +1217,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires both extracted discs and RESONANCE_DSP_COEFFICIENTS; no audio playback"]
+    #[ignore = "requires both extracted discs; no audio playback"]
     fn original_song_aliases_keep_all_setups_and_isolate_member_failures() -> Result<()> {
         let output = crate::temporary_path(&std::env::temp_dir().join("resonance-song-aliases"));
         let session = media::OutputSession::open(&output)?;
-        let coefficients = PathBuf::from(std::env::var("RESONANCE_DSP_COEFFICIENTS")?);
         let mut cookers = Vec::new();
         for disc in [1, 2] {
             let extracted = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1244,7 +1238,7 @@ mod tests {
                 .filter(|(name, _)| name.ends_with(".song"))
                 .map(|(name, path)| Ok((name, media::hash_file(&path)?)))
                 .collect::<Result<BTreeMap<_, _>>>()?;
-            let cooker = Cooker::new(&extracted, &session, &coefficients, &files)?;
+            let cooker = Cooker::new(&extracted, &session, &files)?;
             cookers.push((cooker, files));
         }
         for (mut cooker, files) in cookers {

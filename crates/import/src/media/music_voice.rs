@@ -11,7 +11,7 @@ use resonance_audio_cook::{
 use serde_json::json;
 use std::{fs, path::Path};
 
-pub(crate) fn tables(executable: &[u8], coefficients: &[u8]) -> Result<music_voice::Tables> {
+pub(crate) fn tables(executable: &[u8]) -> Result<music_voice::Tables> {
     let bytes = |address, size| crate::dol::slice(executable, address, size);
     let float = |address| -> Result<f32> { Ok(f32::from_be_bytes(bytes(address, 4)?.try_into()?)) };
     let mut attenuation = [0; 194];
@@ -44,7 +44,9 @@ pub(crate) fn tables(executable: &[u8], coefficients: &[u8]) -> Result<music_voi
             sustain,
         },
         modulation: modulation::Tables { sine, tremolo },
-        coefficients: resample::Coefficients::from_be_bytes(coefficients)?,
+        coefficients: resample::Coefficients::from_be_bytes(
+            &resonance_audio_cook::interpolation::coefficients(),
+        )?,
     };
     tables.validate()?;
     Ok(tables)
@@ -52,7 +54,6 @@ pub(crate) fn tables(executable: &[u8], coefficients: &[u8]) -> Result<music_voi
 
 pub struct MusicVoiceOptions<'a> {
     pub extracted: &'a Path,
-    pub coefficients: &'a Path,
     pub output: &'a Path,
     pub macro_id: u16,
     pub key: u8,
@@ -70,8 +71,8 @@ pub fn render_music_voice(options: MusicVoiceOptions<'_>) -> Result<()> {
     let _publications = crate::publication::Session::start_if_needed(options.output)?;
     let executable_bytes = fs::read(workspace.extracted.join("sys/main.dol"))?;
     let bank_bytes = fs::read(workspace.extracted.join("files/S/inst.snd"))?;
-    let coefficient_bytes = fs::read(options.coefficients)?;
-    let tables = tables(&executable_bytes, &coefficient_bytes)?;
+    let coefficient_bytes = resonance_audio_cook::interpolation::coefficients();
+    let tables = tables(&executable_bytes)?;
     let bank = Bank::parse(&bank_bytes)?;
     let resources = resonance_audio_cook::compile::programs(&bank, [options.macro_id])?;
     let mut voice = music_voice::Voice::new(
@@ -154,7 +155,6 @@ pub fn render_music_voice(options: MusicVoiceOptions<'_>) -> Result<()> {
 
 pub fn render_title_audio_preview(
     extracted: &Path,
-    coefficients: &Path,
     output: &Path,
     frames: u32,
     master_fade_lead_ms: Option<u16>,
@@ -164,8 +164,8 @@ pub fn render_title_audio_preview(
     let executable_bytes = fs::read(workspace.extracted.join("sys/main.dol"))?;
     let bank_bytes = fs::read(workspace.extracted.join("files/S/inst.snd"))?;
     let song_bytes = fs::read(workspace.extracted.join("files/S/bgm_etc000.song"))?;
-    let coefficient_bytes = fs::read(coefficients)?;
-    let tables = tables(&executable_bytes, &coefficient_bytes)?;
+    let coefficient_bytes = resonance_audio_cook::interpolation::coefficients();
+    let tables = tables(&executable_bytes)?;
     let bank = Bank::parse(&bank_bytes)?;
     let song = resonance_audio_cook::song::Song::parse(&song_bytes)?;
     let parameters = super::music::title_reverbs(&executable_bytes)?;
@@ -290,13 +290,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires local extracted instruments and RESONANCE_DSP_COEFFICIENTS"]
+    #[ignore = "requires local extracted instruments"]
     fn title_macros_release_before_and_after_their_delayed_modulation() {
-        let coefficient_path = std::env::var_os("RESONANCE_DSP_COEFFICIENTS")
-            .expect("set RESONANCE_DSP_COEFFICIENTS to the pinned decoder coefficient resource");
         let executable = fs::read(extracted().join("sys/main.dol")).unwrap();
-        let coefficient_bytes = fs::read(coefficient_path).unwrap();
-        let tables = tables(&executable, &coefficient_bytes).unwrap();
+        let tables = tables(&executable).unwrap();
         let bytes = fs::read(extracted().join("files/S/inst.snd")).unwrap();
         let bank = Bank::parse(&bytes).unwrap();
         let parameters =
@@ -382,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires original sound banks and RESONANCE_DSP_COEFFICIENTS; silent in-memory synthesis"]
+    #[ignore = "requires original sound banks; silent in-memory synthesis"]
     fn original_layered_random_cues_share_music_clock_and_finish_after_release() -> Result<()> {
         use anyhow::Context;
         use resonance_audio::{
@@ -464,9 +461,6 @@ mod tests {
             )?))
         }
 
-        let coefficients = fs::read(std::env::var_os("RESONANCE_DSP_COEFFICIENTS").context(
-            "set RESONANCE_DSP_COEFFICIENTS to the pinned decoder coefficient resource",
-        )?)?;
         let executable = fs::read(extracted().join("sys/main.dol"))?;
         let common_bytes = fs::read(extracted().join("files/S/se.snd"))?;
         let instrument_bytes = fs::read(extracted().join("files/S/inst.snd"))?;
@@ -505,7 +499,7 @@ mod tests {
                 bank,
                 VoiceSource::SoundEffect { id },
                 notes,
-                tables(&executable, &coefficients)?,
+                tables(&executable)?,
             )?);
         }
         // These are the actual layered routes that previously failed admission:
@@ -559,7 +553,7 @@ mod tests {
                 priority: 64,
                 max_voices: 255,
             }],
-            tables(&executable, &coefficients)?,
+            tables(&executable)?,
         )?);
 
         for hold_ms in [100, 6000] {

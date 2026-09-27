@@ -467,9 +467,6 @@ fn refresh_prepared_world(visuals: bool) -> Result<(std::path::PathBuf, Package)
     let visuals = if visuals {
         let mut world_audio = crate::media::FieldAudioCooker::new(
             crate::media::Workspace::open(&extracted, &output)?,
-            &fs::read(
-                std::env::var_os("RESONANCE_COEFFICIENTS").context("set RESONANCE_COEFFICIENTS")?,
-            )?,
             Some(extracted.parent().unwrap().join("disc2")),
         )?;
         world_audio.world(&fs::read(extracted.join("files").join(&plan.script))?)?;
@@ -554,13 +551,8 @@ fn original_world_terrain_packages_bind_through_the_production_preparer() -> Res
     }
     let visuals = plan.visuals.prepare(&output, &decoded)?;
     drop(visual_audio);
-    let coefficients = std::path::PathBuf::from(
-        std::env::var_os("RESONANCE_COEFFICIENTS")
-            .context("set RESONANCE_COEFFICIENTS to dsp_coef.bin")?,
-    );
     let mut audio = crate::media::FieldAudioCooker::new(
         crate::media::Workspace::open(&extracted, &output)?,
-        &fs::read(coefficients)?,
         Some(extracted.parent().unwrap().join("disc2")),
     )?;
     audio.world(&fs::read(extracted.join("files").join(&plan.script))?)?;
@@ -629,9 +621,6 @@ fn visual_test_audio(extracted: &Path, output: &Path) -> Result<crate::media::li
     crate::media::library::Cooker::new(
         extracted,
         &crate::media::OutputSession::open(output)?,
-        &std::path::PathBuf::from(
-            std::env::var_os("RESONANCE_COEFFICIENTS").context("set RESONANCE_COEFFICIENTS")?,
-        ),
         &files,
     )
 }

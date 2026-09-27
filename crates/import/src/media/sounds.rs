@@ -6,7 +6,7 @@ use serde_json::json;
 use std::{collections::BTreeMap, fs, path::Path};
 
 /// Prepare menu cues in Rust, without an audio output device.
-pub(crate) fn prepare_title_sounds(workspace: Workspace, coefficients: &Path) -> Result<()> {
+pub(crate) fn prepare_title_sounds(workspace: Workspace) -> Result<()> {
     let _publications = crate::publication::Session::start_if_needed(&workspace.output)?;
     let executable = workspace.extracted.join("sys/main.dol");
     let executable_bytes = fs::read(&executable)?;
@@ -19,7 +19,6 @@ pub(crate) fn prepare_title_sounds(workspace: Workspace, coefficients: &Path) ->
     let metadata = workspace.output.join("title-sounds.json");
     let bytes = fs::read(&bank_path)?;
     let bank = pools.bank(&bytes)?;
-    let coefficients = fs::read(coefficients)?;
     let tables = super::sound_buses::tables(&executable_bytes)?;
     let mut previews = serde_json::Map::new();
     let mut cues = BTreeMap::new();
@@ -31,7 +30,7 @@ pub(crate) fn prepare_title_sounds(workspace: Workspace, coefficients: &Path) ->
             &workspace.output,
             &resources,
             score,
-            super::synthesis_tables(&executable_bytes, &coefficients)?,
+            super::synthesis_tables(&executable_bytes)?,
             auxiliary_reverbs,
         )?;
         let program = super::field_audio::write_package(
