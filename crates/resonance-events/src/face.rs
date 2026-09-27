@@ -23,10 +23,18 @@ impl EyeBlink {
 }
 
 impl GameWorld {
-    pub(crate) fn step_eyes(&mut self, resources: &ResourceLibrary) -> Result<()> {
+    pub(crate) fn step_eyes(
+        &mut self,
+        resources: &ResourceLibrary,
+        colette_progress: i32,
+    ) -> Result<()> {
         for actor in self.actors.values_mut() {
             if !actor.visible || !resources.model(actor.resource).is_some_and(|m| m.has_eyes) {
                 continue;
+            }
+            if actor.resource == 2 && (1000..2000).contains(&colette_progress) {
+                actor.appearance.face = Face::Frame(15);
+                actor.appearance.eyes = None;
             }
             if matches!(actor.appearance.face, Face::Blink) {
                 let cycle = resources

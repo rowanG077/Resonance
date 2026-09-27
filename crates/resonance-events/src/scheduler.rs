@@ -1081,7 +1081,10 @@ impl EventRuntime {
                     resolve(&prepared, update, id, actor, previous);
                 })
             })
-            .and_then(|()| self.world.step_eyes(&self.resources))
+            .and_then(|()| {
+                let colette_progress = self.memory.read(0x4c, symphonia_script::Width::S32)?;
+                self.world.step_eyes(&self.resources, colette_progress)
+            })
             .and_then(|()| {
                 let enabled = self.memory.read(0x44, symphonia_script::Width::S32)? != 0;
                 self.world.step_colette_wings(&self.resources, enabled)
