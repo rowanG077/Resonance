@@ -50,6 +50,11 @@ impl NativeHost<'_> {
             }
         };
         let command = Command::decode(code).ok_or_else(unsupported)?;
+        let actor = if value == crate::CONTROLLED_ACTOR {
+            self.world.controlled_actor
+        } else {
+            value
+        };
         let condition = match (command, skit) {
             (Ticks, _) => {
                 require(value >= 0, "negative wait duration")?;
@@ -112,9 +117,9 @@ impl NativeHost<'_> {
                 id: (command == MediaLoaded).then_some(value as u32),
                 position: (command == MediaPosition && value >= 0).then_some(value as u32),
             },
-            (ActorMotion, false) => Wait::ActorMotion(value),
-            (ActorAnimation, false) => Wait::ActorAnimation(value),
-            (ActorHeading, false) => Wait::ActorHeading(value),
+            (ActorMotion, false) => Wait::ActorMotion(actor),
+            (ActorAnimation, false) => Wait::ActorAnimation(actor),
+            (ActorHeading, false) => Wait::ActorHeading(actor),
             (Camera, false) => Wait::Camera {
                 after: self.world.tick,
             },

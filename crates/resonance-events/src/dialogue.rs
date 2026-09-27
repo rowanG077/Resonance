@@ -50,6 +50,39 @@ impl ResolvedMessage {
 }
 
 impl crate::GameWorld {
+    /// A field-owned question sharing the normal dialogue and choice lifecycle.
+    pub fn show_choice_notice(
+        &mut self,
+        body: ResolvedMessage,
+        first_line: u8,
+        last_line: u8,
+    ) -> Result<(Operation, Operation), String> {
+        if first_line > last_line {
+            return Err("invalid question line range".into());
+        }
+        let notice = self.show_notice(body, 0)?;
+        let slot = self
+            .dialogue
+            .iter()
+            .find(|(_, d)| d.operation.id() == notice.id())
+            .unwrap()
+            .0;
+        let choice = self.operations.begin()?;
+        self.choices.insert(
+            *slot,
+            Choice {
+                operation: choice.clone(),
+                first_line,
+                last_line,
+                selected_line: first_line,
+                cancel_allowed: true,
+                confirmation: ChoiceConfirmation::Accept,
+                timeout_ticks: None,
+            },
+        );
+        Ok((notice, choice))
+    }
+
     /// Open a centered notice using the same renderer and cancellation lifetime
     /// as script dialogue. The owning game service controls player input.
     pub fn show_notice(&mut self, body: ResolvedMessage, flags: u16) -> Result<Operation, String> {
@@ -128,14 +161,14 @@ pub(crate) fn resolve(
                                 .clone(),
                         });
                     }
-                    4 | 0x11 => tokens.push(TextToken::Text {
-                        text: (if *opcode == 4 {
-                            &text.items
-                        } else {
-                            &text.titles
+                    4 | 0x11 | 0x12 => tokens.push(TextToken::Text {
+                        text: (match *opcode {
+                            4 => &text.items,
+                            0x11 => &text.titles,
+                            _ => &text.techniques,
                         })
                         .get(&u16::try_from(value).map_err(|_| "invalid message label index")?)
-                        .ok_or("message item/title name is not cooked")?
+                        .ok_or("message item/title/technique name is not cooked")?
                         .clone(),
                     }),
                     5 => tokens.push(TextToken::Text {
@@ -198,7 +231,21 @@ pub struct Choice {
     pub last_line: u8,
     pub selected_line: u8,
     pub cancel_allowed: bool,
+    pub confirmation: ChoiceConfirmation,
     pub timeout_ticks: Option<u16>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChoiceConfirmation {
+    Accept,
+    AcceptOrShoulder,
+}
+
+pub(crate) mod choice_flags {
+    pub const INITIAL_LINE: i32 = 0xff;
+    pub const DISABLE_CANCEL: i32 = 0x100;
+    pub const SHOULDER_CONFIRM: i32 = 0x200;
+    pub const ALL: i32 = INITIAL_LINE | DISABLE_CANCEL | SHOULDER_CONFIRM;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -206,6 +253,18 @@ pub enum ChoiceExit {
     Confirm,
     Cancel,
     Timeout,
+}
+
+impl TryFrom<u32> for ChoiceExit {
+    type Error = String;
+    fn try_from(value: u32) -> Result<Self, String> {
+        match value {
+            0 => Ok(Self::Confirm),
+            1 => Ok(Self::Cancel),
+            2 => Ok(Self::Timeout),
+            _ => Err("invalid choice completion reason".into()),
+        }
+    }
 }
 
 impl Choice {
