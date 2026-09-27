@@ -8,11 +8,11 @@
     "non_default_entries": 50
   },
   "instruction_groups": [
-    {"value": 0, "name": "push", "evidence": "fn_8003F7D8"},
-    {"value": 1, "name": "load_global_state", "evidence": "fn_8003F7D8"},
-    {"value": 2, "name": "procedure", "evidence": "fn_8003F7D8"},
-    {"value": 3, "name": "calculator", "evidence": "fn_8003F7D8"},
-    {"value": 4, "name": "append_argument", "evidence": "fn_8003F7D8"}
+    {"value": 0, "name": "push"},
+    {"value": 1, "name": "load_global_state"},
+    {"value": 2, "name": "procedure"},
+    {"value": 3, "name": "calculator"},
+    {"value": 4, "name": "append_argument"}
   ],
   "value_width_modes": [
     {"value": 0, "name": "signed_8"},
@@ -75,8 +75,8 @@
     {"value": 31, "name": "escape_next_byte"}
   ],
   "entry_kinds": [
-    {"value": 1, "name": "kind_1", "confidence": "runtime-proven"},
-    {"value": 2, "name": "kind_2", "confidence": "runtime-proven"}
+    {"value": 1, "name": "kind_1"},
+    {"value": 2, "name": "kind_2"}
   ],
   "yield_commands": [
     {"value": 0, "name": "frames", "returns_value": false},
@@ -109,20 +109,20 @@
     {"value": 28, "name": "global_counter_at_least", "returns_value": false}
   ],
   "special_actor_ids": [
-    {"value": 999999, "name": "special_actor_f423f", "confidence": "identity-unknown"},
-    {"value": 999996, "name": "special_actor_f423c", "confidence": "identity-unknown"},
-    {"value": 999997, "name": "special_actor_f423d", "confidence": "identity-unknown"},
-    {"value": 999998, "name": "special_actor_f423e", "confidence": "identity-unknown"},
-    {"value": 999980, "name": "special_actor_f422c", "confidence": "identity-unknown"},
-    {"value": 99990, "name": "special_actor_18696", "confidence": "identity-unknown"}
+    {"value": 999999, "name": "special_actor_f423f"},
+    {"value": 999996, "name": "special_actor_f423c"},
+    {"value": 999997, "name": "special_actor_f423d"},
+    {"value": 999998, "name": "special_actor_f423e"},
+    {"value": 999980, "name": "special_actor_f422c"},
+    {"value": 99990, "name": "special_actor_18696"}
   ],
   "camera_selectors": [
-    {"value": -2, "name": "snapshot_transition_state", "confidence": "semantic-medium"},
-    {"value": -1, "name": "special_camera", "confidence": "semantic-medium"}
+    {"value": -2, "name": "snapshot_transition_state"},
+    {"value": -1, "name": "special_camera"}
   ],
   "sound_sentinels": [
-    {"value": -1, "name": "stop_or_release", "confidence": "semantic-medium"},
-    {"value": 255, "name": "default_or_broadcast", "confidence": "handler-proven"},
-    {"value": 65534, "name": "preserve_existing", "confidence": "handler-proven"}
+    {"value": -1, "name": "stop_or_release"},
+    {"value": 255, "name": "default_or_broadcast"},
+    {"value": 65534, "name": "preserve_existing"}
   ]
 }

@@ -1471,7 +1471,7 @@ mod tests {
             if !initial {
                 native(&mut words, NativeCall::YieldCommand, &[0, 2]);
             }
-            native(&mut words, NativeCall::Unknown75, &[0; 9]);
+            native(&mut words, NativeCall::Unknown76, &[0; 2]);
             native(&mut words, NativeCall::SetEventBit, &[123]);
             words.push(0x20ff);
             let program = Arc::new(

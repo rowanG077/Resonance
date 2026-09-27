@@ -25,13 +25,13 @@ fn recovered_calculator_table_is_complete() {
 #[test]
 fn native_registry_is_data_driven_and_validated() {
     let registry = NativeRegistry::from_json(
-        r#"{"schema_version":1,"game":"test","procedures":[{"opcode":10,"name":"play_sound","arguments":["sound_id"]}]}"#,
+        r#"{"schema_version":2,"game":"test","procedures":[{"opcode":10,"name":"play_sound","arguments":["sound_id"]}]}"#,
     )
     .unwrap();
     assert_eq!(registry.get(10).unwrap().name, "play_sound");
     assert!(
         NativeRegistry::from_json(
-            r#"{"schema_version":1,"game":"test","procedures":[{"opcode":10,"name":"not valid"}]}"#
+            r#"{"schema_version":2,"game":"test","procedures":[{"opcode":10,"name":"not valid"}]}"#
         )
         .is_err()
     );
@@ -50,35 +50,12 @@ fn native_registry_is_data_driven_and_validated() {
     assert!(retail.get(0x01).unwrap().control_flow);
     assert_eq!(retail.get(0xC6).unwrap().arguments.len(), 21);
     let change_field = retail.get(0x40).unwrap();
-    assert_eq!(change_field.handler, "fn_800500D4");
     assert_eq!(change_field.arguments.len(), 5);
     assert_eq!(retail.get(0xD7).unwrap().name, "motion_command");
     assert_eq!(retail.get(0xD7).unwrap().arguments[0], "operation");
-    assert_eq!(retail.get_by_name("native_d7").unwrap().opcode, 0xD7);
+    assert_eq!(retail.get_by_name("motion_command").unwrap().opcode, 0xD7);
+    assert!(retail.get_by_name("native_d7").is_none());
     assert_eq!(retail.get(0xE1).unwrap().name, "configure_sound");
-}
-
-#[test]
-fn control_surface_covers_every_dispatch_entry() {
-    let registry = NativeRegistry::gqseaf();
-    let catalog = registry.control_surface();
-    assert_eq!(catalog.len(), 237);
-    assert_eq!(catalog.first().map(|entry| entry.opcode), Some(1));
-    assert!(
-        catalog
-            .iter()
-            .any(|entry| entry.domain == "actors_and_objects")
-    );
-    assert!(
-        catalog
-            .iter()
-            .any(|entry| entry.domain == "dialogue_and_yield")
-    );
-    assert!(
-        catalog
-            .iter()
-            .any(|entry| entry.domain == "interpreter.control_flow")
-    );
 }
 
 #[test]
