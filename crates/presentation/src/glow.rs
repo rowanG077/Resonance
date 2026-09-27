@@ -57,7 +57,6 @@ pub(super) fn setup(
     mut commands: Commands,
     art: Res<Art>,
     server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<GlowMaterial>>,
 ) {
     let Some(scene) = &art.manifest.scene else {
@@ -71,12 +70,9 @@ pub(super) fn setup(
         GlowMesh,
         // Draw scene effects after models and lights.
         super::draw_order::DrawOrder((1 << 24) - 1, 0),
-        Mesh3d(meshes.add(Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-        ))),
         MeshMaterial3d(materials.add(GlowMaterial { texture })),
         Transform::default(),
+        Visibility::Hidden,
         NoFrustumCulling,
     ));
 }
@@ -84,12 +80,18 @@ pub(super) fn setup(
 /// Render the particles emitted by SymphoniaScript. Their lifecycle belongs to
 /// resonance-events; this module only builds standard billboard geometry.
 pub(super) fn update(
+    mut commands: Commands,
     events: Option<Res<Events>>,
     camera: Single<&Transform, With<FieldCamera>>,
-    mesh: Single<&Mesh3d, With<GlowMesh>>,
+    glow: Single<(Entity, Option<&Mesh3d>, &mut Visibility), With<GlowMesh>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    let Some(events) = events else {
+    let (entity, handle, mut visibility) = glow.into_inner();
+    let Some(events) = events.filter(|events| !events.0.world.particles.is_empty()) else {
+        // Bevy skips allocating empty meshes but still attempts their upload.
+        // Keep the last nonempty buffer and hide it between particle bursts;
+        // before the first burst there is no mesh asset to extract at all.
+        *visibility = Visibility::Hidden;
         return;
     };
     let tick = events.0.tick();
@@ -138,9 +140,133 @@ pub(super) fn update(
             age,
         );
     }
-    let mut mesh = meshes.get_mut(&mesh.0).expect("glow mesh exists");
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-    mesh.insert_indices(Indices::U32(indices));
+    let geometry = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+    .with_inserted_indices(Indices::U32(indices));
+    if let Some(handle) = handle {
+        *meshes.get_mut(&handle.0).expect("glow mesh exists") = geometry;
+    } else {
+        commands.entity(entity).insert(Mesh3d(meshes.add(geometry)));
+    }
+    *visibility = Visibility::Inherited;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn particle_bursts_never_publish_empty_meshes_or_leave_stale_glows_visible() {
+        // An empty event registry followed by a terminating main script.
+        let bytes: Vec<_> = [4_u16, 0, 0, 0, 0x20ff]
+            .into_iter()
+            .flat_map(u16::to_be_bytes)
+            .collect();
+        let events = resonance_events::EventRuntime::new(
+            Arc::new(symphonia_script::Program::decode(&bytes).unwrap()),
+            Arc::default(),
+        )
+        .unwrap();
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .insert_resource(Events(events))
+            .add_systems(Update, update);
+        app.world_mut().spawn((FieldCamera, Transform::default()));
+        let entity = app
+            .world_mut()
+            .spawn((GlowMesh, Transform::default(), Visibility::Hidden))
+            .id();
+        app.update();
+        assert!(app.world().resource::<Assets<Mesh>>().is_empty());
+        assert!(app.world().get::<Mesh3d>(entity).is_none());
+
+        let particle = resonance_events::Particle {
+            kind: 10,
+            handle: 1,
+            born: 0,
+            lifetime: 100,
+            position: [0.; 3],
+            velocity: [0.; 3],
+            size: 16.,
+            size_delta: 0.,
+            rgba: [255.; 4],
+            alpha_delta: 0.,
+            flutter: None,
+        };
+        app.world_mut()
+            .resource_mut::<Events>()
+            .0
+            .world
+            .particles
+            .push(particle.clone());
+        app.update();
+        let handle = app.world().get::<Mesh3d>(entity).unwrap().0.clone();
+        let mesh = app.world().resource::<Assets<Mesh>>().get(&handle).unwrap();
+        assert_eq!(mesh.count_vertices(), 4);
+        assert_eq!(mesh.indices().unwrap().len(), 6);
+        assert_eq!(
+            app.world().get::<Visibility>(entity),
+            Some(&Visibility::Inherited)
+        );
+
+        app.world_mut()
+            .resource_mut::<Events>()
+            .0
+            .world
+            .particles
+            .clear();
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().get::<Visibility>(entity),
+            Some(&Visibility::Hidden)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Assets<Mesh>>()
+                .get(&handle)
+                .unwrap()
+                .count_vertices(),
+            4
+        );
+
+        app.world_mut()
+            .resource_mut::<Events>()
+            .0
+            .world
+            .particles
+            .extend([particle.clone(), particle]);
+        app.update();
+        assert_eq!(
+            app.world().get::<Mesh3d>(entity).unwrap().0.id(),
+            handle.id()
+        );
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 1);
+        assert_eq!(
+            app.world()
+                .resource::<Assets<Mesh>>()
+                .get(&handle)
+                .unwrap()
+                .count_vertices(),
+            8
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(entity),
+            Some(&Visibility::Inherited)
+        );
+
+        app.world_mut().remove_resource::<Events>();
+        app.update();
+        assert_eq!(
+            app.world().get::<Visibility>(entity),
+            Some(&Visibility::Hidden)
+        );
+    }
 }
