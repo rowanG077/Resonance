@@ -1,0 +1,72 @@
+script library;
+use field::visual;
+use game::effects;
+use game::effects::Color;
+use game::effects::Image;
+use game::effects::Facing;
+use game::effects::Anchor;
+use game::geometry::Vector;
+use game::projectiles;
+use game::ring;
+use game::ring::Ability;
+use game::ring::LightningColor;
+enum Palette {
+    White = 0,
+    Colored = 2 }
+const BoltLifetime: ticks = 15ticks;
+const BoltWidth: f32 = 76.0;
+const BoltHeight: f32 = 500.0;
+const BoltSpin: f32 = 4.2;
+const CrossPlane: f32 = 90.0;
+fn color() -> Color {
+    match ring::ability() {
+        Ability::Lightning(selected) => {
+            match selected {
+                LightningColor::Yellow => {
+                    return Color {
+                        red: 255,
+                        green: 255,
+                        blue: 32 };
+                },
+                LightningColor::Red => {
+                    return Color {
+                        red: 255,
+                        green: 32,
+                        blue: 32 };
+                },
+                _ => {
+                },
+            }
+        },
+        _ => {
+        },
+    }
+    return Color {
+        red: 32,
+        green: 32,
+        blue: 255 };
+}
+fn plane(shot: projectiles::Projectile, palette: Palette, tint: Color, rotation: f32) {
+    let mut sprite = visual::sprite(Image::ElectricSpark, BoltLifetime, BoltWidth);
+    sprite.facing = Facing::World;
+    sprite.anchor = Anchor::LowerHalf;
+    sprite.height = BoltHeight;
+    sprite.rotation = Vector {
+        x: 0.0,
+        y: rotation,
+        z: projectiles::heading(shot) };
+    sprite.angular_velocity = Vector {
+        x: 0.0,
+        y: BoltSpin,
+        z: 0.0 };
+    sprite.palette = i32(palette);
+    sprite.color = tint;
+    sprite.alpha = 255;
+    effects::sprite(projectiles::effect(shot), sprite);
+}
+pub fn draw(shot: projectiles::Projectile) {
+    plane(shot, Palette::White, Color {
+        red: 64, green: 64, blue: 64 }, 0.0);
+    plane(shot, Palette::Colored, color(), 0.0);
+    plane(shot, Palette::Colored, color(), CrossPlane);
+}

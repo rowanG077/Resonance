@@ -1,0 +1,74 @@
+script field;
+use game::ring;
+use game::ring::Ability;
+use field::ring_projectile;
+use field::ring_types::Shot;
+use field::ring_shrink;
+use field::ring_electric;
+use field::ring_radar;
+use field::ring_sunlight;
+use field::ring_bomb;
+use field::ring_bolt;
+use field::ring_earthquake;
+use field::ring_pulse;
+use field::ring_bubble;
+pub task activate() {
+    match ring::ability() {
+        Ability::Fire => {
+            await ring_projectile::cast(Shot::Fire);
+        },
+        Ability::AlternateFire => {
+            await ring_projectile::cast(Shot::Fire);
+        },
+        Ability::Shrink => {
+            await ring_shrink::cast();
+        },
+        Ability::Mana => {
+            await ring_projectile::cast(Shot::Mana);
+        },
+        Ability::ElectricOrb(kind) => {
+            await ring_electric::cast(kind);
+        },
+        Ability::Radar => {
+            await ring_radar::cast();
+        },
+        Ability::Wind => {
+            await ring_projectile::cast(Shot::Wind);
+        },
+        Ability::Water => {
+            await ring_projectile::cast(Shot::Water);
+        },
+        Ability::LongRangeFire => {
+            await ring_projectile::cast(Shot::LongRangeFire);
+        },
+        Ability::Sunlight => {
+            await ring_sunlight::cast();
+        },
+        Ability::Bomb => {
+            await ring_bomb::cast();
+        },
+        Ability::Lightning(color) => {
+            await ring_bolt::cast(ring_bolt::Kind::Lightning);
+        },
+        Ability::Ice => {
+            await ring_bolt::cast(ring_bolt::Kind::Ice);
+        },
+        Ability::Earthquake => {
+            await ring_earthquake::cast();
+        },
+        Ability::Darkness => {
+            await ring_bolt::cast(ring_bolt::Kind::Darkness);
+        },
+        Ability::Sound => {
+            await ring_pulse::cast(ring_pulse::Kind::Sound);
+        },
+        Ability::AnimalCall(color) => {
+            await ring_pulse::cast(ring_pulse::Kind::AnimalCall);
+        },
+        Ability::Bubble(phase) => {
+            await ring_bubble::cast();
+        },
+        Ability::Disabled => {
+        },
+    }
+}

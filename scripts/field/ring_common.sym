@@ -1,0 +1,11 @@
+script library;
+use game::actors;
+use game::field;
+pub task recover_pose(pose: actors::Pose, duration: ticks) {
+    await field::wait_ticks(duration);
+    actors::release_pose(pose);
+}
+pub task recover_control(pose: actors::Pose, duration: ticks) {
+    await recover_pose(pose, duration);
+    field::release_control();
+}

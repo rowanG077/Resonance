@@ -1,0 +1,147 @@
+script library;
+use game::field;
+use game::math;
+use field::ring_types::Shot;
+use game::projectiles;
+use game::effects;
+use game::effects::Spark;
+use game::effects::Blend;
+use game::effects::Color;
+use game::geometry::Vector;
+fn outer_color(kind: Shot) -> Color {
+    if kind == Shot::Water {
+        return Color {
+            red: 0,
+            green: 255,
+            blue: 255 };
+    }
+    return Color {
+        red: 255,
+        green: 10,
+        blue: 10 };
+}
+fn inner_color(kind: Shot) -> Color {
+    if kind == Shot::Water {
+        return outer_color(kind);
+    }
+    return Color {
+        red: 255,
+        green: 255,
+        blue: 10 };
+}
+const FireBurstSize: i32 = 4;
+const WaterBurstSize: i32 = 16;
+const FireBurstInheritance: f32 = 0.5;
+const WaterReboundDivisor: f32 = 6.0;
+const Spin: f32 = 3.0;
+const RotationRange: i32 = 256;
+const BodySizeRange: i32 = 16;
+const SparkSizeRange: i32 = 4;
+const TrailCount: i32 = 2;
+const TrailSpread: i32 = 32;
+const TrailBias: i32 = 7;
+const TrailFallRange: i32 = 16;
+const VelocityScale: f32 = 0.03125;
+const BurstCount: i32 = 16;
+const BurstSpread: i32 = 64;
+const BurstBias: i32 = 31;
+const BurstScale: f32 = 0.0625;
+const Fade: f32 = - 8.0;
+const OrbitCount: i32 = 8;
+const OrbitStep: f32 = 8.0;
+const OrbitRadius: f32 = 25.0;
+const OrbitSpacing: f32 = 0.125;
+const OrbitBaseSize: i32 = 8;
+const OrbitFade: f32 = - 17.0;
+const SpiralOuterSize: f32 = 68.0;
+const SpiralInnerSize: f32 = 38.0;
+const SpiralOuterGrowth: f32 = - 6.0;
+const SpiralInnerGrowth: f32 = - 5.0;
+const LongBurstVerticalScale: f32 = 4.0;
+fn spin() -> f32 {
+    if (field::effect_tick() & 1) != 0 {
+        return Spin;
+    }
+    return - Spin;
+}
+fn body(shot: projectiles::Projectile, lifetime: ticks, size: f32, growth: f32, color: Color) {
+    effects::spark(projectiles::effect(shot), Spark {
+        lifetime: lifetime, size: size + f32(field::random(BodySizeRange)), growth: growth, rotation: f32(field::random(RotationRange)), spin: spin(), velocity: Vector {
+            x: 0.0, y: 0.0, z: 0.0 }, inherit_velocity: 0.0, color: color, offset: Vector {
+            x: 0.0, y: 0.0, z: 0.0 }, fade: Fade, alpha: 255, blend: Blend::Additive, });
+}
+fn orbit(shot: projectiles::Projectile, age: i32, color: Color) {
+    let velocity = projectiles::velocity(shot);
+    let mut i = 0;
+    while i < OrbitCount {
+        let angle = f32(age * OrbitCount + i + 1) * OrbitStep;
+        effects::spark(projectiles::effect(shot), Spark {
+            lifetime: 16ticks, size: f32(field::random(BodySizeRange) + OrbitBaseSize), growth: 0.0, rotation: f32(field::random(RotationRange)), spin: spin(), velocity: Vector {
+                x: 0.0, y: 0.0, z: 0.0 }, inherit_velocity: 0.0, color: color, offset: Vector {
+                x: velocity.x * OrbitSpacing * f32(i) + OrbitRadius * math::cos_degrees(angle), y: velocity.y * OrbitSpacing * f32(i), z: - OrbitRadius * math::sin_degrees(angle), }, fade: OrbitFade, alpha: 255, blend: Blend::Additive, });
+        i += 1;
+    }
+}
+pub fn trail(shot: projectiles::Projectile, kind: Shot, age: i32) {
+    let outer = outer_color(kind);
+    let inner = inner_color(kind);
+    if kind == Shot::LongRangeFire {
+        orbit(shot, age, Color {
+            red: 252, green: 20, blue: 20 });
+        body(shot, 9ticks, SpiralOuterSize, SpiralOuterGrowth, outer);
+        body(shot, 5ticks, SpiralInnerSize, SpiralInnerGrowth, inner);
+    } else {
+        body(shot, 9ticks, 30.0, - 3.0, outer);
+        body(shot, 5ticks, 15.0, - 2.0, inner);
+    }
+    let mut base_size = 1;
+    let mut vertical = - 1.0;
+    if kind == Shot::LongRangeFire {
+        base_size = FireBurstSize;
+        vertical = 1.0;
+    }
+    motes(shot, inner, base_size, vertical);
+}
+pub fn frost(shot: projectiles::Projectile, age: i32) {
+    let white = Color {
+        red: 255,
+        green: 255,
+        blue: 255 };
+    orbit(shot, age, Color {
+        red: 10, green: 10, blue: 80 });
+    body(shot, 9ticks, SpiralOuterSize, SpiralOuterGrowth, Color {
+        red: 10, green: 10, blue: 255 });
+    body(shot, 5ticks, SpiralInnerSize, SpiralInnerGrowth, white);
+    motes(shot, white, FireBurstSize, - 1.0);
+}
+fn motes(shot: projectiles::Projectile, color: Color, base_size: i32, vertical: f32) {
+    let mut emitted = 0;
+    while emitted < TrailCount {
+        effects::spark(projectiles::effect(shot), Spark {
+            lifetime: 31ticks, size: f32(field::random(SparkSizeRange) + base_size), growth: 0.0, rotation: 0.0, spin: 0.0, velocity: Vector {
+                x: f32(field::random(TrailSpread) - TrailBias) * VelocityScale, y: f32(field::random(TrailSpread) - TrailBias) * VelocityScale, z: vertical - f32(field::random(TrailFallRange)) * VelocityScale, }, inherit_velocity: 0.0, color: color, offset: Vector {
+                x: 0.0, y: 0.0, z: 0.0 }, fade: Fade, alpha: 255, blend: Blend::Additive, });
+        emitted += 1;
+    }
+}
+pub fn burst(shot: projectiles::Projectile, kind: Shot) {
+    let color = inner_color(kind);
+    let mut size = FireBurstSize;
+    let mut inherit = FireBurstInheritance;
+    let mut vertical_scale = VelocityScale;
+    if kind == Shot::LongRangeFire {
+        vertical_scale *= LongBurstVerticalScale;
+    }
+    if kind == Shot::Water {
+        size = WaterBurstSize;
+        inherit = - 1.0 / WaterReboundDivisor;
+    }
+    let mut emitted = 0;
+    while emitted < BurstCount {
+        effects::spark(projectiles::effect(shot), Spark {
+            lifetime: 21ticks, size: f32(field::random(SparkSizeRange) + size), growth: 0.0, rotation: 0.0, spin: 0.0, velocity: Vector {
+                x: f32(field::random(BurstSpread) - BurstBias) * BurstScale, y: f32(field::random(BurstSpread) - BurstBias) * BurstScale, z: f32(field::random(BurstSpread) - BurstBias) * vertical_scale, }, inherit_velocity: inherit, color: color, offset: Vector {
+                x: 0.0, y: 0.0, z: 0.0 }, fade: Fade, alpha: 255, blend: Blend::Additive, });
+        emitted += 1;
+    }
+}
