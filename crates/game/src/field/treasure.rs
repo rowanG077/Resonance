@@ -8,43 +8,45 @@ pub(super) struct Treasures {
     pub event: Option<Arc<crate::authored::PreparedEvent>>,
 }
 impl Treasures {
-    pub fn step(&self, events: &mut EventRuntime, confirm: bool) -> Result<()> {
-        if confirm && events.player_has_control() {
-            let world = &events.world;
-            let player = world
-                .actors
-                .get(&world.controlled_actor)
-                .context("treasure interaction lacks player")?;
-            let heading = player.heading.to_radians();
-            let target = world
-                .treasures
-                .iter()
-                .enumerate()
-                .filter(|(_, chest)| {
-                    !world
-                        .party
-                        .as_ref()
-                        .is_some_and(|party| party.travel.opened_treasures.contains(&chest.flag))
-                })
-                .filter_map(|(index, chest)| {
-                    let position = world.actors.get(&chest.actor)?.position;
-                    let dx = position[0] - player.position[0];
-                    let dy = position[1] - player.position[1];
-                    let distance = dx.hypot(dy);
-                    (distance < 140.
-                        && (position[2] - player.position[2]).abs() < 145.
-                        && (distance == 0.
-                            || (dx * heading.sin() - dy * heading.cos()) / distance > 0.4))
-                        .then_some((index, distance))
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1))
-                .map(|(index, _)| index);
-            if let Some(index) = target {
-                self.event
+    pub fn target(world: &resonance_events::GameWorld) -> Option<usize> {
+        let player = world.actors.get(&world.controlled_actor)?;
+        let heading = player.heading.to_radians();
+        world
+            .treasures
+            .iter()
+            .enumerate()
+            .filter(|(_, chest)| {
+                !world
+                    .party
                     .as_ref()
-                    .context("treasure script was not prepared")?
-                    .start_with_arguments(events, &[i32::try_from(index)?])?;
-            }
+                    .is_some_and(|party| party.travel.opened_treasures.contains(&chest.flag))
+            })
+            .filter_map(|(index, chest)| {
+                let actor = world.actors.get(&chest.actor)?;
+                let position = actor.position;
+                let dx = position[0] - player.position[0];
+                let dy = position[1] - player.position[1];
+                let distance = dx.hypot(dy);
+                (actor.visible
+                    && distance < 140.
+                    && (position[2] - player.position[2]).abs() < 145.
+                    && (distance == 0.
+                        || (dx * heading.sin() - dy * heading.cos()) / distance > 0.4))
+                    .then_some((index, distance))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(index, _)| index)
+    }
+
+    pub fn step(&self, events: &mut EventRuntime, confirm: bool) -> Result<()> {
+        if confirm
+            && events.player_has_control()
+            && let Some(index) = Self::target(&events.world)
+        {
+            self.event
+                .as_ref()
+                .context("treasure script was not prepared")?
+                .start_with_arguments(events, &[i32::try_from(index)?])?;
         }
         Ok(())
     }

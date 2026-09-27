@@ -12,7 +12,6 @@ use game::projectiles;
 use game::projectiles::Contact;
 use game::projectiles::ActorScan;
 use game::projectiles::Targets;
-use game::projectiles::Motion;
 use game::ring;
 use game::ring::Hit;
 use game::ring::ElectricOrbKind;
@@ -198,7 +197,6 @@ pub task cast(kind: ElectricOrbKind) {
         speed = TetheallaSpeed;
     }
     let shot = projectiles::launch(actor, height, speed, ContactRadius);
-    projectiles::motion(shot, Motion::Scripted);
     effects::shadow(shot, 40.0, Color {
         red: 0, green: 0, blue: 64 }, 64);
     audio::sound(i32(Cue::Launch));

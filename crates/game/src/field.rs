@@ -1,17 +1,21 @@
 //! Scene setup supplies the original script with cooked resource bindings.
 use anyhow::{Context, Result, ensure};
-use resonance_content::field::FieldAssets;
 use resonance_content::field::SCENERY_RESOURCE_BASE;
+use resonance_content::field::{CollisionQuery, FieldAssets};
 use resonance_events::{
-    Actor, AnimationClip, EventRuntime, ModelResource, ResourceKind, ResourceLibrary,
+    ACTOR_CONTACT_HEIGHT, Actor, AnimationClip, EventRuntime, ModelResource, ResourceKind,
+    ResourceLibrary,
 };
 use std::{collections::BTreeMap, sync::Arc};
 use symphonia_script::Program;
+pub mod attachments;
+mod blocks;
 mod checkpoint;
 mod conditions;
 pub mod navigation;
 mod prompt;
 pub mod replay;
+mod ring;
 mod save_point;
 pub mod shop;
 pub(crate) mod skit;
@@ -35,7 +39,8 @@ pub struct FieldEntry {
     /// The disposable overworld test may fall back to walking after unsupported scripts.
     pub allow_incomplete_scripts: bool,
     pub kind: EntryKind,
-    pub treasure_event: Option<Arc<crate::authored::PreparedEvent>>,
+    pub services: Option<Arc<crate::authored::FieldServices>>,
+    pub attachments: attachments::Attachments,
     pub play_time: crate::clock::PlayTime,
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
@@ -51,6 +56,8 @@ pub struct FieldEntry {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FieldInput {
+    /// Physical held buttons; action edges below also support replayed input.
+    pub held_buttons: resonance_events::input::Buttons,
     /// Camera-relative stick input: right and forward, in [-1, 1].
     pub direction: [f32; 2],
     pub run: bool,
@@ -90,12 +97,13 @@ pub struct FieldSession {
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
     choices: crate::choice::ChoicePlayer,
     walkmesh: navigation::WalkMesh,
+    player_fall: navigation::PlayerFall,
     light_regions: Option<navigation::WalkMesh>,
-    lighting: BTreeMap<i32, resonance_events::effect::CharacterLight>,
     conversation_facing: Option<(i32, f32, f32)>,
-    active_triggers: std::collections::BTreeSet<u32>,
     save_points: save_point::SavePoints,
     treasures: treasure::Treasures,
+    ring: ring::Ring,
+    blocks: blocks::Blocks,
     action_hints: prompt::ActionHints,
     skits: skit::Skits,
     pub active_skit: Option<SkitPlayback>,
@@ -210,7 +218,7 @@ impl FieldSession {
                 "character references an uncooked technique"
             );
         }
-        let treasure_event = entry.treasure_event.clone();
+        let services = entry.services.clone();
         let mut session = Self {
             allow_incomplete_scripts: entry.allow_incomplete_scripts,
             entered_control: false,
@@ -229,18 +237,22 @@ impl FieldSession {
             menu_operation: None,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
-            lighting: BTreeMap::new(),
             conversation_facing: None,
-            active_triggers: Default::default(),
-            save_points: save_point::SavePoints::new(assets.save_point_tutorial.clone()),
+            save_points: save_point::SavePoints::new(services.clone()),
             treasures: treasure::Treasures {
-                event: treasure_event,
+                event: services.as_ref().map(|s| s.treasure.clone()),
             },
+            ring: ring::Ring {
+                event: services.as_ref().map(|s| s.ring.clone()),
+                ..Default::default()
+            },
+            blocks: Default::default(),
             action_hints: Default::default(),
             voice_durations: Default::default(),
             voice_feedback: None,
             talking: Default::default(),
             walkmesh: navigation::WalkMesh::new(&assets.ground)?,
+            player_fall: Default::default(),
             light_regions: (!assets.regions.is_empty())
                 .then(|| navigation::WalkMesh::new(&assets.regions))
                 .transpose()?,
@@ -329,9 +341,9 @@ impl FieldSession {
             }
             self.events.world.insert_actor(id, player);
         }
+        let floor = self.walkmesh.with_actors(self.events.world.actors.values());
         let actor = self.events.world.actors.get_mut(&id).unwrap();
-        actor.position = self
-            .walkmesh
+        actor.position = floor
             .exploration_start(actor.position)
             .context("field has no exploration floor")?;
         actor.visible = true;
@@ -363,6 +375,21 @@ impl FieldSession {
         Ok(())
     }
     fn step_inner(&mut self, input: FieldInput) -> Result<()> {
+        use resonance_events::input::Button;
+        let pressed = [
+            (Button::Accept, input.interact),
+            (Button::Cancel, input.cancel),
+            (Button::Skit, input.skit),
+            (Button::Menu, input.menu),
+            (Button::Start, input.start),
+            (Button::Ring, input.alternate),
+            (Button::PreviousPage, input.previous_page),
+            (Button::NextPage, input.next_page),
+        ]
+        .into_iter()
+        .filter_map(|(button, pressed)| pressed.then_some(button))
+        .collect();
+        self.events.world.input.sample(input.held_buttons, pressed);
         self.play_time.advance();
         self.effect_clock.advance();
         if self.field_control_available()
@@ -478,9 +505,23 @@ impl FieldSession {
             }
         }
         let talking = self.step_dialogue(input)?;
-        self.save_points.finish_notice(&mut self.events.world)?;
+        self.save_points
+            .interact(&mut self.events, input.interact && !talking)?;
         self.treasures
             .step(&mut self.events, input.interact && !talking)?;
+        if !talking {
+            self.ring.step(&mut self.events, input.alternate)?;
+        }
+        self.walkmesh
+            .settle_scenery(&mut self.events.world, self.blocks.moving());
+        self.blocks.step(
+            &mut self.events,
+            &self.walkmesh,
+            FieldInput {
+                interact: input.interact && !talking,
+                ..input
+            },
+        );
         if self.events.player_has_control() && !talking {
             let world = &self.events.world;
             let contact = world
@@ -489,10 +530,9 @@ impl FieldSession {
                 .and_then(|player| {
                     world.actors.iter().find_map(|(&id, actor)| {
                         (actor.visible
-                            && actor
-                                .enemy
-                                .as_ref()
-                                .is_some_and(|enemy| enemy.contact_cooldown == 0)
+                            && actor.enemy.as_ref().is_some_and(|enemy| {
+                                enemy.contact_cooldown == 0 && enemy.stun.is_none()
+                            })
                             && actor
                                 .position
                                 .iter()
@@ -507,30 +547,35 @@ impl FieldSession {
                 self.events.contact_enemy(actor)?;
             }
         }
-        let can_trigger = self.events.world.input_enabled && !talking;
+        let can_trigger = self.events.player_has_control() && !talking;
         let interaction_target = input.interact.then(|| self.interaction_target()).flatten();
-        let walkmesh = &self.walkmesh;
+        let walkmesh = self.walkmesh.with_actors(self.events.world.actors.values());
         let controlled_actor = self.events.world.controlled_actor;
         let obstacles: Vec<_> = self
             .events
             .world
             .actors
             .iter()
-            .filter(|(_, a)| {
+            .filter(|(id, a)| {
                 a.visible
                     && a.collidable
                     && (a.resource < SCENERY_RESOURCE_BASE
-                        || (resonance_content::field::TREASURE_RESOURCE_BASE
-                            ..resonance_content::field::TREASURE_RESOURCE_BASE + 3)
-                            .contains(&a.resource))
+                        || self
+                            .events
+                            .world
+                            .treasures
+                            .iter()
+                            .any(|chest| chest.actor == **id))
                     && a.resource != 24
             })
             .map(|(&id, a)| (id, a.position))
             .collect();
         let conversation_facing = &mut self.conversation_facing;
-        let active_triggers = &mut self.active_triggers;
         let mut action = None;
+        let attempted_contact = std::cell::Cell::new(None);
         let mut resolved = BTreeMap::new();
+        let falling = matches!(self.player_fall, navigation::PlayerFall::Falling { .. });
+        let player_fall = &mut self.player_fall;
         self.events.step_with_motion(
             self.effect_clock.tick(),
             |events| {
@@ -554,39 +599,67 @@ impl FieldSession {
                             .trunc()
                             .to_radians();
                         let forward = [-angle.sin(), angle.cos()];
-                        let speed = if input.run { 8. } else { 4. };
+                        let size = events.world.player_size;
+                        let speed = if input.run { 8. } else { 4. } * size.movement_scale();
                         let delta = [
                             (forward[1] * stick[0] + forward[0] * stick[1]) * speed,
                             (-forward[0] * stick[0] + forward[1] * stick[1]) * speed,
                         ];
-                        const FLOOR_CLEARANCE: f32 = 40.;
-                        let target = walkmesh.move_by(start, delta, FLOOR_CLEARANCE, |p| {
-                            events.world.actors.iter().any(|(other, a)| {
-                                *other != id
-                                    && a.visible
-                                    && a.collidable
-                                    && a.properties.get(&48) != Some(&1)
-                                    && (a.resource < SCENERY_RESOURCE_BASE
-                                        || (resonance_content::field::TREASURE_RESOURCE_BASE
-                                            ..resonance_content::field::TREASURE_RESOURCE_BASE + 3)
-                                            .contains(&a.resource))
-                                    && a.resource != 24
-                                    && (p[2] - a.position[2]).abs() < 60.
-                                    && (p[0] - a.position[0]).hypot(p[1] - a.position[1]) < 35.
+                        let target = if falling {
+                            start
+                        } else {
+                            walkmesh.move_by(start, delta, size.floor_clearance(), |p| {
+                                events.world.actors.iter().any(|(other, a)| {
+                                    if *other == id {
+                                        return false;
+                                    }
+                                    const MODEL_PROBE_HEIGHT: f32 = 45.;
+                                    if a.contains_solid(
+                                        [p[0], p[1], p[2] + MODEL_PROBE_HEIGHT],
+                                        CollisionQuery::Player,
+                                    ) {
+                                        return true;
+                                    }
+                                    let blocked = a.visible
+                                        && a.collidable
+                                        && a.contact == resonance_events::ActorContact::Cylinder
+                                        && actor.contact == resonance_events::ActorContact::Cylinder
+                                        && (a.resource < SCENERY_RESOURCE_BASE
+                                            || events
+                                                .world
+                                                .treasures
+                                                .iter()
+                                                .any(|chest| chest.actor == *other))
+                                        && a.resource != 24
+                                        // fn_80024284 adds the two authored
+                                        // cylinder radii, with a 150-unit
+                                        // vertical overlap tolerance.
+                                        && (p[2] - a.position[2]).abs() <= ACTOR_CONTACT_HEIGHT
+                                        && (p[0] - a.position[0]).hypot(p[1] - a.position[1])
+                                            < actor.radius + a.radius;
+                                    if blocked
+                                        && a.contact_event
+                                        && attempted_contact.get().is_none()
+                                    {
+                                        attempted_contact.set(Some(*other));
+                                    }
+                                    blocked
+                                })
                             })
-                        });
+                        };
                         // Derive facing before adding world coordinates: subtracting
                         // rounded positions can push a whole-degree angle across its boundary.
                         let heading = (delta != [0.; 2]).then(|| movement_heading(delta));
                         player_destination = Some((id, target, heading));
                         let actor = events.world.actors.get_mut(&id).unwrap();
+                        actor.set_movement_speed(speed * length.min(1.));
                         // Facing and locomotion follow input, even when a wall blocks
                         // part of the step. Apply collision after advancing that intent;
                         // a short wall slide is not a completed scripted move.
                         actor.motion = if delta[0] != 0. || delta[1] != 0. {
                             Some(resonance_events::ActorMotion {
                                 target: [start[0] + delta[0], start[1] + delta[1], start[2]],
-                                speed,
+                                speed: speed * length.min(1.),
                             })
                         } else {
                             None
@@ -613,10 +686,22 @@ impl FieldSession {
                         }
                     }
                 }
-                Ok((player_destination, !events.world.input_enabled))
+                Ok((
+                    player_destination,
+                    !events.world.input_enabled,
+                    events.world.mapped_input_disabled,
+                ))
             },
-            |(player_destination, scripted_control), id, actor, previous| {
-                if let Some((player, target, heading)) = *player_destination
+            |(player_destination, scripted_control, event_paused), update, id, actor, previous| {
+                let (scripted_control, event_paused) = match update {
+                    resonance_events::MotionUpdate::Frame => (*scripted_control, *event_paused),
+                    resonance_events::MotionUpdate::AnimationBinding {
+                        event_paused,
+                        input_enabled,
+                    } => (!input_enabled, event_paused),
+                };
+                if update == resonance_events::MotionUpdate::Frame
+                    && let Some((player, target, heading)) = *player_destination
                     && id == player
                 {
                     actor.position = target;
@@ -652,17 +737,25 @@ impl FieldSession {
                             }
                         }
                     }
-                    let position =
-                        walkmesh.resolve_motion(previous, actor.position, id == controlled_actor);
+                    let position = if id == controlled_actor && !scripted_control && !event_paused {
+                        walkmesh.resolve_player(previous, actor.position, player_fall, event_paused)
+                    } else {
+                        walkmesh.resolve_motion(previous, actor.position, false)
+                    };
                     if let Some(autonomy) = &mut actor.autonomy {
                         autonomy.resolve_floor(position.is_some());
                     }
                     actor.position = position.unwrap_or_else(|| {
-                        if id == controlled_actor && *scripted_control {
+                        if id == controlled_actor && (scripted_control || event_paused) {
                             // Authored approaches can leave the floor at a doorway.
                             // Keep their horizontal motion and hold the last height.
                             [actor.position[0], actor.position[1], previous[2]]
                         } else {
+                            // fn_8001A6FC cancels the movement command (B0=-1)
+                            // when a grounded actor reaches an unsupported
+                            // destination. Retaining it would leave scripts
+                            // waiting forever for an unreachable endpoint.
+                            actor.motion = None;
                             previous
                         }
                     });
@@ -672,34 +765,55 @@ impl FieldSession {
             |events| {
                 conditions::step(&mut events.world, self.effect_clock.tick())?;
                 self.save_points
-                    .step_effects(&mut events.world, self.effect_clock.tick())?;
-                if can_trigger && events.world.input_enabled {
+                    .step_effects(events, self.effect_clock.tick())?;
+                if can_trigger && events.player_has_control() {
                     // Contacts queue their script after movement and before this
                     // update's VM dispatch, including confirmed door entries.
-                    action = Self::step_triggers(events, active_triggers, input.interact)?;
+                    if let Some(player) = events.world.actors.get(&events.world.controlled_actor) {
+                        let contact = events.world.actors.iter().find_map(|(&id, actor)| {
+                            (id != events.world.controlled_actor
+                                && actor.contact_event
+                                && actor.contact == resonance_events::ActorContact::Cylinder
+                                && player.contact == resonance_events::ActorContact::Cylinder
+                                && (player.position[2] - actor.position[2]).abs()
+                                    <= ACTOR_CONTACT_HEIGHT
+                                && (player.position[0] - actor.position[0])
+                                    .hypot(player.position[1] - actor.position[1])
+                                    < player.radius + actor.radius)
+                                .then_some(id)
+                        });
+                        // Native cylinder contact is observed before cancelling
+                        // penetration, so a solid callback actor still fires.
+                        if let Some(actor) = contact.or_else(|| attempted_contact.get()) {
+                            events.contact_actor(actor)?;
+                        }
+                    }
+                    action = Self::step_triggers(events, input.interact)?;
                 }
                 Ok(())
             },
         )?;
-        let action = if can_trigger && self.events.world.input_enabled {
+        let action = if can_trigger && self.events.player_has_control() {
             action.or(self.interaction_action()?)
         } else {
             None
         };
         let free_control = !talking && self.events.player_has_control();
-        self.save_points
-            .step(&mut self.events.world, free_control)?;
+        self.save_points.step(&mut self.events, free_control)?;
         let world = &self.events.world;
         self.action_hints.step(
-            action.or_else(|| {
-                world
-                    .save_points
-                    .iter()
-                    .any(|p| p.active)
-                    .then_some(FieldAction::Save)
-            }),
-            free_control
-                && world.input_enabled
+            self.blocks
+                .active()
+                .then_some(FieldAction::Move)
+                .or(action)
+                .or_else(|| {
+                    world
+                        .save_points
+                        .iter()
+                        .any(|p| p.active)
+                        .then_some(FieldAction::Save)
+                }),
+            (self.blocks.active() || free_control && world.input_enabled)
                 && world.field_transition.is_none()
                 && !world.blocked_by_movie()
                 && world
@@ -717,6 +831,7 @@ impl FieldSession {
             // Restore the previous target only if the script left ours alone.
             actor.target_heading = heading;
         }
+        let walkmesh = self.walkmesh.with_actors(self.events.world.actors.values());
         for (id, actor) in &mut self.events.world.actors {
             if actor.grounded
                 && actor.resource < SCENERY_RESOURCE_BASE
@@ -729,7 +844,7 @@ impl FieldSession {
                 // Script coordinates use coarse authored heights. A teleported
                 // grounded actor must reach its actual floor before the next
                 // small walking step (Nova places Lloyd 36 units above it).
-                && let Some(z) = self.walkmesh.height(actor.position, 128.)
+                && let Some(z) = walkmesh.height(actor.position, 128.)
             {
                 actor.position[2] = z;
             }
@@ -741,13 +856,12 @@ impl FieldSession {
             .iter()
             .map(|(&id, actor)| (id, self.actor_light(actor)))
             .collect();
-        self.lighting
-            .retain(|id, _| self.events.world.actors.contains_key(id));
         for (id, target) in targets {
-            self.lighting
-                .entry(id)
-                .and_modify(|light| light.approach(&target))
-                .or_insert(target);
+            let light = &mut self.events.world.actors.get_mut(&id).unwrap().light;
+            match light {
+                Some(light) => light.approach(&target),
+                None => *light = Some(target),
+            }
         }
         Ok(())
     }
@@ -778,50 +892,47 @@ impl FieldSession {
         }
         Ok(())
     }
-    fn step_triggers(
-        events: &mut EventRuntime,
-        active: &mut std::collections::BTreeSet<u32>,
-        confirm: bool,
-    ) -> Result<Option<FieldAction>> {
-        let world = &events.world;
+    fn step_triggers(events: &mut EventRuntime, confirm: bool) -> Result<Option<FieldAction>> {
+        let world = &mut events.world;
         let Some(actor) = world.actors.get(&world.controlled_actor) else {
             return Ok(None);
         };
-        const RADIUS: f32 = 42.;
+        let radius = actor.radius;
         let angle = actor.target_heading.to_radians();
         let ahead = [
-            actor.position[0] + angle.sin() * RADIUS,
-            actor.position[1] - angle.cos() * RADIUS,
+            actor.position[0] + angle.sin() * radius,
+            actor.position[1] - angle.cos() * radius,
             actor.position[2],
         ];
         // Touch events use body contact. Confirmed interactions also reach one
         // player radius forward, so a door can be used before walking into it.
         let touching: Vec<_> = world
             .triggers
-            .iter()
-            .filter(|trigger| {
-                navigation::touches_trigger(trigger, actor.position, RADIUS)
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(index, trigger)| {
+                let touches = navigation::touches_trigger(trigger, actor.position, radius)
                     || trigger.transition.is_some()
-                        && navigation::touches_trigger(trigger, ahead, RADIUS)
+                        && navigation::touches_trigger(trigger, ahead, radius);
+                if !touches || (trigger.transition.is_some() && confirm) {
+                    trigger.activations = 0;
+                }
+                touches.then_some(index)
             })
-            .cloned()
             .collect();
-        active.retain(|key| touching.iter().any(|t| t.key == *key));
         let action = touching
             .iter()
-            .map(|t| t.transition.unwrap_or(t.touch_metadata)[0])
+            .map(|&index| {
+                let trigger = &world.triggers[index];
+                trigger.transition.unwrap_or(trigger.touch_metadata)[0]
+            })
             .find(|id| *id != 0)
             .map(FieldAction::from_id)
             .transpose()?
             .flatten();
-        for trigger in touching {
-            let confirmed = trigger.transition.is_some();
-            if (confirmed && !confirm) || active.contains(&trigger.key) {
-                continue;
-            }
-            if events.trigger(trigger.key, confirmed || trigger.automatic_event)? {
-                active.insert(trigger.key);
-                break;
+        for index in touching {
+            if events.world.triggers[index].transition.is_none() || confirm {
+                events.contact_trigger(index)?;
             }
         }
         Ok(action)
@@ -911,6 +1022,7 @@ impl FieldSession {
         }
         if let Some(slot) = choice_slot {
             use resonance_content::field_audio::ServiceCue;
+            use resonance_events::dialogue::ChoiceConfirmation;
             let player = self
                 .dialogue
                 .get_mut(&slot)
@@ -936,7 +1048,9 @@ impl FieldSession {
                     } else {
                         0
                     },
-                    confirm: input.interact,
+                    confirm: input.interact
+                        || choice.confirmation == ChoiceConfirmation::AcceptOrShoulder
+                            && (input.previous_page || input.next_page),
                     cancel: input.cancel,
                 },
                 player.accepts_input() && player.fully_revealed(),
@@ -981,10 +1095,8 @@ impl FieldSession {
         Ok(focus.is_some())
     }
     pub fn interaction_target(&self) -> Option<i32> {
-        const HEIGHT: f32 = 145.;
         let id = self.events.world.controlled_actor;
         let player = self.events.world.actors.get(&id)?;
-        let angle = player.heading.to_radians();
         self.events
             .world
             .actors
@@ -999,27 +1111,32 @@ impl FieldSession {
                 let dx = actor.position[0] - player.position[0];
                 let dy = actor.position[1] - player.position[1];
                 let distance = dx.hypot(dy);
-                let facing = dx * angle.sin() - dy * angle.cos();
-                (distance > 0.
-                    && distance < (1.4 * f64::from(player.radius + actor.radius)) as f32
-                    && (f64::from(-facing / distance).sin() as f32).to_degrees() < -22.5
-                    && (actor.position[2] - player.position[2]).abs() <= HEIGHT)
-                    .then_some((*id, distance))
+                within_interaction_reach(player, actor).then_some((*id, distance))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(id, _)| id)
     }
+    pub fn ground_below(&self, point: [f32; 3]) -> Option<navigation::GroundSurface> {
+        self.walkmesh
+            .with_actors(self.events.world.actors.values())
+            .surface_below(point)
+    }
     pub fn ground_surface(&self, point: [f32; 3]) -> Option<navigation::GroundSurface> {
-        self.walkmesh.surface(point, 32.)
+        self.walkmesh
+            .with_actors(self.events.world.actors.values())
+            .surface(point, 32.)
     }
     pub fn character_light(&self, id: i32) -> resonance_events::effect::CharacterLight {
-        self.lighting.get(&id).cloned().unwrap_or_else(|| {
-            self.events
-                .world
-                .actors
-                .get(&id)
-                .map_or_else(Default::default, |actor| self.actor_light(actor))
-        })
+        self.events
+            .world
+            .actors
+            .get(&id)
+            .map_or_else(Default::default, |actor| {
+                actor
+                    .light
+                    .clone()
+                    .unwrap_or_else(|| self.actor_light(actor))
+            })
     }
     fn actor_light(
         &self,
@@ -1052,6 +1169,20 @@ impl FieldSession {
     }
 }
 
+fn within_interaction_reach(player: &Actor, actor: &Actor) -> bool {
+    const HEIGHT: f32 = 145.;
+    let [dx, dy] = [
+        actor.position[0] - player.position[0],
+        actor.position[1] - player.position[1],
+    ];
+    let distance = dx.hypot(dy);
+    let angle = player.heading.to_radians();
+    let facing = dx * angle.sin() - dy * angle.cos();
+    distance > 0.
+        && distance < (1.4 * f64::from(player.radius + actor.radius)) as f32
+        && (f64::from(-facing / distance).sin() as f32).to_degrees() < -22.5
+        && (actor.position[2] - player.position[2]).abs() <= HEIGHT
+}
 fn movement_heading([x, y]: [f32; 2]) -> f32 {
     // Fuse the conversion: separate rounding can turn 0.9999976 degrees into
     // exactly 1, changing the whole-degree facing selected by actor movement.
@@ -1108,6 +1239,15 @@ fn start_with_entry(
         }
     }
     let mut resources = ResourceLibrary {
+        station_script: entry
+            .services
+            .as_ref()
+            .map(|s| s.station.module().program.clone()),
+        memory_circle_text: resonance_events::MemoryCircleText {
+            tutorial: assets.save_point_tutorial.clone(),
+            unlock: assets.save_point_unlock.clone(),
+            no_gem: assets.save_point_no_gem.clone(),
+        },
         blink: Some(assets.blink.clone()),
         menu_data: entry.menu_data,
         text: entry.text,
@@ -1161,12 +1301,32 @@ fn start_with_entry(
             resource,
             ModelResource {
                 has_eyes: model.appearance.as_ref().is_some_and(|a| a.eyes.is_some()),
+                toon_lighting: character
+                    .parts
+                    .iter()
+                    .any(|part| part.outline_color.is_some()),
+                collision: Arc::new(character.collision.clone()),
                 names: model.bone_names.clone(),
                 hidden_nodes: character.hidden_nodes.iter().copied().collect(),
                 ..Default::default()
             },
         );
         bind_clips(&mut resources, resource, &model.clips)?;
+    }
+    for (model, poses) in entry.attachments {
+        for &(source, resource, slot) in poses.clips.keys() {
+            ensure!(
+                resources
+                    .clips(resource, source)
+                    .is_some_and(|clips| clips.contains_key(&slot)),
+                "prepared attachment clip is missing"
+            );
+        }
+        resources
+            .models
+            .get_mut(&model)
+            .context("prepared attachment model is missing")?
+            .attachments = poses;
     }
     let (mut world, memory) = entry.persistent.into_world();
     world.current_field = Some(assets.map_id);
@@ -1348,6 +1508,10 @@ mod tests {
     }
 
     fn choice_session() -> FieldSession {
+        choice_session_with_flags(0x100)
+    }
+
+    fn choice_session_with_flags(flags: i32) -> FieldSession {
         let mut code = vec![4, 0, 0, 0];
         native(
             &mut code,
@@ -1361,7 +1525,7 @@ mod tests {
             &[1, 0, -2, 7, 0, 0, 0, 2],
         );
         native(&mut code, NativeCall::YieldCommand, &[3, 1]);
-        native(&mut code, NativeCall::ShowChoice, &[1, 1, 2, 0, 0x100]);
+        native(&mut code, NativeCall::ShowChoice, &[1, 1, 2, 0, flags]);
         code.extend([0x3000, 0x1200, 0x100, 0x1200, 0x20, 0x3010, 0x3000]);
         native(&mut code, NativeCall::CloseDialogue, &[0]);
         native(&mut code, NativeCall::CloseDialogue, &[1]);
@@ -1389,9 +1553,10 @@ mod tests {
             shop: None,
             menu_operation: None,
             conversation_facing: None,
-            active_triggers: Default::default(),
             save_points: Default::default(),
             treasures: Default::default(),
+            ring: Default::default(),
+            blocks: Default::default(),
             action_hints: Default::default(),
             skits: Default::default(),
             active_skit: None,
@@ -1420,9 +1585,176 @@ mod tests {
                 triangles: vec![[0, 1, 2]],
             }])
             .unwrap(),
+            player_fall: Default::default(),
             light_regions: None,
-            lighting: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn mapped_pause_blocks_walking_but_preserves_scripted_motion() {
+        let mut session = choice_session();
+        session.events = EventRuntime::new(
+            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
+            Arc::new(ResourceLibrary::default()),
+        )
+        .unwrap();
+        session.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+            surface: 0,
+            vertices: vec![[-500., -500., 0.], [500., -500., 0.], [0., 500., 0.]],
+            triangles: vec![[0, 1, 2]],
+        }])
+        .unwrap();
+        let player = session.events.world.controlled_actor;
+        session
+            .events
+            .world
+            .insert_actor(player, Actor::new(1, [0.; 3]));
+        session.events.world.input_enabled = true;
+        session.events.world.mapped_input_disabled = true;
+        let input = FieldInput {
+            direction: [1., 0.],
+            ..Default::default()
+        };
+        session.step(input).unwrap();
+        assert_eq!(session.events.world.actors[&player].position, [0.; 3]);
+        session.events.world.actors.get_mut(&player).unwrap().motion =
+            Some(resonance_events::ActorMotion {
+                target: [12., 0., 0.],
+                speed: 3.,
+            });
+        for x in [3., 6., 9., 12.] {
+            session.step(input).unwrap();
+            assert_eq!(session.events.world.actors[&player].position, [x, 0., 0.]);
+        }
+        session.events.world.mapped_input_disabled = false;
+        session.step(input).unwrap();
+        assert_eq!(session.events.world.actors[&player].position, [16., 0., 0.]);
+    }
+
+    #[test]
+    fn falling_player_keeps_descending_with_input_and_can_walk_after_landing() {
+        let mut session = choice_session();
+        session.events = EventRuntime::new(
+            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
+            Arc::new(ResourceLibrary::default()),
+        )
+        .unwrap();
+        session.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+            surface: 0,
+            vertices: vec![[-500., -500., 0.], [500., -500., 0.], [0., 500., 0.]],
+            triangles: vec![[0, 1, 2]],
+        }])
+        .unwrap();
+        let player = session.events.world.controlled_actor;
+        let mut actor = Actor::new(1, [0., 0., 100.]);
+        actor.grounded = false;
+        session.events.world.insert_actor(player, actor);
+        session.step(FieldInput::default()).unwrap();
+        assert_eq!(session.events.world.actors[&player].position[2], 100.);
+        session.events.world.input_enabled = true;
+        session
+            .events
+            .world
+            .actors
+            .get_mut(&player)
+            .unwrap()
+            .grounded = true;
+        for height in [91., 73., 46., 10., 10.] {
+            session
+                .step(FieldInput {
+                    direction: [1., 0.],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(
+                session.events.world.actors[&player].position,
+                [0., 0., height]
+            );
+        }
+        session
+            .step(FieldInput {
+                direction: [1., 0.],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(session.events.world.actors[&player].position, [4., 0., 0.]);
+    }
+
+    #[test]
+    fn live_scenery_floors_connect_a_gap_and_follow_transforms() {
+        use resonance_content::field::{CollisionGroup, ModelCollision};
+        let rectangle = |x: [f32; 2], y: [f32; 2], z| CollisionGroup {
+            surface: 7,
+            vertices: vec![
+                [x[0], y[0], z],
+                [x[1], y[0], z],
+                [x[0], y[1], z],
+                [x[1], y[1], z],
+            ],
+            triangles: vec![[0, 1, 2], [1, 3, 2]],
+        };
+        let mut session = choice_session();
+        session.events = EventRuntime::new(
+            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
+            Arc::new(ResourceLibrary::default()),
+        )
+        .unwrap();
+        session.walkmesh = navigation::WalkMesh::new(&[
+            rectangle([-100., 100.], [-200., 0.], 0.),
+            rectangle([-100., 100.], [240., 500.], 20.),
+        ])
+        .unwrap();
+        session.events.world.controlled_actor = 1;
+        session.events.world.input_enabled = true;
+        session
+            .events
+            .world
+            .insert_actor(1, Actor::new(1, [0., -80., 0.]));
+        let mut bridge = Actor::new(SCENERY_RESOURCE_BASE, [0., 0., 10.]);
+        bridge.visible = false;
+        bridge.grounded = false;
+        bridge.collidable = false;
+        bridge.face(90.);
+        bridge.properties.insert(30, 200);
+        bridge.properties.insert(48, 1);
+        bridge.model_collision = Some(Arc::new(ModelCollision {
+            floors: vec![rectangle([0., 120.], [-80., 80.], 10.)],
+            solids: Vec::new(),
+        }));
+        session.events.world.insert_actor(500, bridge);
+        for _ in 0..50 {
+            session
+                .step(FieldInput {
+                    direction: [0., 1.],
+                    run: true,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        let reached = session.events.world.actors[&1].position;
+        assert!(
+            reached[1] > 300. && (reached[2] - 20.).abs() < 0.001,
+            "{reached:?}"
+        );
+        let floor = session.ground_below([0., 120., 40.]).unwrap();
+        assert_eq!((floor.height, floor.attributes), (20., 7));
+
+        session.events.world.actors.get_mut(&500).unwrap().position[0] = 400.;
+        assert!(session.ground_surface([0., 120., 20.]).is_none());
+        assert!(session.ground_surface([400., 120., 20.]).is_some());
+        session.events.world.actors.remove(&500);
+        assert!(session.ground_below([400., 120., 40.]).is_none());
+        session.events.world.actors.get_mut(&1).unwrap().position = [0., -80., 0.];
+        for _ in 0..50 {
+            session
+                .step(FieldInput {
+                    direction: [0., 1.],
+                    run: true,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        assert!(session.events.world.actors[&1].position[1] < 0.);
     }
 
     #[test]
@@ -1440,6 +1772,7 @@ mod tests {
             resource: resonance_content::field::SAVE_POINT_RESOURCE,
             born: 0,
             active: true,
+            unlock_flag: None,
             glow_scale: 1.,
         });
         world.insert_actor(999_989, Actor::new(0, [0.; 3]));
@@ -1535,6 +1868,7 @@ mod tests {
             native(&mut code, NativeCall::DisableMappedInput, &[]);
             native(&mut code, NativeCall::SetTransitionMode, &[1, 20]);
             native(&mut code, NativeCall::YieldCommand, &[0, 20]);
+            native(&mut code, NativeCall::EnableMappedInput, &[]);
             code.push(0x20ff);
             let mut session = choice_session();
             session.events = EventRuntime::new(
@@ -1573,6 +1907,8 @@ mod tests {
             world.controlled_actor = 1;
             world.insert_actor(1, Actor::new(1, [-496., -317., 0.]));
             world.triggers.push(resonance_events::Trigger {
+                activations: 0,
+                ring_barrier: false,
                 key: 42,
                 automatic_event: false,
                 shape: resonance_events::TriggerShape::Line([
@@ -1616,7 +1952,110 @@ mod tests {
             let world = &session.events.world;
             assert_eq!(world.actors[&1].position, [-500., -317., 0.]);
             assert!((world.fade.as_ref().unwrap().alpha(tick + 1) - 26.6).abs() < 0.0001);
+            for _ in 0..30 {
+                session.step(FieldInput::default()).unwrap();
+            }
+            assert!(session.events.world.input_enabled);
+            session.events.world.fade = None;
+            session
+                .step(FieldInput {
+                    interact: true,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(session.events.world.input_enabled, !confirmed);
         }
+    }
+
+    #[test]
+    fn solid_actor_contact_dispatches_when_collision_prevents_penetration() {
+        let mut code = vec![10, 0, 0, 1, 0, 0, 0xffff, 0xfffe, 0, 1, 0x20ff];
+        native(&mut code, NativeCall::SetEventBit, &[77]);
+        code.push(0x20ff);
+        let mut session = choice_session();
+        session.events = EventRuntime::new(
+            Arc::new(
+                Program::decode(
+                    &code
+                        .into_iter()
+                        .flat_map(u16::to_be_bytes)
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap(),
+            ),
+            Arc::new(ResourceLibrary::default()),
+        )
+        .unwrap();
+        session.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+            surface: 0,
+            vertices: vec![[-500., -500., 0.], [500., -500., 0.], [0., 500., 0.]],
+            triangles: vec![[0, 1, 2]],
+        }])
+        .unwrap();
+        let world = &mut session.events.world;
+        world.input_enabled = true;
+        world.controlled_actor = 1;
+        let mut player = Actor::new(1, [0.; 3]);
+        player.radius = 25.;
+        world.insert_actor(1, player);
+        let mut obstacle = Actor::new(2, [52., 0., 0.]);
+        obstacle.radius = 25.;
+        obstacle.contact_event = true;
+        world.insert_actor(42, obstacle);
+        session
+            .step(FieldInput {
+                direction: [1., 0.],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(session.events.world.actors[&1].position, [0.; 3]);
+        assert!(session.events.world.event_flags.contains(&77));
+    }
+
+    #[test]
+    fn small_player_moves_slower_and_can_approach_a_narrow_floor_edge() {
+        use resonance_events::PlayerSize;
+        let mut positions = Vec::new();
+        for size in [PlayerSize::Normal, PlayerSize::Small] {
+            let mut session = choice_session();
+            session.events = EventRuntime::new(
+                Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
+                Arc::new(ResourceLibrary::default()),
+            )
+            .unwrap();
+            session.walkmesh =
+                navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+                    surface: 0,
+                    vertices: vec![
+                        [-100., -100., 0.],
+                        [100., -100., 0.],
+                        [100., 100., 0.],
+                        [-100., 100., 0.],
+                    ],
+                    triangles: vec![[0, 1, 2], [0, 2, 3]],
+                }])
+                .unwrap();
+            let world = &mut session.events.world;
+            world.input_enabled = true;
+            world.controlled_actor = 1;
+            world.player_size = size;
+            world.insert_actor(1, Actor::new(1, [0.; 3]));
+            let input = FieldInput {
+                direction: [1., 0.],
+                ..Default::default()
+            };
+            session.step(input).unwrap();
+            positions.push(session.events.world.actors[&1].position[0]);
+            for _ in 0..100 {
+                session.step(input).unwrap();
+            }
+            let x = session.events.world.actors[&1].position[0];
+            match size {
+                PlayerSize::Normal => assert!((60. ..=64.).contains(&x), "{x}"),
+                PlayerSize::Small => assert!((86. ..=88.).contains(&x), "{x}"),
+            }
+        }
+        assert!((positions[0] / positions[1] - 3.).abs() < 0.0001);
     }
 
     #[test]
@@ -1771,6 +2210,32 @@ mod tests {
         assert!(session.events.world.dialogue.is_empty());
         assert!(session.events.world.input_enabled);
         assert_eq!(session.events.active_instances(), 0);
+    }
+
+    #[test]
+    fn shoulder_buttons_confirm_only_choices_that_allow_them() {
+        for allowed in [false, true] {
+            for previous_page in [false, true] {
+                let mut session = choice_session_with_flags(if allowed { 0x300 } else { 0x100 });
+                reveal_choices(&mut session);
+                session
+                    .step(FieldInput {
+                        direction: [0., -1.],
+                        previous_page,
+                        next_page: !previous_page,
+                        ..Default::default()
+                    })
+                    .unwrap();
+                for _ in 0..6 {
+                    session.step(FieldInput::default()).unwrap();
+                }
+                assert_eq!(
+                    session.events.memory().read(0x100, Width::S32).unwrap(),
+                    if allowed { 2 } else { 0 }
+                );
+                assert_eq!(session.events.world.input_enabled, allowed);
+            }
+        }
     }
 
     #[test]

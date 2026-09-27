@@ -8,7 +8,6 @@ use game::projectiles;
 use game::projectiles::Contact;
 use game::projectiles::ActorScan;
 use game::projectiles::Targets;
-use game::projectiles::Motion;
 use game::ring;
 use game::ring::Hit;
 use game::geometry::Vector;
@@ -184,7 +183,6 @@ pub task cast(kind: Shot) {
         speed = ManaSpeed;
     }
     let shot = projectiles::launch(actor, height, speed, Radius);
-    projectiles::motion(shot, Motion::Scripted);
     match kind {
         Shot::Fire => {
             audio::sound(i32(Cue::Fire));

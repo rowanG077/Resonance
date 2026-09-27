@@ -125,7 +125,8 @@ impl Session {
                 .entry(&initial.assets, data.clone(), available_fields.clone())?
         } else {
             FieldEntry {
-                treasure_event: None,
+                services: None,
+                attachments: Default::default(),
                 allow_incomplete_scripts: false,
                 kind: Default::default(),
                 menu_data: None,

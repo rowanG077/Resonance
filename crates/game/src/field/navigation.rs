@@ -1,47 +1,28 @@
 //! Field movement over cooked triangles, independent of rendering and scripts.
 use anyhow::{Result, ensure};
-use resonance_content::field::CollisionGroup;
+use resonance_content::field::{CollisionGroup, CollisionQuery};
+use std::sync::Arc;
 
-/// Lines touch the player's radius; area triggers test the player's center.
+const BLOCK_FALL_STEP: f32 = 9.;
+const NO_BLOCK_SUPPORT: u32 = 1 << 22;
+
+/// Lines and circles touch the player's radius; polygons test the player's center.
 /// Both include the authored vertical span and the player's vertical radius.
 pub fn touches_trigger(trigger: &resonance_events::Trigger, p: [f32; 3], radius: f32) -> bool {
-    use resonance_events::TriggerShape;
-    let points: &[[f32; 3]] = match &trigger.shape {
-        TriggerShape::Line(points) => points,
-        TriggerShape::Triangle(points) => points,
-        TriggerShape::Quad(points) => points,
-    };
-    let low = points.iter().map(|v| v[2]).fold(f32::INFINITY, f32::min);
-    let high = points
-        .iter()
-        .map(|v| v[2])
-        .fold(f32::NEG_INFINITY, f32::max);
-    if p[2] + radius < low || p[2] > high + trigger.height {
-        return false;
-    }
-    if points.len() > 2 {
-        let sides = || {
-            (0..points.len()).map(|i| {
-                let (a, b) = (points[i], points[(i + 1) % points.len()]);
-                (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
-            })
-        };
-        return sides().all(|s| s >= 0.) || sides().all(|s| s <= 0.);
-    }
-    let (a, b) = (points[0], points[1]);
-    let delta = [b[0] - a[0], b[1] - a[1]];
-    let length_squared = delta[0] * delta[0] + delta[1] * delta[1];
-    let t = if length_squared > 0. {
-        ((p[0] - a[0]) * delta[0] + (p[1] - a[1]) * delta[1]) / length_squared
-    } else {
-        0.
-    }
-    .clamp(0., 1.);
-    (p[0] - a[0] - t * delta[0]).hypot(p[1] - a[1] - t * delta[1]) <= radius
+    trigger.touches(p, radius)
 }
 
 pub struct WalkMesh {
-    triangles: Vec<([[f32; 3]; 3], u32)>,
+    triangles: Arc<[([[f32; 3]; 3], u32)]>,
+    model_floors: Vec<([[f32; 3]; 3], u32)>,
+}
+#[derive(Default)]
+pub(super) enum PlayerFall {
+    #[default]
+    Supported,
+    Falling {
+        updates: u32,
+    },
 }
 #[derive(Debug, Clone, Copy)]
 pub struct GroundSurface {
@@ -51,6 +32,147 @@ pub struct GroundSurface {
     pub normal: [f32; 3],
 }
 impl WalkMesh {
+    pub(super) fn settle_scenery(
+        &self,
+        world: &mut resonance_events::GameWorld,
+        moving: Option<i32>,
+    ) {
+        // fn_8002122C steps downward by nine, then resolves the penetration on
+        // the next update. Original puzzle callbacks observe that landing dip.
+        let positions: Vec<_> = world
+            .actors
+            .iter()
+            .filter(|(id, actor)| {
+                moving != Some(**id)
+                    && actor.role == resonance_events::ActorRole::Pushable
+                    && actor.motion.is_none()
+            })
+            .map(|(&id, actor)| {
+                let floor = self
+                    .with_actors(
+                        world
+                            .actors
+                            .iter()
+                            .filter_map(|(&other, a)| (other != id).then_some(a)),
+                    )
+                    .surface_within(actor.position, |z, attributes| {
+                        z <= actor.position[2] + BLOCK_FALL_STEP
+                            && CollisionQuery::Block.accepts(attributes)
+                    });
+                let z = floor
+                    .filter(|s| {
+                        s.attributes & NO_BLOCK_SUPPORT == 0 && s.height >= actor.position[2]
+                    })
+                    .map_or(actor.position[2] - BLOCK_FALL_STEP, |s| s.height);
+                (id, z)
+            })
+            .collect();
+        for (id, z) in positions {
+            world.actors.get_mut(&id).unwrap().position[2] = z;
+        }
+    }
+    pub(super) fn block_supported(&self, world: &resonance_events::GameWorld, id: i32) -> bool {
+        let position = world.actors[&id].position;
+        self.with_actors(
+            world
+                .actors
+                .iter()
+                .filter_map(|(&other, a)| (other != id).then_some(a)),
+        )
+        .surface_within(position, |z, attributes| {
+            z >= position[2]
+                && z <= position[2] + BLOCK_FALL_STEP
+                && CollisionQuery::Block.accepts(attributes)
+                && attributes & NO_BLOCK_SUPPORT == 0
+        })
+        .is_some()
+    }
+    pub(super) fn can_move_block(
+        &self,
+        world: &resonance_events::GameWorld,
+        id: i32,
+        delta: [f32; 2],
+        pulling: bool,
+    ) -> bool {
+        const PROBE_HEIGHT: f32 = 100.;
+        const OVERHEAD: f32 = 225.;
+        const FLOOR_REACH: f32 = 60.;
+        const FOOT_DEPTH: f32 = 20.;
+        let position = world.actors[&id].position;
+        let mesh = self.with_actors(
+            world
+                .actors
+                .iter()
+                .filter_map(|(&other, a)| (other != id).then_some(a)),
+        );
+        let blocked = |point: [f32; 3], mask| {
+            world
+                .actors
+                .iter()
+                .any(|(&other, actor)| other != id && actor.contains_solid(point, mask))
+        };
+        let target = [
+            position[0] + delta[0],
+            position[1] + delta[1],
+            position[2] - FOOT_DEPTH,
+        ];
+        let support = |point: [f32; 3], query: CollisionQuery| {
+            mesh.surface_within(point, |z, attributes| {
+                (z - point[2]).abs() <= FLOOR_REACH && query.accepts(attributes)
+            })
+            .is_some()
+        };
+        if blocked(
+            [position[0], position[1], position[2] + OVERHEAD],
+            CollisionQuery::Block,
+        ) || !support(target, CollisionQuery::Block)
+        {
+            return false;
+        }
+        if pulling {
+            let behind = [
+                position[0] + delta[0] * 2.,
+                position[1] + delta[1] * 2.,
+                position[2] - FOOT_DEPTH,
+            ];
+            !blocked(
+                [behind[0], behind[1], position[2] + PROBE_HEIGHT],
+                CollisionQuery::Player,
+            ) && support(behind, CollisionQuery::Player)
+        } else {
+            !blocked(
+                [target[0], target[1], position[2] + PROBE_HEIGHT],
+                CollisionQuery::Block,
+            )
+        }
+    }
+    fn surfaces(&self) -> impl Iterator<Item = &([[f32; 3]; 3], u32)> {
+        self.model_floors.iter().chain(self.triangles.iter())
+    }
+    /// Snapshot live model floors without copying the map. Hidden scenery also
+    /// carries floors; native property 48 only masks projectile contact.
+    pub(super) fn with_actors<'a>(
+        &self,
+        actors: impl Iterator<Item = &'a resonance_events::Actor>,
+    ) -> Self {
+        let model_floors = actors
+            .filter_map(|actor| actor.model_collision.as_ref().map(|mesh| (actor, mesh)))
+            .flat_map(|(actor, mesh)| {
+                mesh.floors.iter().flat_map(move |group| {
+                    group.triangles.iter().map(move |triangle| {
+                        (
+                            triangle.map(|i| actor.collision_point(group.vertices[usize::from(i)])),
+                            group.surface,
+                        )
+                    })
+                })
+            })
+            .collect();
+        Self {
+            triangles: self.triangles.clone(),
+            model_floors,
+        }
+    }
     pub fn new(groups: &[CollisionGroup]) -> Result<Self> {
         ensure!(!groups.is_empty(), "field has no walkable surface");
         let mut triangles = Vec::new();
@@ -63,7 +185,10 @@ impl WalkMesh {
                     .map(|t| (t.map(|i| group.vertices[usize::from(i)]), group.surface)),
             );
         }
-        Ok(Self { triangles })
+        Ok(Self {
+            triangles: triangles.into(),
+            model_floors: Vec::new(),
+        })
     }
     /// Keep an entrance on its floor, or use the nearest valid triangle when an
     /// unfinished setup script never placed the player.
@@ -71,8 +196,8 @@ impl WalkMesh {
         if let Some(z) = self.height(point, f32::MAX) {
             return Some([point[0], point[1], z]);
         }
-        self.triangles
-            .iter()
+        self.surfaces()
+            .filter(|(_, attributes)| CollisionQuery::Player.accepts(*attributes))
             .filter_map(|(vertices, _)| {
                 let center =
                     std::array::from_fn(|axis| vertices.iter().map(|p| p[axis]).sum::<f32>() / 3.);
@@ -91,7 +216,8 @@ impl WalkMesh {
     /// Select the closest reachable floor. This also preserves authored ramps
     /// and raised platforms without importing the original collision engine.
     pub fn height(&self, point: [f32; 3], max_step: f32) -> Option<f32> {
-        self.surface(point, max_step).map(|surface| surface.height)
+        self.walking_surface(point, |z| (z - point[2]).abs() <= max_step)
+            .map(|surface| surface.height)
     }
     /// Tilt horizontal intent onto the floor and resolve penetration along its
     /// normal. Player movement applies pitch before roll; NPCs use the reverse.
@@ -101,26 +227,103 @@ impl WalkMesh {
         proposed: [f32; 3],
         player: bool,
     ) -> Option<[f32; 3]> {
-        let surface = self.surface(proposed, 32.)?;
+        let surface = self.walking_surface(proposed, |z| (z - proposed[2]).abs() <= 32.)?;
+        Some(Self::resolve_surface(start, proposed, player, surface))
+    }
+    pub(super) fn resolve_player(
+        &self,
+        start: [f32; 3],
+        proposed: [f32; 3],
+        fall: &mut PlayerFall,
+        event_paused: bool,
+    ) -> Option<[f32; 3]> {
+        // fn_8001D5F4: falling probes accept penetration, not a floor still
+        // below the feet. A downward ray keeps unsupported actors over voids
+        // in place; it also rejects a step that would pass through the floor.
+        const ACCELERATION: f32 = 9.;
+        const FLOOR_REACH: f32 = 60.;
+        let surface = match fall {
+            PlayerFall::Supported => {
+                self.walking_surface(proposed, |z| (z - proposed[2]).abs() <= FLOOR_REACH)
+            }
+            PlayerFall::Falling { .. } => self.walking_surface(proposed, |z| {
+                (0. ..=FLOOR_REACH).contains(&(z - proposed[2]))
+            }),
+        };
+        if let Some(surface) = surface {
+            *fall = PlayerFall::Supported;
+            return Some(Self::resolve_surface(start, proposed, true, surface));
+        }
+        let updates = match (event_paused, &*fall) {
+            (true, _) => 0,
+            (false, PlayerFall::Supported) => 1,
+            (false, PlayerFall::Falling { updates }) => updates.saturating_add(1),
+        };
+        let position = [
+            start[0],
+            start[1],
+            proposed[2] - ACCELERATION * updates as f32,
+        ];
+        if self
+            .walking_surface(position, |z| z <= position[2])
+            .is_some()
+        {
+            *fall = if event_paused {
+                PlayerFall::Supported
+            } else {
+                PlayerFall::Falling { updates }
+            };
+            Some(position)
+        } else {
+            *fall = PlayerFall::Supported;
+            None
+        }
+    }
+    fn resolve_surface(
+        start: [f32; 3],
+        proposed: [f32; 3],
+        player: bool,
+        surface: GroundSurface,
+    ) -> [f32; 3] {
         let [nx, ny, nz] = surface.normal;
         let pitch = (-ny).clamp(-1., 1.).asin();
         let roll = nx.atan2(nz);
         let dx = proposed[0] - start[0];
         let dy = proposed[1] - start[1];
         let cross = pitch.sin() * roll.sin();
-        Some([
+        [
             start[0] + dx * roll.cos() + if player { dy * cross } else { 0. },
             start[1] + dy * pitch.cos() + if player { 0. } else { dx * cross },
             start[2] + (surface.height - start[2]) * nz * nz,
-        ])
+        ]
     }
     pub fn surface(&self, point: [f32; 3], max_step: f32) -> Option<GroundSurface> {
-        self.triangles
-            .iter()
+        self.surface_within(point, |z, _| (z - point[2]).abs() <= max_step)
+    }
+    pub fn surface_below(&self, point: [f32; 3]) -> Option<GroundSurface> {
+        self.surface_within(point, |z, _| z <= point[2])
+    }
+    fn walking_surface(
+        &self,
+        point: [f32; 3],
+        accepts: impl Fn(f32) -> bool,
+    ) -> Option<GroundSurface> {
+        // Native walking queries set 0x40; collision dispatch then excludes
+        // surface bit 19. Block probes and other surface queries retain it.
+        self.surface_within(point, |z, attributes| {
+            CollisionQuery::Player.accepts(attributes) && accepts(z)
+        })
+    }
+    fn surface_within(
+        &self,
+        point: [f32; 3],
+        accepts: impl Fn(f32, u32) -> bool,
+    ) -> Option<GroundSurface> {
+        self.surfaces()
             .filter_map(|(triangle, attributes)| {
                 height(*triangle, point).map(|z| (z, triangle, *attributes))
             })
-            .filter(|(z, _, _)| (*z - point[2]).abs() <= max_step)
+            .filter(|(z, _, attributes)| accepts(*z, *attributes))
             .min_by(|(a, _, _), (b, _, _)| (a - point[2]).abs().total_cmp(&(b - point[2]).abs()))
             .map(|(height, [a, b, c], attributes)| {
                 let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
@@ -215,8 +418,79 @@ fn height([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
 mod tests {
     use super::*;
     #[test]
+    fn walking_ignores_block_only_planes_when_falling_and_landing() {
+        let mesh = WalkMesh::new(&[(0, 0.), ((1 << 19) | NO_BLOCK_SUPPORT, 150.)].map(
+            |(surface, z)| CollisionGroup {
+                surface,
+                vertices: vec![[0., 0., z], [100., 0., z], [100., 100., z], [0., 100., z]],
+                triangles: vec![[0, 1, 2], [0, 2, 3]],
+            },
+        ))
+        .unwrap();
+        let mut position = [20., 20., 150.];
+        assert_eq!(mesh.move_by(position, [4., 0.], 10., |_| false), position);
+        let mut fall = PlayerFall::Supported;
+        for z in [141., 123., 96., 60., 15., 15., 0.] {
+            position = mesh
+                .resolve_player(position, position, &mut fall, false)
+                .unwrap_or(position);
+            assert_eq!(position, [20., 20., z]);
+        }
+        assert_eq!(
+            mesh.move_by(position, [4., 0.], 10., |_| false),
+            [24., 20., 0.]
+        );
+    }
+    #[test]
+    fn event_pause_stops_a_fall_and_resumes_from_the_first_gravity_step() {
+        let mesh = square();
+        let mut fall = PlayerFall::Supported;
+        let mut position = [0., 0., 200.];
+        for (paused, height) in [(false, 191.), (false, 173.), (true, 173.), (false, 164.)] {
+            position = mesh
+                .resolve_player(position, position, &mut fall, paused)
+                .unwrap();
+            assert_eq!(position[2], height);
+        }
+    }
+    #[test]
+    fn unsupported_player_over_void_does_not_start_falling() {
+        let mut fall = PlayerFall::default();
+        let position = [200., 200., 100.];
+        assert!(
+            square()
+                .resolve_player(position, position, &mut fall, false)
+                .is_none()
+        );
+        assert!(matches!(fall, PlayerFall::Supported));
+    }
+    #[test]
+    fn circular_trigger_uses_radius_and_vertical_span() {
+        let trigger = resonance_events::Trigger {
+            ring_barrier: false,
+            activations: 0,
+            key: 1,
+            automatic_event: false,
+            shape: resonance_events::TriggerShape::Circle {
+                center: [0., 0., 10.],
+                radius: 20.,
+            },
+            height: 40.,
+            transition: None,
+            touch_metadata: [0; 3],
+        };
+        assert!(touches_trigger(&trigger, [24., 0., 10.], 5.));
+        assert!(!touches_trigger(&trigger, [20., 20., 10.], 5.));
+        assert!(!touches_trigger(&trigger, [25., 0., 10.], 5.));
+        assert!(touches_trigger(&trigger, [0., 0., 50.], 5.));
+        assert!(!touches_trigger(&trigger, [0., 0., 51.], 5.));
+        assert!(!touches_trigger(&trigger, [0., 0., 4.], 5.));
+    }
+    #[test]
     fn triangular_triggers_use_the_polygon_instead_of_its_bounding_box() {
         let mut trigger = resonance_events::Trigger {
+            ring_barrier: false,
+            activations: 0,
             key: 1,
             automatic_event: false,
             shape: resonance_events::TriggerShape::Triangle([
@@ -273,6 +547,8 @@ mod tests {
     #[test]
     fn doorway_height_does_not_expand_its_horizontal_reach() {
         let trigger = resonance_events::Trigger {
+            ring_barrier: false,
+            activations: 0,
             key: 3001,
             automatic_event: false,
             shape: resonance_events::TriggerShape::Line([[-540., -264., 0.], [-540., -380., 0.]]),
@@ -295,6 +571,8 @@ mod tests {
             [20., 60., 20.],
         ];
         let mut trigger = resonance_events::Trigger {
+            ring_barrier: false,
+            activations: 0,
             key: 2002,
             automatic_event: false,
             shape: resonance_events::TriggerShape::Quad(points),
@@ -330,6 +608,8 @@ mod tests {
         assert_eq!(mesh.height([50., 50., 0.], 32.), Some(10.));
         assert_eq!(mesh.height([101., 50., 0.], 32.), None);
         assert_eq!(mesh.height([50., 50., 100.], 32.), None);
+        assert_eq!(mesh.surface_below([50., 50., 100.]).unwrap().height, 10.);
+        assert!(mesh.surface_below([50., 50., 9.]).is_none());
         let normal = mesh.surface([50., 50., 0.], 32.).unwrap().normal;
         assert!((normal[2] - 1. / 1.04f32.sqrt()).abs() < 0.00001);
         assert!((normal[1] + 0.2 / 1.04f32.sqrt()).abs() < 0.00001);
