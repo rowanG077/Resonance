@@ -9,6 +9,12 @@ pub type SampleRate = NonZeroU32;
 pub trait Source: Iterator<Item = f32> + Send + 'static {
     fn channels(&self) -> ChannelCount;
     fn sample_rate(&self) -> SampleRate;
+    /// True when the last `next()` returned `None` awaiting more PCM rather
+    /// than EOF. The mixer retries next block without advancing this source's
+    /// timeline. Streaming sources must yield complete stereo frames.
+    fn is_pending(&self) -> bool {
+        false
+    }
     fn current_span_len(&self) -> Option<usize> {
         None
     }

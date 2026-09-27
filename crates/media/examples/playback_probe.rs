@@ -50,9 +50,21 @@ fn main() -> Result<()> {
             asset.sample_rate,
         )?;
         let pcm = stream.audio();
+        let mut frames = VecDeque::new();
         let started = Instant::now();
-        while pcm.buffered() < u64::from(asset.sample_rate) / 2 {
+        while pcm.buffered() < u64::from(asset.sample_rate) / 2
+            || frames.len() < resonance_media::VIDEO_LOOKAHEAD
+        {
             stream.check()?;
+            while frames.len() < resonance_media::VIDEO_LOOKAHEAD {
+                let Some(frame) = stream.try_video() else {
+                    break;
+                };
+                frames.push_back(frame);
+            }
+            if stream.complete() {
+                break;
+            }
             ensure!(
                 started.elapsed() < Duration::from_secs(30),
                 "movie priming timeout"
@@ -61,7 +73,6 @@ fn main() -> Result<()> {
         }
         let source = pcm.clone();
         let handle = control.play(false, move || Ok(Box::new(source.source(false))))?;
-        let mut frames = VecDeque::new();
         let mut selected = 0;
         let mut skipped = 0;
         let mut previous = None;
@@ -97,9 +108,8 @@ fn main() -> Result<()> {
             thread::sleep(wait);
         }
         println!(
-            "Movie {id}: complete={} selected={selected} skipped_due_to_stalls={skipped} queue_drops={} decoded_underruns={} position={:?}",
+            "Movie {id}: complete={} selected={selected} skipped_due_to_stalls={skipped} decoded_underruns={} position={:?}",
             handle.empty(),
-            stream.dropped_frames(),
             pcm.underruns(),
             handle.position()
         );

@@ -1,12 +1,37 @@
 //! Exercise the production audio worker and device callback without a sound card.
 use anyhow::{Result, ensure};
 use resonance_media::output::Resampler;
-use resonance_playback::{Callback, Clock, Mixer, Output, SOURCE_RATE, Worker};
+use resonance_playback::{
+    Callback, ChannelCount, Clock, Mixer, Output, SOURCE_RATE, SampleRate, Source, Worker,
+};
 use std::{
     f32::consts::TAU,
     sync::Arc,
     time::{Duration, Instant},
 };
+
+struct Tones(u64);
+impl Iterator for Tones {
+    type Item = f32;
+    fn next(&mut self) -> Option<f32> {
+        let time = (self.0 / 2) as f32 / SOURCE_RATE as f32;
+        let (frequency, amplitude) = if self.0.is_multiple_of(2) {
+            (440., 0.25)
+        } else {
+            (880., 0.125)
+        };
+        self.0 += 1;
+        Some((TAU * frequency * time).sin() * amplitude)
+    }
+}
+impl Source for Tones {
+    fn channels(&self) -> ChannelCount {
+        ChannelCount::new(2).unwrap()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        SampleRate::new(SOURCE_RATE).unwrap()
+    }
+}
 
 #[test]
 fn stereo_tones_reach_the_output_callback_at_device_rates() -> Result<()> {
@@ -14,15 +39,7 @@ fn stereo_tones_reach_the_output_callback_at_device_rates() -> Result<()> {
         let clock = Arc::new(Clock::new(rate));
         let output = Output::new(clock.clone(), 256);
         let (control, mixer) = Mixer::new(clock);
-        let _handle = control.play(false, || {
-            Ok(Box::new((0..).flat_map(|frame| {
-                let time = frame as f32 / SOURCE_RATE as f32;
-                [
-                    (TAU * 440. * time).sin() * 0.25,
-                    (TAU * 880. * time).sin() * 0.125,
-                ]
-            })))
-        })?;
+        let _handle = control.play(false, || Ok(Box::new(Tones(0))))?;
         let worker = Worker::start(mixer, Box::new(Resampler::new(rate)?), output.clone())?;
         let mut callback = Callback::new(output.clone(), false);
         let mut samples = Vec::with_capacity(rate as usize);
