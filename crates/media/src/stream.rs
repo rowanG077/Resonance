@@ -1,5 +1,5 @@
 //! Audio delivery never waits for the presentation thread to drain video.
-use crate::{MovieDecoder, MovieEvent, VideoFrame};
+use crate::{MovieDecoder, MovieEvent, Track, VideoFrame};
 use anyhow::{Result, ensure};
 use resonance_playback::Pcm;
 use std::{
@@ -14,13 +14,13 @@ use std::{
 
 struct Shared {
     audio: Arc<Pcm>,
-    video: Mutex<VecDeque<VideoFrame>>,
     cancelled: AtomicBool,
-    complete: AtomicBool,
     error: Mutex<Option<String>>,
 }
 pub struct MovieStream {
     shared: Arc<Shared>,
+    video: Track<VideoFrame>,
+    prepared: Mutex<VecDeque<VideoFrame>>,
 }
 impl MovieStream {
     pub fn start(decoder: MovieDecoder, prepared: VecDeque<MovieEvent>, rate: u32) -> Result<Self> {
@@ -35,12 +35,14 @@ impl MovieStream {
         }
         let shared = Arc::new(Shared {
             audio: Arc::new(Pcm::new(rate)),
-            video: Mutex::new(VecDeque::with_capacity(crate::VIDEO_LOOKAHEAD)),
             cancelled: AtomicBool::new(false),
-            complete: AtomicBool::new(false),
             error: Mutex::new(None),
         });
         let state = shared.clone();
+        let MovieDecoder {
+            audio: decoder_audio,
+            video: decoder_video,
+        } = decoder;
         thread::Builder::new()
             .name("resonance-movie-feed".into())
             .spawn(move || {
@@ -50,33 +52,16 @@ impl MovieStream {
                         if state.audio.needs_data() && !state.audio.finished() {
                             let chunk = match audio.pop_front() {
                                 Some(chunk) => Some(chunk),
-                                None => decoder.try_audio()?,
+                                None => decoder_audio.try_next()?,
                             };
                             if let Some(chunk) = chunk {
                                 state.audio.push(chunk.start_frame, chunk.samples)?;
                                 progressed = true;
-                            } else if decoder.audio_complete() {
+                            } else if decoder_audio.complete() {
                                 state.audio.finish();
                             }
                         }
-                        // Backpressure only video. Never discard future frames or
-                        // make the audio producer wait for video decoding/draining.
-                        {
-                            let mut frames =
-                                state.video.lock().expect("movie frame queue poisoned");
-                            if frames.len() < crate::VIDEO_LOOKAHEAD {
-                                let frame = match video.pop_front() {
-                                    Some(frame) => Some(frame),
-                                    None => decoder.try_video()?,
-                                };
-                                if let Some(frame) = frame {
-                                    frames.push_back(frame);
-                                    progressed = true;
-                                }
-                            }
-                        }
-                        if state.audio.finished() && decoder.video_complete() {
-                            state.complete.store(true, Ordering::Release);
+                        if state.audio.finished() {
                             return Ok(());
                         }
                         if !progressed {
@@ -89,22 +74,29 @@ impl MovieStream {
                     *state.error.lock().expect("movie fault queue poisoned") =
                         Some(format!("{error:#}"));
                 }
-                // The decoder's workers are joined here when it drops.
             })?;
-        Ok(Self { shared })
+        Ok(Self {
+            shared,
+            video: decoder_video,
+            prepared: Mutex::new(video),
+        })
     }
     pub fn audio(&self) -> Arc<Pcm> {
         self.shared.audio.clone()
     }
-    pub fn try_video(&self) -> Option<VideoFrame> {
-        self.shared
-            .video
+    pub fn try_video(&self) -> Result<Option<VideoFrame>> {
+        if let Some(frame) = self
+            .prepared
             .lock()
-            .expect("movie frame queue poisoned")
+            .expect("movie frames poisoned")
             .pop_front()
+        {
+            return Ok(Some(frame));
+        }
+        self.video.try_next()
     }
     pub fn complete(&self) -> bool {
-        self.shared.complete.load(Ordering::Acquire)
+        self.shared.audio.finished() && self.video.complete()
     }
     /// Offline consumers can outrun decoding after loading or GPU stalls. Wait
     /// before pulling PCM; live mixer and device callbacks must never call this.

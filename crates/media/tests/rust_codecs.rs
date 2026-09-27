@@ -163,8 +163,8 @@ fn full_video_queues_do_not_block_audio_or_discard_future_frames() {
     let pcm = stream.audio();
     let mut source = pcm.source(false);
     let mut actual = Vec::new();
-    // Play all audio without consuming any video: both bounded video queues
-    // must fill and stop video decoding while FLAC keeps progressing.
+    // Play all audio without consuming video: the bounded video queue fills
+    // and stops video decoding while FLAC keeps progressing.
     while actual.len() < expected.len() {
         let frames = AUDIO_BLOCK.min((expected.len() - actual.len()) / 2);
         stream
@@ -186,7 +186,7 @@ fn full_video_queues_do_not_block_audio_or_discard_future_frames() {
     let mut video = 0;
     loop {
         stream.check().unwrap();
-        while let Some(frame) = stream.try_video() {
+        while let Some(frame) = stream.try_video().unwrap() {
             assert_eq!(frame.index, video);
             assert_eq!(
                 frame.timestamp,

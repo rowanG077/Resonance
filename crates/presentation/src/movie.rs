@@ -402,7 +402,7 @@ fn advance(
         }
     }
     while movie.frames.len() < 32 {
-        let Some(frame) = stream.try_video() else {
+        let Some(frame) = stream.try_video()? else {
             break;
         };
         movie.frames.push_back(frame);
