@@ -145,10 +145,13 @@ pub fn inspect(source: &Path, output: &Path) -> Result<()> {
                     .or_default()
                     .push(instruction.pc);
             }
-            let procedures: Vec<_> = procedures.into_iter().map(|(opcode, pcs)| {
-                let native = registry.get(opcode);
-                serde_json::json!({"opcode":opcode,"pcs":pcs,"name":native.map(|n| &n.name),"handler":native.map(|n| &n.handler)})
-            }).collect();
+            let procedures: Vec<_> = procedures
+                .into_iter()
+                .map(|(opcode, pcs)| {
+                    let native = registry.get(opcode);
+                    serde_json::json!({"opcode":opcode,"pcs":pcs,"name":native.map(|n| &n.name)})
+                })
+                .collect();
             entry["scenario"] = serde_json::to_value(analysis.summary())?;
             entry["procedures"] = serde_json::to_value(procedures)?;
             entry["program_validation_error"] =

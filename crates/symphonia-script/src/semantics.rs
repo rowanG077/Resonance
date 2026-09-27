@@ -187,35 +187,13 @@ pub struct NativeProcedure {
     pub opcode: u8,
     pub name: String,
     #[serde(default)]
-    pub handler: String,
-    #[serde(default)]
     pub arguments: Vec<String>,
-    #[serde(default)]
-    pub argument_types: Vec<String>,
     #[serde(default)]
     pub returns_value: Option<bool>,
     #[serde(default)]
-    pub result_type: Option<String>,
-    #[serde(default)]
     pub yields: bool,
     #[serde(default)]
-    pub confidence: String,
-    #[serde(default)]
-    pub notes: String,
-    #[serde(default)]
-    pub source: String,
-    #[serde(default)]
-    pub arity_evidence: String,
-    #[serde(default)]
-    pub return_evidence: String,
-    #[serde(default)]
     pub control_flow: bool,
-    #[serde(default = "default_true")]
-    pub authoring_available: bool,
-}
-
-const fn default_true() -> bool {
-    true
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,22 +213,6 @@ pub struct NativeRegistry {
     calls: BTreeMap<u8, NativeProcedure>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ControlSurfaceEntry {
-    pub opcode: u8,
-    pub name: String,
-    pub handler: String,
-    pub arguments: Vec<String>,
-    pub argument_types: Vec<String>,
-    pub returns_value: Option<bool>,
-    pub result_type: Option<String>,
-    pub yields: bool,
-    pub confidence: String,
-    pub domain: &'static str,
-    pub source: String,
-    pub notes: String,
-}
-
 #[derive(Debug, Error)]
 pub enum RegistryError {
     #[error("invalid native registry JSON: {0}")]
@@ -261,12 +223,6 @@ pub enum RegistryError {
     Duplicate(u8),
     #[error("native procedure name {0:?} is not a valid SymphoniaScript identifier")]
     InvalidName(String),
-    #[error("native procedure 0x{opcode:02X} has {arguments} arguments but {types} argument types")]
-    ArgumentTypeCount {
-        opcode: u8,
-        arguments: usize,
-        types: usize,
-    },
     #[error("native registry declares {declared} dispatch entries but contains {actual}")]
     DispatchCount { declared: usize, actual: usize },
 }
@@ -291,7 +247,7 @@ impl NativeRegistry {
     /// Returns an error for invalid JSON, schema versions, opcodes, or names.
     pub fn from_json(source: &str) -> Result<Self, RegistryError> {
         let document: RegistryDocument = serde_json::from_str(source)?;
-        if !matches!(document.schema_version, 1 | 2) {
+        if document.schema_version != 2 {
             return Err(RegistryError::Schema(document.schema_version));
         }
         if let Some(declared) = document.dispatch_entry_count
@@ -306,14 +262,6 @@ impl NativeRegistry {
         for call in document.procedures {
             if !valid_identifier(&call.name) {
                 return Err(RegistryError::InvalidName(call.name));
-            }
-            if !call.argument_types.is_empty() && call.argument_types.len() != call.arguments.len()
-            {
-                return Err(RegistryError::ArgumentTypeCount {
-                    opcode: call.opcode,
-                    arguments: call.arguments.len(),
-                    types: call.argument_types.len(),
-                });
             }
             let opcode = call.opcode;
             if calls.insert(opcode, call).is_some() {
@@ -333,87 +281,12 @@ impl NativeRegistry {
 
     #[must_use]
     pub fn get_by_name(&self, name: &str) -> Option<&NativeProcedure> {
-        if let Some(call) = self.calls.values().find(|call| call.name == name) {
-            return Some(call);
-        }
-        // Keep old decompilations source-compatible after an opcode receives
-        // an evidence-backed semantic name.  The numeric spelling is an
-        // intentionally supported escape hatch, not the preferred DSL form.
-        let opcode = name
-            .strip_prefix("native_")
-            .and_then(|hex| u8::from_str_radix(hex, 16).ok())?;
-        self.calls.get(&opcode)
+        self.calls.values().find(|call| call.name == name)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &NativeProcedure> {
         self.calls.values()
     }
-
-    /// Return a stable, evidence-oriented view of what each native opcode can
-    /// control. Domains are intentionally broad; unresolved argument meaning
-    /// remains visible in the original signature and notes.
-    #[must_use]
-    pub fn control_surface(&self) -> Vec<ControlSurfaceEntry> {
-        self.iter()
-            .map(|call| ControlSurfaceEntry {
-                opcode: call.opcode,
-                name: call.name.clone(),
-                handler: call.handler.clone(),
-                arguments: call.arguments.clone(),
-                argument_types: call.argument_types.clone(),
-                returns_value: call.returns_value,
-                result_type: call.result_type.clone(),
-                yields: call.yields,
-                confidence: call.confidence.clone(),
-                domain: domain_for(call),
-                source: call.source.clone(),
-                notes: call.notes.clone(),
-            })
-            .collect()
-    }
-}
-
-fn domain_for(call: &NativeProcedure) -> &'static str {
-    let name = call.name.as_str();
-    if call.control_flow {
-        return "interpreter.control_flow";
-    }
-    if name.contains("dialogue")
-        || name.contains("message")
-        || name.contains("choice")
-        || name == "yield_command"
-    {
-        return "dialogue_and_yield";
-    }
-    if name.contains("camera") {
-        return "camera";
-    }
-    if name.contains("actor") || name.contains("object") || name.contains("animation") {
-        return "actors_and_objects";
-    }
-    if name.contains("field")
-        || name.contains("stage")
-        || name.contains("encounter")
-        || name.contains("transition")
-    {
-        return "field_and_stage";
-    }
-    if name.contains("sound") || name.contains("audio") {
-        return "audio";
-    }
-    if name.contains("item") || name.contains("inventory") {
-        return "inventory";
-    }
-    if name.contains("event_bit") || name.contains("global") || name.contains("counter") {
-        return "persistent_state";
-    }
-    if name.contains("input") {
-        return "input";
-    }
-    if name.contains("resource") {
-        return "resource_lifecycle";
-    }
-    "unknown_native_side_effect"
 }
 
 fn valid_identifier(name: &str) -> bool {
