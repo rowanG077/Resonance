@@ -32,6 +32,72 @@ pub struct GroundSurface {
     pub normal: [f32; 3],
 }
 impl WalkMesh {
+    pub(super) fn update_enemy_sight(&self, world: &mut resonance_events::GameWorld) {
+        let player = world
+            .actors
+            .get(&world.controlled_actor)
+            .map(|a| a.position);
+        let rate = world
+            .party
+            .as_ref()
+            .and_then(|p| p.encounter_modifier.as_ref())
+            .map_or(0, |m| m.rate);
+        for actor in world.actors.values_mut() {
+            if let Some(enemy) = &mut actor.enemy {
+                enemy.alerted = player.is_some_and(|player| {
+                    self.sees_player(
+                        actor.position,
+                        actor.heading,
+                        enemy.sight_angle,
+                        enemy.sight_distance,
+                        player,
+                        rate,
+                    )
+                });
+            }
+        }
+    }
+
+    fn sees_player(
+        &self,
+        position: [f32; 3],
+        heading: f32,
+        angle: f32,
+        range: f32,
+        player: [f32; 3],
+        rate: u8,
+    ) -> bool {
+        // Holy bottles suppress detection; dark bottles widen the sight cone.
+        if rate == 1 {
+            return false;
+        }
+        let delta: [f32; 3] = std::array::from_fn(|i| player[i] - position[i]);
+        if delta.iter().map(|v| v * v).sum::<f32>().sqrt() >= range {
+            return false;
+        }
+        let horizontal = delta[0].hypot(delta[1]);
+        if horizontal == 0. {
+            return false;
+        }
+        let heading = heading.to_radians();
+        let dot = (delta[0] * heading.sin() - delta[1] * heading.cos()) / horizontal;
+        let angle = if rate == 2 { angle * 2. } else { angle }.clamp(0., 360.);
+        if dot < (angle.to_radians() * 0.5).cos() {
+            return false;
+        }
+        // Native query 0x41 samples static field triangles, excluding surface
+        // bit 19, at head height with a 600-unit vertical reach. It does not
+        // include actor collision models (query bit 4 is absent).
+        (1..=16).all(|step| {
+            let mut point = std::array::from_fn(|i| position[i] + delta[i] * (step as f32 / 16.));
+            point[2] += 150.;
+            self.triangles.iter().any(|(triangle, attributes)| {
+                CollisionQuery::Player.accepts(*attributes)
+                    && height(*triangle, point).is_some_and(|z| (z - point[2]).abs() <= 600.)
+            })
+        })
+    }
+
     pub(super) fn settle_scenery(
         &self,
         world: &mut resonance_events::GameWorld,
@@ -599,6 +665,32 @@ mod tests {
             triangles: vec![[0, 1, 2], [0, 2, 3]],
         }])
         .unwrap()
+    }
+    #[test]
+    fn enemy_sight_checks_range_heading_bottles_and_the_static_path() {
+        let floor = |y: [f32; 2], surface| CollisionGroup {
+            surface,
+            vertices: vec![
+                [-700., y[0], 0.],
+                [700., y[0], 0.],
+                [700., y[1], 0.],
+                [-700., y[1], 0.],
+            ],
+            triangles: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let mesh = WalkMesh::new(&[floor([-700., 700.], 0)]).unwrap();
+        let sees = |point, rate| mesh.sees_player([0.; 3], 0., 90., 600., point, rate);
+        assert!(sees([0., -300., 0.], 0));
+        assert!(!sees([0., -300., 0.], 1));
+        assert!(!sees([0., 300., 0.], 0));
+        assert!(!sees([0., -600., 0.], 0));
+        assert!(!sees([300., -100., 0.], 0));
+        assert!(sees([300., -100., 0.], 2));
+        assert!(!mesh.sees_player([0.; 3], 0., 90., 1000., [0., -100., 700.], 0));
+        let gap = WalkMesh::new(&[floor([-700., -150.], 0), floor([-100., 700.], 0)]).unwrap();
+        assert!(!gap.sees_player([0.; 3], 0., 90., 600., [0., -300., 0.], 0));
+        let masked = WalkMesh::new(&[floor([-700., 700.], 1 << 19)]).unwrap();
+        assert!(!masked.sees_player([0.; 3], 0., 90., 600., [0., -300., 0.], 0));
     }
     #[test]
     fn ramp_height_and_shared_edge_are_continuous() {

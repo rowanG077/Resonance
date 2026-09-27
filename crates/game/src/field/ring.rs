@@ -312,8 +312,10 @@ mod tests {
                 chase_on_sight: false,
                 sight_angle: 0.,
                 sight_distance: 0.,
+                alerted: false,
                 event_parameters: [0; 2],
                 contact_cooldown: 0,
+                pause_effect_mode: 0,
                 stun: None,
             });
             events.world.insert_actor(2, enemy);

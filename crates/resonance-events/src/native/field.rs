@@ -1823,10 +1823,12 @@ impl NativeHost<'_> {
             alert_speed: a[8].max(0) as f32,
             random_turns: a[12] as u8 != 0,
             chase_on_sight: a[13] as u8 != 0,
-            sight_angle: 180.,
+            sight_angle: 90.,
             sight_distance: 600.,
+            alerted: false,
             event_parameters: [a[1] as i16, a[2] as i16],
             contact_cooldown: 0,
+            pause_effect_mode: 0,
             stun: None,
         });
         if let Some(model) = self.resources.model(resource) {
