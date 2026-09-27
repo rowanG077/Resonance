@@ -1,0 +1,156 @@
+script library;
+use game::actors;
+use game::audio;
+use game::effects;
+use game::effects::Model;
+use game::effects::Color;
+use game::effects::Blend;
+use game::effects::Facing;
+use game::geometry::Vector;
+use game::field;
+use game::math;
+use game::projectiles;
+use game::ring;
+use game::ring::Ability;
+use game::ring::BubblePhase;
+use game::ring::Hit;
+enum Clip {
+    Cast = 52 }
+enum Cue {
+    Prepare = 31,
+    Bubble = 289 }
+const SphereModel: i32 = - 1179648;
+const Windup: i32 = 8;
+const Recovery: i32 = 180;
+const Duration: i32 = 120;
+const ReleaseDuration: i32 = 60;
+const Radius: f32 = 20.0;
+const Height: f32 = 100.0;
+const MaximumLift: f32 = 40.0;
+const MaximumAlpha: i32 = 96;
+const AlphaRise: i32 = 4;
+const AlphaFall: i32 = 2;
+const BaseScale: f32 = 1.1;
+const Wobble: f32 = 0.2;
+const DegreesPerTick: i32 = 4;
+fn floating() -> bool {
+    match ring::ability() {
+        Ability::Bubble(phase) => {
+            return phase == BubblePhase::Float;
+        },
+        _ => {
+            return false;
+        },
+    }
+}
+fn draw(position: Vector, alpha: i32) -> Model {
+    let angle = f32(field::effect_tick() * DegreesPerTick);
+    return Model {
+        position: position,
+        rotation: Vector {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0 },
+        scale: Vector {
+            x: BaseScale + math::sin_degrees(angle) * Wobble,
+            y: 1.0,
+            z: BaseScale + math::cos_degrees(angle) * Wobble },
+        color: Color {
+            red: 128,
+            green: 192,
+            blue: 192 },
+        alpha: alpha,
+        blend: Blend::Alpha,
+        facing: Facing::Camera };
+}
+task idle() {
+}
+task report() {
+    // The room callback owns control until it returns; the fading sphere does not.
+    field::release_control();
+    await ring::hit(Hit::Pulse);
+}
+pub task cast() {
+    let actor = actors::controlled();
+    let pose = actors::play_service_clip(actor, i32(Clip::Cast));
+    let shot = projectiles::launch(actor, Height, 0.0, Radius);
+    projectiles::hold(shot);
+    projectiles::block_menu(shot);
+    audio::sound(i32(Cue::Prepare));
+    let mut recovery = Recovery;
+    let mut windup = Windup;
+    while windup > 0 {
+        await field::next_update();
+        if !projectiles::source_exists(shot) {
+            return;
+        }
+        windup -= 1;
+        if !field::event_paused() {
+            recovery -= 1;
+        }
+    }
+    audio::sound(i32(Cue::Bubble));
+    let position = projectiles::follow(shot, Height, 0.0);
+    let sphere = effects::model(projectiles::effect(shot), SphereModel, draw(position, 0));
+    let mut remaining = Duration;
+    let mut alpha = 0;
+    let mut lift = 0.0;
+    let mut callback = spawn idle();
+    let mut reported = false;
+    while remaining > 0 {
+        await field::next_update();
+        if !projectiles::source_exists(shot) {
+            return;
+        }
+        // The model follows the previous update's lift, before updating the player.
+        let position = projectiles::follow(shot, Height + lift, 0.0);
+        if recovery > 0 && !field::event_paused() {
+            recovery -= 1;
+            if recovery == 0 {
+                actors::release_pose(pose);
+                field::release_control();
+            }
+        }
+        if remaining > ReleaseDuration {
+            alpha += AlphaRise;
+            if alpha > MaximumAlpha {
+                alpha = MaximumAlpha;
+            }
+            lift += MaximumLift / f32(Duration - ReleaseDuration);
+            if lift > MaximumLift {
+                lift = MaximumLift;
+            }
+            if remaining == ReleaseDuration + 1 && !reported {
+                await callback;
+                callback = spawn report();
+                reported = true;
+            }
+            if !field::event_paused() {
+                remaining -= 1;
+            }
+        } else if floating() {
+            lift += math::sin_degrees(f32(field::effect_tick() * DegreesPerTick));
+        } else {
+            // Release keeps running during event pauses; the first update holds the lift.
+            remaining -= 1;
+            if remaining < ReleaseDuration - 1 {
+                alpha -= AlphaFall;
+                if alpha < 0 {
+                    alpha = 0;
+                }
+                lift -= MaximumLift / f32(ReleaseDuration);
+                if lift < 0.0 {
+                    lift = 0.0;
+                }
+            }
+        }
+        projectiles::lift(shot, lift);
+        effects::set_model(sphere, draw(position, alpha));
+    }
+    projectiles::finish(shot);
+    if recovery > 0 {
+        actors::release_pose(pose);
+    }
+    field::release_control();
+    await callback;
+}

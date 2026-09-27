@@ -1,0 +1,217 @@
+script library;
+use field::visual;
+use field::ring_common;
+use game::actors;
+use game::audio;
+use game::field;
+use game::effects;
+use game::effects::Color;
+use game::effects::Image;
+use game::geometry::Vector;
+use game::projectiles;
+use game::projectiles::Contact;
+use game::projectiles::ActorScan;
+use game::projectiles::Targets;
+use game::projectiles::Motion;
+use game::ring;
+use game::ring::Hit;
+use game::ring::ElectricOrbKind;
+enum Clip {
+    Cast = 52 }
+enum Cue {
+    Prepare = 31,
+    Launch = 41 }
+enum Palette {
+    White = 0,
+    Electric = 1 }
+enum FlightEnd {
+    Holding(Contact),
+    PickedUp }
+const Windup: ticks = 8ticks;
+const Recovery: ticks = 30ticks;
+const FlightUpdates: i32 = 20;
+const SylvarantSpeed: f32 = 22.5;
+const TetheallaSpeed: f32 = 15.0;
+const SylvarantHold: i32 = 300;
+const TetheallaHold: i32 = 120;
+const SylvarantStun: ticks = 420ticks;
+const TetheallaStun: ticks = 300ticks;
+const ContactRadius: f32 = 30.0;
+const PickupRadius: f32 = 20.0;
+const MuzzleBone: string = "Bone_sebone03";
+const FallbackMuzzleHeight: f32 = 100.0;
+const OrbVariation: i32 = 16;
+const ArcVariation: i32 = 32;
+const RotationVariation: i32 = 256;
+const Spin: f32 = 3.0;
+const Growth: f32 = - 3.0;
+fn sprite(shot: projectiles::Projectile, image: Image, palette: Palette, life: ticks, size: f32, alpha: i32, spinning: bool) {
+    let mut variation = OrbVariation;
+    if image == Image::ElectricArc {
+        variation = ArcVariation;
+    }
+    let width = size + f32(field::random(variation));
+    let mut spin = 0.0;
+    if spinning {
+        spin = - Spin;
+        if field::effect_tick() % 2 != 0 {
+            spin = Spin;
+        }
+    }
+    let mut sprite = visual::sprite(image, life, width);
+    sprite.growth = Growth;
+    sprite.rotation = Vector {
+        x: 0.0,
+        y: 0.0,
+        z: f32(field::random(RotationVariation)) };
+    sprite.palette = i32(palette);
+    sprite.alpha = alpha;
+    sprite.angular_velocity = Vector {
+        x: 0.0,
+        y: 0.0,
+        z: spin };
+    effects::sprite(projectiles::effect(shot), sprite);
+}
+fn draw(shot: projectiles::Projectile, flying: bool) {
+    if flying {
+        sprite(shot, Image::Orb, Palette::White, 2ticks, 40.0, 255, true);
+        sprite(shot, Image::Orb, Palette::Electric, 4ticks, 80.0, 224, false);
+        if field::effect_tick() % 2 == 0 {
+            sprite(shot, Image::ElectricArc, Palette::Electric, 5ticks, 30.0, 255, true);
+        }
+    } else {
+        if field::effect_tick() % 4 == 0 {
+            sprite(shot, Image::Orb, Palette::White, 3ticks, 80.0, 224, true);
+        }
+        if field::effect_tick() % 2 == 0 {
+            sprite(shot, Image::ElectricArc, Palette::Electric, 9ticks, 100.0, 224, true);
+        }
+    }
+}
+fn contacts(shot: projectiles::Projectile, kind: ElectricOrbKind) -> Contact {
+    let mut duration = SylvarantStun;
+    let mut effect = actors::StunEffect::Electric;
+    if kind == ElectricOrbKind::Tethealla {
+        duration = TetheallaStun;
+        effect = actors::StunEffect::None;
+    }
+    let mut scan = projectiles::overlapping(shot, ContactRadius, Targets::All, ActorScan::Start);
+    let mut first = Contact::Flying;
+    match scan {
+        ActorScan::After(actor) => {
+            first = Contact::Actor(actor);
+        },
+        _ => {
+        },
+    }
+    let mut scanning = true;
+    while scanning {
+        match scan {
+            ActorScan::After(actor) => {
+                actors::stun(actor, duration, effect);
+                scan = projectiles::overlapping(shot, ContactRadius, Targets::All, scan);
+            },
+            _ => {
+                scanning = false;
+            },
+        }
+    }
+    return first;
+}
+task report(contact: Contact) {
+    match contact {
+        Contact::Actor(actor) => {
+            await ring::hit(Hit::Actor(actor));
+        },
+        _ => {
+        },
+    }
+}
+task fly(shot: projectiles::Projectile, kind: ElectricOrbKind) -> FlightEnd {
+    let mut age = 0;
+    while age < FlightUpdates {
+        await field::next_update();
+        if !field::event_paused() {
+            age += 1;
+        }
+        draw(shot, age < FlightUpdates);
+        // Timeout enters holding before pickup/contact, retaining this step's
+        // velocity. Actor impacts also take their full step before stopping.
+        if age == FlightUpdates && projectiles::touches_actor(shot, actors::controlled(), PickupRadius) {
+            return FlightEnd::PickedUp;
+        }
+        let contact = contacts(shot, kind);
+        if age == FlightUpdates {
+            projectiles::advance(shot);
+            return FlightEnd::Holding(Contact::Flying);
+        }
+        match contact {
+            Contact::Actor(actor) => {
+                projectiles::advance(shot);
+                return FlightEnd::Holding(Contact::Actor(actor));
+            },
+            _ => {
+            },
+        }
+        let barrier = projectiles::contact(shot);
+        projectiles::advance(shot);
+        match barrier {
+            Contact::Barrier => {
+                return FlightEnd::Holding(Contact::Barrier);
+            },
+            _ => {
+            },
+        }
+    }
+    return FlightEnd::Holding(Contact::Flying);
+}
+task linger(shot: projectiles::Projectile, kind: ElectricOrbKind) {
+    projectiles::hold(shot);
+    let mut remaining = SylvarantHold;
+    if kind == ElectricOrbKind::Tethealla {
+        remaining = TetheallaHold;
+    }
+    while remaining > 0 {
+        await field::next_update();
+        if !field::event_paused() {
+            remaining -= 1;
+        }
+        draw(shot, false);
+        if remaining > 0 {
+            if projectiles::touches_actor(shot, actors::controlled(), PickupRadius) {
+                return;
+            }
+            contacts(shot, kind);
+        }
+    }
+    await field::next_update();
+}
+pub task cast(kind: ElectricOrbKind) {
+    let actor = actors::controlled();
+    let pose = actors::play_service_clip(actor, i32(Clip::Cast));
+    let recovery = spawn ring_common::recover_control(pose, Recovery);
+    audio::sound(i32(Cue::Prepare));
+    await field::wait_ticks(Windup);
+    let height = actors::bone_height(actor, MuzzleBone, visual::zero(), FallbackMuzzleHeight);
+    let mut speed = SylvarantSpeed;
+    if kind == ElectricOrbKind::Tethealla {
+        speed = TetheallaSpeed;
+    }
+    let shot = projectiles::launch(actor, height, speed, ContactRadius);
+    projectiles::motion(shot, Motion::Scripted);
+    effects::shadow(shot, 40.0, Color {
+        red: 0, green: 0, blue: 64 }, 64);
+    audio::sound(i32(Cue::Launch));
+    match await fly(shot, kind) {
+        FlightEnd::Holding(contact) => {
+            let callback = spawn report(contact);
+            await linger(shot, kind);
+            projectiles::finish(shot);
+            await callback;
+        },
+        FlightEnd::PickedUp => {
+            projectiles::finish(shot);
+        },
+    }
+    await recovery;
+}

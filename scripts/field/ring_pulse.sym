@@ -1,0 +1,122 @@
+script library;
+use field::visual;
+use field::ring_common;
+use game::actors;
+use game::audio;
+use game::effects;
+use game::effects::Image;
+use game::effects::Facing;
+use game::effects::Color;
+use game::effects::Fade;
+use game::effects::Blend;
+use game::effects::SpriteBlend;
+use game::effects::Distortion;
+use game::effects::DistortionImage;
+use game::geometry::Vector;
+use game::field;
+use game::ring;
+use game::ring::Hit;
+use game::ring::Ability;
+use game::ring::CallColor;
+pub enum Kind {
+    Sound,
+    AnimalCall }
+enum Clip {
+    Cast = 52 }
+enum Cue {
+    Prepare = 31,
+    Sound = 129 }
+enum Palette {
+    Blue = 24,
+    PaleBlue = 26 }
+const Windup: ticks = 8ticks;
+const SoundRecovery: ticks = 30ticks;
+const CallRecovery: ticks = 40ticks;
+const Duration: ticks = 30ticks;
+const MuzzleBone: string = "Bone_sebone03";
+const FallbackHeight: f32 = 100.0;
+const WaveSize: f32 = 1.0;
+const WaveGrowth: f32 = 20.0;
+const RippleGrowth: f32 = 10.0;
+const WaveAlpha: i32 = 208;
+const RippleAlpha: f32 = 128.0;
+// Native particle timers include their zero frame.
+const WaveLifetime: ticks = 31ticks;
+const RippleLifetime: ticks = 61ticks;
+fn tint(kind: Kind) -> Color {
+    if kind == Kind::Sound {
+        return Color {
+            red: 64,
+            green: 64,
+            blue: 64 };
+    }
+    match ring::ability() {
+        Ability::AnimalCall(color) => {
+            match color {
+                CallColor::White => {
+                    return Color {
+                        red: 255,
+                        green: 255,
+                        blue: 255 };
+                },
+                CallColor::Blue => {
+                    return Color {
+                        red: 32,
+                        green: 32,
+                        blue: 255 };
+                },
+                CallColor::Pink => {
+                    return Color {
+                        red: 248,
+                        green: 96,
+                        blue: 184 };
+                },
+            }
+        },
+        _ => {
+            return Color {
+                red: 248,
+                green: 96,
+                blue: 184 };
+        },
+    }
+}
+fn wave(shot: effects::Context, image: Image, palette: Palette, blend: Blend, color: Color) {
+    let mut sprite = visual::sprite(image, WaveLifetime, WaveSize);
+    sprite.growth = WaveGrowth;
+    sprite.palette = i32(palette);
+    sprite.color = color;
+    sprite.alpha = WaveAlpha;
+    sprite.blend = SpriteBlend::Custom(blend);
+    effects::sprite(shot, sprite);
+}
+pub task cast(kind: Kind) {
+    let actor = actors::controlled();
+    let pose = actors::play_service_clip(actor, i32(Clip::Cast));
+    let mut duration = SoundRecovery;
+    if kind == Kind::AnimalCall {
+        duration = CallRecovery;
+    }
+    let recovery = spawn ring_common::recover_control(pose, duration);
+    audio::sound(i32(Cue::Prepare));
+    await field::wait_ticks(Windup);
+    let height = actors::bone_height(actor, MuzzleBone, visual::zero(), FallbackHeight);
+    let mut position = actors::position(actor);
+    position.z += height;
+    let shot = effects::begin(position);
+    if kind == Kind::Sound {
+        audio::sound(i32(Cue::Sound));
+    }
+    await field::next_update();
+    effects::distort(shot, Distortion {
+        image: DistortionImage::Ripple, facing: Facing::Camera, lifetime: RippleLifetime, size: WaveSize, growth: RippleGrowth, offset: visual::zero(), rotation: Vector {
+            x: 0.0, y: 0.0, z: 90.0 }, alpha: RippleAlpha, fade: Fade::Tail, });
+    let color = tint(kind);
+    wave(shot, Image::Orb, Palette::PaleBlue, Blend::Alpha, color);
+    wave(shot, Image::Disc, Palette::Blue, Blend::Additive, color);
+    // Keep the countdown running during event pauses.
+    await field::wait_ticks(Duration - 1ticks);
+    effects::finish(shot);
+    await ring::hit(Hit::Pulse);
+    await recovery;
+}

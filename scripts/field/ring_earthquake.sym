@@ -1,0 +1,76 @@
+script library;
+use field::visual;
+use field::ring_common;
+use game::actors;
+use game::audio;
+use game::camera;
+use game::effects;
+use game::effects::Image;
+use game::effects::Facing;
+use game::effects::Fade;
+use game::effects::Distortion;
+use game::effects::DistortionImage;
+use game::geometry::Vector;
+use game::input;
+use game::field;
+use game::ring;
+use game::ring::Hit;
+enum Clip {
+    Cast = 52 }
+enum Cue {
+    Prepare = 31,
+    Quake = 272 }
+const Windup: ticks = 8ticks;
+const Recovery: ticks = 140ticks;
+const ColumnUpdates: i32 = 20;
+const QuakeUpdates: i32 = 120;
+const CallbackRemaining: i32 = 40;
+const ShakeDivisor: i32 = 10;
+const RingSpacing: i32 = 6;
+const RingSize: f32 = 150.0;
+const RingPalette: i32 = 30;
+task quake(shot: effects::Context) {
+    input::rumble(50ticks);
+    effects::distort(shot, Distortion {
+        image: DistortionImage::Ripple, facing: Facing::World, lifetime: 41ticks, size: 30.0, growth: 20.0, offset: Vector {
+            x: 0.0, y: 0.0, z: 4.0 }, rotation: Vector {
+            x: 0.0, y: 0.0, z: 90.0 }, alpha: 192.0, fade: Fade::Tail, });
+    let mut remaining = QuakeUpdates;
+    while remaining > 0 {
+        camera::shake(f32(remaining / ShakeDivisor), 8ticks, 8ticks);
+        remaining -= 1;
+        if remaining > 0 {
+            await field::next_update();
+        }
+    }
+    effects::finish(shot);
+}
+pub task cast() {
+    let pose = actors::play_service_clip(actors::controlled(), i32(Clip::Cast));
+    let recovery = spawn ring_common::recover_control(pose, Recovery);
+    audio::sound(i32(Cue::Prepare));
+    await field::wait_ticks(Windup);
+    let shot = effects::begin(actors::position(actors::controlled()));
+    audio::sound(i32(Cue::Quake));
+    let mut remaining = ColumnUpdates;
+    while remaining > 0 {
+        await field::next_update();
+        let mut sprite = visual::sprite(Image::Ring, 21ticks, RingSize);
+        sprite.facing = Facing::World;
+        sprite.offset = Vector {
+            x: 0.0,
+            y: 0.0,
+            z: f32(remaining * RingSpacing) };
+        sprite.palette = RingPalette;
+        sprite.alpha = 255 - remaining * RingSpacing;
+        effects::sprite(shot, sprite);
+        remaining -= 1;
+    }
+    // The first shake update runs with the last column ring. Dispatch after
+    // its eightieth update, while the remaining forty continue through events.
+    let shaking = spawn quake(shot);
+    await field::wait_ticks(ticks(QuakeUpdates - CallbackRemaining - 1));
+    await ring::hit(Hit::Pulse);
+    await shaking;
+    await recovery;
+}

@@ -1,0 +1,232 @@
+script library;
+use game::actors;
+use game::audio;
+use game::effects;
+use game::effects::Model;
+use game::effects::Color;
+use game::effects::Blend;
+use game::effects::Facing;
+use game::geometry::Vector;
+use game::field;
+use game::input;
+use game::input::Button;
+use game::projectiles;
+use game::projectiles::ActorScan;
+use game::projectiles::Targets;
+use game::ring;
+use game::ring::Hit;
+use game::ring::Ability;
+enum Clip {
+    Cast = 52 }
+enum Cue {
+    Prepare = 31 }
+enum Exposure {
+    First,
+    Sustained }
+// The controller draws MAP section 16 with the palette in section 17.
+const BeamModel: i32 = - 1179648;
+const FirstForest: i32 = 511;
+const LastForest: i32 = 518;
+const Windup: ticks = 8ticks;
+const Recovery: i32 = 30;
+const InitialLifetime: i32 = 10;
+const HeldLifetime: i32 = 31;
+const MuzzleBone: string = "Bone_sebone03";
+const FallbackHeight: f32 = 100.0;
+const ContactDistance: f32 = 200.0;
+const ContactRadius: f32 = 100.0;
+const ContactAlpha: i32 = 90;
+const SustainedContacts: i32 = 240;
+const ContactGroupMask: i32 = - 8;
+const InitialAlpha: i32 = 16;
+const MaximumAlpha: i32 = 180;
+const AlphaRise: i32 = 15;
+const AlphaFall: i32 = 6;
+const MaximumScale: f32 = 2.0;
+const MinimumScale: f32 = 0.01;
+const InitialWidth: f32 = 0.1;
+const MuzzleOffsetY: f32 = - 20.0;
+const WidthRise: f32 = 0.2;
+const WidthFall: f32 = 0.06666666666666667;
+const LengthRise: f32 = 0.1;
+fn ready() -> bool {
+    match ring::ability() {
+        Ability::Sunlight => {
+        },
+        _ => {
+            return false;
+        }
+    }
+    let map = field::map_id();
+    return map >= FirstForest && map <= LastForest && ring::charge() != 0 && input::held(Button::Ring);
+}
+fn draw(position: Vector, heading: f32, twist: f32, width: f32, length: f32, alpha: i32, outer: bool) -> Model {
+    let mut w = width;
+    let mut l = length;
+    let mut t = twist;
+    let mut a = alpha;
+    let mut blue = 64;
+    if outer {
+        w *= 1.2;
+        l *= 1.1;
+        t = - twist;
+        a = alpha * 3 / 5;
+        blue = 16;
+    }
+    return Model {
+        position: position,
+        rotation: Vector {
+            x: - 90.0,
+            y: t,
+            z: heading },
+        scale: Vector {
+            x: w,
+            y: w,
+            z: l },
+        color: Color {
+            red: 64,
+            green: 64,
+            blue: blue },
+        alpha: a,
+        blend: Blend::Additive,
+        facing: Facing::World };
+}
+task recover(pose: actors::Pose) {
+    let mut remaining = Recovery;
+    let mut age = 0;
+    while remaining > 0 {
+        await field::next_update();
+        age += 1;
+        if age > i32(Windup) && ready() {
+            remaining = Recovery;
+        }
+        if !field::event_paused() {
+            remaining -= 1;
+        }
+    }
+    actors::release_pose(pose);
+}
+task report(actor: actors::Actor, exposure: Exposure) {
+    match exposure {
+        Exposure::First => {
+            await ring::hit(Hit::Actor(actor));
+        },
+        Exposure::Sustained => {
+            await ring::secondary_hit(actor);
+        },
+    }
+}
+task idle() {
+}
+pub task cast() {
+    if !ready() {
+        return;
+    }
+    let actor = actors::controlled();
+    let pose = actors::play_service_clip(actor, i32(Clip::Cast));
+    let recovery = spawn recover(pose);
+    audio::sound(i32(Cue::Prepare));
+    let shot = projectiles::launch(actor, FallbackHeight, 0.0, ContactRadius);
+    projectiles::hold(shot);
+    projectiles::block_menu(shot);
+    field::release_control();
+    await field::wait_ticks(Windup);
+    if !projectiles::source_exists(shot) {
+        return;
+    }
+    let height = actors::bone_height(actor, MuzzleBone, Vector {
+        x: 0.0, y: 0.0, z: 0.0 }, FallbackHeight);
+    let position = projectiles::follow(shot, height, 0.0);
+    let mut alpha = InitialAlpha;
+    let mut width = InitialWidth;
+    let mut length = 1.0;
+    let mut twist = 0.0;
+    // The activation update initializes the model; drawing starts on the next update.
+    let inner = effects::model(projectiles::effect(shot), BeamModel, draw(position, actors::heading(actor), twist, width, length, 0, false));
+    let outer = effects::model(projectiles::effect(shot), BeamModel, draw(position, actors::heading(actor), twist, width, length, 0, true));
+    let mut remaining = InitialLifetime;
+    let mut group = 0;
+    let mut contacts = 0;
+    // Task handles stay local; completed placeholders make both joins unconditional.
+    let mut first = spawn idle();
+    let mut sustained = spawn idle();
+    let mut first_reported = false;
+    let mut sustained_reported = false;
+    while remaining > 0 {
+        await field::next_update();
+        if !projectiles::source_exists(shot) {
+            return;
+        }
+        if ready() {
+            remaining = HeldLifetime;
+        }
+        let height = actors::bone_height(actor, MuzzleBone, Vector {
+            x: 0.0, y: MuzzleOffsetY, z: 0.0 }, FallbackHeight);
+        let position = projectiles::follow(shot, height, 0.0);
+        twist -= 1.0;
+        if remaining > Recovery {
+            alpha += AlphaRise;
+            if alpha > MaximumAlpha {
+                alpha = MaximumAlpha;
+            }
+            width += WidthRise;
+            if width > MaximumScale {
+                width = MaximumScale;
+            }
+            length += LengthRise;
+            if length > MaximumScale {
+                length = MaximumScale;
+            }
+        } else {
+            alpha -= AlphaFall;
+            if alpha < 0 {
+                alpha = 0;
+            }
+            width -= WidthFall;
+            if width < MinimumScale {
+                width = MinimumScale;
+            }
+        }
+        effects::set_model(inner, draw(position, actors::heading(actor), twist, width, length, alpha, false));
+        effects::set_model(outer, draw(position, actors::heading(actor), twist, width, length, alpha, true));
+        if alpha > ContactAlpha {
+            projectiles::follow(shot, height, ContactDistance);
+            let mut scan = projectiles::overlapping(shot, ContactRadius, Targets::Interactions, ActorScan::Start);
+            while true {
+                match scan {
+                    ActorScan::After(target) => {
+                        if !first_reported {
+                            await first;
+                            first = spawn report(target, Exposure::First);
+                            first_reported = true;
+                        }
+                        let next_group = actors::id(target) & ContactGroupMask;
+                        if group == next_group {
+                            contacts += 1;
+                        } else {
+                            contacts = 0;
+                        }
+                        group = next_group;
+                        if contacts > SustainedContacts && !sustained_reported {
+                            await sustained;
+                            sustained = spawn report(target, Exposure::Sustained);
+                            sustained_reported = true;
+                        }
+                    },
+                    _ => {
+                        break;
+                    },
+                }
+                scan = projectiles::overlapping(shot, ContactRadius, Targets::Interactions, scan);
+            }
+            projectiles::follow(shot, height, 0.0);
+        }
+        if !field::event_paused() {
+            remaining -= 1;
+        }
+    }
+    projectiles::finish(shot);
+    await first;
+    await sustained;
+    await recovery;
+}

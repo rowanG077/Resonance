@@ -1,0 +1,8 @@
+script library;
+pub enum Shot {
+    Fire,
+    Water,
+    Wind,
+    LongRangeFire,
+    Mana,
+}
