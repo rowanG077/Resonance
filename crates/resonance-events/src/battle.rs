@@ -108,6 +108,8 @@ impl TryFrom<i32> for Outcome {
 #[derive(Debug, Clone)]
 pub struct Request {
     pub setup: Setup,
+    /// Mode 5 overrides the next scene's initial black/white clear.
+    pub transition_white: Option<bool>,
     pub(crate) operation: Operation,
 }
 
@@ -155,6 +157,7 @@ impl crate::GameWorld {
         }
         let request = Request {
             setup,
+            transition_white: self.next_transition_white.take(),
             operation: self.operations.begin()?,
         };
         self.battle_request = Some(request.clone());
@@ -170,6 +173,15 @@ impl crate::GameWorld {
             return Ok(false);
         };
         request.complete(Outcome::Victory)?;
+        if let Some(white) = request.transition_white {
+            self.fade = Some(crate::Fade {
+                start_tick: self.tick,
+                duration: 0,
+                from: 255.,
+                to: 255.,
+                white,
+            });
+        }
         if let Some(party) = &mut self.party {
             party.battles.record(&party.formation);
         }

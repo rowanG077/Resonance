@@ -3,7 +3,7 @@ use crate::{
     ActorMotion, Animation, AudioCommand, BoneAdjustment, Fade, FieldTransition, GameWorld,
     ResourceLibrary, animation::slot,
 };
-use resonance_content::field::{DOOR_MOTION_RESOURCE_BASE, Door};
+use resonance_content::field::{Door, FIELD_SERVICE_MOTION_RESOURCE_BASE};
 
 const APPROACH_SPEED: f32 = 6.;
 const APPROACH_LIMIT: u32 = 90;
@@ -52,7 +52,7 @@ impl GameWorld {
         });
         if let Some(door) = nearest {
             let actor = &self.actors[&self.controlled_actor];
-            let resource = DOOR_MOTION_RESOURCE_BASE + actor.resource;
+            let resource = FIELD_SERVICE_MOTION_RESOURCE_BASE + actor.resource;
             let slot = if door.pull { 24 } else { 20 };
             if resources
                 .animations
@@ -131,7 +131,7 @@ impl GameWorld {
                 }
             }
             Phase::StartAnimation => {
-                let resource = DOOR_MOTION_RESOURCE_BASE + actor.resource;
+                let resource = FIELD_SERVICE_MOTION_RESOURCE_BASE + actor.resource;
                 let slot = if exit.door.pull { 24 } else { 20 };
                 let clip = &resources.animations[&resource][&slot];
                 let mut animation = Animation::new(resource, slot, clip.duration_ticks, self.tick);
@@ -177,6 +177,7 @@ impl GameWorld {
                         duration_ticks: 1,
                         start_tick: self.tick,
                         translation: None,
+                        scale: None,
                     },
                 );
                 // Present the current hinge pose before advancing the next one.

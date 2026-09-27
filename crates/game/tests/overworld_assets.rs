@@ -62,7 +62,9 @@ fn original_world_script_initializes_and_routes_all_landmark_handlers() -> Resul
     });
     let mut party = Party::new(&data, Default::default())?;
     party.items.insert(55, 1);
-    party.travel.sorcerers_ring = [9, 4];
+    party.travel.sorcerers_ring = resonance_events::ring::SorcerersRing::Lightning(
+        resonance_events::ring::LightningColor::Red,
+    );
     party.travel.saved_formation = vec![1];
     let start = |story| -> Result<EventRuntime> {
         let mut memory = symphonia_script_vm::Memory::default();
@@ -76,7 +78,10 @@ fn original_world_script_initializes_and_routes_all_landmark_handlers() -> Resul
     };
     let mut first = start(900000)?;
     let party = first.world.party.as_ref().unwrap();
-    assert_eq!(party.travel.sorcerers_ring, [1, 0]);
+    assert_eq!(
+        party.travel.sorcerers_ring,
+        resonance_events::ring::SorcerersRing::Fire
+    );
     assert!(party.travel.saved_formation.is_empty());
     assert_eq!(first.world.event_flags, [900].into());
     assert!(first.enter_landmark(1, 6)?);

@@ -1,0 +1,75 @@
+//! Opaque actor handles survive suspension without referring to replacement actors.
+use super::*;
+
+impl GameWorld {
+    pub fn authored_actor(&mut self, id: i32) -> Result<i32, String> {
+        let actor = self.actors.get(&id).ok_or("actor is missing")?;
+        if let Some(handle) = actor.authored_handle {
+            return Ok(handle);
+        }
+        let handle = self.allocate_effect()?;
+        self.actors.get_mut(&id).unwrap().authored_handle = Some(handle);
+        self.authored_actors.insert(handle, id);
+        Ok(handle)
+    }
+
+    pub(crate) fn actor_id(&self, handle: i32) -> Result<i32, String> {
+        self.authored_actors
+            .get(&handle)
+            .copied()
+            .filter(|id| {
+                self.actors
+                    .get(id)
+                    .is_some_and(|actor| actor.authored_handle == Some(handle))
+            })
+            .ok_or_else(|| "actor handle is stale".into())
+    }
+}
+
+impl FieldHost<'_> {
+    pub(super) fn actor_id(&self, handle: i32) -> Result<i32, String> {
+        self.world.actor_id(handle)
+    }
+}
+
+use super::projectile::VECTOR;
+const ACTOR: Type = Type::Handle("game::actors::Actor");
+
+pub(super) const fn register(
+    bindings: NativeBindings<FieldHost<'_>>,
+) -> NativeBindings<FieldHost<'_>> {
+    bindings
+        .function(
+            "game::actors::position",
+            &[ACTOR],
+            Some(VECTOR),
+            false,
+            |h, a, _| {
+                let actor = &h.world.actors[&h.actor_id(a[0])?];
+                Ok(NativeResult::Values(
+                    actor.position.map(|v| v.to_bits() as i32).to_vec(),
+                ))
+            },
+        )
+        .function(
+            "game::effects::station_transfer",
+            &[ACTOR, ACTOR],
+            None,
+            true,
+            |h, a, _| {
+                // The interaction can retire either actor before this child runs.
+                if h.actor_id(a[0]).is_err() || h.actor_id(a[1]).is_err() {
+                    return Ok(NativeResult::Continue(None));
+                }
+                let operation = h.operations.begin()?;
+                let transfer =
+                    crate::effect::station::Transfer::start(h.world, a[0], a[1], operation)?;
+                *h.wait = Some(Wait::StationTransfer(Box::new(transfer)));
+                Ok(NativeResult::Suspend)
+            },
+        )
+        .function("game::actors::interact", &[ACTOR], None, true, |h, a, _| {
+            let id = h.actor_id(a[0])?;
+            h.call_event(0, id as u32, id as i16)
+        })
+}

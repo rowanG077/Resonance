@@ -132,6 +132,7 @@ pub(crate) enum Wait {
     ActorAnimation(i32),
     ActorAnimationFrame(i32, i32),
     Complete(Operation),
+    StationTransfer(Box<crate::effect::station::Transfer>),
     Choice {
         result: Operation,
         window: Box<Wait>,
@@ -142,8 +143,25 @@ pub(crate) enum Wait {
     Position(Operation, u32),
 }
 impl Wait {
+    pub fn track(&self, scope: &mut OperationScope) -> Result<(), String> {
+        match self {
+            Self::Service { condition, .. } => condition.track(scope),
+            Self::StationTransfer(transfer) => scope.track(&transfer.operation),
+            Self::Choice { result, window } => {
+                scope.track(result)?;
+                window.track(scope)
+            }
+            Self::Complete(op)
+            | Self::Battle(op)
+            | Self::Menu(op)
+            | Self::Ready(op)
+            | Self::Position(op, _) => scope.track(op),
+            _ => Ok(()),
+        }
+    }
     pub fn poll(&mut self, world: &mut crate::GameWorld) -> Result<bool, String> {
         let operation = match self {
+            Self::StationTransfer(transfer) => return transfer.poll(world),
             Self::Service {
                 condition,
                 ready_at,

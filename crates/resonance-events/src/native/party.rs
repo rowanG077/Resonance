@@ -33,8 +33,35 @@ impl NativeHost<'_> {
             Ok(id as usize - 1)
         };
         match op {
+            NativeCall::SetCharacterCostume => {
+                // fn_80054470 returns the old value; -1 only queries. Invalid
+                // character IDs return zero without changing the party.
+                let id = if a[0] == crate::CONTROLLED_ACTOR {
+                    controlled_actor
+                } else {
+                    a[0]
+                };
+                value = Some(0);
+                if (1..=9).contains(&id) {
+                    let member = &mut party.members[id as usize - 1];
+                    value = Some(i32::from(member.costume));
+                    if a[1] != -1 {
+                        require((0..5).contains(&a[1]), "unknown character costume")?;
+                        // Lloyd and Colette share meshes for costumes 0 and 3.
+                        // Other costume meshes are not available yet.
+                        require(
+                            a[1] == 0 || (id <= 2 && a[1] == 3),
+                            "character costume body is not cooked",
+                        )?;
+                        member.costume = a[1] as u8;
+                    }
+                }
+            }
             NativeCall::SetRingTimer => party.travel.ring_timer = a[0] as u32,
             NativeCall::GetRingTimer => value = Some(party.travel.ring_timer as i32),
+            NativeCall::GetFieldTicks => value = Some(party.travel.field_ticks as i32),
+            NativeCall::SetFieldCountdown => party.travel.field_countdown = a[0] as u32,
+            NativeCall::GetFieldCountdown => value = Some(party.travel.field_countdown as i32),
             NativeCall::RankCharacterAffinity => {
                 // Lloyd is excluded; ties favor the lower member ID.
                 let mut candidates: Vec<usize> = (1..9).filter(|&id| a[id] as u8 != 0).collect();
@@ -44,11 +71,11 @@ impl NativeHost<'_> {
                 value = Some(candidates[rank.min(candidates.len()) - 1] as i32 + 1);
             }
             NativeCall::ConfigureSorcerersRing => {
-                let old = party.travel.sorcerers_ring;
+                let old: [u8; 2] = party.travel.sorcerers_ring.into();
                 self.registers[0] = i32::from(old[0]);
                 self.registers[1] = i32::from(old[1]);
                 if a[0] != -1 {
-                    party.travel.sorcerers_ring = [a[0] as u8, a[1] as u8];
+                    party.travel.sorcerers_ring = [a[0] as u8, a[1] as u8].try_into()?;
                 }
                 value = Some(i32::from(old[0]));
             }
@@ -111,6 +138,22 @@ impl NativeHost<'_> {
                     },
                 );
             }
+            NativeCall::RemovePartyMember => {
+                // fn_80080880 compacts the formation and returns zero only
+                // when it removed a member. Zero/absent IDs return one.
+                let id = a[0] as u8;
+                value = Some(
+                    if let Some(index) = party.formation.iter().position(|&p| p == id) {
+                        party.formation.remove(index);
+                        0
+                    } else {
+                        1
+                    },
+                );
+                if !party.formation.contains(&party.field_leader) {
+                    party.field_leader = party.formation.first().copied().unwrap_or(0);
+                }
+            }
             NativeCall::AdjustCharacterAffinity => {
                 let index = member()?;
                 let affinity = &mut party.members[index].affinity;
@@ -121,6 +164,20 @@ impl NativeHost<'_> {
                 let id = u16::try_from(a[0]).map_err(|_| "invalid item")?;
                 require(usize::from(id) < data.items.len(), "unknown item")?;
                 value = Some(i32::from(party.items.get(&id).copied().unwrap_or(0)));
+            }
+            NativeCall::IsTreasureOpened | NativeCall::MarkTreasureOpened => {
+                let flag = u16::try_from(a[0]).map_err(|_| "invalid treasure flag")?;
+                require(flag < 1024, "invalid treasure flag")?;
+                if op == NativeCall::IsTreasureOpened {
+                    value = Some(i32::from(party.travel.opened_treasures.contains(&flag)));
+                } else {
+                    party.travel.opened_treasures.insert(flag);
+                }
+            }
+            NativeCall::GetItemStackLimit => {
+                value = Some(i32::from(
+                    resonance_content::session::DEFAULT_ITEM_STACK_LIMIT,
+                ));
             }
             NativeCall::ChangeItemCount => {
                 value = Some(i32::from(party.change_item(
@@ -163,8 +220,24 @@ impl NativeHost<'_> {
                 party.members[index].techniques.insert(id);
             }
             NativeCall::HealParty => {
-                require(a[0] == 0, "unsupported party recovery mode")?;
-                party.heal(|| crate::world::random(random));
+                const FULL_RECOVERY: i32 = 0;
+                const DAMAGE_TENTH: i32 = 14;
+                const DAMAGE_TWENTIETH: i32 = 15;
+                match a[0] {
+                    FULL_RECOVERY => party.heal(|| crate::world::random(random)),
+                    23 => party.revive_incapacitated(),
+                    DAMAGE_TENTH | DAMAGE_TWENTIETH => {
+                        let percent = if a[0] == DAMAGE_TENTH { 10 } else { 5 };
+                        let leader = &party.members[usize::from(party.field_leader - 1)];
+                        let amount =
+                            u32::from(leader.maximum_vitals()[0]) * u32::from(percent) / 100;
+                        self.world
+                            .damage_numbers
+                            .push(amount as u16, self.world.tick);
+                        party.damage_hp_percent(percent);
+                    }
+                    _ => return Err("unsupported party recovery mode".into()),
+                }
             }
             NativeCall::AddGald => value = Some(party.add_gald(a[0]) as i32),
             NativeCall::IsSkitViewed => {
@@ -203,6 +276,19 @@ impl NativeHost<'_> {
                 party.raise_level(data, index, level, growth, || crate::world::random(random))?;
             }
             NativeCall::ConfigureSession => {
+                const GAME_CLEARS: i32 = 11;
+                const MENU_DISABLED: i32 = 15;
+                if a[0] == GAME_CLEARS {
+                    // This query ignores its second argument, including zero.
+                    return Ok(NativeResult::Continue(Some(i32::from(party.game_clears))));
+                }
+                if a[0] == MENU_DISABLED {
+                    let previous = self.world.menu_blocked();
+                    if a[1] != -1 {
+                        self.world.menu_disabled = a[1] & 1 != 0;
+                    }
+                    return Ok(NativeResult::Continue(Some(i32::from(previous))));
+                }
                 let setting = match a[0] {
                     3 => &mut party.settings.preferences.rumble,
                     4 => &mut party.settings.preferences.skit_notifications,

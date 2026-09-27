@@ -78,6 +78,11 @@ impl Autonomy {
     pub fn begin_conversation(&mut self) {
         self.conversing = true;
     }
+    pub(crate) fn set_behavior(&mut self, behavior: Behavior) {
+        self.behavior = behavior;
+        self.conversing = false;
+        self.select(Activity::Select);
+    }
     /// A rejected floor probe requests a new direction on the next update.
     pub fn resolve_floor(&mut self, available: bool) {
         self.floor_available = available;
@@ -116,6 +121,12 @@ impl Actor {
             return intent;
         };
         if let Some(enemy) = &mut self.enemy {
+            if let Some(stun) = enemy.stun {
+                enemy.stun = std::num::NonZeroU16::new(stun.remaining.get() - 1)
+                    .map(|remaining| crate::effect::Stun { remaining, ..stun });
+                intent.paused = true;
+                return intent;
+            }
             if free_control {
                 enemy.contact_cooldown = enemy.contact_cooldown.saturating_sub(1);
             }

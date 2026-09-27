@@ -595,3 +595,56 @@ fn string_native_waits_reject_invalid_completion_without_consuming_the_wait() {
     vm.run(&mut Reader, &mut memory, 10).unwrap();
     assert_eq!(vm.result(), Some(vec![0]));
 }
+
+#[test]
+fn named_bindings_allocate_free_opcodes_and_keep_their_handlers() {
+    struct NamedHost;
+    impl Host for NamedHost {
+        const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::new()
+            .register_typed(WAIT, |_, _, _| Ok(NativeResult::Suspend))
+            .function(
+                "add",
+                &[Type::I32, Type::I32],
+                Some(Type::I32),
+                false,
+                |_, a, _| Ok(NativeResult::Continue(Some(a[0] + a[1]))),
+            )
+            .function("double", &[Type::I32], Some(Type::I32), false, |_, a, _| {
+                Ok(NativeResult::Continue(Some(a[0] * 2)))
+            });
+    }
+    let natives: Vec<_> = NamedHost::AUTHORED_NATIVES.declarations().collect();
+    assert_eq!(
+        natives
+            .iter()
+            .map(|d| (d.name, d.opcode))
+            .collect::<Vec<_>>(),
+        [("add", 0), ("wait", 1), ("double", 2)]
+    );
+    let program = Arc::new(
+        Program::from_authored(Module {
+            code: vec![
+                Op::Push(3),
+                Op::ArgumentValue,
+                Op::Push(4),
+                Op::ArgumentValue,
+                Op::Native(0),
+                Op::ArgumentValue,
+                Op::Native(2),
+                Op::ReturnValues(1),
+            ],
+            functions: vec![function("main", 0, 0, 0, 1)],
+            natives,
+            ..Default::default()
+        })
+        .unwrap(),
+    );
+    let mut vm = Vm::with_arguments(program, 0, &[]).unwrap();
+    assert_eq!(
+        vm.run(&mut NamedHost, &mut Memory::default(), 32)
+            .unwrap()
+            .event,
+        RunEvent::Halted
+    );
+    assert_eq!(vm.result(), Some(vec![14]));
+}

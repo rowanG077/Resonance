@@ -7,6 +7,7 @@ pub mod slot {
     pub const TURN_RIGHT: u16 = 44;
     pub const TURN_LEFT: u16 = 48;
     pub const TALK_FALLBACK: u16 = 52;
+    pub const STAGGER: u16 = 76;
     pub const EVENT_TALK: u16 = 112;
     pub const EVENT_IDLE: u16 = 116;
     pub const EVENT_WALK: u16 = 120;
@@ -16,6 +17,49 @@ pub mod slot {
 pub enum BindingTiming {
     BeforeDraw,
     AfterDraw,
+}
+
+/// One immediate model evaluation, before a later script command can replace it.
+#[derive(Debug, Clone)]
+pub struct AnimationBinding {
+    pub animation: Animation,
+    pub scenery: std::collections::BTreeMap<i8, Animation>,
+    pub position: [f32; 3],
+    pub angles: [f32; 3],
+    pub scale: [f32; 3],
+    pub adjustments: std::collections::BTreeMap<u8, crate::BoneAdjustment>,
+    pub secondary_motion_disabled: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AnimationBindings {
+    pub tick: u32,
+    pub updates: Vec<AnimationBinding>,
+}
+
+impl crate::Actor {
+    pub(crate) fn record_animation_binding(&mut self, tick: u32, size: f32) {
+        let Some(animation) = &self.animation else {
+            return;
+        };
+        if self.animation_bindings.tick != tick {
+            self.animation_bindings.updates.clear();
+            self.animation_bindings.tick = tick;
+        }
+        self.animation_bindings.updates.push(AnimationBinding {
+            animation: animation.clone(),
+            scenery: self.scenery_animations.clone(),
+            position: self.visual_position(),
+            angles: [
+                self.tilt_degrees()[0],
+                self.tilt_degrees()[1],
+                self.appearance.fixed_heading.unwrap_or(self.heading),
+            ],
+            scale: self.model_scale().map(|axis| axis * size),
+            adjustments: self.appearance.bone_adjustments.clone(),
+            secondary_motion_disabled: self.appearance.secondary_motion_disabled,
+        });
+    }
 }
 
 #[derive(Debug, Clone)]

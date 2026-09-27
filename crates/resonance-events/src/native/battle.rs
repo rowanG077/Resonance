@@ -1,5 +1,5 @@
 use super::*;
-use crate::battle::{DefeatPolicy, Encounter, Request, Setup};
+use crate::battle::{DefeatPolicy, Encounter, Setup};
 
 impl NativeHost<'_> {
     pub(super) fn request_enemy_battle(
@@ -57,9 +57,8 @@ impl NativeHost<'_> {
                 id => Some(u16::try_from(id).map_err(|_| "invalid battle music ID")?),
             },
         };
-        let operation = self.world.operations.begin()?;
-        *self.wait = Some(Wait::Battle(operation.clone()));
-        self.world.battle_request = Some(Request { setup, operation });
+        let request = self.world.request_battle(setup)?;
+        *self.wait = Some(Wait::Battle(request.operation));
         Ok(NativeResult::Suspend)
     }
 }

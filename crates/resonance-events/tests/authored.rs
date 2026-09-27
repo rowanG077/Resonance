@@ -387,3 +387,125 @@ fn authored_state_survives_field_retirement_without_retaining_a_vm() {
     second.step().unwrap();
     assert_eq!(second.world.script_state["test::visits"], 2);
 }
+
+#[test]
+fn suspended_actor_handles_cannot_modify_a_replacement() {
+    let program = compile(
+        r#"
+        use game::actors;
+        use game::field;
+        pub task main() {
+            let actor = actors::controlled();
+            await field::wait_ticks(1ticks);
+            actors::show(actor, false);
+        }
+    "#,
+    );
+    let mut runtime = runtime();
+    runtime.world.controlled_actor = 1;
+    runtime
+        .world
+        .insert_actor(1, resonance_events::Actor::new(1, [0.; 3]));
+    runtime.start_authored(program, "test::main", &[]).unwrap();
+    runtime.step().unwrap();
+    runtime
+        .world
+        .insert_actor(1, resonance_events::Actor::new(1, [10.; 3]));
+    let error = format!("{:#}", runtime.step().unwrap_err());
+    assert!(error.contains("actor handle is stale"), "{error}");
+    assert!(runtime.world.actors[&1].visible);
+}
+
+#[test]
+fn memory_circle_unlock_requires_confirmation_and_cancellation_releases_both_windows() {
+    let source = include_str!("../../../scripts/field/memory.sym")
+        .strip_prefix("script field;")
+        .unwrap();
+    let program = compile(source);
+    let text = |text: &str| {
+        vec![resonance_content::font::TextSpan {
+            text: text.into(),
+            color: 0,
+        }]
+    };
+    let mut runtime = runtime_with(ResourceLibrary {
+        memory_circle_text: resonance_events::MemoryCircleText {
+            unlock: text("Unlock?\nYes\nNo"),
+            no_gem: text("No memory gems."),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    runtime.world.party = Some(
+        serde_json::from_value(serde_json::json!({
+            "members": [], "formation": [], "items": {}, "found_items": [],
+            "recent_items": [], "gald": 0, "spent_gald": 0,
+            "settings": resonance_events::party::Settings::default()
+        }))
+        .unwrap(),
+    );
+    runtime.world.save_points.push(resonance_events::SavePoint {
+        actor: 0,
+        position: [0.; 3],
+        resource: 0,
+        born: 0,
+        active: false,
+        unlock_flag: Some(851),
+        glow_scale: 0.08,
+    });
+    let task = runtime
+        .start_authored(program.clone(), "test::unlock", &[0])
+        .unwrap();
+    runtime.step().unwrap();
+    runtime.cancel_authored(task).unwrap();
+    assert!(runtime.world.dialogue.is_empty());
+    assert!(runtime.world.choices.is_empty());
+    assert!(runtime.player_has_control());
+    assert!(!runtime.world.event_flags.contains(&851));
+
+    use resonance_events::dialogue::ChoiceExit::{Cancel, Confirm, Timeout};
+    // Choice stores zero-based message lines: Yes is line 1, No is line 2.
+    for (reason, line, gems, unlocked) in [
+        (Cancel, 1, 1, false),
+        (Confirm, 2, 1, false),
+        (Timeout, 1, 1, false),
+        (Confirm, 1, 0, false),
+        (Confirm, 1, 1, true),
+    ] {
+        runtime
+            .world
+            .party
+            .as_mut()
+            .unwrap()
+            .items
+            .insert(491, gems);
+        runtime
+            .start_authored(program.clone(), "test::unlock", &[0])
+            .unwrap();
+        runtime.step().unwrap();
+        let choice = runtime.world.choices.get_mut(&0).unwrap();
+        choice.selected_line = line;
+        choice.finish(reason).unwrap();
+        runtime.world.dialogue[&0].operation.complete(None).unwrap();
+        runtime.step().unwrap();
+        if gems == 0 {
+            assert!(!runtime.player_has_control());
+            runtime.world.dialogue[&0].operation.complete(None).unwrap();
+            runtime.step().unwrap();
+        }
+        assert!(runtime.player_has_control());
+        assert_eq!(runtime.world.event_flags.contains(&851), unlocked);
+        assert_eq!(
+            runtime
+                .world
+                .party
+                .as_ref()
+                .unwrap()
+                .items
+                .get(&491)
+                .copied()
+                .unwrap_or(0),
+            gems - u8::from(unlocked)
+        );
+    }
+}

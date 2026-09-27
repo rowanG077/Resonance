@@ -1,25 +1,68 @@
 use crate::animation::{Animation, slot};
 use std::collections::BTreeMap;
+
+/// Transient player dimensions. Field entry resets these; the scenario may
+/// restore them for a narrow passage through native 0x79.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerSize {
+    #[default]
+    Normal,
+    Small,
+}
+impl PlayerSize {
+    pub fn model_scale(self) -> f32 {
+        match self {
+            Self::Normal => 1.,
+            Self::Small => 0.4,
+        }
+    }
+    pub fn movement_scale(self) -> f32 {
+        match self {
+            Self::Normal => 1.,
+            Self::Small => 1. / 3.,
+        }
+    }
+    pub fn floor_clearance(self) -> f32 {
+        match self {
+            Self::Normal => 40.,
+            Self::Small => 14.,
+        }
+    }
+}
+/// Interaction actors (native class 3) participate in sustained ring contacts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorRole {
+    Ordinary,
+    Interaction,
+    /// Native class 4 scenery falls onto the floor and can be moved as a block.
+    Pushable,
+}
+
 #[derive(Debug, Clone)]
 pub struct Actor {
+    pub role: ActorRole,
+    /// An authored scene object expires with its owning controller.
+    pub(crate) operation: Option<crate::Operation>,
     /// Replacing an actor invalidates its retained presentation instance.
     pub instance: u64,
+    pub(crate) authored_handle: Option<i32>,
     /// Constructor pose, before subsequent script commands reposition the actor.
     pub creation: Option<ActorCreation>,
     pub resource: u32,
     pub position: [f32; 3],
+    pub(crate) visual_lift: Option<crate::projectile::VisualLift>,
+    pub chain_impulses: BTreeMap<u32, crate::projectile::ChainImpulse>,
     pub visible: bool,
     /// A non-rendered scene marker can still own a scenery interaction.
     pub interaction_anchor: bool,
     /// Read-only actors use a strict depth test; ordinary actors test and write
     /// depth, including equal-depth fragments. This is presentation state.
     pub depth_write: bool,
+    pub blend: Option<crate::model_particle::Blend>,
     pub animation: Option<Animation>,
     /// Independent scenery motion layers, sampled over its base animation.
     pub scenery_animations: BTreeMap<i8, Animation>,
-    /// Explicit model updates in the latest binding tick. Presentation must
-    /// reject collapsed intermediate poses when secondary motion needs them.
-    pub animation_bindings: (u32, u32),
+    pub animation_bindings: crate::animation::AnimationBindings,
     pub properties: BTreeMap<i32, i32>,
     pub heading: f32,
     pub target_heading: f32,
@@ -30,17 +73,40 @@ pub struct Actor {
     pub animation_culled: bool,
     pub grounded: bool,
     pub collidable: bool,
+    /// Native contact shape; disabling walking collision does not remove it.
+    pub contact: ActorContact,
+    /// Touching the player invokes registry (0, -2), enabled by property 20.
+    pub contact_event: bool,
+    /// Enabled by native property 18; separate from the actor's contact cylinder.
+    pub model_collision: Option<std::sync::Arc<resonance_content::field::ModelCollision>>,
+    /// Parent bone's rigid frame; script coordinates remain local to the attachment.
+    pub(crate) collision_parent: Option<resonance_content::animation::Matrix>,
     pub radius: f32,
     pub path: crate::autonomy::Path,
     pub casts_shadow: bool,
+    pub shadow_alpha: u8,
+    /// Last resolved field light, shared by rendering and native color queries.
+    pub light: Option<crate::effect::CharacterLight>,
     pub ambient_sound: Option<crate::AmbientSound>,
     pub enemy: Option<Enemy>,
+    pub(crate) enemy_source: Option<crate::enemy_source::EnemySource>,
+    pub(crate) emitter: Option<crate::emitter::Emitter>,
     pub ring_station: bool,
     pub attachment: Option<Attachment>,
     pub motion: Option<ActorMotion>,
+    /// Native movement rate remains readable after a scripted destination ends.
+    pub(crate) movement_speed: f32,
     pub autonomy: Option<crate::Autonomy>,
     pub scripted_animation: bool,
     pub idle_animation: u16,
+}
+
+pub const ACTOR_CONTACT_HEIGHT: f32 = 150.;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorContact {
+    None,
+    Cylinder,
 }
 #[derive(Debug, Clone)]
 pub struct Enemy {
@@ -54,6 +120,7 @@ pub struct Enemy {
     pub sight_distance: f32,
     pub event_parameters: [i16; 2],
     pub contact_cooldown: u16,
+    pub stun: Option<crate::effect::Stun>,
 }
 #[derive(Debug, Clone, Copy)]
 pub struct ActorCreation {
@@ -62,18 +129,126 @@ pub struct ActorCreation {
     pub heading: f32,
 }
 impl Actor {
+    fn scale_percent(&self) -> [i32; 3] {
+        std::array::from_fn(|axis| {
+            self.properties
+                .get(&(30 + axis as i32))
+                .copied()
+                .unwrap_or(100)
+        })
+    }
+    pub fn model_scale(&self) -> [f32; 3] {
+        self.scale_percent().map(|scale| scale as f32 / 100.)
+    }
+    pub fn tilt_degrees(&self) -> [f32; 2] {
+        [35, 36].map(|property| self.properties.get(&property).copied().unwrap_or(0) as f32)
+    }
+    pub fn interaction_label(&self) -> i32 {
+        self.properties.get(&17).copied().unwrap_or(2)
+    }
+    pub fn ring_contact_enabled(&self) -> bool {
+        self.properties.get(&48).is_none_or(|value| value & 1 == 0)
+    }
+    pub(crate) fn station_color(&self) -> [u8; 3] {
+        std::array::from_fn(|i| {
+            self.properties
+                .get(&(42 + i as i32))
+                .copied()
+                .unwrap_or(i32::from(crate::effect::NEUTRAL_TINT)) as u8
+        })
+    }
+
+    /// Model displacement does not move the actor's navigation or script origin.
+    pub fn visual_position(&self) -> [f32; 3] {
+        let mut position = self.position;
+        if let Some(lift) = &self.visual_lift
+            && lift.operation.is_pending()
+        {
+            position[2] += lift.height;
+        }
+        position
+    }
+
+    pub fn world_point(&self, point: [f32; 3]) -> [f32; 3] {
+        let vector = self.local_vector(point);
+        std::array::from_fn(|i| vector[i] + self.position[i])
+    }
+
+    fn local_vector(&self, point: [f32; 3]) -> [f32; 3] {
+        let scale = self.scale_percent();
+        let [x, y, z] = std::array::from_fn(|i| point[i] * scale[i] as f32 / 100.);
+        let [tilt_x, tilt_y] = self.tilt_degrees();
+        let (sx, cx) = tilt_x.to_radians().sin_cos();
+        let (sy, cy) = tilt_y.to_radians().sin_cos();
+        let (sz, cz) = self.heading.to_radians().sin_cos();
+        let (y, z) = (cx * y - sx * z, sx * y + cx * z);
+        let (x, z) = (cy * x + sy * z, -sy * x + cy * z);
+        [cz * x - sz * y, sz * x + cz * y, z]
+    }
+
+    /// Native solid queries test every outward plane of a convex model group.
+    pub fn contains_solid(
+        &self,
+        point: [f32; 3],
+        query: resonance_content::field::CollisionQuery,
+    ) -> bool {
+        self.model_collision.as_ref().is_some_and(|model| {
+            model.solids.iter().any(|group| {
+                query.accepts(group.surface)
+                    && !group.triangles.is_empty()
+                    && group.triangles.iter().all(|triangle| {
+                        let [a, b, c] =
+                            triangle.map(|i| self.collision_point(group.vertices[usize::from(i)]));
+                        let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
+                        let v: [f32; 3] = std::array::from_fn(|i| c[i] - a[i]);
+                        let normal = [
+                            u[1] * v[2] - u[2] * v[1],
+                            u[2] * v[0] - u[0] * v[2],
+                            u[0] * v[1] - u[1] * v[0],
+                        ];
+                        (0..3).map(|i| (point[i] - a[i]) * normal[i]).sum::<f32>() < 0.
+                    })
+            })
+        })
+    }
+
+    pub fn collision_point(&self, point: [f32; 3]) -> [f32; 3] {
+        let point = self.world_point(point);
+        self.collision_parent.map_or(point, |parent| {
+            resonance_content::animation::transform_point(parent, point)
+        })
+    }
+
+    pub(crate) fn local_matrix(&self) -> resonance_content::animation::Matrix {
+        std::array::from_fn(|column| {
+            if column == 3 {
+                return [self.position[0], self.position[1], self.position[2], 1.];
+            }
+            let mut axis = [0.; 3];
+            axis[column] = 1.;
+            let point = self.local_vector(axis);
+            [point[0], point[1], point[2], 0.]
+        })
+    }
+
     pub fn new(resource: u32, position: [f32; 3]) -> Self {
         Self {
+            role: ActorRole::Ordinary,
+            operation: None,
             instance: 0,
+            authored_handle: None,
             creation: None,
             resource,
             position,
+            visual_lift: None,
+            chain_impulses: BTreeMap::new(),
             visible: true,
             interaction_anchor: false,
             depth_write: true,
+            blend: None,
             animation: None,
             scenery_animations: BTreeMap::new(),
-            animation_bindings: (0, 0),
+            animation_bindings: Default::default(),
             properties: BTreeMap::new(),
             heading: 0.,
             target_heading: 0.,
@@ -83,14 +258,23 @@ impl Actor {
             animation_culled: false,
             grounded: true,
             collidable: true,
+            contact: ActorContact::Cylinder,
+            contact_event: false,
+            model_collision: None,
+            collision_parent: None,
             radius: 42.,
             path: Default::default(),
             casts_shadow: true,
+            shadow_alpha: 64,
+            light: None,
             ambient_sound: None,
             enemy: None,
+            enemy_source: None,
+            emitter: None,
             ring_station: false,
             attachment: None,
             motion: None,
+            movement_speed: 0.,
             autonomy: None,
             scripted_animation: false,
             idle_animation: slot::IDLE,
@@ -99,6 +283,25 @@ impl Actor {
     pub fn face(&mut self, heading: f32) {
         self.heading = heading.rem_euclid(360.);
         self.target_heading = self.heading;
+    }
+    pub fn movement_speed(&self) -> f32 {
+        self.motion.as_ref().map_or_else(
+            || {
+                self.autonomy
+                    .as_ref()
+                    .map_or(self.movement_speed, |ai| ai.speed)
+            },
+            |motion| motion.speed,
+        )
+    }
+    pub fn set_movement_speed(&mut self, speed: f32) {
+        self.movement_speed = speed;
+        if let Some(motion) = &mut self.motion {
+            motion.speed = speed;
+        }
+        if let Some(ai) = &mut self.autonomy {
+            ai.speed = speed;
+        }
     }
     pub(crate) fn step_heading(&mut self, controlled: bool, moving: bool) {
         // A new direction can cross a full turn. Choose the turn before wrapping
@@ -138,6 +341,8 @@ impl Actor {
         if delta < 0. { -direction } else { direction }
     }
     pub(crate) fn step_motion(&mut self) {
+        let speed = self.movement_speed();
+        self.set_movement_speed(speed);
         let Some(motion) = &self.motion else {
             return;
         };
@@ -162,6 +367,15 @@ pub struct ActorMotion {
     pub target: [f32; 3],
     pub speed: f32,
 }
+/// Animation commands evaluate movement in place, between script instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotionUpdate {
+    Frame,
+    AnimationBinding {
+        event_paused: bool,
+        input_enabled: bool,
+    },
+}
 #[derive(Debug, Clone)]
 pub struct Attachment {
     pub actor: i32,
@@ -175,6 +389,7 @@ pub struct Appearance {
     pub mouth: Option<Face>,
     pub expression: u8,
     pub model_hidden: bool,
+    pub secondary_motion_disabled: bool,
     pub hidden_nodes: std::collections::BTreeSet<u16>,
     pub bone_adjustments: BTreeMap<u8, BoneAdjustment>,
 }
@@ -201,6 +416,38 @@ pub struct BoneAdjustment {
     pub duration_ticks: u32,
     pub start_tick: u32,
     pub translation: Option<BoneTranslation>,
+    pub scale: Option<BoneScale>,
+}
+/// Absolute local scale, retaining the bind-pose contribution until the tween ends.
+/// The renderer supplies the model's bind scale; interrupted tweens stay continuous.
+#[derive(Debug, Clone)]
+pub struct BoneScale {
+    from: [f32; 3],
+    bind_weight: f32,
+    to: [f32; 3],
+    duration: u32,
+    start: u32,
+}
+impl BoneScale {
+    pub fn new(previous: Option<&Self>, to: [f32; 3], duration: u32, tick: u32) -> Self {
+        Self {
+            from: previous.map_or([0.; 3], |p| p.sample(tick, [0.; 3])),
+            bind_weight: previous.map_or(1., |p| p.bind_weight * (1. - p.fraction(tick))),
+            to,
+            duration: duration.max(1),
+            start: tick,
+        }
+    }
+    fn fraction(&self, tick: u32) -> f32 {
+        (tick.saturating_sub(self.start) + 1).min(self.duration) as f32 / self.duration as f32
+    }
+    pub fn sample(&self, tick: u32, bind_scale: [f32; 3]) -> [f32; 3] {
+        let fraction = self.fraction(tick);
+        std::array::from_fn(|i| {
+            (self.from[i] + bind_scale[i] * self.bind_weight) * (1. - fraction)
+                + self.to[i] * fraction
+        })
+    }
 }
 #[derive(Debug, Clone)]
 pub struct BoneTranslation {
@@ -263,7 +510,13 @@ impl Particle {
 }
 #[derive(Default)]
 pub struct GameWorld {
+    pub projectiles: BTreeMap<i32, crate::projectile::Projectile>,
+    pub(crate) effect_contexts: BTreeMap<i32, crate::effect::EffectContext>,
+    pub(crate) authored_actors: BTreeMap<i32, i32>,
+    pub(crate) owned_poses: BTreeMap<i32, crate::projectile::OwnedPose>,
+    pub(crate) fog_effects: BTreeMap<i32, crate::camera::FogEffect>,
     pub tick: u32,
+    pub effect_tick: u32,
     /// The owning scene's map, also available to its nested skit scripts.
     pub current_field: Option<u32>,
     /// Native runtime EA9 bit 7. Ordinary starts and New Game Plus clear it.
@@ -272,15 +525,23 @@ pub struct GameWorld {
     pub skit_request: Option<crate::skit::Request>,
     pub menu_request: Option<crate::menu::Request>,
     pub actors: BTreeMap<i32, Actor>,
+    /// Additional native objects sharing a script key. Commands address the
+    /// first object; fn_80058D64 destroys every object carrying that key.
+    pub(crate) duplicate_actors: BTreeMap<i32, i32>,
+    pub(crate) automatic_wings: Option<(u64, u64)>,
     pub(crate) actor_order: Vec<i32>,
     pub(crate) next_actor_instance: u64,
     pub camera: Option<CameraTrack>,
     pub particles: Vec<Particle>,
     pub fade: Option<Fade>,
+    pub scene_dissolve: Option<SceneDissolve>,
+    pub next_transition_white: Option<bool>,
     pub overlays: BTreeMap<i32, Overlay>,
     pub effect_settings: BTreeMap<(i32, i32), [i32; 3]>,
     pub character_lights: BTreeMap<i32, crate::effect::CharacterLight>,
     pub render_settings: BTreeMap<i32, i32>,
+    /// Native field callback clock, held while ConfigureRendering(128, 0).
+    pub texture_animation_tick: u64,
     /// Two enlarged framebuffer copies, selected by their native depth test.
     /// Zero disables a pass; values are orthographic screen depths.
     pub screen_copy_depth: [f32; 2],
@@ -297,7 +558,14 @@ pub struct GameWorld {
     pub voice: Option<VoicePlayback>,
     pub field_camera: Option<crate::camera::CameraRig>,
     pub input_enabled: bool,
+    pub menu_disabled: bool,
+    pub input: crate::input::Input,
+    /// Native event pause, independent of an authored task's input ownership.
+    pub mapped_input_disabled: bool,
     pub controlled_actor: i32,
+    /// Block retained by the player's grab action, independent of script targets.
+    pub grabbed_block: Option<i32>,
+    pub player_size: PlayerSize,
     pub event_flags: std::collections::BTreeSet<u16>,
     pub script_state: symphonia_script::authored::ScriptState,
     pub event_records: BTreeMap<u8, EventRecord>,
@@ -310,11 +578,14 @@ pub struct GameWorld {
     /// Search distance for automatic scenery-door interactions; absent uses 250.
     pub door_interaction_radius: Option<f32>,
     pub audio_commands: Vec<AudioCommand>,
+    pub rumble: Option<crate::rumble::Rumble>,
     pub(crate) ambient_voices: [Option<crate::ambient::Voice>; 2],
     pub voice_banks: [Option<u16>; 2],
     pub emotes: BTreeMap<i32, Emote>,
+    pub damage_numbers: crate::field_damage::DamageNumbers,
     pub paralysis: Option<crate::effect::Paralysis>,
     pub billboards: BTreeMap<i32, crate::effect::BillboardEffect>,
+    pub model_particles: BTreeMap<i32, crate::model_particle::ModelParticle>,
     pub refractions: BTreeMap<i32, crate::effect::RefractionPulse>,
     pub random_state: u32,
     pub gameplay_random: crate::GameplayRandom,
@@ -340,8 +611,16 @@ pub struct SavePoint {
     pub resource: u32,
     pub born: u32,
     pub active: bool,
+    /// A sealed circle is inert until its persistent unlock flag is set.
+    pub unlock_flag: Option<u16>,
     /// Vertical texture scale of the glow; the circle's geometry stays unchanged.
     pub glow_scale: f32,
+}
+
+impl SavePoint {
+    pub fn is_open(&self, flags: &std::collections::BTreeSet<u16>) -> bool {
+        self.unlock_flag.is_none_or(|flag| flags.contains(&flag))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -530,6 +809,9 @@ pub enum AudioCommand {
 }
 #[derive(Debug, Clone)]
 pub struct Trigger {
+    pub ring_barrier: bool,
+    /// Transient native contact count, shared by player and projectile queries.
+    pub activations: u16,
     pub key: u32,
     /// Automatic contact using registry 2, shared with confirmed triggers.
     pub automatic_event: bool,
@@ -542,8 +824,34 @@ pub struct Trigger {
     /// Touch-trigger action and destination/preload hints, independent of activation.
     pub touch_metadata: [u32; 3],
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i16)]
+pub(crate) enum TriggerKind {
+    Touch = 1,
+    Automatic = 2,
+    Confirmed = 3,
+}
+impl Trigger {
+    pub(crate) fn registry_kind(&self) -> u32 {
+        match self.kind() {
+            TriggerKind::Confirmed => TriggerKind::Automatic as u32,
+            kind => kind as u32,
+        }
+    }
+
+    pub(crate) fn kind(&self) -> TriggerKind {
+        if self.transition.is_some() {
+            TriggerKind::Confirmed
+        } else if self.automatic_event {
+            TriggerKind::Automatic
+        } else {
+            TriggerKind::Touch
+        }
+    }
+}
 #[derive(Debug, Clone)]
 pub enum TriggerShape {
+    Circle { center: [f32; 3], radius: f32 },
     Line([[f32; 3]; 2]),
     Triangle([[f32; 3]; 3]),
     Quad([[f32; 3]; 4]),
@@ -591,6 +899,35 @@ impl TreasureReward {
     }
 }
 impl GameWorld {
+    pub(crate) fn scene_actor_key(&self, script: i32) -> Result<i32, String> {
+        if !self.actors.contains_key(&script) {
+            return Ok(script);
+        }
+        // Field services reserve the preceding 2048 negative IDs. Duplicates
+        // keep separate render/animation instances without replacing the first.
+        (i32::MIN + 2048..i32::MIN + 6144)
+            .find(|id| !self.actors.contains_key(id))
+            .ok_or_else(|| "scene actor instance limit exceeded".into())
+    }
+
+    pub(crate) fn despawn_scene_actors(&mut self, script: i32) {
+        let mut ids = vec![script];
+        self.duplicate_actors.retain(|&id, key| {
+            if *key == script {
+                ids.push(id);
+                false
+            } else {
+                true
+            }
+        });
+        for id in ids {
+            self.actors.remove(&id);
+            self.billboards.retain(|_, p| p.owner != Some(id));
+            self.overlays.remove(&id);
+            self.emotes.remove(&id);
+        }
+    }
+
     /// Controlled actor first, followed by other actors in creation order.
     pub fn actor_order(&self) -> &[i32] {
         &self.actor_order
@@ -598,6 +935,7 @@ impl GameWorld {
     pub fn insert_actor(&mut self, id: i32, mut actor: Actor) {
         self.next_actor_instance += 1;
         actor.instance = self.next_actor_instance;
+        actor.authored_handle = None;
         actor.creation = Some(ActorCreation {
             tick: self.tick,
             position: actor.position,
@@ -652,6 +990,20 @@ pub struct Fade {
     pub from: f32,
     pub to: f32,
     pub white: bool,
+}
+
+/// Native transition mode 4 freezes the preceding field image, then reveals
+/// the live scene beneath it. Its first presentation retains full opacity.
+#[derive(Debug, Clone)]
+pub struct SceneDissolve {
+    pub start_tick: u32,
+    pub duration: u32,
+}
+impl SceneDissolve {
+    pub fn alpha(&self, tick: u32) -> f32 {
+        (255. - tick.saturating_sub(self.start_tick) as f32 * 256. / self.duration.max(1) as f32)
+            .max(0.)
+    }
 }
 impl Fade {
     pub(crate) fn new(start_tick: u32, duration: u32, from: f32, target: f32, white: bool) -> Self {

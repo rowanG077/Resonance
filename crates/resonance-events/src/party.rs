@@ -29,6 +29,10 @@ fn initial_leader() -> u8 {
 pub struct Member {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Native body variant. The early Colette transformation uses variant 3,
+    /// which shares the normal model (variants 1/2/4 need other cooked bodies).
+    #[serde(default)]
+    pub costume: u8,
     /// Rules and owner identity are rebound on load, not duplicated in saves.
     #[serde(skip)]
     ex_rules: Option<ex_skills::Rules>,
@@ -127,6 +131,21 @@ mod tests {
     }
 
     #[test]
+    fn field_damage_leaves_one_hp_without_reviving_or_spending_tp() {
+        let mut party = Party::new(&data(), Default::default()).unwrap();
+        party.members[0].hp = 1;
+        party.members[1].hp = 0;
+        party.members[2].hp = 100;
+        party.members[3].hp = 9;
+        party.damage_hp_percent(10);
+        assert_eq!(
+            party.members[..4].iter().map(|m| m.hp).collect::<Vec<_>>(),
+            [1, 0, 90, 1]
+        );
+        assert_eq!(party.members[2].tp, 20);
+    }
+
+    #[test]
     fn equipment_transfers_items_and_tracks_stack_limits_and_discoveries() {
         let data = data();
         let mut party = Party::new(&data, Default::default()).unwrap();
@@ -201,6 +220,28 @@ mod tests {
         assert_eq!(party.spent_gald, 500);
         assert_eq!(party.add_gald(i32::MAX), 99_999_999);
     }
+    #[test]
+    fn scripted_minimal_recovery_revives_only_incapacitated_members() {
+        let mut party = Party::new(&data(), Default::default()).unwrap();
+        for (member, conditions, hp) in [(0, 0x80000020, 0), (1, 0x300, 80), (2, 0x20, 60)] {
+            party.members[member].conditions = conditions;
+            party.members[member].hp = hp;
+            party.members[member].tp = 7;
+            party.members[member].luck = 33;
+            party.members[member].overlimit = 50;
+        }
+        party.revive_incapacitated();
+        assert_eq!(
+            party.members[..3]
+                .iter()
+                .map(|m| (m.hp, m.conditions))
+                .collect::<Vec<_>>(),
+            [(1, 0x20), (1, 0x200), (60, 0x20)]
+        );
+        for member in &party.members[..3] {
+            assert_eq!((member.tp, member.luck, member.overlimit), (7, 33, 50));
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -221,6 +262,9 @@ impl Default for Settings {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Party {
+    /// Completed playthroughs, queried by original field scripts.
+    #[serde(default)]
+    pub game_clears: u8,
     #[serde(default)]
     pub battles: crate::battle::History,
     #[serde(default)]
@@ -278,6 +322,11 @@ impl Party {
         self.settings.preferences.validate()?;
         self.battles.validate()?;
         self.travel.validate()?;
+        const MAX_GAME_CLEARS: u8 = 100;
+        ensure!(
+            self.game_clears <= MAX_GAME_CLEARS,
+            "invalid saved game clear count"
+        );
         ensure!(
             self.monsters.iter().all(|(&id, knowledge)| usize::from(id)
                 < resonance_content::monster::MONSTER_COUNT
@@ -301,6 +350,11 @@ impl Party {
         );
         ensure!(
             self.members.len() == data.characters.len()
+                && self
+                    .members
+                    .iter()
+                    .enumerate()
+                    .all(|(i, m)| m.costume == 0 || (i < 2 && m.costume == 3))
                 && (1..=8).contains(&self.formation.len())
                 && self.formation.contains(&self.field_leader)
                 && self
@@ -391,6 +445,7 @@ impl Party {
     pub fn new(data: &SessionData, settings: Settings) -> anyhow::Result<Self> {
         data.validate()?;
         Ok(Self {
+            game_clears: 0,
             cooking: Cooking::default(),
             encounter_modifier: None,
             members: data
@@ -399,6 +454,7 @@ impl Party {
                 .enumerate()
                 .map(|(index, character)| Member {
                     name: None,
+                    costume: 0,
                     ex_rules: data.ex_skills.clone().map(|data| ex_skills::Rules {
                         data,
                         character: index,
@@ -509,6 +565,28 @@ impl Party {
             member.conditions = 0;
             member.luck = (random() % 100) as u8;
             member.overlimit = member.overlimit.saturating_sub(10);
+        }
+    }
+    /// Minimal post-battle recovery used by original field scenes.
+    pub fn revive_incapacitated(&mut self) {
+        // fn_8008065C restores knocked-out/petrified members to one HP without
+        // curing other conditions or changing TP, luck or overlimit.
+        for member in &mut self.members {
+            if member.conditions & items::INCAPACITATED != 0 {
+                member.conditions &= !items::INCAPACITATED;
+                member.hp = 1;
+            }
+        }
+        self.restore_field_leader();
+    }
+
+    /// Field hazards spare one HP and never revive knocked-out members.
+    pub fn damage_hp_percent(&mut self, percent: u16) {
+        for member in &mut self.members {
+            if member.hp != 0 {
+                let damage = u32::from(member.maximum_vitals()[0]) * u32::from(percent) / 100;
+                member.hp = u32::from(member.hp).saturating_sub(damage).max(1) as u16;
+            }
         }
     }
     pub fn raise_level(

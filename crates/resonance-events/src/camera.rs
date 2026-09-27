@@ -2,19 +2,39 @@
 use crate::Actor;
 use std::collections::BTreeMap;
 pub mod motion;
+mod shake;
 use motion::{FovTween, MotionCamera, Tween};
+pub use shake::Shake;
 
 /// Script-addressable camera target, present for the lifetime of a field.
 pub const ANCHOR_ACTOR: i32 = 90_020;
 pub const ANCHOR_RESOURCE: u32 = 24;
 
-/// Exponential perspective fog configured by original scene scripts.
+/// Exponential-squared perspective fog (GX type 5).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Fog {
     pub start: f32,
     pub end: f32,
     pub color: [u8; 3],
+}
+
+pub(crate) struct FogEffect {
+    pub task: i32,
+    pub fog: Fog,
+    pub operation: crate::Operation,
+}
+
+impl crate::GameWorld {
+    /// The newest live override takes precedence over the scene camera's fog.
+    pub fn fog(&self) -> Option<&Fog> {
+        self.fog_effects
+            .values()
+            .rev()
+            .find(|effect| effect.operation.is_pending())
+            .map(|effect| &effect.fog)
+            .or_else(|| self.field_camera.as_ref()?.current().fog.as_ref())
+    }
 }
 
 pub fn anchor() -> Actor {
@@ -165,6 +185,7 @@ impl EntryCamera {
 
 #[derive(Debug, Clone)]
 pub struct CameraRig {
+    pub shake: Shake,
     /// Presentation supplies its actual horizontal framing; scripts retain the original camera.
     pub view_aspect_ratio: f32,
     pub motion: Option<MotionCamera>,
@@ -185,6 +206,7 @@ pub struct CameraRig {
 impl Default for CameraRig {
     fn default() -> Self {
         Self {
+            shake: Shake::default(),
             view_aspect_ratio: 4. / 3.,
             motion: None,
             entry: None,

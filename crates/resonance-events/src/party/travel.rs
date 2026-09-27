@@ -8,9 +8,15 @@ pub struct Travel {
     pub overworld: Option<resonance_content::overworld::TravelState>,
     /// Field ability mode and variant; ordinary world entry resets the ring.
     #[serde(default)]
-    pub sorcerers_ring: [u8; 2],
+    pub sorcerers_ring: crate::ring::SorcerersRing,
     #[serde(default)]
     pub ring_timer: u32,
+    /// Native field clock: advances only while scenario input is unpaused.
+    #[serde(default)]
+    pub field_ticks: u32,
+    /// Scenario countdown; continues while mapped input is disabled.
+    #[serde(default)]
+    pub field_countdown: u32,
     /// Saved by event command 0x89, independent of the current party order.
     #[serde(default)]
     pub saved_formation: Vec<u8>,
