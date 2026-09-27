@@ -2850,6 +2850,8 @@ fn actor_attachments_start_hidden_and_script_toggles_are_instance_local() {
     let main = script(&[
         (Call::SpawnActor, &[7, 0, 0, 0, 0, 99, 0, 0]),
         (Call::SpawnActor, &[8, 0, 0, 0, 0, 99, 0, 0]),
+        (Call::CreateSceneActor, &[9, 0, 0, 0, 0, 99, 0, 0]),
+        (Call::SpawnInteractionActor, &[10, 0, 0, 0, 0, 99, 0, 0]),
         (Call::YieldCommand, &[0, 1]),
         (Call::SetActorAnimation, &[7, 1, 1]),
         (Call::YieldCommand, &[0, 1]),
@@ -2867,6 +2869,8 @@ fn actor_attachments_start_hidden_and_script_toggles_are_instance_local() {
     );
     let mut events = runtime(program(&main, &[0x20ff]), resources, Default::default());
     assert_eq!(events.world.actors[&7].appearance.hidden_nodes, [1].into());
+    assert_eq!(events.world.actors[&9].appearance.hidden_nodes, [1].into());
+    assert_eq!(events.world.actors[&10].appearance.hidden_nodes, [1].into());
     events.step().unwrap();
     assert!(events.world.actors[&7].appearance.hidden_nodes.is_empty());
     assert_eq!(events.world.actors[&8].appearance.hidden_nodes, [1].into());

@@ -1029,9 +1029,8 @@ impl NativeHost<'_> {
                 }
                 // fn_80059838 initializes the model immediately. Following calls
                 // can pause it before the first scheduler update (Thoda's rocks).
-                let animation = self
-                    .resources
-                    .model(resource)
+                let model = self.resources.model(resource);
+                let animation = model
                     .and_then(|model| model.clips.get(&slot::IDLE))
                     .map(|clip| {
                         Animation::new(resource, slot::IDLE, clip.duration_ticks, self.world.tick)
@@ -1047,6 +1046,12 @@ impl NativeHost<'_> {
                         casts_shadow: false,
                         visible: !locator,
                         interaction_anchor: locator,
+                        // fn_8001A6FC hides optional "kk" geometry for these
+                        // constructors too, including Mana's remote Lloyd.
+                        appearance: crate::Appearance {
+                            hidden_nodes: model.map(|m| m.hidden_nodes.clone()).unwrap_or_default(),
+                            ..Default::default()
+                        },
                         role: if interaction {
                             crate::ActorRole::Interaction
                         } else {

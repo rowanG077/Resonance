@@ -1992,7 +1992,9 @@ fn pose(
                 actor.properties.get(&TOON_LIGHTING).copied(),
             );
             let depth_write = material.depth_write && actor.depth_write;
-            let blend = material.blend || actor.blend.is_some();
+            // fn_8001A6FC keeps source-alpha blending enabled for scripted
+            // fades, including Mana's half-opacity remote party member.
+            let blend = material.blend || actor.blend.is_some() || tint.w < 1.;
             let additive = actor.blend.map_or(
                 actor.ring_station || (save_point.is_some() && !sealed),
                 |blend| blend == resonance_events::model_particle::Blend::Additive,
