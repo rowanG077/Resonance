@@ -556,17 +556,8 @@ impl FieldSession {
             .world
             .actors
             .iter()
-            .filter(|(id, a)| {
-                a.visible
-                    && a.collidable
-                    && (a.resource < SCENERY_RESOURCE_BASE
-                        || self
-                            .events
-                            .world
-                            .treasures
-                            .iter()
-                            .any(|chest| chest.actor == **id))
-                    && a.resource != 24
+            .filter(|(_, a)| {
+                a.visible && a.collidable && a.contact == resonance_events::ActorContact::Cylinder
             })
             .map(|(&id, a)| (id, a.position))
             .collect();
@@ -624,16 +615,10 @@ impl FieldSession {
                                         && a.collidable
                                         && a.contact == resonance_events::ActorContact::Cylinder
                                         && actor.contact == resonance_events::ActorContact::Cylinder
-                                        && (a.resource < SCENERY_RESOURCE_BASE
-                                            || events
-                                                .world
-                                                .treasures
-                                                .iter()
-                                                .any(|chest| chest.actor == *other))
-                                        && a.resource != 24
                                         // fn_80024284 adds the two authored
                                         // cylinder radii, with a 150-unit
-                                        // vertical overlap tolerance.
+                                        // vertical overlap tolerance. Local
+                                        // models participate just like global ones.
                                         && (p[2] - a.position[2]).abs() <= ACTOR_CONTACT_HEIGHT
                                         && (p[0] - a.position[0]).hypot(p[1] - a.position[1])
                                             < actor.radius + a.radius;
@@ -1973,44 +1958,48 @@ mod tests {
         let mut code = vec![10, 0, 0, 1, 0, 0, 0xffff, 0xfffe, 0, 1, 0x20ff];
         native(&mut code, NativeCall::SetEventBit, &[77]);
         code.push(0x20ff);
-        let mut session = choice_session();
-        session.events = EventRuntime::new(
-            Arc::new(
-                Program::decode(
-                    &code
-                        .into_iter()
-                        .flat_map(u16::to_be_bytes)
-                        .collect::<Vec<_>>(),
-                )
-                .unwrap(),
-            ),
-            Arc::new(ResourceLibrary::default()),
-        )
-        .unwrap();
-        session.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
-            surface: 0,
-            vertices: vec![[-500., -500., 0.], [500., -500., 0.], [0., 500., 0.]],
-            triangles: vec![[0, 1, 2]],
-        }])
-        .unwrap();
-        let world = &mut session.events.world;
-        world.input_enabled = true;
-        world.controlled_actor = 1;
-        let mut player = Actor::new(1, [0.; 3]);
-        player.radius = 25.;
-        world.insert_actor(1, player);
-        let mut obstacle = Actor::new(2, [52., 0., 0.]);
-        obstacle.radius = 25.;
-        obstacle.contact_event = true;
-        world.insert_actor(42, obstacle);
-        session
-            .step(FieldInput {
-                direction: [1., 0.],
-                ..Default::default()
-            })
+        for resource in [2, SCENERY_RESOURCE_BASE + 0x100] {
+            let mut session = choice_session();
+            session.events = EventRuntime::new(
+                Arc::new(
+                    Program::decode(
+                        &code
+                            .clone()
+                            .into_iter()
+                            .flat_map(u16::to_be_bytes)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap(),
+                ),
+                Arc::new(ResourceLibrary::default()),
+            )
             .unwrap();
-        assert_eq!(session.events.world.actors[&1].position, [0.; 3]);
-        assert!(session.events.world.event_flags.contains(&77));
+            session.walkmesh =
+                navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+                    surface: 0,
+                    vertices: vec![[-500., -500., 0.], [500., -500., 0.], [0., 500., 0.]],
+                    triangles: vec![[0, 1, 2]],
+                }])
+                .unwrap();
+            let world = &mut session.events.world;
+            world.input_enabled = true;
+            world.controlled_actor = 1;
+            let mut player = Actor::new(1, [0.; 3]);
+            player.radius = 25.;
+            world.insert_actor(1, player);
+            let mut obstacle = Actor::new(resource, [52., 0., 0.]);
+            obstacle.radius = 25.;
+            obstacle.contact_event = true;
+            world.insert_actor(42, obstacle);
+            session
+                .step(FieldInput {
+                    direction: [1., 0.],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(session.events.world.actors[&1].position, [0.; 3]);
+            assert!(session.events.world.event_flags.contains(&77));
+        }
     }
 
     #[test]
