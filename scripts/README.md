@@ -25,7 +25,8 @@ validated handles, inventory operations, animation sampling and dialogue service
 The existing event scheduler supplies suspension, cancellation and input ownership.
 
 ```sh
-cargo run -p resonance-script -- check scripts world::rules field::treasure
+cargo run -p resonance-script -- check --host world scripts world::rules
+cargo run -p resonance-script -- check scripts field::treasure field::ring
 ```
 
 These modules follow the same immutable cooking and preparation path as model
