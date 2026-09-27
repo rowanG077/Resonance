@@ -54,10 +54,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
     color *= tint;
 #endif
-    if material.fog_range.y > material.fog_range.x {
+    if material.fog_range.y != material.fog_range.x {
         let depth = 1.0 / in.position.w;
-        let fog = clamp((depth - material.fog_range.x)
+        var fog = clamp((depth - material.fog_range.x)
             / (material.fog_range.y - material.fog_range.x), 0.0, 1.0);
+        if material.fog_range.z > 0.0 {
+            // GX exponential curves operate on the clamped depth fraction.
+            fog = 1.0 - exp2(-8.0 * pow(fog, material.fog_range.z));
+        }
         color = vec4<f32>(mix(color.rgb, material.fog_color.rgb, fog), color.a);
     }
     return color;

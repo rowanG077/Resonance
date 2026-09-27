@@ -25,8 +25,10 @@ pub(super) enum Request {
     SecondaryMotion(i32, usize),
     Shadow(i32),
     Emote(i32),
+    FieldDamage,
     Paralysis,
     Billboard(i32),
+    ModelParticle(i32, usize),
     Refraction(i32),
     Particle(i32),
     SavePoint(usize, u8),
@@ -149,8 +151,14 @@ fn expected(
         }
     }
     expected.extend(world.emotes.keys().map(|id| Request::Emote(*id)));
+    if world.damage_numbers.samples(world.tick).next().is_some() {
+        expected.insert(Request::FieldDamage);
+    }
     expected.extend(world.paralysis.map(|_| Request::Paralysis));
     expected.extend(world.billboards.keys().map(|id| Request::Billboard(*id)));
+    expected.extend(world.model_particles.iter().flat_map(|(&id, p)| {
+        (0..parts(p.resource).max(1)).map(move |part| Request::ModelParticle(id, part))
+    }));
     expected.extend(world.refractions.keys().map(|id| Request::Refraction(*id)));
     expected.extend(world.particles.iter().map(|p| Request::Particle(p.handle)));
     expected.extend(
@@ -259,6 +267,7 @@ mod tests {
             resource: resonance_content::field::SAVE_POINT_RESOURCE,
             born: 0,
             active: false,
+            unlock_flag: None,
             glow_scale: 0.08,
         });
         applied.expected = expected(&world, |_| 1);
@@ -276,13 +285,18 @@ mod tests {
         validate(0, &applied, Instant::now()).unwrap();
         let pulse = world
             .emit_refraction(resonance_events::effect::RefractionPulse {
+                operation: None,
+                image: resonance_events::effect::RefractionImage::Ripple,
+                palette: resonance_events::effect::NEUTRAL_PALETTE,
+                orientation: resonance_events::effect::SpriteOrientation::World,
+                rotation: [0.; 3],
                 position: [0.; 3],
                 born: 0,
                 lifetime: 30,
                 size: 20.,
                 growth: 40.,
                 alpha: 224.,
-                fade: 8.,
+                fade: resonance_events::effect::Fade::Tail { after: 0 },
             })
             .unwrap();
         applied.expected = expected(&world, |_| 1);

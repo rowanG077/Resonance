@@ -23,6 +23,26 @@ impl MaterialSlot {
         );
         Ok(index)
     }
+
+    /// The scene graph, unlike the GLB mesh catalogue, contains only authored draws.
+    pub fn scene_slots(
+        world: &World,
+        count: usize,
+    ) -> anyhow::Result<std::collections::BTreeSet<usize>> {
+        use anyhow::Context;
+        let Some(mut meshes) = world.try_query::<(Entity, &Mesh3d)>() else {
+            return Ok(Default::default());
+        };
+        meshes
+            .iter(world)
+            .map(|(entity, _)| {
+                world
+                    .get::<Self>(entity)
+                    .context("scene mesh has no material slot")?
+                    .index(count)
+            })
+            .collect()
+    }
 }
 
 pub(super) fn install(app: &mut App) {
@@ -165,9 +185,11 @@ pub(super) struct TitleSurface {
     /// World-space light position and channel strength (0..255).
     pub field_light: Vec4,
     pub shade_colors: [Vec4; 2],
-    /// Linear scene fog: RGB color, and camera-depth start/end (zero disables).
+    /// Scene fog: RGB color, depth start/end, and nonlinear exponent (zero is linear).
     pub fog_color: Vec4,
     pub fog_range: Vec4,
+    /// Field scene geometry participates in camera fog; menu previews do not.
+    pub field_fog: bool,
     pub vertex_color: bool,
     pub constant_color: bool,
     pub blend: bool,
@@ -192,6 +214,7 @@ impl Default for TitleSurface {
             shade_colors: [Vec4::ONE; 2],
             fog_color: Vec4::ZERO,
             fog_range: Vec4::ZERO,
+            field_fog: false,
             vertex_color: true,
             constant_color: false,
             blend: false,
@@ -359,5 +382,24 @@ impl Material for TitleSurface {
             });
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unused_catalogue_slots_are_allowed_but_unbound_scene_meshes_are_rejected() {
+        let mut world = World::new();
+        let unbound = world.spawn(Mesh3d::default()).id();
+        assert!(MaterialSlot::scene_slots(&world, 3).is_err());
+        world.despawn(unbound);
+        world.spawn((Mesh3d::default(), MaterialSlot(0)));
+        let mesh = world.spawn((Mesh3d::default(), MaterialSlot(2))).id();
+        assert_eq!(MaterialSlot::scene_slots(&world, 3).unwrap(), [0, 2].into());
+        assert!(MaterialSlot::scene_slots(&world, 2).is_err());
+        world.entity_mut(mesh).remove::<MaterialSlot>();
+        assert!(MaterialSlot::scene_slots(&world, 3).is_err());
     }
 }

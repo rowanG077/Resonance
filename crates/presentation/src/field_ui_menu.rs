@@ -179,9 +179,16 @@ impl MenuArtwork {
             FieldAction::Talk => "talk",
             FieldAction::Shop => "shop",
             FieldAction::Examine => "examine",
+            FieldAction::Open => "open",
+            FieldAction::Climb => "climb",
+            FieldAction::Descend => "descend",
+            FieldAction::Jump => "jump",
             FieldAction::Rest => "rest",
             FieldAction::Leave => "go_out",
+            FieldAction::Move => "move",
+            FieldAction::Grab => "grab",
             FieldAction::Save => "save",
+            FieldAction::Warp => "warp",
         }]
     }
 

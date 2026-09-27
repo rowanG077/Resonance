@@ -32,15 +32,29 @@ pub(super) struct Artwork {
     textures: Vec<Handle<Image>>,
     layers: Vec<Option<(Entity, Handle<Mesh>)>>,
     particles: BTreeMap<i32, (FlutterRecipe, usize)>,
-    sprites: BTreeMap<u16, usize>,
-    sprite_modes: BTreeMap<(u16, u8), usize>,
+    shadow: (resonance_content::field::ContactShadow, usize),
+    sprite_modes: BTreeMap<(u16, u8, bool), usize>,
     additive: Vec<bool>,
     subtractive: Vec<bool>,
-    refraction_texture: Handle<Image>,
+    fog: Vec<bool>,
+    refraction_texture: [Handle<Image>; 2],
 }
 impl Artwork {
-    pub(super) fn refraction(&self) -> (&RefractionRecipe, &Handle<Image>) {
-        (&self.spec.refraction, &self.refraction_texture)
+    pub(super) fn palette(&self, index: u8) -> [u8; 4] {
+        self.spec.palette[usize::from(index)]
+    }
+    pub(super) fn refraction(
+        &self,
+    ) -> (
+        &RefractionRecipe,
+        &resonance_content::effect::SpriteRecipe,
+        &[Handle<Image>; 2],
+    ) {
+        (
+            &self.spec.refraction,
+            &self.spec.air_refraction,
+            &self.refraction_texture,
+        )
     }
     pub fn mouth_frame(&self, age: u32) -> u8 {
         self.spec.mouth_cycle[age as usize % self.spec.mouth_cycle.len()]
@@ -62,15 +76,6 @@ impl Artwork {
         spec.validate()?;
         let mut paths = vec![spec.emote_texture.clone(), spec.status_texture.clone()];
         let mut additive = vec![false, false];
-        let sprites = spec
-            .sprites
-            .iter()
-            .map(|(&kind, recipe)| {
-                paths.push(recipe.texture.clone());
-                additive.push(recipe.additive);
-                (kind, paths.len() - 1)
-            })
-            .collect();
         let particles = field
             .particles
             .iter()
@@ -88,14 +93,21 @@ impl Artwork {
                 (kind, (recipe.clone(), index))
             })
             .collect();
+        let shadow = (field.contact_shadow.clone(), paths.len());
+        paths.push(field.contact_shadow.texture.clone());
+        additive.push(false);
         let mut subtractive = vec![false; paths.len()];
+        let mut fog: Vec<_> = (0..paths.len()).map(|index| index > STATUS).collect();
         let mut sprite_modes = BTreeMap::new();
         for (&kind, recipe) in &spec.sprites {
             for mode in 0..3 {
-                sprite_modes.insert((kind, mode), paths.len());
-                paths.push(recipe.texture.clone());
-                additive.push(mode == 1);
-                subtractive.push(mode == 2);
+                for field_fog in [true, false] {
+                    sprite_modes.insert((kind, mode, field_fog), paths.len());
+                    paths.push(recipe.texture.clone());
+                    additive.push(mode == 1);
+                    subtractive.push(mode == 2);
+                    fog.push(field_fog);
+                }
             }
         }
         let textures: Vec<_> = paths
@@ -122,22 +134,29 @@ impl Artwork {
             })
             .collect();
         let layers = vec![None; textures.len()];
-        let refraction_texture = server
-            .load_builder()
-            .with_settings(|s: &mut ImageLoaderSettings| {
-                s.is_srgb = false;
-                s.sampler = ImageSampler::linear();
-            })
-            .load(spec.refraction.sprite.texture.clone());
+        let refraction_texture = [
+            &spec.refraction.sprite.texture,
+            &spec.air_refraction.texture,
+        ]
+        .map(|path| {
+            server
+                .load_builder()
+                .with_settings(|s: &mut ImageLoaderSettings| {
+                    s.is_srgb = false;
+                    s.sampler = ImageSampler::linear();
+                })
+                .load(path.clone())
+        });
         Ok(Self {
             spec,
             textures,
             layers,
             particles,
-            sprites,
             sprite_modes,
+            shadow,
             additive,
             subtractive,
+            fog,
             refraction_texture,
         })
     }
@@ -166,6 +185,7 @@ impl Artwork {
             );
             let mesh = meshes.add(batch.mesh());
             let surface = surfaces.add(TitleSurface {
+                field_fog: self.fog[index],
                 color: Some(self.textures[index].clone()),
                 // The UI shares the status atlas with nearest filtering. Reuse
                 // the prepared emote sampler for smooth world-space symbols.
@@ -235,6 +255,8 @@ impl Batch {
             VerticalAnchor::Center => [(size[1] / 2.).trunc(); 2],
             VerticalAnchor::Bottom => [size[1], 0.],
             VerticalAnchor::Top => [0., size[1]],
+            VerticalAnchor::UpperHalf => [(size[1] / 2.).trunc(), 0.],
+            VerticalAnchor::LowerHalf => [0., (size[1] / 2.).trunc()],
         };
         let up = rotation * Vec3::Y * above;
         let down = rotation * Vec3::Y * below;
@@ -304,8 +326,7 @@ pub(super) fn render(
         }
         return;
     }
-    let camera = Transform::from_translation(Vec3::from_array(camera.position))
-        .looking_at(Vec3::from_array(camera.target), Vec3::Z);
+    let camera = super::field_view::camera_transform(camera);
     let side = Vec3::new(camera.right().x, camera.right().y, 0.).normalize_or_zero();
     let forward = Vec3::Z.cross(side);
     let brightness = world.brightness();
@@ -333,32 +354,80 @@ pub(super) fn render(
         );
         applied.ack(Request::Particle(particle.handle));
     }
+    for shot in world.projectiles.values() {
+        if let Some(shadow) = shot.shadow
+            && let Some(surface) = state.get().ground_below(shot.position)
+        {
+            let (spec, batch) = &art.shadow;
+            let color = std::array::from_fn(|i| {
+                (f32::from(shadow.rgba[i]) * if i < 3 { 4. } else { 1. } / 255.).min(1.)
+            });
+            batches[*batch].sprite(
+                Vec3::new(
+                    shot.position[0],
+                    shot.position[1],
+                    surface.height + spec.height_offset,
+                ),
+                Quat::from_rotation_arc(Vec3::Z, Vec3::from_array(surface.normal)),
+                [shadow.size; 2],
+                [0., 0., spec.uv_size[0], spec.uv_size[1]],
+                color,
+            );
+        }
+    }
     for (&id, effect) in &world.billboards {
         let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
             continue;
         };
-        let rotation = camera.rotation * Quat::from_rotation_z(effect.rotation[2].to_radians());
+        let rotation = match effect.orientation {
+            resonance_events::effect::SpriteOrientation::Camera => {
+                camera.rotation * Quat::from_rotation_z(effect.rotation[2].to_radians())
+            }
+            resonance_events::effect::SpriteOrientation::World => Quat::from_euler(
+                EulerRot::ZYX,
+                effect.rotation[2].to_radians(),
+                effect.rotation[1].to_radians(),
+                effect.rotation[0].to_radians(),
+            ),
+        };
+        let mut rgba = effect.rgba;
+        if let Some(palette) = effect
+            .palette
+            .and_then(|index| art.spec.palette.get(usize::from(index)))
+        {
+            for channel in 0..3 {
+                if rgba[channel] == resonance_events::effect::NEUTRAL_TINT {
+                    rgba[channel] = palette[channel];
+                }
+            }
+        }
         // Authored sprite colors use a gain of four.
-        let rgb = effect.rgba[..3]
+        let brightness = if effect.field_lighting {
+            brightness
+        } else {
+            1.
+        };
+        let rgb = rgba[..3]
             .iter()
             .map(|v| (f32::from(*v) * 4. / 255.).min(1.) * brightness)
             .collect::<Vec<_>>();
-        let batch = effect
+        let mode = effect
             .blend_mode
-            .and_then(|mode| art.sprite_modes.get(&(effect.recipe, mode)))
-            .copied()
-            .unwrap_or(art.sprites[&effect.recipe]);
-        batches[batch].sprite(
+            .filter(|mode| *mode < 3)
+            .unwrap_or(u8::from(recipe.additive));
+        let batch = art.sprite_modes[&(effect.recipe, mode, effect.field_fog)];
+        batches[batch].anchored_sprite(
             Vec3::from_array(effect.position),
             rotation,
             effect.size,
-            recipe.uv,
+            recipe.uv_at(world.tick.saturating_sub(effect.born)),
             [
                 rgb[0],
                 rgb[1],
                 rgb[2],
                 effect.alpha(world.tick).clamp(0., 255.) / 255.,
             ],
+            effect.anchor,
         );
         applied.ack(Request::Billboard(id));
     }
@@ -527,6 +596,8 @@ mod tests {
             (VerticalAnchor::Center, [1., 1., -1., -1.]),
             (VerticalAnchor::Bottom, [3., 3., 0., 0.]),
             (VerticalAnchor::Top, [0., 0., -3., -3.]),
+            (VerticalAnchor::UpperHalf, [1., 1., 0., 0.]),
+            (VerticalAnchor::LowerHalf, [0., 0., -1., -1.]),
         ] {
             let mut batch = Batch::default();
             batch.anchored_sprite(

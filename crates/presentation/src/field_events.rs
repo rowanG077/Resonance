@@ -368,6 +368,12 @@ fn check_effects(
         files.read(&effects.emote_texture)?;
     }
     for billboard in world.billboards.values() {
+        if let Some(index) = billboard.palette {
+            ensure!(
+                effects.palette.get(usize::from(index)).is_some(),
+                "uncooked effect palette {index}"
+            );
+        }
         let recipe = effects.sprites.get(&billboard.recipe).with_context(|| {
             format!(
                 "uncooked emitted billboard {} at tick {}",

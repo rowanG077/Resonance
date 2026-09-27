@@ -1,11 +1,11 @@
 #import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
 
-struct Pulse { position_size: vec4<f32>, opacity: vec4<f32> };
+struct Pulse { position_size: vec4<f32>, opacity: vec4<f32>, tint: vec4<f32>, basis_x: vec4<f32>, basis_y: vec4<f32> };
 struct Settings {
     world_from_clip: mat4x4<f32>,
     clip_from_world: mat4x4<f32>,
     eye: vec4<f32>,
-    uv: vec4<f32>,
+    uv: array<vec4<f32>, 2>,
     parameters: vec4<f32>,
     screen_copy: vec4<f32>,
     pulses: array<Pulse, 16>,
@@ -15,6 +15,7 @@ struct Settings {
 @group(0) @binding(2) var displacement: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> settings: Settings;
 @group(0) @binding(4) var scene_depth: texture_depth_2d;
+@group(0) @binding(5) var air_displacement: texture_2d<f32>;
 
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
@@ -35,18 +36,25 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let ray = projected.xyz / projected.w - settings.eye.xyz;
     for (var i = 0u; i < u32(settings.parameters.x); i++) {
         let pulse = settings.pulses[i];
-        let t = (pulse.position_size.z - settings.eye.z) / ray.z;
-        let hit = settings.eye.xy + ray.xy * t;
-        let clip = settings.clip_from_world * vec4<f32>(hit, pulse.position_size.z, 1.);
+        let normal = cross(pulse.basis_x.xyz, pulse.basis_y.xyz);
+        let denominator = dot(ray, normal);
+        if abs(denominator) < 0.000001 || pulse.position_size.w <= 0. { continue; }
+        let t = dot(pulse.position_size.xyz - settings.eye.xyz, normal) / denominator;
+        let hit = settings.eye.xyz + ray * t;
+        let clip = settings.clip_from_world * vec4<f32>(hit, 1.);
         // Reverse-Z: a world-space ripple must remain behind nearer scenery.
         let visible = clip.z / clip.w > textureLoad(scene_depth, vec2<i32>(in.position.xy), 0);
-        let point = (hit - pulse.position_size.xy) / pulse.position_size.w;
+        let delta = hit - pulse.position_size.xyz;
+        let point = vec2<f32>(dot(delta, pulse.basis_x.xyz), dot(delta, pulse.basis_y.xyz)) / pulse.position_size.w;
         let uv = point * vec2<f32>(1., -1.) + vec2<f32>(0.5);
         if t > 0. && visible && all(uv >= vec2<f32>(0.)) && all(uv <= vec2<f32>(1.)) {
-            let atlas_uv = mix(settings.uv.xy, settings.uv.zw, uv);
-            let offset = (textureSampleLevel(displacement, linear_sampler, atlas_uv, 0.).ab * 255. - vec2<f32>(128.))
-                * settings.parameters.yz;
-            let refracted = textureSampleLevel(scene, linear_sampler, in.uv + offset, 0.);
+            let bounds = settings.uv[u32(pulse.opacity.y)];
+            let atlas_uv = mix(bounds.xy, bounds.zw, uv);
+            var sample = textureSampleLevel(displacement, linear_sampler, atlas_uv, 0.).ab;
+            if pulse.opacity.y == 1. { sample = textureSampleLevel(air_displacement, linear_sampler, atlas_uv, 0.).ab; }
+            let offset = (sample * 255. - vec2<f32>(128.)) * settings.parameters.yz;
+            let captured = textureSampleLevel(scene, linear_sampler, in.uv + offset, 0.);
+            let refracted = vec4<f32>(clamp(captured.rgb * pulse.tint.rgb, vec3<f32>(0.), vec3<f32>(1.)), captured.a);
             color = mix(color, refracted, pulse.opacity.x);
         }
     }

@@ -12,6 +12,9 @@ use std::{
     time::Instant,
 };
 
+/// Two minutes at 60 Hz includes the Remote Ranch platform's complete ascent.
+const MAX_SEQUENCE_UPDATES: u32 = 7200;
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldSequence {
@@ -28,6 +31,8 @@ pub struct FieldSequence {
     pub run: bool,
     #[serde(default)]
     pub accept_updates: Vec<u32>,
+    #[serde(default)]
+    pub ring_updates: Vec<u32>,
     /// Held input changes, indexed from the first recorded update.
     #[serde(default)]
     pub movement: Vec<FieldMovement>,
@@ -43,7 +48,8 @@ pub struct FieldMovement {
 impl FieldSequence {
     pub(super) fn validate(&self) -> Result<()> {
         ensure!(
-            (1..=3600).contains(&self.updates) && (1..=8).contains(&self.renders_per_update),
+            (1..=MAX_SEQUENCE_UPDATES).contains(&self.updates)
+                && (1..=8).contains(&self.renders_per_update),
             "invalid sequence length/cadence"
         );
         ensure!(
@@ -53,7 +59,10 @@ impl FieldSequence {
             "invalid sequence direction"
         );
         ensure!(
-            self.accept_updates.iter().all(|u| *u < self.updates),
+            self.accept_updates
+                .iter()
+                .chain(&self.ring_updates)
+                .all(|u| *u < self.updates),
             "input outside sequence"
         );
         ensure!(
@@ -129,6 +138,7 @@ fn advance(
             direction: movement.map_or(recording.spec.direction, |m| m.direction),
             run: movement.map_or(recording.spec.run, |m| m.run),
             interact: recording.spec.accept_updates.contains(&update),
+            alternate: recording.spec.ring_updates.contains(&update),
             ..Default::default()
         }) {
             error!("field sequence update failed: {error:#}");
@@ -179,7 +189,8 @@ fn capture(
     let state = serde_json::json!({
         "frame":frame, "tick":world.tick, "audio_device":false,
         "input_enabled":world.input_enabled,
-        "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"position":a.position,"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
+        "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"position":a.position,"visual_position":a.visual_position(),"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
+        "model_particles":world.model_particles.iter().map(|(id,p)|serde_json::json!({"id":id,"resource":p.resource,"position":p.position,"rotation":p.rotation,"scale":p.scale,"rgba":p.rgba})).collect::<Vec<_>>(),
         "poses":roots.iter().filter(|(_,p)|p.actor==world.controlled_actor && p.part==0).flat_map(|(root,_)|children.iter_descendants(root)).filter_map(|e|bones.get(e).ok()).map(|(name,t,g)|serde_json::json!({"name":name.as_str(),"translation":t.translation.to_array(),"rotation":t.rotation.to_array(),"world":g.to_matrix().to_cols_array()})).collect::<Vec<_>>(),
         "emotes":format!("{:?}",world.emotes),
         "refractions":world.refractions.iter().map(|(id,p)| {
