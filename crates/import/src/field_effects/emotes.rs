@@ -200,10 +200,6 @@ pub(super) fn read(executable: &[u8]) -> Result<BTreeMap<u16, EmoteTrack>> {
                         let angle = value(0x8035B168)? + i as f32 * value(0x8035B16C)?;
                         emit(
                             [
-                                // The original SDK calls are sin (80129AD4)
-                                // for horizontal displacement and cos (8012928C)
-                                // for height. Swapping them buries the strokes
-                                // behind the character's head.
                                 radius * (-angle).to_radians().sin(),
                                 0.,
                                 radius * angle.to_radians().cos() + height + value(0x8035B054)?

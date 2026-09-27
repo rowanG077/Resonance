@@ -1,4 +1,7 @@
 //! Cooked camera-facing sprites; no original draw commands at runtime.
+pub const FIELD_PALETTE_COLORS: usize = 110;
+/// The automatic wing callback writes its atlas rectangle directly.
+pub const WING_SPARK_SPRITE: u16 = 256;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -99,19 +102,67 @@ pub struct FieldEffects<Image = String> {
     pub status_texture: Image,
     pub paralysis: EmoteTrack,
     pub sprites: BTreeMap<u16, SpriteRecipe<Image>>,
+    #[serde(default)]
+    pub palette: Vec<[u8; 4]>,
     pub refraction: RefractionRecipe<Image>,
+    pub air_refraction: SpriteRecipe<Image>,
     pub emotes: BTreeMap<u16, EmoteTrack>,
     pub mouth_cycle: Vec<u8>,
 }
+pub const SMOKE_SPRITE: u16 = 1;
+pub const FIELD_EFFECTS_VERSION: u32 = 8;
+pub const STREAK_SPRITE: u16 = 23;
+pub const SMOKE_UPDATES: u32 = 56;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpriteFrame {
+    pub uv: [f32; 4],
+    pub ticks: u16,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpriteRecipe<Image = String> {
     pub texture: Image,
     pub uv: [f32; 4],
     pub additive: bool,
+    /// Frame durations include the native timer-zero pose.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frames: Vec<SpriteFrame>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub repeat: bool,
 }
 impl<Image: AsRef<str>> SpriteRecipe<Image> {
+    pub fn uv_at(&self, mut age: u32) -> [f32; 4] {
+        if self.repeat {
+            let period = self.frames.iter().map(|f| u32::from(f.ticks)).sum::<u32>();
+            if period > 0 {
+                age %= period;
+            }
+        }
+        for frame in &self.frames {
+            if age < u32::from(frame.ticks) {
+                return frame.uv;
+            }
+            age -= u32::from(frame.ticks);
+        }
+        self.frames.last().map_or(self.uv, |frame| frame.uv)
+    }
+
     pub fn validate(&self) -> Result<()> {
         crate::validate_asset_path(self.texture.as_ref())?;
+        ensure!(
+            self.frames.len() <= 126
+                && self.frames.iter().all(|frame| {
+                    frame.ticks > 0
+                        && frame.uv[0] < frame.uv[2]
+                        && frame.uv[1] < frame.uv[3]
+                        && frame
+                            .uv
+                            .iter()
+                            .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+                }),
+            "invalid sprite animation"
+        );
         ensure!(
             self.uv
                 .iter()
@@ -172,6 +223,8 @@ pub enum VerticalAnchor {
     Center,
     Bottom,
     Top,
+    UpperHalf,
+    LowerHalf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,10 +244,23 @@ fn opaque() -> u8 {
 impl<Image: AsRef<str>> FieldEffects<Image> {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 5
+            self.version == FIELD_EFFECTS_VERSION
                 && self.emotes.len() <= 256
                 && self.sprites.len() <= 256
-                && self.sprites.contains_key(&10),
+                && self.sprites.contains_key(&10)
+                && self.sprites.contains_key(&11)
+                && self.sprites.contains_key(&12)
+                && self.sprites.contains_key(&14)
+                && self.sprites.contains_key(&41)
+                && self.sprites.contains_key(&42)
+                && self.sprites.contains_key(&68)
+                && self.sprites.contains_key(&69)
+                && self.sprites.contains_key(&6)
+                && self.sprites.contains_key(&5)
+                && self.sprites.contains_key(&7)
+                && self.sprites.contains_key(&23)
+                && self.sprites.contains_key(&SMOKE_SPRITE)
+                && self.palette.len() == FIELD_PALETTE_COLORS,
             "invalid or outdated field effects; run cook-all"
         );
         crate::validate_asset_path(self.emote_texture.as_ref())?;
@@ -205,7 +271,11 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
                 && self.paralysis.cycle.iter().all(|frame| frame.len() == 1),
             "paralysis requires two visible symbol poses"
         );
-        for sprite in self.sprites.values().chain([&self.refraction.sprite]) {
+        for sprite in self
+            .sprites
+            .values()
+            .chain([&self.refraction.sprite, &self.air_refraction])
+        {
             sprite.validate()?;
         }
         ensure!(

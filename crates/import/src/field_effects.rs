@@ -78,6 +78,8 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
             texture: image(value.texture)?,
             uv: value.uv,
             additive: value.additive,
+            frames: value.frames,
+            repeat: value.repeat,
         })
     };
     let source = recipe.shadow;
@@ -96,11 +98,13 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
         emote_texture: image(source.emote_texture)?,
         status_texture: image(source.status_texture)?,
         paralysis: source.paralysis,
+        palette: source.palette,
         sprites: source
             .sprites
             .into_iter()
             .map(|(id, value)| Ok((id, sprite(value)?)))
             .collect::<Result<_>>()?,
+        air_refraction: sprite(source.air_refraction)?,
         refraction: RefractionRecipe {
             sprite: sprite(source.refraction.sprite)?,
             displacement: source.refraction.displacement,
@@ -133,6 +137,7 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
         &effects.emote_texture,
         &effects.status_texture,
         &effects.refraction.sprite.texture,
+        &effects.air_refraction.texture,
         &shadow.texture,
     ]
     .into_iter()

@@ -17,6 +17,7 @@ const BATTLE_MOTIONS: u32 = 0x801fabf4;
 const FIELD_MOTIONS: u32 = 0x8017e4c0;
 const FIELD_SERVICES: u32 = 0x8017a33c;
 const SAVE_POINT: u32 = 0x8017a52c;
+const COLETTE_WINGS: u32 = 0x8017e52c;
 const INLINE_BYTES: usize = 12;
 
 #[derive(Debug, Clone, Copy)]
@@ -67,6 +68,7 @@ pub(crate) struct Catalogue {
     pub(crate) party_field_motions: Vec<InlineName>,
     pub(crate) field_services: Vec<InlineName>,
     pub(crate) save_point: String,
+    pub(crate) colette_wings: String,
     pub(crate) treasures: [String; 3],
 }
 
@@ -154,6 +156,7 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
         party_field_motions: inline_names(executable, FIELD_MOTIONS, 9, INLINE_BYTES)?,
         field_services: inline_names(executable, FIELD_SERVICES, 10, 16)?,
         save_point: dol::text(executable, SAVE_POINT)?,
+        colette_wings: dol::text(executable, COLETTE_WINGS)?,
         treasures: [0x8017_a538, 0x8017_a544, 0x8017_a550]
             .map(|address| dol::text(executable, address))
             .into_iter()
@@ -173,9 +176,9 @@ mod tests {
     use super::*;
     use std::{collections::BTreeSet, fs};
 
-    fn fixture() -> (Vec<u8>, [usize; 8]) {
+    fn fixture() -> (Vec<u8>, [usize; 9]) {
         let mut executable = vec![0; 0x100];
-        let mut offsets = [0; 8];
+        let mut offsets = [0; 9];
         for (i, (address, size)) in [
             (STANDALONE, 53 * 4),
             (GROUPS, 14 * 12),
@@ -185,6 +188,7 @@ mod tests {
             (FIELD_SERVICES, 10 * 16),
             (0x80001000, 8),
             (SAVE_POINT, 48),
+            (COLETTE_WINGS, 16),
         ]
         .into_iter()
         .enumerate()
@@ -207,6 +211,7 @@ mod tests {
         executable[offsets[1] + 9..offsets[1] + 12].copy_from_slice(&[0x81, 0xfe, 0x7f]);
         executable[offsets[6]..offsets[6] + 8].copy_from_slice(b"absent\0\0");
         executable[offsets[7]..offsets[7] + 12].copy_from_slice(b"renamed.cab\0");
+        executable[offsets[8]..offsets[8] + 13].copy_from_slice(b"col_wing.bin\0");
         for (offset, name) in [(12, "box.cab"), (24, "box2.cab"), (36, "box3.cab")] {
             executable[offsets[7] + offset..offsets[7] + offset + name.len()]
                 .copy_from_slice(name.as_bytes());
@@ -380,6 +385,13 @@ mod tests {
                     }
                 }
                 assert_eq!(catalogue.field_service(10)?, "minini_ex.bin");
+                for character in [1, 2] {
+                    assert_eq!(
+                        catalogue.party(PartyResource::Body, character, 0)?,
+                        catalogue.party(PartyResource::Body, character, 3)?,
+                        "early transformation must use the already cooked normal body"
+                    );
+                }
                 assert_eq!(catalogue.groups[13].path, None);
                 assert_eq!(
                     catalogue.party_battle_motions[9],

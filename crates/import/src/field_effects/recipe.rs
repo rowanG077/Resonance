@@ -101,26 +101,48 @@ fn sprite(
             .sequence
             .context("particle needs an animation sequence")?,
     )?;
-    ensure!(
-        entry.frames.len() == 1,
-        "sprite needs an animation controller"
-    );
     let index = match entry.image {
         ImageBinding::Shared(index) => index,
         ImageBinding::Fallback(_) => 0,
         _ => anyhow::bail!("sprite needs a dynamic texture"),
     };
-    let [u, v] = entry.frames[0].origin;
     let [width, height] = entry.dimensions;
-    Ok(SpriteRecipe {
-        texture: Atlas::Effect(index),
-        uv: [
+    let uv = |[u, v]: [u8; 2]| {
+        [
             u,
             v,
             u.wrapping_add(width.wrapping_sub(1)),
             v.wrapping_add(height.wrapping_sub(1)),
         ]
-        .map(|v| f32::from(v) / 256.),
+        .map(|v| f32::from(v) / 256.)
+    };
+    let frames = if entry.frames.len() > 1 {
+        entry
+            .frames
+            .iter()
+            .map(|frame| {
+                Ok(resonance_content::effect::SpriteFrame {
+                    uv: uv(frame.origin),
+                    ticks: u16::try_from(i32::from(frame.duration) + 1)?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
+    if kind == resonance_content::effect::SMOKE_SPRITE {
+        ensure!(
+            frames.iter().map(|f| u32::from(f.ticks)).sum::<u32>()
+                == resonance_content::effect::SMOKE_UPDATES,
+            "smoke controller lifetime differs"
+        );
+    }
+    Ok(SpriteRecipe {
+        texture: Atlas::Effect(index),
+        uv: uv(entry.frames[0].origin),
+        repeat: !frames.is_empty()
+            && matches!(entry.terminator.action, super::catalogue::EndAction::Loop),
+        frames,
         additive: constructor.blend.unwrap_or(constructors.fresh_slot.blend) == Blend::Additive,
     })
 }
@@ -137,7 +159,7 @@ fn effects(
         ))
     };
     let effects = FieldEffects {
-        version: 5,
+        version: resonance_content::effect::FIELD_EFFECTS_VERSION,
         emote_texture: Atlas::Effect(1),
         status_texture: Atlas::Status,
         paralysis: EmoteTrack {
@@ -160,14 +182,26 @@ fn effects(
                 })
                 .collect::<Result<_>>()?,
         },
-        sprites: [0, 4, 7, 8, 10, 22]
+        palette: constructors.palette.clone(),
+        sprites: [0, 1, 4, 5, 6, 7, 8, 10, 11, 12, 14, 22, 23, 41, 42, 68, 69]
             .into_iter()
             .map(|kind| Ok((kind, sprite(kind)?)))
+            .chain(std::iter::once(Ok((
+                resonance_content::effect::WING_SPARK_SPRITE,
+                SpriteRecipe {
+                    texture: Atlas::Effect(0),
+                    uv: [16., 192., 31., 207.].map(|v| v / 256.),
+                    additive: false,
+                    frames: Vec::new(),
+                    repeat: false,
+                },
+            ))))
             .collect::<Result<_>>()?,
         refraction: resonance_content::effect::RefractionRecipe {
             sprite: sprite(27)?,
             displacement: [value(0x801E3828)? * 2., value(0x801E3838)? * 2.],
         },
+        air_refraction: sprite(9)?,
         emotes: emotes::read(executable)?,
         // Each mouth frame lasts duration + 1 updates; 0xFD loops the sequence.
         // The dialogue player enables the sequence during text reveal and speech.

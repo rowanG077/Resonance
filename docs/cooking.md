@@ -161,11 +161,9 @@ into actor ranges. Field metadata versions reject obsolete ordering layouts.
 
 ## Recovery and validation
 
-Use the original loaders and consumers in
-`/home/rowan.goemans/Documents/engineering/Tales-of-Symphonia-decomp` to establish
-layouts and behavior. Prefer checked shared parsers and named fields. Preserve
-meaningful unresolved storage; do not hide failed decoding with asset-specific
-fallbacks. `read::record!` keeps original field layouts beside decoding expressions.
+Use checked parsers and named fields for asset layouts. Keep binary decoding in
+the importer and define gameplay behavior in the runtime. Validate input data
+without reproducing implementation quirks from another engine.
 
 Validate changed readers on representative original content before a full cook.
 At integration checkpoints, exercise both discs and the supported field, menu,
