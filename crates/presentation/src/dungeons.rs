@@ -1,5 +1,7 @@
 mod destinations;
 mod overlay;
+#[cfg(test)]
+mod tests;
 use super::{loading, new_game};
 use bevy::prelude::*;
 use destinations::DESTINATIONS;
