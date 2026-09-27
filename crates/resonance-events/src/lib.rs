@@ -19,6 +19,7 @@ mod resources;
 mod scheduler;
 mod trigger;
 mod wings;
+pub use wings::COLETTE_WINGS_ACTOR;
 mod world;
 pub use animation::Animation;
 pub use resources::{

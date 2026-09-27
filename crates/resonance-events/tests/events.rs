@@ -1093,6 +1093,83 @@ fn model(slots: impl IntoIterator<Item = u16>, duration_ticks: u32) -> ModelReso
 }
 
 #[test]
+fn scripted_colette_wings_emit_sparks_from_their_own_model() {
+    use resonance_content::animation::{Bone, Skeleton, Transform, TransformChannels};
+    // The fire-seal scene loads NPC 356, not the automatic flight accessory.
+    let resource = 0x0002_0164;
+    let wings = ModelResource {
+        names: vec!["tip".into()],
+        attachments: ModelAttachments {
+            skeleton: Some(Arc::new(Skeleton {
+                bones: vec![Bone {
+                    name: "tip".into(),
+                    parent: None,
+                    bind_channels: TransformChannels(0),
+                    bind: Transform {
+                        translation: [100., 0., 0.],
+                        ..Default::default()
+                    },
+                }],
+            })),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resources = ResourceLibrary {
+        models: [(resource, wings)].into(),
+        ..Default::default()
+    };
+    let mut world = GameWorld::default();
+    world.insert_actor(90021, Actor::new(resource, [200., 0., 0.]));
+    let mut events = runtime(program(&[0x20ff], &[0x20ff]), resources, world);
+    steps(&mut events, 4);
+    assert_eq!(events.world.billboards.len(), 1);
+    let spark = events.world.billboards.values().next().unwrap();
+    assert_eq!(spark.recipe, resonance_content::effect::WING_SPARK_SPRITE);
+    assert!((285. ..=316.).contains(&spark.position[0]));
+    assert!((-15. ..=16.).contains(&spark.position[1]));
+    events
+        .world
+        .actors
+        .get_mut(&90021)
+        .unwrap()
+        .appearance
+        .model_hidden = true;
+    steps(&mut events, 4);
+    assert_eq!(events.world.billboards.len(), 1);
+
+    events
+        .world
+        .insert_actor(2, Actor::new(resource, [1000., 0., 0.]));
+    let wing = events.world.actors.get_mut(&90021).unwrap();
+    wing.appearance.model_hidden = false;
+    wing.attachment = Some(resonance_events::Attachment {
+        actor: 2,
+        bone: "tip".into(),
+    });
+    events.step().unwrap();
+    events.world.actors.remove(&2);
+    steps(&mut events, 4);
+    let spark = events.world.billboards.values().last().unwrap();
+    assert!((1385. ..=1416.).contains(&spark.position[0]));
+
+    // A replacement wing must not inherit the old instance's attachment frame.
+    let mut replacement = Actor::new(resource, [200., 0., 0.]);
+    replacement.attachment = Some(resonance_events::Attachment {
+        actor: 2,
+        bone: "tip".into(),
+    });
+    events.world.insert_actor(90021, replacement);
+    assert!(
+        events
+            .step()
+            .unwrap_err()
+            .to_string()
+            .contains("first pose")
+    );
+}
+
+#[test]
 fn sparse_attachments_emit_each_tick_with_affine_parents_fractional_rate_and_pose_delay() {
     use resonance_content::animation::{Bone, Motion, Skeleton, Transform, TransformChannels};
     let skeleton = Arc::new(Skeleton {

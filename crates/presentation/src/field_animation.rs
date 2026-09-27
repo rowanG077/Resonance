@@ -105,7 +105,7 @@ pub(super) fn sample(
                 0,
                 model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ,
             );
-            if actor.resource == resonance_content::field::COLETTE_WINGS_RESOURCE && part.pass < 2 {
+            if part.actor == resonance_events::COLETTE_WINGS_ACTOR && part.pass < 2 {
                 let duration =
                     model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ;
                 if duration > 0. {

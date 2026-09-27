@@ -1,12 +1,19 @@
-//! Colette's automatic flight accessory, fn_8001A6FC / fn_800191F0.
+//! Colette's flight accessory and scripted wings.
 use crate::{Actor, Animation, Attachment, GameWorld, ResourceLibrary, animation::slot};
 use anyhow::{Context, Result};
 use resonance_content::{
-    animation::{multiply, transform_point},
+    animation::{Matrix, multiply, transform_point},
     field::COLETTE_WINGS_RESOURCE,
 };
 
-const WINGS: i32 = 90021;
+pub const COLETTE_WINGS_ACTOR: i32 = 90021;
+const WINGS: i32 = COLETTE_WINGS_ACTOR;
+
+pub(crate) struct RetainedAttachment {
+    instance: u64,
+    attachment: Attachment,
+    parent: Matrix,
+}
 
 impl GameWorld {
     pub(crate) fn step_colette_wings(
@@ -65,12 +72,45 @@ impl GameWorld {
             self.automatic_wings = Some((self.actors[&WINGS].instance, parent));
             return Ok(());
         }
-        if self.automatic_wings.is_none() || self.effect_tick & 3 != 0 {
+        let Some(actor) = self.actors.get(&WINGS) else {
+            self.wing_attachment = None;
+            return Ok(());
+        };
+        if !actor.visible || actor.appearance.model_hidden {
             return Ok(());
         }
-        let actor = &self.actors[&WINGS];
-        let root = self.attachment_root(resources, WINGS)?;
-        let model = resources.model(COLETTE_WINGS_RESOURCE).unwrap();
+        let root = if let Some(attachment) = &actor.attachment {
+            let parent = if self.actors.contains_key(&attachment.actor) {
+                self.attachment_parent(resources, attachment)?
+            } else {
+                // Native attachment matrices survive the owner's temporary
+                // removal. Triet recreates Colette while these wings remain.
+                self.wing_attachment
+                    .as_ref()
+                    .filter(|frame| {
+                        frame.instance == actor.instance
+                            && frame.attachment.actor == attachment.actor
+                            && frame.attachment.bone == attachment.bone
+                    })
+                    .context("wing attachment owner is missing before its first pose")?
+                    .parent
+            };
+            self.wing_attachment = Some(RetainedAttachment {
+                instance: actor.instance,
+                attachment: attachment.clone(),
+                parent,
+            });
+            multiply(parent, actor.local_matrix())
+        } else {
+            self.wing_attachment = None;
+            actor.local_matrix()
+        };
+        if self.effect_tick & 3 != 0 {
+            return Ok(());
+        }
+        let model = resources
+            .model(actor.resource)
+            .context("wing model is missing")?;
         let points: Result<Vec<_>> = model
             .names
             .iter()
@@ -86,28 +126,18 @@ impl GameWorld {
             let size = 2. + (self.random() & 3) as f32;
             let fall = -((self.random() & 7) as f32) / 16.;
             self.emit_billboard(crate::effect::BillboardEffect {
-                operation: None,
-                owner: None,
                 field_lighting: true,
-                field_fog: true,
                 recipe: resonance_content::effect::WING_SPARK_SPRITE,
-                orientation: crate::effect::SpriteOrientation::Camera,
-                anchor: resonance_content::effect::VerticalAnchor::Center,
-                palette: None,
                 born: self.tick,
                 lifetime: 21,
                 position,
                 velocity: [0., 0., fall],
-                acceleration: None,
-                controller: None,
-                gravity: 0.,
-                rotation: [0.; 3],
                 angular_velocity: [0., 0., -6.],
                 size: [size; 2],
-                size_delta: 0.,
                 rgba: [255; 4],
                 fade: crate::effect::Fade::tail(21),
                 blend_mode: Some(0),
+                ..Default::default()
             })
             .map_err(anyhow::Error::msg)?;
         }
