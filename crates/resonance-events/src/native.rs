@@ -366,9 +366,17 @@ impl NativeHost<'_> {
                 } else {
                     a[0]
                 };
+                if a[1] == 49 {
+                    // Both native property commands only read this detection bit.
+                    let alert = self
+                        .world
+                        .actors
+                        .get(&id)
+                        .and_then(|actor| actor.enemy.as_ref())
+                        .is_some_and(|enemy| enemy.alerted);
+                    return Ok(NativeResult::Continue(Some(i32::from(alert))));
+                }
                 if (SHADE_RED..=SHADE_BLUE).contains(&a[1]) {
-                    // Both property commands only read these evaluated colors
-                    // (fn_80055140 / fn_8005673C, actor bytes 0x6EE..0x6F0).
                     let color = self.world.actors.get(&id).map_or(0, |actor| {
                         let light = actor.light.clone().unwrap_or_default();
                         i32::from(light.shade[(a[1] - SHADE_RED) as usize])
@@ -401,7 +409,7 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(Some(previous)));
                 }
                 require(
-                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=22 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53 | 66 | CONDITIONS | 101 | 102 | 104 | 112)
+                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=22 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53..=54 | 56 | 66 | CONDITIONS | 101 | 102 | 104 | 112)
                         && (a[1] != 112 || op == NativeCall::GetActorProperty),
                     "actor property shim is not implemented",
                 )?;
@@ -561,6 +569,14 @@ impl NativeHost<'_> {
                     }
                     47 => actor.radius as i32,
                     51 => i32::from(actor.shadow_alpha),
+                    54 => actor
+                        .enemy
+                        .as_ref()
+                        .map_or(0, |enemy| i32::from(enemy.contact_cooldown)),
+                    56 => actor
+                        .enemy
+                        .as_ref()
+                        .map_or(0, |enemy| i32::from(enemy.pause_effect_mode)),
                     41 | 48 | 50 => actor.properties.get(&a[1]).copied().unwrap_or(0),
                     42..=44 => actor.properties.get(&a[1]).copied().unwrap_or(255),
                     46 => i32::from(!actor.depth_write),
@@ -651,6 +667,20 @@ impl NativeHost<'_> {
                         }
                         47 => actor.radius = a[2] as f32,
                         51 => actor.shadow_alpha = a[2] as u8,
+                        54 => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                enemy.contact_cooldown = a[2] as i16;
+                            }
+                        }
+                        56 => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                require(
+                                    !matches!(a[2] as u8, 4 | 6),
+                                    "enemy pause effect is not implemented",
+                                )?;
+                                enemy.pause_effect_mode = a[2] as u8;
+                            }
+                        }
                         46 => actor.depth_write = a[2] & 1 == 0,
                         45 => {
                             require(a[2] & 7 <= 2, "actor blend mode is not implemented")?;

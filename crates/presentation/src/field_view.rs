@@ -1852,7 +1852,7 @@ fn pose(
         let brightness = world.brightness();
         let reaction_tint = world
             .pose_tint(instance.actor)
-            .or_else(|| actor.enemy.as_ref()?.stun?.effect.tint())
+            .or_else(|| actor.enemy.as_ref()?.stun_effect()?.tint())
             .map_or(Vec4::ONE, |color| {
                 Vec4::new(
                     color[0] as f32 / f32::from(resonance_events::effect::NEUTRAL_TINT),

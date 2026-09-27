@@ -87,8 +87,8 @@ impl crate::GameWorld {
         if !actor
             .enemy
             .as_ref()
-            .and_then(|e| e.stun)
-            .is_some_and(|s| matches!(s.effect, StunEffect::Electric | StunEffect::Lightning))
+            .and_then(crate::Enemy::stun_effect)
+            .is_some_and(|effect| matches!(effect, StunEffect::Electric | StunEffect::Lightning))
         {
             return Ok(());
         }

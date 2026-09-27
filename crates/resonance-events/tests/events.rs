@@ -36,6 +36,14 @@ fn interactive_effect(setup: &[u16], interaction: &[u16]) -> EventRuntime {
     runtime(program(setup, interaction), Default::default(), world)
 }
 
+fn enemy_resources() -> ResourceLibrary {
+    ResourceLibrary {
+        bindings: [(1, (ResourceKind::Model, 1))].into(),
+        models: [(1, model([12, 36], 20))].into(),
+        ..Default::default()
+    }
+}
+
 #[test]
 fn script_can_enable_and_disable_a_pushable_model_after_spawn() {
     let mut world = GameWorld::default();
@@ -81,6 +89,85 @@ fn ordinary_locomotion_replaces_same_slot_from_a_block_animation_bank() {
         assert_eq!(animation.source, AnimationSource::Model);
         assert_eq!(animation.resource, 1);
         assert_eq!(animation.slot, slot);
+    }
+}
+
+#[test]
+fn scripted_enemy_reaction_returns_the_previous_mode_and_reads_its_current_value() {
+    let main = script(&[
+        (
+            Call::SpawnEnemyActor,
+            &[90, 0, 0, 50, 0, 0, 0, 2, 4, 42, 1, 0, 1, 1, 600, 0],
+        ),
+        (Call::SetActorProperty, &[90, 54, -1]),
+        (Call::SetActorProperty, &[90, 56, 5]),
+        (Call::SetActorProperty, &[90, 56, 13]),
+    ]);
+    let resources = enemy_resources();
+    let child = script(&[(Call::GetActorProperty, &[90, 56])]);
+    let mut events = runtime(program(&main, &child), resources, GameWorld::default());
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 5);
+    assert_eq!(
+        events.world.actors[&90]
+            .enemy
+            .as_ref()
+            .unwrap()
+            .stun_effect(),
+        Some(effect::StunEffect::Lightning)
+    );
+    events.world.input_enabled = true;
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 13);
+}
+
+#[test]
+fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values() {
+    for (value, expected) in [(-1, -1), (2, 2)] {
+        let main = script(&[
+            (
+                Call::SpawnEnemyActor,
+                &[90, 0, 0, 50, 0, 0, 0, 2, 4, 42, 1, 0, 1, 1, 600, 0],
+            ),
+            (Call::SetActorProperty, &[90, 54, value]),
+            (Call::GetActorProperty, &[90, 54]),
+        ]);
+        let resources = enemy_resources();
+        let mut world = GameWorld::default();
+        world.input_enabled = true;
+        let mut events = runtime(program_kind(&main, &[0x20ff], 0), resources, world);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), expected);
+        let initial = events.world.actors[&90].position;
+        assert!(!events.contact_enemy(90).unwrap());
+        for _ in 0..2 {
+            events.step().unwrap();
+            assert_eq!(events.world.actors[&90].position, initial);
+        }
+        if expected < 0 {
+            steps(&mut events, 60);
+            assert_eq!(events.world.actors[&90].position, initial);
+            assert_eq!(
+                i32::from(
+                    events.world.actors[&90]
+                        .enemy
+                        .as_ref()
+                        .unwrap()
+                        .contact_cooldown
+                ),
+                -1
+            );
+            assert!(!events.contact_enemy(90).unwrap());
+        } else {
+            assert_eq!(
+                events.world.actors[&90]
+                    .enemy
+                    .as_ref()
+                    .unwrap()
+                    .contact_cooldown,
+                0
+            );
+            assert!(events.contact_enemy(90).unwrap());
+        }
     }
 }
 
@@ -3712,11 +3799,7 @@ fn enemy_contact_uses_its_event_key_and_publishes_the_symbol_identity_once() {
     let child = script(&[(Call::SetEventBit, &[123]), (Call::YieldCommand, &[0, 2])]);
     let mut world = GameWorld::default();
     world.input_enabled = true;
-    let resources = ResourceLibrary {
-        bindings: [(1, (ResourceKind::Model, 1))].into(),
-        models: [(1, model([12, 36], 20))].into(),
-        ..Default::default()
-    };
+    let resources = enemy_resources();
     let mut events = runtime(program_kind(&main, &child, 0), resources, world);
     assert!(events.contact_enemy(90).unwrap());
     assert!(!events.contact_enemy(90).unwrap());

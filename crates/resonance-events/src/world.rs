@@ -118,9 +118,26 @@ pub struct Enemy {
     pub chase_on_sight: bool,
     pub sight_angle: f32,
     pub sight_distance: f32,
+    /// Result of the field's most recent native sight query (property 49).
+    pub alerted: bool,
     pub event_parameters: [i16; 2],
-    pub contact_cooldown: u16,
+    /// Native signed timer (property 54); negative values pause indefinitely.
+    pub contact_cooldown: i16,
+    /// Native property 56 selects the reaction while the pause timer is active.
+    pub pause_effect_mode: u8,
     pub stun: Option<crate::effect::Stun>,
+}
+impl Enemy {
+    pub fn stun_effect(&self) -> Option<crate::effect::StunEffect> {
+        use crate::effect::StunEffect;
+        self.stun.map(|stun| stun.effect).or_else(|| {
+            (self.contact_cooldown != 0).then_some(match self.pause_effect_mode {
+                5 => StunEffect::Electric,
+                13 => StunEffect::Lightning,
+                _ => StunEffect::None,
+            })
+        })
+    }
 }
 #[derive(Debug, Clone, Copy)]
 pub struct ActorCreation {

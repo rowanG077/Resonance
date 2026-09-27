@@ -130,19 +130,17 @@ impl Actor {
                 intent.paused = true;
                 return intent;
             }
-            if free_control {
-                enemy.contact_cooldown = enemy.contact_cooldown.saturating_sub(1);
+            // fn_800111D4 freezes autonomous movement while this signed timer
+            // is nonzero. Positive values expire; -1 remains until a script
+            // resumes the enemy. Scripted motion has its own controller.
+            if enemy.contact_cooldown != 0 && self.motion.is_none() {
+                if enemy.contact_cooldown > 0 {
+                    enemy.contact_cooldown -= 1;
+                }
+                intent.paused = true;
+                return intent;
             }
-            let alert = player.is_some_and(|p| {
-                let dx = p[0] - self.position[0];
-                let dy = p[1] - self.position[1];
-                let distance = dx.hypot(dy);
-                let angle = self.heading.to_radians();
-                distance < enemy.sight_distance
-                    && (distance == 0.
-                        || (dx * angle.sin() - dy * angle.cos()) / distance
-                            > (enemy.sight_angle.to_radians() * 0.5).cos())
-            });
+            let alert = enemy.alerted;
             ai.speed = if alert {
                 enemy.alert_speed
             } else {

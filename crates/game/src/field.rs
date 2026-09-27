@@ -763,6 +763,7 @@ impl FieldSession {
                 resolved.insert(id, actor.position);
             },
             |events| {
+                self.walkmesh.update_enemy_sight(&mut events.world);
                 conditions::step(&mut events.world, self.effect_clock.tick())?;
                 self.save_points
                     .step_effects(events, self.effect_clock.tick())?;
