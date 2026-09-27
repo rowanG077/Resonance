@@ -25,7 +25,7 @@ nix develop
 cargo build --workspace
 target/debug/resonance-import extract --disc /path/to/Disc1.rvz --output local/extracted/disc1
 target/debug/resonance-import extract --disc /path/to/Disc2.rvz --output local/extracted/disc2
-target/debug/resonance-import cook-all --jobs 6 --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
+target/debug/resonance-import cook-all --jobs 6
 ```
 
 The current import profile supports North American GQSEAF revision 0.
@@ -42,6 +42,8 @@ other paths and worker limits. Keep discs, extracted files, cooked assets and
 recordings in the ignored `local/` directory. Cooking uses in-process Rust codecs,
 with no FFmpeg, vgmstream or KTX command-line tools. The
 [development flake](flake.nix) supplies the build and oracle tools.
+Audio interpolation filters are generated in Rust; no Dolphin installation or
+DSP coefficient file is required.
 The importer parses original databases into validated JSON, including
 recipes, ingredients, item statistics, EX skill definitions and menu settings in
 `game/menu-data.json`.

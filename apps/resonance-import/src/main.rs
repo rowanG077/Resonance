@@ -20,8 +20,6 @@ enum Action {
         extracted: Vec<PathBuf>,
         #[arg(long, default_value = "local/all-assets")]
         output: PathBuf,
-        #[arg(long)]
-        coefficients: PathBuf,
     },
     /// Compare every cooked shop inventory and price with the original disc data.
     ValidateShops {
@@ -62,8 +60,6 @@ enum Action {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
         #[arg(long)]
-        coefficients: PathBuf,
-        #[arg(long)]
         output: PathBuf,
         #[arg(long, default_value_t = 160000)]
         frames: u32,
@@ -76,8 +72,6 @@ enum Action {
     RenderMusicVoice {
         #[arg(long, default_value = "local/extracted/disc1")]
         extracted: PathBuf,
-        #[arg(long)]
-        coefficients: PathBuf,
         #[arg(long)]
         output: PathBuf,
         #[arg(long)]
@@ -97,9 +91,6 @@ enum Action {
         extracted: PathBuf,
         #[arg(long, default_value = "local/extracted/disc1/files/S/inst.snd")]
         bank: PathBuf,
-        /// Explicit 4096-byte big-endian DSP interpolation coefficients.
-        #[arg(long)]
-        coefficients: PathBuf,
         #[arg(long)]
         output: PathBuf,
         #[arg(long)]
@@ -156,15 +147,12 @@ fn main() -> anyhow::Result<()> {
             jobs,
             extracted,
             output,
-
-            coefficients,
         } => {
             let report =
                 resonance_import::all_assets::cook(&resonance_import::all_assets::Options {
                     jobs: usize::from(jobs),
                     discs: &extracted,
                     output: &output,
-                    coefficients: &coefficients,
                 })?;
             println!(
                 "{} conversion units, {} duplicate resources, {} deferred battle resources, {} failures",
@@ -227,20 +215,17 @@ fn main() -> anyhow::Result<()> {
         } => resonance_import::media::render_sound_sequence(&extracted, &output, frames, &events),
         Action::RenderTitleAudioPreview {
             extracted,
-            coefficients,
             output,
             frames,
             master_fade_lead_ms,
         } => resonance_import::media::render_title_audio_preview(
             &extracted,
-            &coefficients,
             &output,
             frames,
             master_fade_lead_ms,
         ),
         Action::RenderMusicVoice {
             extracted,
-            coefficients,
             output,
             macro_id,
             key,
@@ -250,7 +235,6 @@ fn main() -> anyhow::Result<()> {
         } => resonance_import::media::render_music_voice(
             resonance_import::media::MusicVoiceOptions {
                 extracted: &extracted,
-                coefficients: &coefficients,
                 output: &output,
                 macro_id,
                 key,
@@ -262,7 +246,6 @@ fn main() -> anyhow::Result<()> {
         Action::RenderPitchedSample {
             extracted,
             bank,
-            coefficients,
             output,
             id,
             key,
@@ -273,7 +256,6 @@ fn main() -> anyhow::Result<()> {
             resonance_import::media::PitchedSampleOptions {
                 extracted: &extracted,
                 bank: &bank,
-                coefficients: &coefficients,
                 output: &output,
                 id,
                 key,
@@ -312,4 +294,36 @@ fn parse_sound_event(value: &str) -> Result<(u32, u16), String> {
         frame.parse().map_err(|_| "invalid cue frame")?,
         id.parse().map_err(|_| "invalid sound ID")?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cooking_and_audio_diagnostics_use_generated_filters() {
+        for arguments in [
+            vec!["cook-all"],
+            vec!["render-title-audio-preview", "--output", "out"],
+            vec![
+                "render-music-voice",
+                "--output",
+                "out",
+                "--macro-id",
+                "1",
+                "--key",
+                "60",
+            ],
+            vec!["render-pitched-sample", "--output", "out", "--id", "1"],
+        ] {
+            let mut command = vec!["resonance-import"];
+            command.extend(&arguments);
+            Args::try_parse_from(&command).unwrap();
+            command.extend(["--coefficients", "reference.bin"]);
+            assert_eq!(
+                Args::try_parse_from(command).err().unwrap().kind(),
+                clap::error::ErrorKind::UnknownArgument
+            );
+        }
+    }
 }

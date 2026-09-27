@@ -27,7 +27,6 @@ pub(crate) fn voice_pan(executable: &[u8]) -> Result<Vec<[f32; 2]>> {
 pub(crate) struct FieldAudioCooker {
     workspace: Workspace,
     executable: Vec<u8>,
-    coefficients: Vec<u8>,
     additional_disc: Option<PathBuf>,
     catalogue: resources::Catalogue,
     pools: super::library::Pools,
@@ -39,11 +38,7 @@ pub(crate) struct FieldAudioCooker {
 }
 
 impl FieldAudioCooker {
-    pub(crate) fn new(
-        workspace: Workspace,
-        coefficients: &[u8],
-        additional_disc: Option<PathBuf>,
-    ) -> Result<Self> {
+    pub(crate) fn new(workspace: Workspace, additional_disc: Option<PathBuf>) -> Result<Self> {
         let executable = read_file(&workspace.extracted.join("sys/main.dol"))?;
         let pools = super::library::Pools::read(&workspace.extracted)?;
         Ok(Self {
@@ -52,7 +47,6 @@ impl FieldAudioCooker {
             reverbs: super::music::title_reverbs(&executable)?,
             workspace,
             executable,
-            coefficients: coefficients.into(),
             additional_disc,
             pools,
             music: BTreeMap::new(),
@@ -133,7 +127,6 @@ impl FieldAudioCooker {
                 let package = super::music_library::package(
                     &self.workspace,
                     &self.executable,
-                    &self.coefficients,
                     &self.pools,
                     id,
                     Some(self.reverbs),
@@ -153,7 +146,7 @@ impl FieldAudioCooker {
                         &self.workspace.output,
                         &resources,
                         score,
-                        super::synthesis_tables(&self.executable, &self.coefficients)?,
+                        super::synthesis_tables(&self.executable)?,
                         self.reverbs,
                     )?;
                     self.sounds.insert(key.clone(), self.publish(&package)?);

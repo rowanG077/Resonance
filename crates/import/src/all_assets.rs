@@ -110,7 +110,6 @@ impl Report {
 pub struct Options<'a> {
     pub discs: &'a [PathBuf],
     pub output: &'a Path,
-    pub coefficients: &'a Path,
     /// Maximum number of concurrent asset converters.
     pub jobs: usize,
 }
@@ -374,7 +373,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         let mut jobs = Vec::new();
         let deferred_sources =
             crate::source_assets::Sources::read_with(extracted, executable)?.deferred_paths();
-        let audio = audio::Cooker::new(extracted, &output_session, options.coefficients, &hashed);
+        let audio = audio::Cooker::new(extracted, &output_session, &hashed);
         let mut movies = Vec::new();
         for (relative, mut hash) in hashed {
             let source = extracted.join("files").join(&relative);
@@ -724,7 +723,6 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             let visuals = resolver.get(world_visuals)?;
             let mut audio = crate::media::FieldAudioCooker::new(
                 world_output.workspace(primary)?,
-                &fs::read(options.coefficients)?,
                 discs
                     .values()
                     .find(|&&path| path != primary)
@@ -1215,7 +1213,6 @@ mod tests {
         Options {
             discs: &[],
             output,
-            coefficients: Path::new("unused"),
             jobs: 1,
         }
     }
@@ -1461,11 +1458,9 @@ mod tests {
             fs::write(alias.join("sys/boot.bin"), b"GQSEAF\x01\0")?;
             let duplicate = [paths[1].clone(), alias];
             let output = root.join("output");
-            let absent_tool = root.join("no-codec-or-other-assets");
             let error = cook(&Options {
                 discs: &duplicate,
                 output: &output,
-                coefficients: &absent_tool,
                 jobs: 1,
             })
             .err()

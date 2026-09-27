@@ -379,13 +379,8 @@ mod tests {
             })
             .collect();
         if !missing.is_empty() {
-            let coefficients = fs::read(
-                std::env::var_os("RESONANCE_COEFFICIENTS")
-                    .context("set RESONANCE_COEFFICIENTS to cook missing sounds")?,
-            )?;
             let mut cooker = super::super::FieldAudioCooker::new(
                 crate::media::Workspace::open(&extracted, &root)?,
-                &coefficients,
                 None,
             )?;
             let path = "audio/field-sound-refresh.json";

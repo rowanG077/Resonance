@@ -266,7 +266,7 @@ cargo test -p resonance-import --lib original_overworld -- --ignored
 cargo test -p resonance-import --lib original_world_templates -- --ignored
 RESONANCE_ASSETS=/absolute/path/to/all-assets RESONANCE_COOKED=/absolute/path/to/current-cooked cargo test -p resonance-game --test overworld_assets original_world_script -- --ignored
 RESONANCE_COOKED=/absolute/path/to/media-library RESONANCE_WORLD_SKITS=/absolute/path/to/disposable-world-output cargo test -p resonance-import --lib original_world_skit_resources -- --ignored
-RESONANCE_COEFFICIENTS=/absolute/path/to/dsp_coef.bin RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-import --lib original_world_terrain_packages -- --ignored
+RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-import --lib original_world_terrain_packages -- --ignored
 RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-presentation --lib original_world_ -- --ignored
 RESONANCE_WORLD_ASSETS=/absolute/path/to/world-output cargo test -p resonance-game --test overworld_assets original_world_enemy -- --ignored
 cargo clippy -p resonance-content -p resonance-game -p resonance-events -p resonance-import -p resonance-presentation --all-targets -- -D warnings
