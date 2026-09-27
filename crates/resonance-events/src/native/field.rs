@@ -274,6 +274,7 @@ impl NativeHost<'_> {
                 actor.grounded = false;
                 actor.casts_shadow = false;
                 actor.depth_write = false;
+                actor.blend = Some(crate::model_particle::Blend::Additive);
                 actor.properties.insert(8, 64);
                 actor.properties.insert(17, 5);
                 actor.properties.insert(39, -1);

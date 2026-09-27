@@ -150,7 +150,7 @@ impl crate::GameWorld {
                 let color = if index < 2 { rgb } else { [NEUTRAL_TINT; 3] };
                 self.emit_billboard(BillboardEffect {
                     field_lighting: true,
-                    palette: Some(if index < 2 { 2 } else { 0 }),
+                    palette: (index >= 2).then_some(0),
                     recipe,
                     born: self.tick,
                     lifetime,
