@@ -315,11 +315,7 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         for path in &files {
             let declared_hashes = &declared_hashes;
             hashing.add(path.display().to_string(), [], move |_, _| {
-                let relative = path
-                    .strip_prefix(extracted.join("files"))?
-                    .to_str()
-                    .context("non-UTF8 disc path")?
-                    .to_owned();
+                let relative = crate::relative_source_path(&extracted.join("files"), path)?;
                 let hash = declared_hashes
                     .get(path)
                     .cloned()
@@ -356,14 +352,14 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         sources.insert(executable_label.clone(), executable_hash.clone());
         excluded.insert(executable_label, Exclusion::NativeCode);
         for path in walk(&extracted.join("sys"), &mut report) {
-            let relative = path.strip_prefix(extracted)?.to_string_lossy();
+            let relative = crate::relative_source_path(extracted, &path)?;
             if relative == "sys/main.dol" {
                 continue;
             }
             let label = format!("disc{}/{relative}", disc);
             let result = (|| {
                 sources.insert(label.clone(), media::hash_file(&path)?);
-                let reason = match relative.as_ref() {
+                let reason = match relative.as_str() {
                     "sys/apploader.img" => Exclusion::NativeCode,
                     "sys/boot.bin" | "sys/bi2.bin" | "sys/fst.bin" => Exclusion::DiscMetadata,
                     _ => anyhow::bail!("unclassified disc system file"),
