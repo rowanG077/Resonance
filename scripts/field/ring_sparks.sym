@@ -8,6 +8,7 @@ use game::effects::Spark;
 use game::effects::Blend;
 use game::effects::Color;
 use game::geometry::Vector;
+
 fn outer_color(kind: Shot) -> Color {
     if kind == Shot::Water {
         return Color {
@@ -29,6 +30,7 @@ fn inner_color(kind: Shot) -> Color {
         green: 255,
         blue: 10 };
 }
+
 const FireBurstSize: i32 = 4;
 const WaterBurstSize: i32 = 16;
 const FireBurstInheritance: f32 = 0.5;
@@ -58,18 +60,21 @@ const SpiralInnerSize: f32 = 38.0;
 const SpiralOuterGrowth: f32 = - 6.0;
 const SpiralInnerGrowth: f32 = - 5.0;
 const LongBurstVerticalScale: f32 = 4.0;
+
 fn spin() -> f32 {
     if (field::effect_tick() & 1) != 0 {
         return Spin;
     }
     return - Spin;
 }
+
 fn body(shot: projectiles::Projectile, lifetime: ticks, size: f32, growth: f32, color: Color) {
     effects::spark(projectiles::effect(shot), Spark {
         lifetime: lifetime, size: size + f32(field::random(BodySizeRange)), growth: growth, rotation: f32(field::random(RotationRange)), spin: spin(), velocity: Vector {
             x: 0.0, y: 0.0, z: 0.0 }, inherit_velocity: 0.0, color: color, offset: Vector {
             x: 0.0, y: 0.0, z: 0.0 }, fade: Fade, alpha: 255, blend: Blend::Additive, });
 }
+
 fn orbit(shot: projectiles::Projectile, age: i32, color: Color) {
     let velocity = projectiles::velocity(shot);
     let mut i = 0;
@@ -82,6 +87,7 @@ fn orbit(shot: projectiles::Projectile, age: i32, color: Color) {
         i += 1;
     }
 }
+
 pub fn trail(shot: projectiles::Projectile, kind: Shot, age: i32) {
     let outer = outer_color(kind);
     let inner = inner_color(kind);
@@ -102,6 +108,7 @@ pub fn trail(shot: projectiles::Projectile, kind: Shot, age: i32) {
     }
     motes(shot, inner, base_size, vertical);
 }
+
 pub fn frost(shot: projectiles::Projectile, age: i32) {
     let white = Color {
         red: 255,
@@ -114,6 +121,7 @@ pub fn frost(shot: projectiles::Projectile, age: i32) {
     body(shot, 5ticks, SpiralInnerSize, SpiralInnerGrowth, white);
     motes(shot, white, FireBurstSize, - 1.0);
 }
+
 fn motes(shot: projectiles::Projectile, color: Color, base_size: i32, vertical: f32) {
     let mut emitted = 0;
     while emitted < TrailCount {
@@ -124,6 +132,7 @@ fn motes(shot: projectiles::Projectile, color: Color, base_size: i32, vertical: 
         emitted += 1;
     }
 }
+
 pub fn burst(shot: projectiles::Projectile, kind: Shot) {
     let color = inner_color(kind);
     let mut size = FireBurstSize;

@@ -12,6 +12,7 @@ use field::ring_bolt;
 use field::ring_earthquake;
 use field::ring_pulse;
 use field::ring_bubble;
+
 pub task activate() {
     match ring::ability() {
         Ability::Fire => {
