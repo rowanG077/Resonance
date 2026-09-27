@@ -74,6 +74,9 @@ pub(crate) struct NativeCallback(u32);
 
 impl NativeCallback {
     pub const TITLE_SCENE: Self = Self(0x8002f440);
+    pub const CONVEYOR: Self = Self(0x8003de14);
+    pub const MARTEL_SEAL: Self = Self(0x800393f8);
+    pub const ACTOR_SCROLL: Self = Self(0x8003d038);
 }
 
 #[derive(Clone, Serialize)]

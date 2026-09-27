@@ -5,11 +5,14 @@ use std::{collections::BTreeMap, path::Path};
 
 pub(crate) struct Prepared {
     pub catalogue: crate::resource::Catalogue,
+    pub texture_animations: BTreeMap<u32, Vec<resonance_content::field::FieldTextureAnimation>>,
     pub resource_catalogue: String,
     pub font: BitmapFont,
     pub effects: crate::field_effects::Prepared,
     pub toon_ramp: String,
     pub save_point_tutorial: Vec<TextSpan>,
+    pub save_point_unlock: Vec<TextSpan>,
+    pub save_point_no_gem: Vec<TextSpan>,
     pub files: BTreeMap<String, String>,
 }
 
@@ -35,6 +38,13 @@ pub(crate) fn prepare(
     )?;
     let save_point_tutorial =
         crate::font::system_text(crate::dol::slice(executable, 0x8017A274, 256)?)?;
+    let (save_point_unlock, save_point_no_gem) = memory_circle_messages(
+        executable,
+        catalogues.menu.items[491]
+            .name
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Memory Gem name is missing"))?,
+    )?;
     let files = [
         resource_catalogue.clone(),
         "ui/dialogue.json".into(),
@@ -63,11 +73,14 @@ pub(crate) fn prepare(
     .collect::<Result<_>>()?;
     Ok(Prepared {
         catalogue: catalogue.clone(),
+        texture_animations: crate::texture_animation::field::read(executable)?,
         resource_catalogue,
         font,
         effects,
         toon_ramp,
         save_point_tutorial,
+        save_point_unlock,
+        save_point_no_gem,
         files,
     })
 }
@@ -121,6 +134,7 @@ fn resource_sources(
 fn resource_lookup_preserves_ids_aliases_and_absent_original_sources() -> Result<()> {
     let catalogue = crate::resource::Catalogue {
         save_point: "save-point.bin".into(),
+        colette_wings: "col_wing.bin".into(),
         treasures: std::array::from_fn(|_| "treasure.bin".into()),
         standalone: vec![
             Some("Model.bin".into()),
@@ -161,4 +175,25 @@ fn resource_lookup_preserves_ids_aliases_and_absent_original_sources() -> Result
     assert_eq!(value["groups"][0]["path"], "assets/group");
     assert!(value["groups"][1].is_null());
     Ok(())
+}
+
+/// fn_8000E510's question and fn_8000E39C's formatted inventory notice.
+pub(crate) fn memory_circle_messages(
+    executable: &[u8],
+    item: &str,
+) -> Result<(Vec<TextSpan>, Vec<TextSpan>)> {
+    // The question starts with a system-window control, outside its visible text.
+    let question = crate::font::system_text(crate::dol::slice(executable, 0x8017A31A, 32)?)?;
+    let mut missing = crate::dol::slice(executable, 0x8017A3DC + 0x1C, 32)?.to_vec();
+    // Restore the initial white palette after the formatted item name.
+    for i in 1..missing.len() {
+        if missing[i - 1] == 3 && missing[i] == b'8' {
+            missing[i] = b'9';
+        }
+    }
+    let mut missing = crate::font::system_text(&missing)?;
+    for span in &mut missing {
+        span.text = span.text.replace("%s", item);
+    }
+    Ok((question, missing))
 }

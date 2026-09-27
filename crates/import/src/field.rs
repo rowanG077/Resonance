@@ -236,6 +236,11 @@ pub(crate) fn prepare(
             .unwrap_or_default(),
         doors,
         camera_tracks: physical.camera_tracks()?,
+        texture_animations: shared
+            .texture_animations
+            .get(&map_id)
+            .cloned()
+            .unwrap_or_default(),
         actors: characters.actors,
         unbound_geometry: characters.unbound,
         resource_catalogue: (!declared.dynamic.is_empty())
@@ -246,6 +251,16 @@ pub(crate) fn prepare(
         blink: shared.effects.blink.clone(),
         particles: shared.effects.particles.clone(),
         overlays,
+        save_point_unlock: if declared.save_point {
+            shared.save_point_unlock.clone()
+        } else {
+            Vec::new()
+        },
+        save_point_no_gem: if declared.save_point {
+            shared.save_point_no_gem.clone()
+        } else {
+            Vec::new()
+        },
         save_point_tutorial: if declared.save_point {
             shared.save_point_tutorial.clone()
         } else {

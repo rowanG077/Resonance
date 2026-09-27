@@ -64,7 +64,6 @@ impl FieldAudioCooker {
     }
 
     pub(crate) fn world(&mut self, script: &[u8]) -> Result<()> {
-        // Native world music selection and vehicle loops (fn_2_B190).
         let mut resources = self.catalogue.with_native(
             script,
             &[2, 3, 4, 5],
@@ -72,8 +71,6 @@ impl FieldAudioCooker {
                 24, 25, 26, 133, 160, 177, 182, 183, 193, 217, 282, 437, 438, 443, 445,
             ],
         )?;
-        // e04 contains the nine spoken lines used by fn_2_1C9A0. These IDs
-        // address that embedded table, not the ordinary field voice archive.
         let source = crate::field_resources::resolve_path(
             &self.workspace.extracted.join("files"),
             "FIELD/e04.d",

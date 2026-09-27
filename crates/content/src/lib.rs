@@ -278,6 +278,8 @@ impl SceneClip {
 /// Ordinary material recipes. Original GPU command words stay in the importer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneMaterial {
+    #[serde(default, skip_serializing_if = "SceneImage::is_palette")]
+    pub image: SceneImage,
     pub color: Option<TextureBinding>,
     pub multiply: Option<TextureBinding>,
     pub vertex_color: bool,
@@ -287,6 +289,19 @@ pub struct SceneMaterial {
     pub cull: CullFace,
     /// Authored scene draw sequence; lower values draw first.
     pub draw_order: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SceneImage {
+    #[default]
+    Palette,
+    Capture,
+}
+impl SceneImage {
+    fn is_palette(&self) -> bool {
+        *self == Self::Palette
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -436,6 +451,11 @@ impl TitleAssets {
                     "scene part has no materials; recook title assets"
                 );
                 for material in &part.materials {
+                    anyhow::ensure!(
+                        material.image != SceneImage::Capture
+                            || material.color.is_none() && material.multiply.is_none(),
+                        "scene capture cannot also bind a palette"
+                    );
                     anyhow::ensure!(
                         draw_orders.insert(material.draw_order),
                         "duplicate authored scene draw order"

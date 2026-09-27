@@ -24,6 +24,24 @@ pub(crate) fn collision_slot(index: usize, bytes: &[u8]) -> bool {
     matches!(index, 29 | 30) && !crate::animation::is_animation(bytes)
 }
 
+pub(crate) fn collision(bytes: &[u8]) -> Result<resonance_content::field::ModelCollision> {
+    use crate::field::collision_data::{Format, Mesh};
+    let mut collision = resonance_content::field::ModelCollision::default();
+    if is_model(bytes) {
+        return Ok(collision);
+    }
+    let sections = crate::field::sections(bytes)?;
+    for (slot, groups) in [(29, &mut collision.floors), (30, &mut collision.solids)] {
+        if let Some(Some(range)) = sections.get(slot) {
+            let part = &bytes[range.clone()];
+            if collision_slot(slot, part) {
+                *groups = Mesh::read(part, Format::Short)?.groups;
+            }
+        }
+    }
+    Ok(collision)
+}
+
 fn word(data: &[u8], at: usize) -> Result<usize> {
     Ok(crate::read::u32(data, at)? as usize)
 }
@@ -162,6 +180,54 @@ pub(crate) fn texture_palette<'a>(primary: &[u8], secondary: &'a [u8]) -> Result
     Ok(Cow::Owned(data))
 }
 
+/// Bind a native controller's external TPL during import, using the same model decoder.
+pub(crate) fn cook_captured_model(
+    output: &Path,
+    resource: u32,
+    geometry: &[u8],
+) -> Result<ActorAssets> {
+    let mut decoded = crate::scene::decoded::Package::default();
+    decoded.decode_model(geometry, geometry, output)?;
+    let normalized = texture_palette(geometry, geometry)?;
+    let model = decoded
+        .get(&normalized)
+        .context("capture model is missing")?;
+    model.mesh.share(&output.join(&model.geometry.scene.mesh))?;
+    Ok(ActorAssets {
+        resource,
+        parts: vec![crate::scene::binding::captured(model)?],
+        collision: Default::default(),
+        hidden_nodes: Vec::new(),
+    })
+}
+
+pub(crate) fn cook_textured_model(
+    output: &Path,
+    resource: u32,
+    geometry: &[u8],
+    palette: &[u8],
+) -> Result<ActorAssets> {
+    let mut primary = Vec::with_capacity(8 + palette.len());
+    primary.extend(8_u32.to_be_bytes());
+    primary.extend((8_u32 + u32::try_from(palette.len())?).to_be_bytes());
+    primary.extend(palette);
+    let geometry = texture_palette(&primary, geometry)?;
+    let mut decoded = crate::scene::decoded::Package::default();
+    decoded.decode_model(&geometry, &geometry, output)?;
+    Binder {
+        output,
+        decoded: &decoded,
+        shared: &[],
+    }
+    .cook(
+        resource,
+        &format!("field-effect-{resource:x}"),
+        &geometry,
+        &geometry,
+        &[],
+    )
+}
+
 #[derive(Default)]
 pub(crate) struct Sources {
     packages: BTreeMap<u32, Vec<u8>>,
@@ -284,21 +350,22 @@ pub(crate) fn cook_field(
         let animation = original.source(animation_path)?;
         let service = original.source(resources.field_service(id as u8)?)?;
         let sections = crate::field::sections(&service)?;
-        let doors = [20, 24]
+        let services = resonance_content::field::ServiceMotion::ALL
             .into_iter()
+            .map(|motion| motion as usize)
             .map(|slot| -> Result<_> {
                 let range = sections
                     .get((slot - 4) / 4)
                     .and_then(Option::as_ref)
-                    .context("missing door animation")?;
+                    .context("missing field service animation")?;
                 Ok((slot as u16, decoded.animation(&service[range.clone()])?))
             })
             .collect::<Result<Vec<_>>>()?;
-        let extra: Vec<_> = doors
+        let extra: Vec<_> = services
             .iter()
             .map(|(slot, animation)| Clip {
                 slot: *slot,
-                resource: Some(resonance_content::field::DOOR_MOTION_RESOURCE_BASE + id),
+                resource: Some(resonance_content::field::FIELD_SERVICE_MOTION_RESOURCE_BASE + id),
                 animation,
             })
             .collect();
@@ -330,6 +397,23 @@ pub(crate) fn cook_field(
             continue;
         }
         let bytes = physical.source_section(index)?;
+        if crate::field_resources::controller_capture(map_id, index) {
+            assets.actors.push(cook_captured_model(
+                output,
+                resonance_content::field::LOCAL_MODEL_RESOURCES.start + (index - 16) as u32,
+                bytes,
+            )?);
+            continue;
+        }
+        if let Some(palette) = crate::field_resources::controller_palette(map_id, index) {
+            assets.actors.push(cook_textured_model(
+                output,
+                resonance_content::field::LOCAL_MODEL_RESOURCES.start + (index - 16) as u32,
+                bytes,
+                physical.source_section(palette)?,
+            )?);
+            continue;
+        }
         assets.add(
             &binder,
             0xffee0000 + (index - 16) as u32,
@@ -339,6 +423,15 @@ pub(crate) fn cook_field(
             &[],
         )?;
     }
+    let wings = original.source(&resources.colette_wings)?;
+    assets.add(
+        &binder,
+        resonance_content::field::COLETTE_WINGS_RESOURCE,
+        "colette-wings",
+        &wings,
+        &wings,
+        &[],
+    )?;
     if declarations.save_point {
         let bytes = original.source(&resources.save_point)?;
         assets.add(
@@ -380,40 +473,6 @@ pub(crate) fn cook_field(
             .chain(assets.unbound.iter().map(|geometry| geometry.resource)),
     )?;
     Ok(assets)
-}
-
-#[cfg(test)]
-pub(crate) fn cook_treasure_fixture(extracted: &Path, output: &Path) -> Result<Vec<ActorAssets>> {
-    let catalogue = crate::resource::read(&std::fs::read(extracted.join("sys/main.dol"))?)?;
-    catalogue
-        .treasures
-        .iter()
-        .enumerate()
-        .map(|(kind, path)| {
-            let bytes = std::fs::read(extracted.join("files").join(
-                crate::field_resources::resolve_path(&extracted.join("files"), path)?,
-            ))?;
-            let decoded = crate::scene::decoded::Package::cook(
-                &bytes,
-                &format!("assets/{}", crate::digest(&bytes)),
-                output,
-                crate::all_assets::geometry::Input::File,
-            )?;
-            let bytes = crate::compression::payload(bytes)?;
-            Binder {
-                output,
-                decoded: &decoded,
-                shared: &[],
-            }
-            .cook(
-                resonance_content::field::TREASURE_RESOURCE_BASE + kind as u32,
-                &format!("treasure-{kind}"),
-                &bytes,
-                &bytes,
-                &[],
-            )
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -511,6 +570,7 @@ impl Binder<'_> {
         );
         Ok(ActorAssets {
             resource: id,
+            collision: collision(model)?,
             // Optional accessories whose names start with “kk” begin hidden.
             hidden_nodes: parts[0]
                 .bone_names
@@ -746,7 +806,7 @@ mod tests {
                 section(&field_motion, &sections(&field_motion)?, 2)?;
                 let service = read(catalogue.field_service(id as u8)?)?;
                 let ranges = sections(&service)?;
-                let doors = [20, 24]
+                let services = [20, 24, 32, 36, 40, 52]
                     .into_iter()
                     .map(|slot| {
                         Ok((
@@ -757,21 +817,24 @@ mod tests {
                         ))
                     })
                     .collect::<Result<Vec<_>>>()?;
-                let service_id = resonance_content::field::DOOR_MOTION_RESOURCE_BASE + id;
-                let extra = doors.iter().chain(&doors).map(|(slot, animation)| Clip {
-                    slot: *slot as u16,
-                    resource: Some(service_id),
-                    animation,
-                });
+                let service_id = resonance_content::field::FIELD_SERVICE_MOTION_RESOURCE_BASE + id;
+                let extra = services
+                    .iter()
+                    .chain(&services)
+                    .map(|(slot, animation)| Clip {
+                        slot: *slot as u16,
+                        resource: Some(service_id),
+                        animation,
+                    });
                 let clips = unique_clips(extra)?;
-                assert_eq!(clips.len(), 2);
+                assert_eq!(clips.len(), 6);
                 assert_eq!(
                     clips
                         .iter()
                         .filter(|c| c.resource == Some(service_id))
                         .map(|c| c.slot)
                         .collect::<Vec<_>>(),
-                    [20, 24]
+                    [20, 24, 32, 36, 40, 52]
                 );
             }
             assert_eq!(packages.len(), 10);

@@ -155,7 +155,11 @@ fn build_field(
     }
     let effects: FieldEffects = inventory.json(&field.effects, None, Role::Data)?;
     effects.validate()?;
-    for sprite in effects.sprites.values().chain([&effects.refraction.sprite]) {
+    for sprite in effects
+        .sprites
+        .values()
+        .chain([&effects.refraction.sprite, &effects.air_refraction])
+    {
         inventory.add(&sprite.texture, None, Role::Texture)?;
     }
     inventory.add(&effects.emote_texture, None, Role::Texture)?;
