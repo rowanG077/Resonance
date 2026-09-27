@@ -10,6 +10,7 @@ use symphonia_script::{
     authored::{MessagePart, NativeDeclaration, TextReferenceKind, Type},
 };
 use symphonia_script_vm::{Host, NativeBindings, NativeResult};
+mod exploration;
 
 const RETAINED_TASK_LIMIT: usize = 256;
 
@@ -97,61 +98,47 @@ enum FieldCall {
     ItemText,
 }
 
-const WAIT_TICKS: NativeDeclaration = NativeDeclaration {
-    name: "game::field::wait_ticks",
-    opcode: FieldCall::WaitTicks as u8,
-    parameters: &[Type::Ticks],
-    result: None,
-    suspends: true,
-};
-const NEXT_UPDATE: NativeDeclaration = NativeDeclaration {
-    name: "game::field::next_update",
-    opcode: FieldCall::NextUpdate as u8,
-    parameters: &[],
-    result: None,
-    suspends: true,
-};
-const FLAG: NativeDeclaration = NativeDeclaration {
-    name: "game::story::flag",
-    opcode: FieldCall::Flag as u8,
-    parameters: &[Type::I32],
-    result: Some(Type::Bool),
-    suspends: false,
-};
-const SET_FLAG: NativeDeclaration = NativeDeclaration {
-    name: "game::story::set_flag",
-    opcode: FieldCall::SetFlag as u8,
-    parameters: &[Type::I32, Type::Bool],
-    result: None,
-    suspends: false,
-};
-const NOTICE: NativeDeclaration = NativeDeclaration {
-    name: "game::field::notice",
-    opcode: FieldCall::Notice as u8,
-    parameters: &[Type::Message],
-    result: None,
-    suspends: true,
-};
-const CHARACTER_TEXT: NativeDeclaration = NativeDeclaration {
-    name: "game::text::character",
-    opcode: FieldCall::CharacterText as u8,
-    parameters: &[Type::I32],
-    result: Some(Type::TextReference {
-        name: "game::text::Character",
-        kind: TextReferenceKind::Character,
-    }),
-    suspends: false,
-};
-const ITEM_TEXT: NativeDeclaration = NativeDeclaration {
-    name: "game::text::item",
-    opcode: FieldCall::ItemText as u8,
-    parameters: &[Type::I32],
-    result: Some(Type::TextReference {
-        name: "game::text::Item",
-        kind: TextReferenceKind::Item,
-    }),
-    suspends: false,
-};
+impl FieldCall {
+    const fn declaration(self) -> NativeDeclaration {
+        let (name, parameters, result, suspends): (_, &[Type], _, _) = match self {
+            Self::WaitTicks => ("game::field::wait_ticks", &[Type::Ticks], None, true),
+            Self::NextUpdate => ("game::field::next_update", &[], None, true),
+            Self::Flag => ("game::story::flag", &[Type::I32], Some(Type::Bool), false),
+            Self::SetFlag => (
+                "game::story::set_flag",
+                &[Type::I32, Type::Bool],
+                None,
+                false,
+            ),
+            Self::Notice => ("game::field::notice", &[Type::Message], None, true),
+            Self::CharacterText => (
+                "game::text::character",
+                &[Type::I32],
+                Some(Type::TextReference {
+                    name: "game::text::Character",
+                    kind: TextReferenceKind::Character,
+                }),
+                false,
+            ),
+            Self::ItemText => (
+                "game::text::item",
+                &[Type::I32],
+                Some(Type::TextReference {
+                    name: "game::text::Item",
+                    kind: TextReferenceKind::Item,
+                }),
+                false,
+            ),
+        };
+        NativeDeclaration {
+            name,
+            opcode: self as u8,
+            parameters,
+            result,
+            suspends,
+        }
+    }
+}
 
 pub fn native_declarations() -> Vec<NativeDeclaration> {
     FieldHost::AUTHORED_NATIVES.declarations().collect()
@@ -171,48 +158,52 @@ pub(crate) struct FieldHost<'a> {
 }
 
 impl Host for FieldHost<'_> {
-    const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::<Self>::new()
-        .register_typed(WAIT_TICKS, |host, args, _| host.wait_ticks(args[0] as u32))
-        .register_typed(NEXT_UPDATE, |host, _, _| host.wait_ticks(1))
-        .register_typed(FLAG, |host, args, _| {
-            Ok(NativeResult::Continue(Some(i32::from(
-                host.world.event_flags.contains(&flag(args[0])?),
-            ))))
-        })
-        .register_typed(SET_FLAG, |host, args, _| {
-            let flag = flag(args[0])?;
-            if args[1] != 0 {
-                host.world.event_flags.insert(flag);
-            } else {
-                host.world.event_flags.remove(&flag);
-            }
-            Ok(NativeResult::Continue(None))
-        })
-        .register_typed(NOTICE, |host, args, _| {
-            let text = host.message(args)?;
-            let operation = host.world.show_notice(
-                ResolvedMessage {
-                    tokens: vec![TextToken::Text { text }],
-                },
-                0,
-            )?;
-            host.operations.track(&operation)?;
-            *host.wait = Some(Wait::Complete(operation));
-            Ok(NativeResult::Suspend)
-        })
-        .register_typed(CHARACTER_TEXT, |host, args, _| {
-            let id = if args[0] == crate::CONTROLLED_ACTOR {
-                host.world.controlled_actor
-            } else {
-                args[0]
-            };
-            host.text_reference(TextReferenceKind::Character, id)?;
-            Ok(NativeResult::Continue(Some(id)))
-        })
-        .register_typed(ITEM_TEXT, |host, args, _| {
-            host.text_reference(TextReferenceKind::Item, args[0])?;
-            Ok(NativeResult::Continue(Some(args[0])))
-        });
+    fn load_state(&self, name: &str) -> Result<Option<i32>, String> {
+        Ok(self.world.script_state.get(name).copied())
+    }
+    fn store_state(&mut self, name: &str, value: i32) -> Result<(), String> {
+        self.world.script_state.insert(name.into(), value);
+        Ok(())
+    }
+    const AUTHORED_NATIVES: NativeBindings<Self> = exploration::register(
+        NativeBindings::<Self>::new()
+            .register_typed(FieldCall::WaitTicks.declaration(), |host, args, _| {
+                host.wait_ticks(args[0] as u32)
+            })
+            .register_typed(FieldCall::NextUpdate.declaration(), |host, _, _| {
+                host.wait_ticks(1)
+            })
+            .register_typed(FieldCall::Flag.declaration(), |host, args, _| {
+                Ok(NativeResult::Continue(Some(i32::from(
+                    host.world.event_flags.contains(&flag(args[0])?),
+                ))))
+            })
+            .register_typed(FieldCall::SetFlag.declaration(), |host, args, _| {
+                let flag = flag(args[0])?;
+                if args[1] != 0 {
+                    host.world.event_flags.insert(flag);
+                } else {
+                    host.world.event_flags.remove(&flag);
+                }
+                Ok(NativeResult::Continue(None))
+            })
+            .register_typed(FieldCall::Notice.declaration(), |host, args, _| {
+                host.notice(args, 0)
+            })
+            .register_typed(FieldCall::CharacterText.declaration(), |host, args, _| {
+                let id = if args[0] == crate::CONTROLLED_ACTOR {
+                    host.world.controlled_actor
+                } else {
+                    args[0]
+                };
+                host.text_reference(TextReferenceKind::Character, id)?;
+                Ok(NativeResult::Continue(Some(id)))
+            })
+            .register_typed(FieldCall::ItemText.declaration(), |host, args, _| {
+                host.text_reference(TextReferenceKind::Item, args[0])?;
+                Ok(NativeResult::Continue(Some(args[0])))
+            }),
+    );
 
     fn spawn(&mut self, function: u16, arguments: &[i32]) -> Result<i32, String> {
         if self.free_slots == 0 {
@@ -243,6 +234,19 @@ impl Host for FieldHost<'_> {
 }
 
 impl FieldHost<'_> {
+    fn notice(&mut self, arguments: &[i32], flags: u16) -> Result<NativeResult, String> {
+        let text = self.message(arguments)?;
+        let operation = self.world.show_notice(
+            ResolvedMessage {
+                tokens: vec![TextToken::Text { text }],
+            },
+            flags,
+        )?;
+        self.operations.track(&operation)?;
+        *self.wait = Some(Wait::Complete(operation));
+        Ok(NativeResult::Suspend)
+    }
+
     fn text_reference(&self, kind: TextReferenceKind, value: i32) -> Result<String, String> {
         match kind {
             TextReferenceKind::Character => self

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 use symphonia_script::{
     Op,
-    authored::{NativeDeclaration, NativeField, Type},
+    authored::{NativeDeclaration, NativeField, NativeVariant, Type},
 };
 use symphonia_script_compiler::compile;
 use symphonia_script_vm::{Fault, Host, Memory, NativeBindings, NativeResult, Vm};
@@ -62,6 +62,41 @@ const PUT: NativeDeclaration = NativeDeclaration {
     suspends: false,
 };
 
+const CHOICE: Type = Type::Enum {
+    name: "data::Choice",
+    variants: &[
+        NativeVariant {
+            name: "Empty",
+            tag: -1,
+            payload: &[],
+        },
+        NativeVariant {
+            name: "Count",
+            tag: 7,
+            payload: &[Type::I32],
+        },
+        NativeVariant {
+            name: "Enabled",
+            tag: 9,
+            payload: &[Type::Bool],
+        },
+    ],
+};
+const GET_CHOICE: NativeDeclaration = NativeDeclaration {
+    name: "data::choice",
+    opcode: 4,
+    parameters: &[],
+    result: Some(CHOICE),
+    suspends: false,
+};
+const PUT_CHOICE: NativeDeclaration = NativeDeclaration {
+    name: "data::put_choice",
+    opcode: 5,
+    parameters: &[CHOICE],
+    result: None,
+    suspends: false,
+};
+
 fn rows() -> Vec<i32> {
     vec![4, 1, 1.5f32.to_bits() as i32, 9, 0, 2.5f32.to_bits() as i32]
 }
@@ -77,6 +112,11 @@ struct Data {
 }
 impl Host for Data {
     const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::<Self>::new()
+        .register_typed(GET_CHOICE, |host, _, _| Ok(host.response.take().unwrap()))
+        .register_typed(PUT_CHOICE, |host, args, _| {
+            host.written = args.to_vec();
+            Ok(NativeResult::Continue(None))
+        })
         .register_typed(GET, |host, _, _| {
             Ok(host
                 .response
@@ -94,7 +134,7 @@ fn program(source: &str) -> Arc<symphonia_script::Program> {
         compile(
             "main",
             &BTreeMap::from([("main".into(), source.into())]),
-            &[GET, TABLE, PUT],
+            &[GET, TABLE, PUT, GET_CHOICE, PUT_CHOICE],
         )
         .unwrap()
         .program,
@@ -207,6 +247,37 @@ fn native_layouts_reject_duplicate_fields_oversize_and_suspendable_aggregate_res
     for (native, expected) in [
         (
             NativeDeclaration {
+                result: Some(Type::Enum {
+                    name: "data::Empty",
+                    variants: &[],
+                }),
+                ..GET
+            },
+            "is empty",
+        ),
+        (
+            NativeDeclaration {
+                result: Some(Type::Enum {
+                    name: "data::Duplicate",
+                    variants: &[
+                        NativeVariant {
+                            name: "First",
+                            tag: 4,
+                            payload: &[],
+                        },
+                        NativeVariant {
+                            name: "Second",
+                            tag: 4,
+                            payload: &[],
+                        },
+                    ],
+                }),
+                ..GET
+            },
+            "duplicate variant",
+        ),
+        (
+            NativeDeclaration {
                 suspends: true,
                 ..GET
             },
@@ -267,5 +338,52 @@ fn native_layouts_reject_duplicate_fields_oversize_and_suspendable_aggregate_res
     ] {
         let error = compile("main", &source, &[native]).unwrap_err();
         assert!(error.message.contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn native_enums_round_trip_payloads_and_reject_invalid_tags_domains_and_padding() {
+    let program = program(
+        r#"
+        script field;
+        use data;
+        use data::Choice;
+        pub fn main() -> i32 {
+            let choice = data::choice();
+            data::put_choice(choice);
+            match choice {
+                Choice::Empty => { return -1; },
+                Choice::Count(count) => { return count; },
+                Choice::Enabled(enabled) => {
+                    data::put_choice(Choice::Count(42));
+                    if enabled { return 1; }
+                    return 0;
+                },
+            }
+        }
+    "#,
+    );
+    for (words, expected, written) in [
+        (vec![-1, 0], -1, vec![-1, 0]),
+        (vec![7, 20], 20, vec![7, 20]),
+        (vec![9, 1], 1, vec![7, 42]),
+    ] {
+        let mut host = Data {
+            response: Some(NativeResult::Values(words)),
+            ..Data::default()
+        };
+        let mut vm = Vm::new(program.clone(), program.entry()).unwrap();
+        vm.run(&mut host, &mut Memory::default(), 1000).unwrap();
+        assert_eq!(vm.result(), Some(vec![expected]));
+        assert_eq!(host.written, written);
+    }
+    for words in [vec![0, 0], vec![-1, 1], vec![9, 2], vec![7], vec![7, 1, 2]] {
+        let mut host = Data {
+            response: Some(NativeResult::Values(words)),
+            ..Data::default()
+        };
+        let mut vm = Vm::new(program.clone(), program.entry()).unwrap();
+        assert!(vm.run(&mut host, &mut Memory::default(), 1000).is_err());
+        assert!(host.written.is_empty());
     }
 }

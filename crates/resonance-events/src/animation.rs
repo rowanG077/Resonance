@@ -25,6 +25,8 @@ pub struct Animation {
     /// Position and rate use nominal 60-Hz cooked animation ticks.
     pub start_frame: f32,
     pub rate: f32,
+    /// A script pause retains speed independently of ambient/event ownership.
+    pub paused_rate: Option<f32>,
     pub loop_start: f32,
     pub blend_ticks: u32,
     pub duration_ticks: u32,
@@ -58,6 +60,7 @@ impl Animation {
             phase_tick: tick,
             start_frame: 0.,
             rate: 1.,
+            paused_rate: None,
             loop_start: 0.,
             blend_ticks: 0,
             binding_updates: 0,
@@ -126,6 +129,27 @@ impl Animation {
         self.start_frame = sample;
         self.phase_tick = self.animation_tick(tick);
     }
+    pub fn script_pause(&mut self, paused: bool, tick: u32) {
+        let position = self.sample(tick, 0, self.duration_ticks as f32);
+        self.seek(position, tick);
+        if paused {
+            self.paused_rate.get_or_insert(self.rate);
+            self.rate = 0.;
+        } else if let Some(rate) = self.paused_rate.take() {
+            self.rate = rate;
+        }
+    }
+    pub fn script_rate(&self) -> f32 {
+        self.paused_rate.unwrap_or(self.rate)
+    }
+    pub fn set_script_rate(&mut self, rate: f32, tick: u32) {
+        self.seek(self.sample(tick, 0, self.duration_ticks as f32), tick);
+        if let Some(paused) = &mut self.paused_rate {
+            *paused = rate;
+        } else {
+            self.rate = rate;
+        }
+    }
     pub(crate) fn set_paused(&mut self, paused: bool, tick: u32) {
         let previous = tick.saturating_sub(1);
         if paused {
@@ -138,5 +162,23 @@ impl Animation {
         self.paused_at
             .unwrap_or(tick)
             .saturating_sub(self.paused_ticks)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changing_speed_during_a_script_pause_keeps_the_pose_until_resume() {
+        let mut clip = Animation::new(1, 12, 100, 0);
+        clip.script_pause(true, 10);
+        clip.set_script_rate(2., 20);
+        assert_eq!(clip.script_rate(), 2.);
+        assert_eq!(clip.sample(30, 0, 100.), 10.);
+        clip.script_pause(false, 30);
+        assert_eq!(clip.sample(35, 0, 100.), 20.);
+        clip.script_pause(false, 35);
+        assert_eq!(clip.sample(40, 0, 100.), 30.);
     }
 }

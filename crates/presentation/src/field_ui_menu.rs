@@ -65,6 +65,7 @@ const TICKS_PER_MINUTE: u64 = 60 * 60;
 pub(super) enum Source<'a> {
     Title(Option<&'a Menu>),
     Field(&'a FieldSession),
+    World(&'a resonance_game::overworld::Session, Option<&'a str>),
 }
 
 /// Lists scroll over five updates, including the extra row entering from above.
@@ -119,8 +120,49 @@ pub(super) struct MenuArtwork {
     materials: Vec<Handle<Surface>>,
     pub layers: Vec<Layer>,
     trail: super::super::choice_cursor::Trail,
+    world_notice: WorldNotice,
+}
+/// Native world notices slide down from the top while their alpha approaches 255.
+#[derive(Default)]
+struct WorldNotice {
+    message: Option<(String, bool)>,
+    opacity: u8,
+    tick: Option<u32>,
+}
+impl WorldNotice {
+    fn step(&mut self, tick: u32, message: Option<(&str, bool)>) -> Option<(String, bool, u8)> {
+        let elapsed = self
+            .tick
+            .map_or(1, |last| tick.saturating_sub(last))
+            .min(16);
+        self.tick = Some(tick);
+        if let Some((text, acknowledgement)) = message {
+            if self.message.as_ref().is_none_or(|(old, _)| old != text) {
+                self.message = Some((text.to_owned(), acknowledgement));
+                self.opacity = 0;
+            }
+            self.opacity = self.opacity.saturating_add((elapsed * 16).min(255) as u8);
+        } else {
+            self.opacity = self.opacity.saturating_sub((elapsed * 16).min(255) as u8);
+        }
+        (self.opacity > 0)
+            .then(|| {
+                self.message
+                    .as_ref()
+                    .map(|(s, a)| (s.clone(), *a, self.opacity))
+            })
+            .flatten()
+    }
 }
 impl MenuArtwork {
+    pub(super) fn world_map_art(&self, world: usize) -> (Handle<Surface>, [u32; 2]) {
+        let index = WORLD_MAPS + world;
+        let texture = &self.spec.textures[index - 1];
+        (
+            self.materials[index].clone(),
+            [texture.width, texture.height],
+        )
+    }
     pub(super) fn choice_cursor(&self, window: u8) -> Option<(&Handle<Image>, [u32; 2])> {
         self.spec.windows[usize::from(window)].cursor.map(|index| {
             let texture = &self.spec.textures[index];
@@ -137,6 +179,7 @@ impl MenuArtwork {
             FieldAction::Talk => "talk",
             FieldAction::Shop => "shop",
             FieldAction::Examine => "examine",
+            FieldAction::Rest => "rest",
             FieldAction::Leave => "go_out",
             FieldAction::Save => "save",
         }]
@@ -200,6 +243,7 @@ impl MenuArtwork {
             materials: surfaces,
             layers: Vec::new(),
             trail: Default::default(),
+            world_notice: Default::default(),
         })
     }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
@@ -280,6 +324,21 @@ impl MenuArtwork {
                     .as_ref()
                     .zip(session.events.world.party.as_ref()),
             ),
+            Source::World(session, _) => (session.menu.as_ref(), None),
+        };
+        let notice = if let Source::World(session, message) = source {
+            let acknowledgement = matches!(
+                session.prompt(),
+                Some(
+                    resonance_game::overworld::Prompt::Item { .. }
+                        | resonance_game::overworld::Prompt::Guidepost { .. }
+                )
+            );
+            self.world_notice
+                .step(session.events.tick(), message.map(|s| (s, acknowledgement)))
+                .filter(|_| session.active_skit.is_none() && session.menu.is_none())
+        } else {
+            None
         };
         let cursor = &dialogue.cursor;
         let [left, top, right, bottom] = resolution.ui_rect();
@@ -291,7 +350,16 @@ impl MenuArtwork {
             selection: &dialogue.selection,
             preferences: menu
                 .and_then(Menu::preferences)
-                .or_else(|| shop.map(|(_, party)| &party.settings.preferences)),
+                .or_else(|| shop.map(|(_, party)| &party.settings.preferences))
+                .or_else(|| match source {
+                    Source::World(session, _) => session
+                        .events
+                        .world
+                        .party
+                        .as_ref()
+                        .map(|party| &party.settings.preferences),
+                    _ => None,
+                }),
             experience: &self.experience,
             tick: presentation_tick,
             plane: 0,
@@ -534,6 +602,33 @@ impl MenuArtwork {
                 presentation_tick,
                 &mut self.trail,
             );
+        } else if let (Source::World(_, _), Some((message, acknowledgement, opacity))) =
+            (source, notice)
+        {
+            draw.plane = 3;
+            draw.opacity = opacity;
+            let lines = draw.wrap_notice(&message, 24., 600.)?;
+            let mut width: f32 = 0.;
+            for line in &lines {
+                width = width.max(draw.text_width(line, 24.)?);
+            }
+            // A tight top notice, 12-pixel inset, 26-pixel
+            // line pitch. Enter/Leave are separate button ribbons below it.
+            let height = lines.len() as f32 * 26.;
+            let top = 24. - ((height + 48.) * (255 - opacity) as f32 / 255.).trunc();
+            let left = ((640. - width) / 2.).trunc();
+            draw.colored_frame(
+                [left - 12., top - 12., width + 24., height + 24.],
+                false,
+                draw.popup_color(),
+            );
+            for (index, line) in lines.iter().enumerate() {
+                draw.text_size(line, [left, top + index as f32 * 26.], [24., 24.], WHITE)?;
+            }
+            if !acknowledgement {
+                draw.world_button(6, "Enter", [504., 76.])?;
+                draw.world_button(8, "Leave", [504., 104.])?;
+            }
         } else {
             self.trail = Default::default();
         }
@@ -998,6 +1093,29 @@ impl Drawing<'_> {
         };
         self.sprite(self.spec.sprites.buttons[index], position);
     }
+    fn world_button(&mut self, button: usize, label: &str, [x, y]: [f32; 2]) -> Result<()> {
+        let width = self.text_width(label, 24.)?;
+        let slices = &self.spec.sprites.buttons;
+        let left = slices[19];
+        let middle = slices[20];
+        let right = slices[21];
+        let start = x + 4.;
+        let center = start + left[2] as f32;
+        self.sprite(left, [start, y + 6.]);
+        self.sprite_rect(
+            middle,
+            [center, y + 6., center + width, y + 6. + middle[3] as f32],
+            [1.; 4],
+        );
+        self.sprite(right, [center + width, y + 6.]);
+        self.button(button, [x, y]);
+        // Atlas layers follow the font within a plane. Native text is drawn
+        // after its ribbon, so put the caption on the next plane.
+        self.plane += 1;
+        let result = self.text_size(label, [x + 24., y - 2.], [24.; 2], WHITE);
+        self.plane -= 1;
+        result
+    }
     fn sprite(&mut self, rect: [u32; 4], [x, y]: [f32; 2]) {
         self.sprite_color(rect, [x, y], [1.; 4]);
     }
@@ -1055,6 +1173,36 @@ impl Drawing<'_> {
             let frame = (self.tick / frame_ticks % 4) as usize;
             self.sprite(icons[frame], [x + 48., y]);
         }
+    }
+    fn wrap_notice(&self, text: &str, cell: f32, maximum: f32) -> Result<Vec<String>> {
+        let mut lines = Vec::new();
+        for paragraph in text.lines() {
+            let mut line = String::new();
+            for word in paragraph.split_whitespace() {
+                let candidate = if line.is_empty() {
+                    word.to_owned()
+                } else {
+                    format!("{line} {word}")
+                };
+                if self.text_width(&candidate, cell)? + cell <= maximum {
+                    line = candidate;
+                    continue;
+                }
+                if !line.is_empty() {
+                    lines.push(std::mem::take(&mut line));
+                }
+                for c in word.chars() {
+                    let mut candidate = line.clone();
+                    candidate.push(c);
+                    if !line.is_empty() && self.text_width(&candidate, cell)? + cell > maximum {
+                        lines.push(std::mem::take(&mut line));
+                    }
+                    line.push(c);
+                }
+            }
+            lines.push(line);
+        }
+        Ok(lines)
     }
     fn text_width(&self, text: &str, width: f32) -> Result<f32> {
         text.chars()

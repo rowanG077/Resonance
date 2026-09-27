@@ -85,6 +85,8 @@ pub struct ResourceWaitObservation {
 /// 32-instance event pool. Scheduling is independent of render frame rate.
 pub struct EventRuntime {
     pub world: GameWorld,
+    /// Diagnostic retained when the temporary playground abandons field scripts.
+    pub exploration_error: Option<String>,
     program: Arc<Program>,
     resources: Arc<ResourceLibrary>,
     memory: Memory,
@@ -96,6 +98,9 @@ pub struct EventRuntime {
     tasks: crate::authored::Tasks,
 }
 impl EventRuntime {
+    pub fn resources(&self) -> &ResourceLibrary {
+        &self.resources
+    }
     pub fn restore_field_leader(&mut self) -> Result<()> {
         let id = self
             .world
@@ -112,8 +117,17 @@ impl EventRuntime {
     pub fn with_state(
         program: Arc<Program>,
         resources: Arc<ResourceLibrary>,
+        world: GameWorld,
+        memory: Memory,
+    ) -> Result<Self> {
+        Self::with_state_policy(program, resources, world, memory, false)
+    }
+    pub fn with_state_policy(
+        program: Arc<Program>,
+        resources: Arc<ResourceLibrary>,
         mut world: GameWorld,
         memory: Memory,
+        allow_incomplete_scripts: bool,
     ) -> Result<Self> {
         world.sync_actor_order();
         let main = Instance::new(&program, program.entry(), 1, None)?;
@@ -121,6 +135,7 @@ impl EventRuntime {
         instances[0] = Some(main);
         let mut events = Self {
             world,
+            exploration_error: None,
             program,
             resources,
             memory,
@@ -131,7 +146,12 @@ impl EventRuntime {
             resource_waits: None,
             tasks: Default::default(),
         };
-        events.execute(true)?;
+        if let Err(error) = events.execute(true) {
+            if !allow_incomplete_scripts {
+                return Err(error);
+            }
+            events.enter_exploration(format!("{error:#}"));
+        }
         Ok(events)
     }
     pub fn tick(&self) -> u32 {
@@ -319,6 +339,14 @@ impl EventRuntime {
     pub fn memory(&self) -> &Memory {
         &self.memory
     }
+    /// Commit shared story variables while retaining this VM's dispatcher registers and locals.
+    pub fn copy_script_globals(&mut self, source: &Self) -> Result<()> {
+        self.memory.copy_from(
+            &source.memory,
+            crate::persistent::STORY_GLOBALS_START..crate::persistent::GLOBAL_BYTES,
+        )?;
+        Ok(())
+    }
     /// Write a persistent script variable from a native service or developer tool.
     pub fn set_global(&mut self, index: u16, value: i32) -> Result<()> {
         ensure!(
@@ -335,6 +363,12 @@ impl EventRuntime {
         // depends on event ownership, not whether the VM has any live stacks.
         !self.failed
             && self.world.input_enabled
+            && self.world.battle_request.is_none()
+            && !self
+                .instances
+                .iter()
+                .flatten()
+                .any(|instance| matches!(instance.wait, Some(Wait::Battle(_))))
             && self.interaction.is_none()
             && self.world.field_exit.is_none()
     }
@@ -357,6 +391,7 @@ impl EventRuntime {
                 .clone()
                 .context("party has not been initialized")?,
             event_flags: self.world.event_flags.clone(),
+            script_state: self.world.script_state.clone(),
             event_records: self.world.event_records.clone(),
             random_state: self.world.random_state,
             gameplay_random: self.world.gameplay_random.clone(),
@@ -368,15 +403,13 @@ impl EventRuntime {
     pub fn persistent_state(&self) -> Result<crate::PersistentState> {
         ensure!(!self.failed, "cannot transfer a failed event runtime");
         let mut memory = Memory::default();
-        for offset in (0..crate::persistent::GLOBAL_BYTES).step_by(4) {
-            let width = symphonia_script::Width::S32;
-            memory.write(offset, width, self.memory.read(offset, width)?)?;
-        }
+        memory.copy_from(&self.memory, 0..crate::persistent::GLOBAL_BYTES)?;
         Ok(crate::PersistentState {
             memory,
             gameplay_random: self.world.gameplay_random.clone(),
             party: self.world.party.clone(),
             event_flags: self.world.event_flags.clone(),
+            script_state: self.world.script_state.clone(),
             event_records: self.world.event_records.clone(),
             random_state: self.world.random_state,
             tick: self.world.tick,
@@ -396,12 +429,50 @@ impl EventRuntime {
         };
         self.start_foreground(0, key)
     }
+    /// Enemy contact invokes its configured interaction and supplies the symbol ID.
+    pub fn contact_enemy(&mut self, actor: i32) -> Result<bool> {
+        let Some(enemy) = self.world.actors.get(&actor).and_then(|a| a.enemy.as_ref()) else {
+            return Ok(false);
+        };
+        if enemy.contact_cooldown != 0 {
+            return Ok(false);
+        }
+        let key = u32::from(enemy.event);
+        if !self.start_foreground(0, key)? {
+            return Ok(false);
+        }
+        self.memory
+            .write(0x24, symphonia_script::Width::S32, actor)?;
+        self.world
+            .actors
+            .get_mut(&actor)
+            .unwrap()
+            .enemy
+            .as_mut()
+            .unwrap()
+            .contact_cooldown = 60;
+        Ok(true)
+    }
     /// Confirmed triggers use registry kind 2; automatic crossings use kind 1.
     pub fn trigger(&mut self, key: u32, confirmed: bool) -> Result<bool> {
         self.start_foreground(if confirmed { 2 } else { 1 }, key)
     }
+    /// World landmarks share registry kind 1 with automatic field crossings.
+    /// The native world dispatcher supplies the octant in result word 0x24.
+    pub fn enter_landmark(&mut self, key: u16, direction: u8) -> Result<bool> {
+        ensure!(direction < 8, "invalid landmark entry direction");
+        if !self.start_foreground(1, u32::from(key))? {
+            return Ok(false);
+        }
+        self.memory
+            .write(0x24, symphonia_script::Width::S32, i32::from(direction))?;
+        Ok(true)
+    }
     fn start_foreground(&mut self, kind: u32, key: u32) -> Result<bool> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
+        if self.exploration_error.is_some() {
+            return Ok(false);
+        }
         if !self.world.input_enabled || self.interaction.is_some() {
             return Ok(false);
         }
@@ -521,6 +592,43 @@ impl EventRuntime {
         error
     }
     /// Scene exit stops the callers and invalidates outstanding callbacks.
+    pub fn enter_exploration(&mut self, reason: String) {
+        self.cancel();
+        self.failed = false;
+        self.exploration_error = Some(reason);
+        self.world.input_enabled = true;
+        self.world.triggers.clear();
+        // A missing fade is the native startup blackout, not full visibility.
+        self.world.fade = Some(crate::Fade::new(self.world.tick, 0, 0., 0., false));
+        self.world.camera = None;
+        self.world.skit_request = None;
+        self.world.screen_copy_depth = [0.; 2];
+        // Overlay actors have no 3D model. Retire them with their controllers,
+        // otherwise exploration leaves an impossible visible actor request.
+        for id in std::mem::take(&mut self.world.overlays).keys() {
+            self.world.actors.remove(id);
+        }
+        self.world.billboards.clear();
+        self.world.particles.clear();
+        self.world.refractions.clear();
+        for (&id, actor) in &mut self.world.actors {
+            actor.motion = None;
+            actor.attachment = None;
+            actor.enemy = None;
+            // Incomplete setup may leave NPCs or puzzle props overlapping the
+            // entrance. Preview walking uses the field's static ground mesh.
+            if id != self.world.controlled_actor {
+                actor.collidable = false;
+            }
+            if let Some(autonomy) = &mut actor.autonomy {
+                autonomy.conversing = false;
+                autonomy.activity = crate::Activity::Idle;
+                if autonomy.behavior != crate::Behavior::Player {
+                    autonomy.behavior = crate::Behavior::Stationary;
+                }
+            }
+        }
+    }
     pub fn cancel(&mut self) {
         self.instances.iter_mut().for_each(|i| *i = None);
         self.tasks.clear();
@@ -528,9 +636,11 @@ impl EventRuntime {
         self.world.dialogue.clear();
         self.world.choices.clear();
         self.world.menu_request = None;
+        self.world.battle_request = None;
         self.world.movie = None;
         self.world.voice = None;
         self.world.field_transition = None;
+        self.world.world_transition = None;
         self.world.field_exit = None;
         self.world.preload_field = None;
         self.interaction = None;
@@ -560,7 +670,8 @@ impl EventRuntime {
             return Ok(());
         }
         self.world.tick = self.world.tick.checked_add(1).context("clock overflow")?;
-        if let Some(party) = &mut self.world.party
+        if !self.world.external_encounter_clock
+            && let Some(party) = &mut self.world.party
             && let Some(modifier) = &mut party.encounter_modifier
         {
             modifier.remaining -= 1;
@@ -590,8 +701,33 @@ impl EventRuntime {
         // The view follows the pose presented by the preceding actor update.
         if let Some(camera) = &mut self.world.field_camera {
             camera.step(&self.world.actors);
+            if let Some(playback) = &self.world.camera
+                && let Some(track) = self.resources.camera_tracks.get(&playback.resource)
+            {
+                let time = (self.world.tick.saturating_sub(playback.start_tick) as f32 * 0.5)
+                    .min(track.last().unwrap().time);
+                let right = track
+                    .partition_point(|key| key.time < time)
+                    .min(track.len() - 1);
+                let a = &track[right.saturating_sub(1)];
+                let b = &track[right];
+                let fraction = if a.time == b.time {
+                    0.
+                } else {
+                    (time - a.time) / (b.time - a.time)
+                };
+                camera.position = std::array::from_fn(|i| {
+                    a.position[i] + (b.position[i] - a.position[i]) * fraction
+                });
+                camera.target =
+                    std::array::from_fn(|i| a.target[i] + (b.target[i] - a.target[i]) * fraction);
+            }
         }
         let prepared = prepare(self)?;
+        self.world.step_ambient_sound();
+        if let Some(party) = &mut self.world.party {
+            party.travel.ring_timer = party.travel.ring_timer.saturating_sub(1);
+        }
         self.world
             .billboards
             .retain(|_, effect| effect.alive(self.world.tick));
@@ -736,6 +872,9 @@ impl EventRuntime {
             }
         }
         services(self)?;
+        self.world
+            .step_ring_stations()
+            .map_err(anyhow::Error::msg)?;
         self.world.particles.retain(|p| p.alive(self.world.tick));
         self.world.overlays.retain(|id, overlay| {
             if let crate::world::OverlayKind::Sprite(sprite) = &mut overlay.kind {
@@ -785,6 +924,7 @@ impl EventRuntime {
                 b.paused
                     || b.require_control && !self.world.input_enabled
                     || self.world.field_transition.is_some()
+                    || self.world.world_transition.is_some()
                     || self.world.field_exit.is_some()
             }) {
                 if let Some(Wait::Tick(wake)) = &mut instance.wait {
@@ -813,7 +953,7 @@ impl EventRuntime {
             let ready = instance
                 .wait
                 .as_mut()
-                .map(|wait| wait.poll(&self.world))
+                .map(|wait| wait.poll(&mut self.world))
                 .transpose()
                 .map_err(anyhow::Error::msg)
                 .map_err(|error| self.task_error(&mut instance, error))?;
@@ -841,6 +981,15 @@ impl EventRuntime {
                             .write(address, symphonia_script::Width::S32, 0)?;
                     }
                     Some(0)
+                } else if let Wait::Battle(operation) = wait {
+                    let Some(crate::Outcome::Completed(Some(value))) = operation.progress().outcome
+                    else {
+                        anyhow::bail!("battle completed without a result");
+                    };
+                    crate::battle::Outcome::try_from(value).map_err(anyhow::Error::msg)?;
+                    self.memory
+                        .write(0x24, symphonia_script::Width::S32, value)?;
+                    Some(value)
                 } else if let Wait::Choice { result, .. } = wait {
                     let progress = result.progress();
                     let Some(crate::Outcome::Completed(Some(value))) = progress.outcome else {
@@ -928,9 +1077,16 @@ impl EventRuntime {
             let program = instance.program.clone();
             match result.event {
                 RunEvent::Suspended { opcode } => {
-                    instance.wait = Some(wait.with_context(|| {
+                    let wait = wait.with_context(|| {
                         format!("native {opcode:#04x} suspended without a completion condition")
-                    })?);
+                    })?;
+                    if let Wait::Battle(operation) = &wait {
+                        instance
+                            .operations
+                            .track(operation)
+                            .map_err(anyhow::Error::msg)?;
+                    }
+                    instance.wait = Some(wait);
                     self.instances[slot] = Some(instance);
                 }
                 RunEvent::SuspendedTask { handle } => {
@@ -966,6 +1122,16 @@ impl EventRuntime {
                 )?);
             }
             for EventCommand { handle, action } in commands {
+                if matches!(action, EventAction::Release) {
+                    if let Some(slot) = self.instances.iter_mut().find(|slot| {
+                        slot.as_ref().is_some_and(|instance| {
+                            instance.handle == handle && instance.background.is_some()
+                        })
+                    }) {
+                        *slot = None;
+                    }
+                    continue;
+                }
                 let EventAction::Spawn(key) = action else {
                     if let Some(background) = self
                         .instances
@@ -979,7 +1145,7 @@ impl EventRuntime {
                             EventAction::ControlGate(enabled) => {
                                 background.require_control = enabled
                             }
-                            EventAction::Spawn(_) => unreachable!(),
+                            EventAction::Spawn(_) | EventAction::Release => unreachable!(),
                         }
                     }
                     continue;

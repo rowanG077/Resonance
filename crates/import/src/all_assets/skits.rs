@@ -95,6 +95,40 @@ impl Catalog {
         self.physical.prepared()
     }
 
+    /// Script calls can select disabled notification rows and direct skits.
+    /// Only bindings within their own physical filename array are executable.
+    pub(crate) fn event_resources(&self) -> Result<Vec<(u16, Option<String>)>> {
+        self.physical
+            .definitions
+            .iter()
+            .filter(|row| {
+                (1..=860).contains(&row.id)
+                    && row.script.binding.is_some_and(|binding| {
+                        binding.group == row.group
+                            && self
+                                .physical
+                                .scripts
+                                .iter()
+                                .any(|script| script.binding == binding && script.file.is_some())
+                    })
+            })
+            .map(|row| {
+                self.script(row.id)?;
+                let title = row
+                    .title
+                    .map(|text| {
+                        self.physical
+                            .texts
+                            .get(text.0)
+                            .cloned()
+                            .context("invalid direct skit title")
+                    })
+                    .transpose()?;
+                Ok((row.id, title))
+            })
+            .collect()
+    }
+
     pub(crate) fn script(&self, id: u16) -> Result<&str> {
         let binding = self
             .physical

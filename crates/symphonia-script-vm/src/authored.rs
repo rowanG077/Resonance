@@ -23,7 +23,7 @@ fn check_type(program: &Program, value: i32, ty: Type) -> Result<(), Fault> {
         }
         // Handle lifetime and asset identity are checked by the owning host.
         Type::I32 | Type::Handle(_) | Type::Asset(_) | Type::Collection { .. } => true,
-        Type::Record { .. } | Type::Array { .. } => false,
+        Type::Record { .. } | Type::Enum { .. } | Type::Array { .. } => false,
     };
     if valid { Ok(()) } else { Err(Fault::Type(ty)) }
 }
@@ -33,6 +33,22 @@ fn check_argument(program: &Program, values: &[i32], ty: Type) -> Result<(), Fau
         return Err(Fault::Type(ty));
     }
     match ty {
+        Type::Enum { variants, .. } => {
+            let variant = variants
+                .iter()
+                .find(|v| v.tag == values[0])
+                .ok_or(Fault::Type(ty))?;
+            let mut offset = 1;
+            for field in variant.payload {
+                let end = offset + field.slots();
+                check_argument(program, &values[offset..end], *field)?;
+                offset = end;
+            }
+            if values[offset..].iter().any(|value| *value != 0) {
+                return Err(Fault::Type(ty));
+            }
+            return Ok(());
+        }
         Type::Record { fields, .. } => {
             let mut offset = 0;
             for field in fields {
@@ -95,7 +111,7 @@ fn check_layout(program: &Program, values: &[i32], layout: &ValueLayout) -> Resu
             Ok(())
         }
         ValueLayout::Variants(variants) => {
-            let variant = variants.get(values[0] as usize).ok_or(Fault::CallShape)?;
+            let variant = variants.get(&values[0]).ok_or(Fault::CallShape)?;
             let end = 1 + variant.slots().ok_or(Fault::CallShape)?;
             check_layout(program, &values[1..end], variant)?;
             if values[end..].iter().any(|value| *value != 0) {

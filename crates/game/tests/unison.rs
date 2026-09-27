@@ -28,12 +28,14 @@ fn unison_unlock_navigation_and_shared_shortcuts_survive_save() {
     let mut globals = vec![0; 256];
     globals[16] = 1_402_999;
     let checkpoint = FieldCheckpoint {
+        allow_incomplete_scripts: false,
         map_id: 332,
         position: [0.; 3],
         heading: 0.,
         camera: None,
         played_ticks: None,
         progress: SavedProgress {
+            script_state: Default::default(),
             script_globals: globals,
             party,
             event_flags: Default::default(),

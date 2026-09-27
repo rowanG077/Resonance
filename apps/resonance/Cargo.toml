@@ -7,3 +7,4 @@ license.workspace = true
 resonance-presentation.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+tempfile = "3"

@@ -5,7 +5,6 @@ use bevy::image::ImageFilterMode;
 use resonance_content::{
     TextureWrap,
     effect::OverlayArt,
-    field::FieldAssets,
     texture::{Filter, Sampler},
 };
 use resonance_events::{GameWorld, OverlayKind};
@@ -25,7 +24,7 @@ pub(super) struct Artwork {
 
 impl Artwork {
     pub fn load(
-        field: &FieldAssets,
+        overlays: &BTreeMap<i32, String>,
         read: impl Fn(&str) -> Result<Vec<u8>>,
         server: &AssetServer,
         materials: &mut Assets<Surface>,
@@ -34,7 +33,7 @@ impl Artwork {
         let mut banks = BTreeMap::new();
         let mut loaded = Vec::new();
         let mut samplers: Vec<(ImageSamplerDescriptor, Handle<Image>)> = Vec::new();
-        for (&id, path) in &field.overlays {
+        for (&id, path) in overlays {
             let art: OverlayArt = serde_json::from_slice(&read(path)?)?;
             art.validate()?;
             let mut surfaces = Vec::new();

@@ -35,12 +35,12 @@ pub(super) fn named_bones(
 }
 
 #[derive(Resource, Default)]
-pub(super) struct Authored(BTreeMap<Entity, Quat>);
+pub(super) struct Authored(BTreeMap<Entity, Transform>);
 
 pub(super) fn restore(mut saved: ResMut<Authored>, mut nodes: Query<&mut Transform>) {
-    for (entity, rotation) in std::mem::take(&mut saved.0) {
+    for (entity, authored) in std::mem::take(&mut saved.0) {
         if let Ok(mut transform) = nodes.get_mut(entity) {
-            transform.rotation = rotation;
+            *transform = authored;
         }
     }
 }
@@ -48,15 +48,14 @@ pub(super) fn restore(mut saved: ResMut<Authored>, mut nodes: Query<&mut Transfo
 #[allow(clippy::too_many_arguments)] // Bevy injects the independent scene queries and pose resources.
 pub(super) fn bones(
     state: State,
-    actors: Query<(Entity, &ActorPart, Option<&super::field_animation::Rig>)>,
-    children: Query<&Children>,
+    actors: Query<(&ActorPart, Option<&super::field_animation::Rig>)>,
     names: Query<&Name>,
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<Locals>,
     mut saved: ResMut<Authored>,
     mut applied: ResMut<Applied>,
 ) {
-    for (root, part, rig) in &actors {
+    for (part, rig) in &actors {
         let Some(actor) = state.get().events.world.actors.get(&part.actor) else {
             continue;
         };
@@ -71,25 +70,51 @@ pub(super) fn bones(
                 resonance_events::BoneTarget::Index(index) => {
                     rig.and_then(|rig| rig.bone_at(*index))
                 }
-                resonance_events::BoneTarget::Name(bone) => children
-                    .iter_descendants(root)
-                    .find(|entity| names.get(*entity).is_ok_and(|name| name.as_str() == bone)),
+                resonance_events::BoneTarget::Name(bone) => {
+                    rig.and_then(|rig| rig.bone(bone, &names).ok().flatten())
+                }
             };
             if let Some(entity) = entity
                 && let Ok(mut transform) = nodes.get_mut(entity)
             {
-                saved.0.entry(entity).or_insert(transform.rotation);
-                let [x, y, z] = adjustment
-                    .sample(state.get().events.tick())
-                    .map(f32::to_radians);
-                affine.rotate(
+                saved.0.entry(entity).or_insert(*transform);
+                rotate_bone(
                     entity,
                     &mut transform,
-                    Quat::from_euler(EulerRot::ZYX, z, y, x),
+                    &mut affine,
+                    adjustment,
+                    state.get().events.tick(),
                 );
+                if adjustment.translation.is_some() {
+                    affine.translate(
+                        entity,
+                        &mut transform,
+                        Vec3::from_array(adjustment.translation(state.get().events.tick())),
+                    );
+                }
                 applied.ack(Request::Bone(part.actor, part.part, slot));
             }
         }
+    }
+}
+
+fn rotate_bone(
+    entity: Entity,
+    transform: &mut Transform,
+    affine: &mut Locals,
+    adjustment: &resonance_events::BoneAdjustment,
+    tick: u32,
+) {
+    let [x, y, z] = adjustment.sample(tick).map(f32::to_radians);
+    let rotation = Quat::from_euler(EulerRot::ZYX, z, y, x);
+    if adjustment.absolute_rotation {
+        // Door scripts supply the complete angle, including the closed door's
+        // authored rotation (Salvation starts at -45°).
+        let mut pose = *transform;
+        pose.rotation = rotation;
+        affine.set(entity, transform, Pose::Trs(pose));
+    } else if [x, y, z] != [0.; 3] {
+        affine.rotate(entity, transform, rotation);
     }
 }
 
@@ -145,6 +170,43 @@ pub(super) fn attachments(
         if let Ok(mut transform) = nodes.get_mut(root) {
             affine.set(root, &mut transform, target);
             applied.ack(Request::Attachment(actor, part));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn door_setters_do_not_add_the_authored_hinge_angle_twice() {
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        let rest = Transform::from_xyz(40., 20., 10.)
+            .with_rotation(Quat::from_rotation_z(-45_f32.to_radians()));
+        let mut affine = Locals::default();
+        for (absolute_rotation, angle, expected) in [
+            (true, -45., -45_f32),
+            (true, -60., -60.),
+            (true, -90., -90.),
+            (false, -30., -75.),
+        ] {
+            let adjustment = resonance_events::BoneAdjustment {
+                bone: resonance_events::BoneTarget::Name("Door_L".into()),
+                absolute_rotation,
+                angles: [0., 0., angle],
+                from: [0.; 3],
+                duration_ticks: 1,
+                start_tick: 0,
+                translation: None,
+            };
+            let mut pose = rest;
+            rotate_bone(entity, &mut pose, &mut affine, &adjustment, 0);
+            let direction = pose.rotation * Vec3::X;
+            let expected = Quat::from_rotation_z(expected.to_radians()) * Vec3::X;
+            assert!(direction.distance(expected) < 0.0001);
+            assert_eq!(pose.translation, rest.translation);
+            assert_eq!(pose.scale, rest.scale);
         }
     }
 }

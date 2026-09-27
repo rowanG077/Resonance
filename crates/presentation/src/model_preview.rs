@@ -66,11 +66,15 @@ pub(super) fn install(app: &mut App) {
 /// Readback must composite a completed offscreen pose, even with pipelined rendering.
 pub(super) fn synchronize_capture(app: &mut App) -> Result<()> {
     let snapshot = |world: &World| {
-        let field = &world.get_resource::<crate::new_game::Session>()?.field;
-        let menu = field.menu.as_ref()?;
+        let session = world.get_resource::<crate::new_game::Session>()?;
+        let menu = if let Some(scene) = &session.overworld {
+            scene.session.menu.as_ref()?
+        } else {
+            session.field.menu.as_ref()?
+        };
         let preview = menu.preview()?;
         Some((
-            field.events.tick(),
+            session.events().tick(),
             menu.tick,
             preview.id,
             preview.animation_tick,
@@ -146,7 +150,12 @@ impl State<'_> {
         if let Some(session) = &mut self.checkpoint {
             session.0.menu.as_mut()
         } else {
-            self.live.as_mut()?.field.menu.as_mut()
+            let session = &mut **self.live.as_mut()?;
+            if let Some(scene) = &mut session.overworld {
+                scene.session.menu.as_mut()
+            } else {
+                session.field.menu.as_mut()
+            }
         }
     }
 }
@@ -163,6 +172,7 @@ struct PreviewContext<'w> {
     source: Res<'w, source::Source>,
     server: Res<'w, AssetServer>,
     art: Option<Res<'w, crate::field_view::Art>>,
+    resident: Option<Res<'w, crate::loading::Resident>>,
     shared: Res<'w, gpu::Shared>,
 }
 #[derive(SystemParam)]
@@ -289,13 +299,23 @@ fn prepare(
                 .behavior
                 .as_ref()
                 .map(|binding| {
-                    let art = context
-                        .art
-                        .as_ref()
-                        .context("missing prepared field artwork")?;
+                    let sources = if let Some(art) = &context.art {
+                        art.behavior_sources.clone()
+                    } else {
+                        context
+                            .resident
+                            .as_ref()
+                            .context("missing scene inventory")?
+                            .files
+                            .read()
+                            .unwrap()
+                            .as_ref()
+                            .context("missing scene script sources")?
+                            .script_sources()?
+                    };
                     PreparedBehavior::prepare(
                         &mut viewer.behaviors,
-                        &art.behavior_sources,
+                        &sources,
                         binding,
                         &record.preview,
                     )

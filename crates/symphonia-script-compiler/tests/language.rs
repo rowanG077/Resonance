@@ -36,8 +36,16 @@ const ASSET: NativeDeclaration = NativeDeclaration {
 struct TestHost {
     records: Vec<i32>,
     waits: Vec<i32>,
+    state: symphonia_script::authored::ScriptState,
 }
 impl Host for TestHost {
+    fn load_state(&self, name: &str) -> Result<Option<i32>, String> {
+        Ok(self.state.get(name).copied())
+    }
+    fn store_state(&mut self, name: &str, value: i32) -> Result<(), String> {
+        self.state.insert(name.into(), value);
+        Ok(())
+    }
     const AUTHORED_NATIVES: NativeBindings<Self> = NativeBindings::<Self>::new()
         .register_typed(WAIT, |host, args, _| {
             host.waits.push(args[0]);
@@ -1030,4 +1038,137 @@ fn imports_respect_script_kinds_and_libraries_use_the_entry_hosts_natives() {
     ]);
     assert!(compile("main", &sources, &[RECORD]).is_ok());
     assert!(compile("main", &sources, &[]).is_err());
+}
+
+#[test]
+fn enum_discriminants_preserve_types_matching_and_checked_entry_arguments() {
+    let source = r#"
+        script field;
+        enum Marker { Hidden = -0x1, Caravan = 11, Tree, UnknownId90 = 90 }
+        pub fn main(marker: Marker) -> i32 {
+            match marker {
+                Marker::Hidden => { return i32(marker); },
+                Marker::Caravan => { return i32(Marker::Tree); },
+                Marker::Tree => { return i32(Marker::UnknownId90); },
+                Marker::UnknownId90 => { return 0; },
+            }
+        }
+    "#;
+    let program = Arc::new(build(source).program);
+    for (tag, expected) in [(-1, -1), (11, 12), (12, 90), (90, 0)] {
+        let mut vm = Vm::with_arguments(program.clone(), program.entry(), &[tag]).unwrap();
+        vm.run(&mut TestHost::default(), &mut Memory::default(), 1000)
+            .unwrap();
+        assert_eq!(vm.result(), Some(vec![expected]));
+    }
+    for tag in [0, 1, 10, 13, 91] {
+        assert!(Vm::with_arguments(program.clone(), program.entry(), &[tag]).is_err());
+    }
+    let formatted = format("main", source).unwrap();
+    assert_eq!(format("main", &formatted).unwrap(), formatted);
+    build(&formatted);
+}
+
+#[test]
+fn enum_discriminants_reject_ambiguous_values_and_unsafe_conversions() {
+    for source in [
+        "enum Id { A = 2, B = 2 } pub fn main() {}",
+        "enum Id { A = 2, B, C = 3 } pub fn main() {}",
+        "enum Id { A = 2147483647, B } pub fn main() {}",
+        "enum Id { A = 2147483648 } pub fn main() {}",
+        "enum Id { A = 1.0 } pub fn main() {}",
+        "enum Id { A = 1ticks } pub fn main() {}",
+        "enum Id { A(i32) = 7 } pub fn main() -> i32 { return i32(Id::A(9)); }",
+        "enum Id { A = 7 } pub fn main() -> Id { return Id(7); }",
+        "enum Id { A = 7 } enum Other { A = 7 } pub fn main() -> Id { return Other::A; }",
+    ] {
+        assert!(
+            compile(
+                "main",
+                &BTreeMap::from([("main".into(), format!("script field; {source}"))]),
+                &[]
+            )
+            .is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn typed_state_is_shared_by_declaring_module_across_programs_and_validated_on_read() {
+    let mut sources: BTreeMap<String, String> = [(
+        "counter".into(),
+        r#"
+        script library;
+        enum Stop { First = 54, Second = 55 }
+        state stop: Stop = Stop::First;
+        state entries: i32 = 0;
+        pub fn enter() -> i32 {
+            entries += 1;
+            if stop == Stop::First { stop = Stop::Second; }
+            return entries + i32(stop);
+        }
+    "#
+        .into(),
+    )]
+    .into();
+    let mut host = TestHost::default();
+    for (module, expected) in [("field", 56), ("world", 57), ("field", 58)] {
+        sources.insert(
+            module.into(),
+            "script field; use counter; pub fn main() -> i32 { return counter::enter(); }".into(),
+        );
+        let program = Arc::new(compile(module, &sources, &[]).unwrap().program);
+        let mut vm = Vm::new(program.clone(), program.entry()).unwrap();
+        vm.run(&mut host, &mut Memory::default(), 1000).unwrap();
+        assert_eq!(vm.result(), Some(vec![expected]));
+    }
+    let program = Arc::new(compile("world", &sources, &[]).unwrap().program);
+    host.state.insert("counter::stop".into(), 999);
+    let mut vm = Vm::new(program.clone(), program.entry()).unwrap();
+    assert_eq!(
+        vm.run(&mut host, &mut Memory::default(), 1000)
+            .unwrap_err()
+            .fault,
+        Fault::State("counter::stop".into())
+    );
+}
+
+#[test]
+fn persistent_state_rejects_wrong_domains_constants_and_ephemeral_values() {
+    for source in [
+        "enum Stop { First = 1 } enum Other { First = 1 } state stop: Stop = Other::First;",
+        "state text: string = \"unstable program string index\";",
+        "state values: [i32; 1] = [0];",
+        "state count: i32 = 0; const copied: i32 = count;",
+        "state count = 0;",
+        "state count: i32 = 0; fn change() { count = true; }",
+    ] {
+        assert!(
+            compile(
+                "main",
+                &BTreeMap::from([("main".into(), format!("script library; {source}"))]),
+                &[]
+            )
+            .is_err(),
+            "{source}"
+        );
+    }
+    let sources: BTreeMap<String, String> = [
+        (
+            "private".into(),
+            "script library; state count: i32 = 0;".into(),
+        ),
+        (
+            "main".into(),
+            "script field; use private; pub fn main() { private::count = 3; }".into(),
+        ),
+    ]
+    .into();
+    assert!(
+        compile("main", &sources, &[])
+            .unwrap_err()
+            .message
+            .contains("private")
+    );
 }

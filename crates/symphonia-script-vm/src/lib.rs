@@ -45,6 +45,8 @@ pub enum Fault {
     NativeResult,
     #[error("native handler failed: {0}")]
     Host(String),
+    #[error("invalid persistent script state: {0}")]
+    State(String),
     #[error("instruction budget exhausted ({0})")]
     Budget(u32),
     #[error("VM is suspended; complete its native call before running again")]
@@ -580,6 +582,33 @@ impl Vm {
                         };
                         return Ok(Some(RunEvent::Suspended { opcode }));
                     }
+                }
+            }
+            Op::LoadState(index) | Op::StoreState(index) => {
+                let stored = if matches!(op, Op::StoreState(_)) {
+                    Some(self.pop()?.number)
+                } else {
+                    None
+                };
+                let state = self
+                    .program
+                    .authored()
+                    .and_then(|m| m.states.get(usize::from(index)))
+                    .ok_or(Fault::Pc)?;
+                let value = match stored {
+                    Some(value) => value,
+                    None => host
+                        .load_state(&state.name)
+                        .map_err(Fault::Host)?
+                        .unwrap_or(state.initial),
+                };
+                if !state.accepts(value) {
+                    return Err(Fault::State(state.name.clone()));
+                }
+                if stored.is_some() {
+                    host.store_state(&state.name, value).map_err(Fault::Host)?;
+                } else {
+                    self.push(Value::scalar(value))?;
                 }
             }
             Op::LoadLocal(index) => {

@@ -1,0 +1,69 @@
+script field;
+use game::actors;
+use game::treasure;
+use game::party;
+use game::field;
+use game::text;
+use field::treasure_types;
+use game::treasure::Kind;
+use game::treasure::Reward;
+use field::treasure_types::Cue;
+const OpeningSpeed: f32 = 0.4;
+const ClosingSpeed: f32 = - 0.8;
+message received_item(item: text::Item) = "Received {item}.";
+message full_item(item: text::Item) = "Cannot carry any more {item}.";
+message received_gald(amount: i32) = "Found {amount} Gald.";
+message full_gald(amount: i32) = "Cannot carry {amount} more Gald.";
+task finish_animation(actor: actors::Actor) {
+    while !actors::animation_finished(actor) {
+        await field::next_update();
+    }
+}
+task give_reward(reward: Reward) -> bool {
+    let mut received = false;
+    match reward {
+        Reward::Item(item) => {
+            received = party::give_item(item, 1);
+            if received {
+                treasure_types::play(Cue::ReceivedItem);
+                await field::instant_notice(received_item(item));
+            } else {
+                await field::instant_notice(full_item(item));
+            }
+        },
+        Reward::Gald(amount) => {
+            received = party::give_gald(amount);
+            if received {
+                treasure_types::play(Cue::ReceivedItem);
+                await field::instant_notice(received_gald(amount));
+            } else {
+                await field::instant_notice(full_gald(amount));
+            }
+        },
+    }
+    return received;
+}
+pub task open(chest: treasure::Chest) {
+    let actor = treasure::actor(chest);
+    let kind = treasure::kind(chest);
+    actors::animate(actor, OpeningSpeed, false);
+    if kind != Kind::UnknownId2 {
+        treasure_types::play(Cue::OpenChest);
+    }
+    await finish_animation(actor);
+    if kind == Kind::UnknownId2 {
+        treasure_types::play(Cue::OpenAlternateChest);
+    }
+    if await give_reward(treasure::reward(chest)) {
+        treasure::mark_opened(chest);
+        return;
+    }
+    actors::animate(actor, ClosingSpeed, true);
+    if kind == Kind::UnknownId2 {
+        treasure_types::play(Cue::OpenAlternateChest);
+    } else {
+        treasure_types::play(Cue::OpenChest);
+    }
+    await finish_animation(actor);
+    actors::stop_animation(actor);
+}

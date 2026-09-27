@@ -1,0 +1,46 @@
+script library;
+use game::world;
+enum Variable {
+    Story = 0,
+}
+// Story values are ordered save-data milestones. Their cutscene identities
+// have not been established; do not infer names from a visibility side effect.
+pub enum Stage {
+    UnknownId903000 = 903000,
+    UnknownId1000000 = 1000000,
+    UnknownId1001000 = 1001000,
+    UnknownId1101000 = 1101000,
+    UnknownId1201000 = 1201000,
+    UnknownId1208000 = 1208000,
+    UnknownId1301000 = 1301000,
+    UnknownId1403000 = 1403000,
+    UnknownId11903000 = 11903000,
+    UnknownId12204000 = 12204000,
+    UnknownId12400000 = 12400000,
+    UnknownId12601000 = 12601000,
+    UnknownId12904000 = 12904000,
+    UnknownId13201000 = 13201000,
+    UnknownId13503000 = 13503000,
+    UnknownId20201000 = 20201000,
+    UnknownId20401000 = 20401000,
+    UnknownId20701000 = 20701000,
+    UnknownId20801000 = 20801000,
+    UnknownId21400000 = 21400000,
+    UnknownId21401000 = 21401000,
+    UnknownId22601000 = 22601000,
+}
+pub fn at(stage: Stage) -> bool {
+    return world::global(i32(Variable::Story)) == i32(stage);
+}
+pub fn before(stage: Stage) -> bool {
+    return world::global(i32(Variable::Story)) < i32(stage);
+}
+pub fn through(stage: Stage) -> bool {
+    return world::global(i32(Variable::Story)) <= i32(stage);
+}
+pub fn after(stage: Stage) -> bool {
+    return world::global(i32(Variable::Story)) > i32(stage);
+}
+pub fn reached(stage: Stage) -> bool {
+    return world::global(i32(Variable::Story)) >= i32(stage);
+}

@@ -118,6 +118,16 @@ impl Package {
         output: &std::path::Path,
         input: crate::all_assets::geometry::Input,
     ) -> anyhow::Result<Self> {
+        Self::cook_with_audio(bytes, name, output, input, None)
+    }
+
+    pub(crate) fn cook_with_audio(
+        bytes: &[u8],
+        name: &str,
+        output: &std::path::Path,
+        input: crate::all_assets::geometry::Input,
+        audio: Option<&crate::media::library::Cooker>,
+    ) -> anyhow::Result<Self> {
         let mut package = Self::default();
         let mut failures = Vec::new();
         anyhow::ensure!(
@@ -125,7 +135,7 @@ impl Package {
                 bytes,
                 name,
                 output,
-                None,
+                audio,
                 input,
                 &mut package,
                 &mut |path, result| {

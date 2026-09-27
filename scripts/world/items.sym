@@ -1,0 +1,10 @@
+script library;
+use game::world;
+pub enum Item {
+    UnicornHorn = 52,
+    MapOfBalacruf = 54,
+    DesianOrb = 64,
+}
+pub fn count(item: Item) -> i32 {
+    return world::item_count(i32(item));
+}

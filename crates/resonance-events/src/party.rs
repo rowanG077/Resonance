@@ -222,6 +222,8 @@ impl Default for Settings {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Party {
     #[serde(default)]
+    pub battles: crate::battle::History,
+    #[serde(default)]
     pub figurines: BTreeSet<u16>,
     #[serde(default)]
     pub monsters: BTreeMap<u8, MonsterKnowledge>,
@@ -274,6 +276,7 @@ impl Party {
             "invalid saved character name"
         );
         self.settings.preferences.validate()?;
+        self.battles.validate()?;
         self.travel.validate()?;
         ensure!(
             self.monsters.iter().all(|(&id, knowledge)| usize::from(id)
@@ -431,6 +434,7 @@ impl Party {
                 })
                 .collect(),
             formation: vec![1],
+            battles: Default::default(),
             monsters: BTreeMap::new(),
             figurines: BTreeSet::new(),
             travel: Travel::default(),

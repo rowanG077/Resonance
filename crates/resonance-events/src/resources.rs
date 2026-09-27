@@ -25,6 +25,7 @@ pub struct ResourceLibrary {
     pub session_data: Option<std::sync::Arc<resonance_content::session::SessionData>>,
     pub fields: BTreeSet<u32>,
     pub doors: Vec<resonance_content::field::Door>,
+    pub camera_tracks: BTreeMap<u32, Vec<resonance_content::CameraKey>>,
 }
 pub enum ParticleKind {
     Glow,

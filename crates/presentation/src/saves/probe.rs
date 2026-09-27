@@ -74,6 +74,7 @@ pub(super) fn app_with_saves(
             capture: Some(output.join("unused.png")),
             silent: true,
             skip_intro: true,
+            skip_battles: false,
             tick: None,
             presentation_start: None,
             selected: 0,

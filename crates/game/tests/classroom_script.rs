@@ -3083,6 +3083,21 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
     let text: Arc<resonance_content::session::GameText> = Arc::new(cooked("game/text.json"));
     let mut failures = Vec::new();
     let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let mut files = resonance_content::prepared::Files::default();
+    for path in ["game/text.json", "game/session-data.json"]
+        .into_iter()
+        .chain(
+            catalog
+                .resources
+                .values()
+                .flat_map(|paths| [paths.script.as_str(), paths.messages.as_str()]),
+        )
+    {
+        files
+            .bytes
+            .insert(path.to_owned(), fs::read(root.join(path)).unwrap().into());
+    }
+    let prepared = resonance_game::skit::Prepared::load(catalog.clone(), &files).unwrap();
     for (&id, paths) in &catalog.resources {
         let result = (|| -> anyhow::Result<()> {
             let resources = Arc::new(ResourceLibrary {
@@ -3102,22 +3117,35 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
                 &data,
                 Default::default(),
             )?);
-            let mut events =
+            let mut parent =
                 EventRuntime::with_state(program, resources, world, Default::default())?;
-            let mut dialogue = Default::default();
+            let mut playback = resonance_game::skit::Playback::start(
+                &prepared[&id],
+                &mut parent,
+                true,
+                false,
+                None,
+            )?;
             for tick in 0..36_000 {
-                if events.main_finished() {
+                if playback.step(
+                    &mut parent,
+                    resonance_game::skit::Input {
+                        confirm: tick % 30 == 10,
+                        ..Default::default()
+                    },
+                )? {
                     return Ok(());
                 }
-                events.step()?;
-                resonance_game::dialogue::step_requests(
-                    &mut events.world,
-                    &mut dialogue,
-                    tick % 30 == 10,
-                    false,
-                )?;
-                events.world.audio_commands.clear();
-                for portrait in events.world.skit.as_ref().unwrap().portraits.values() {
+                parent.world.audio_commands.clear();
+                for portrait in playback
+                    .events
+                    .world
+                    .skit
+                    .as_ref()
+                    .unwrap()
+                    .portraits
+                    .values()
+                {
                     let asset = &catalog.portraits[&portrait.resource];
                     let tile_size = resonance_content::skit::TILE_SIZE;
                     anyhow::ensure!(
@@ -3139,7 +3167,10 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
                     );
                 }
             }
-            anyhow::bail!("skit never completed: {:?}", events.pending_operations())
+            anyhow::bail!(
+                "skit never completed: {:?}",
+                playback.events.pending_operations()
+            )
         })();
         if let Err(error) = result {
             failures.push(format!("skit {id}: {error:#}"));

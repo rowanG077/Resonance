@@ -366,3 +366,24 @@ fn joining_consumes_the_child_handle() {
     assert!(format!("{error:#}").contains("already joined"));
     assert_eq!(runtime.active_instances(), 1);
 }
+
+#[test]
+fn authored_state_survives_field_retirement_without_retaining_a_vm() {
+    let script = compile("state visits: i32 = 0; pub task main() { visits += 1; }");
+    let mut first = runtime();
+    first
+        .start_authored(script.clone(), "test::main", &[])
+        .unwrap();
+    first.step().unwrap();
+    assert_eq!(first.world.script_state["test::visits"], 1);
+
+    let (mut world, memory) = first.persistent_state().unwrap().into_world();
+    world.input_enabled = true;
+    let legacy = Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap());
+    let mut second =
+        EventRuntime::with_state(legacy, Arc::new(ResourceLibrary::default()), world, memory)
+            .unwrap();
+    second.start_authored(script, "test::main", &[]).unwrap();
+    second.step().unwrap();
+    assert_eq!(second.world.script_state["test::visits"], 2);
+}

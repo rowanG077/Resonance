@@ -30,6 +30,8 @@ pub enum Op {
     BranchFalse(u32),
     Native(u8),
     End,
+    LoadState(u16),
+    StoreState(u16),
     LoadLocal(u16),
     StoreLocal(u16),
     LoadLocalIndexed { base: u16, len: u16 },
@@ -178,6 +180,15 @@ impl Program {
                 "authored strings must have unique, representable indices",
             ));
         }
+        let mut state_names = std::collections::BTreeSet::new();
+        for state in &module.states {
+            if state.name.is_empty()
+                || !state_names.insert(&state.name)
+                || !state.accepts(state.initial)
+            {
+                return Err(invalid("invalid or duplicate persistent state declaration"));
+            }
+        }
         let valid_pc = |pc: u32| (pc as usize) < module.code.len();
         let mut entries = std::collections::BTreeSet::new();
         let mut names = std::collections::BTreeSet::new();
@@ -229,6 +240,13 @@ impl Program {
                 }
                 Op::SpawnFunction(index) if !module.functions[usize::from(index)].is_task => {
                     return Err(invalid("spawn targets a synchronous function"));
+                }
+                Op::LoadState(index) | Op::StoreState(index)
+                    if usize::from(index) >= module.states.len() =>
+                {
+                    return Err(invalid(
+                        "persistent state instruction targets missing declaration",
+                    ));
                 }
                 Op::Native(opcode) if !natives.contains(&opcode) => {
                     return Err(invalid("authored native lacks declaration"));

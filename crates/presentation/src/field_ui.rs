@@ -1,6 +1,9 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
 #[path = "field_ui_coverage.rs"]
 mod coverage;
+#[path = "field_ui_failure.rs"]
+mod failure;
+pub(super) use failure::update as transition_failure;
 #[path = "field_ui_menu.rs"]
 mod menu;
 #[path = "field_ui_overlay.rs"]
@@ -12,6 +15,8 @@ pub(super) fn model_preview_depth() -> f32 {
 mod prompt;
 #[path = "field_ui_skit.rs"]
 mod skit;
+#[path = "field_ui_world.rs"]
+mod world;
 use anyhow::{Context, Result};
 use bevy::{
     asset::RenderAssetUsages,
@@ -27,6 +32,7 @@ use resonance_content::font::{BitmapFont, DialogueArt};
 use resonance_events::dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, TextToken, flags};
 use resonance_game::{dialogue::DialoguePlayer, field::FieldSession};
 use std::{collections::BTreeMap, fs, path::Path};
+pub(super) use world::Artwork as WorldArtwork;
 
 // Explicit compositing order keeps text underneath the cursor and its shadow.
 mod layer {
@@ -102,7 +108,7 @@ pub(super) struct Artwork {
     layers: BTreeMap<(u8, usize), Layer>,
     head_heights: BTreeMap<u64, f32>,
     choice_trail: super::choice_cursor::Trail,
-    subtitles: resonance_content::font::MovieSubtitles,
+    subtitles: Option<resonance_content::font::MovieSubtitles>,
     subtitle_layer: Option<Layer>,
     overlays: overlay::Artwork,
     menu: menu::MenuArtwork,
@@ -273,17 +279,26 @@ impl Artwork {
                 |files| Ok(files.read(path)?.to_vec()),
             )
         };
+        let subtitles: resonance_content::font::MovieSubtitles =
+            serde_json::from_slice(&read("ui/story-subtitles.json")?)?;
+        subtitles.validate()?;
+        let mut art = Self::load_shared(read, &field.overlays, server, materials, image_assets)?;
+        art.subtitles = Some(subtitles);
+        Ok(art)
+    }
+    fn load_shared(
+        read: impl Fn(&str) -> Result<Vec<u8>>,
+        overlays: &BTreeMap<i32, String>,
+        server: &AssetServer,
+        materials: &mut Assets<Surface>,
+        image_assets: &mut Assets<Image>,
+    ) -> Result<Self> {
         let spec: DialogueArt = serde_json::from_slice(
             &read("ui/dialogue.json").context("classroom dialogue art is missing; run cook-all")?,
         )?;
         spec.validate()?;
         let font: BitmapFont = serde_json::from_slice(&read(&spec.font)?)?;
         font.validate()?;
-        let subtitles: resonance_content::font::MovieSubtitles = serde_json::from_slice(
-            &read("ui/story-subtitles.json")
-                .context("movie subtitles are missing; run cook-all")?,
-        )?;
-        subtitles.validate()?;
         let images: Vec<Handle<Image>> = spec
             .textures
             .iter()
@@ -322,8 +337,8 @@ impl Artwork {
                 })
             })
             .collect();
-        let menu = menu::MenuArtwork::load(read, server, materials, &surfaces[9], &surfaces[10])?;
-        let skits = skit::Artwork::load(read, server, materials, &surfaces[9], image_assets)?;
+        let menu = menu::MenuArtwork::load(&read, server, materials, &surfaces[9], &surfaces[10])?;
+        let skits = skit::Artwork::load(&read, server, materials, &surfaces[9], image_assets)?;
         Ok(Self {
             skits,
             resolution: Default::default(),
@@ -334,9 +349,9 @@ impl Artwork {
             layers: BTreeMap::new(),
             head_heights: BTreeMap::new(),
             choice_trail: Default::default(),
-            subtitles,
+            subtitles: None,
             subtitle_layer: None,
-            overlays: overlay::Artwork::load(field, read, server, materials, image_assets)?,
+            overlays: overlay::Artwork::load(overlays, read, server, materials, image_assets)?,
             menu,
             prompt_layers: Vec::new(),
         })
@@ -443,7 +458,7 @@ impl Artwork {
                         &self.font,
                         request,
                         p,
-                        session,
+                        &session.events.world,
                         height.unwrap_or(170.),
                         self.resolution,
                     )
@@ -496,8 +511,31 @@ impl Artwork {
             commands,
             meshes,
         )?;
-        let mut used = std::collections::BTreeSet::new();
         let (world, dialogue) = session.dialogue_scene();
+        self.render_dialogue(
+            world,
+            dialogue,
+            &session.events.world,
+            presentation_tick,
+            heads,
+            commands,
+            meshes,
+            materials,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn render_dialogue(
+        &mut self,
+        world: &resonance_events::GameWorld,
+        dialogue: &BTreeMap<u8, DialoguePlayer>,
+        camera_world: &resonance_events::GameWorld,
+        presentation_tick: u32,
+        heads: &BTreeMap<i32, Vec3>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<Surface>,
+    ) -> Result<()> {
+        let mut used = std::collections::BTreeSet::new();
         self.head_heights.retain(|operation, _| {
             world
                 .dialogue
@@ -531,7 +569,7 @@ impl Artwork {
                 &self.font,
                 request,
                 player,
-                session,
+                camera_world,
                 self.head_heights
                     .get(&request.operation.id())
                     .copied()
@@ -714,16 +752,14 @@ impl Artwork {
                 && player.accepts_input()
                 && player.fully_revealed()
                 && request.flags & flags::FRAMELESS == 0
-                && !session
-                    .events
-                    .world
+                && !world
                     .choices
                     .get(&slot)
                     .is_some_and(|c| c.operation.is_pending())
             {
                 // The continue marker’s pulse follows scene age, not window age.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
-                let phase = (session.effect_clock.tick() % 90) as f32 * 4.0f32.to_radians();
+                let phase = (presentation_tick % 90) as f32 * 4.0f32.to_radians();
                 batches[layer::FRAME].quad(
                     [rect[2] - 28., bottom, rect[2] - 4., bottom + 24.],
                     if preferences.is_some_and(|s| s.window == 2) {
@@ -833,6 +869,7 @@ pub(super) fn subtitles(
     let cue = frame.filter(|_| story && enabled).and_then(|frame| {
         // Subtitle cue frames are one-based; the decoded movie frame is zero-based.
         art.subtitles
+            .as_ref()?
             .cues
             .iter()
             .rev()
@@ -947,7 +984,7 @@ fn layout(
     font: &BitmapFont,
     request: &Dialogue,
     player: &DialoguePlayer,
-    session: &FieldSession,
+    camera_world: &resonance_events::GameWorld,
     head_height: f32,
     resolution: super::Resolution,
 ) -> Result<([f32; 4], Option<[f32; 2]>)> {
@@ -982,19 +1019,20 @@ fn layout(
     if let Some(size) = request.dimensions {
         [width, height] = size.map(f32::from);
     }
-    let camera = session
-        .events
-        .world
-        .field_camera
-        .as_ref()
-        .context("dialogue needs a field camera")?;
-    let transform = Transform::from_translation(Vec3::from_array(camera.position))
-        .looking_at(Vec3::from_array(camera.target), Vec3::Z);
-    let project =
-        |point| project_dialogue_point(&transform, camera.fov_degrees(), point, resolution);
+    // Screen-anchored skit dialogue does not require a field camera.
+    let project = |point| {
+        camera_world
+            .field_camera
+            .as_ref()
+            .map_or([320., 240.], |camera| {
+                let transform = Transform::from_translation(Vec3::from_array(camera.position))
+                    .looking_at(Vec3::from_array(camera.target), Vec3::Z);
+                project_dialogue_point(&transform, camera.fov_degrees(), point, resolution)
+            })
+    };
     let actor = request
         .speaker_actor
-        .and_then(|id| session.events.world.actors.get(&id).map(|a| (id, a)));
+        .and_then(|id| camera_world.actors.get(&id).map(|a| (id, a)));
     let mut pointer = actor
         .filter(|_| {
             request.flags & flags::POINTER != 0

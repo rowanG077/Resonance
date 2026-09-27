@@ -1,0 +1,22 @@
+script library;
+pub enum World {
+    Sylvarant = 0,
+    TetheAlla = 1,
+}
+pub enum Mount {
+    Foot = 0,
+    Noishe = 1,
+    Rheairds = 2,
+    Ship = 3,
+}
+pub enum Music {
+    Sylvarant = 2,
+    TetheAlla = 3,
+    Ship = 4,
+    Rheairds = 5,
+}
+pub enum MusicBank {
+    Sylvarant = 0,
+    TetheAlla = 1,
+    UnknownId2 = 2,
+}

@@ -8,6 +8,15 @@ use motion::{FovTween, MotionCamera, Tween};
 pub const ANCHOR_ACTOR: i32 = 90_020;
 pub const ANCHOR_RESOURCE: u32 = 24;
 
+/// Exponential perspective fog configured by original scene scripts.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Fog {
+    pub start: f32,
+    pub end: f32,
+    pub color: [u8; 3],
+}
+
 pub fn anchor() -> Actor {
     let position = [1., 0., 0.];
     Actor {
@@ -29,6 +38,8 @@ pub fn anchor() -> Actor {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CameraSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fog: Option<Fog>,
     pub axes: [bool; 3],
     pub fixed_position: [f32; 3],
     pub angles: [f32; 3],
@@ -43,6 +54,10 @@ pub struct CameraSettings {
 impl CameraSettings {
     pub fn entry(self, actor: i32) -> Result<EntryCamera, String> {
         if !self.fixed_position.iter().all(|v| v.is_finite())
+            || self
+                .fog
+                .as_ref()
+                .is_some_and(|fog| !fog.start.is_finite() || !fog.end.is_finite())
             || !self
                 .angles
                 .iter()
@@ -64,6 +79,7 @@ impl CameraSettings {
         }
         Ok(EntryCamera {
             camera: FieldCamera {
+                fog: self.fog,
                 actor,
                 axes: self.axes,
                 position: self.fixed_position,
@@ -85,6 +101,7 @@ impl CameraSettings {
 
 #[derive(Debug, Clone)]
 pub struct FieldCamera {
+    pub fog: Option<Fog>,
     pub actor: i32,
     pub offset: [f32; 3],
     pub follow: bool,
@@ -103,6 +120,7 @@ pub struct FieldCamera {
 impl Default for FieldCamera {
     fn default() -> Self {
         Self {
+            fog: None,
             actor: 1,
             offset: [0.; 3],
             follow: false,
@@ -147,6 +165,8 @@ impl EntryCamera {
 
 #[derive(Debug, Clone)]
 pub struct CameraRig {
+    /// Presentation supplies its actual horizontal framing; scripts retain the original camera.
+    pub view_aspect_ratio: f32,
     pub motion: Option<MotionCamera>,
     /// Native selector -1 edits the next field's entry camera, leaving this
     /// field's view live. This transient handoff is not part of a saved game.
@@ -165,6 +185,7 @@ pub struct CameraRig {
 impl Default for CameraRig {
     fn default() -> Self {
         Self {
+            view_aspect_ratio: 4. / 3.,
             motion: None,
             entry: None,
             selected: 0,
@@ -203,6 +224,7 @@ impl CameraRig {
             return Err("quicksave requires the ordinary player-follow camera".into());
         }
         Ok(CameraSettings {
+            fog: camera.fog.clone(),
             axes: camera.axes,
             fixed_position: std::array::from_fn(|i| {
                 if camera.axes[i] {
@@ -369,10 +391,12 @@ impl CameraRig {
         let scale = 1. / (self.fov_degrees().to_radians() * 0.5).tan() / depth;
         let x = WIDTH as f32 * 0.5 + dot(offset, right) * scale * HEIGHT as f32 * 0.5;
         let y = SCENE_HEIGHT as f32 * 0.5 * (1. - dot(offset, up) * scale);
+        let extra_width = (HEIGHT as f32 * self.view_aspect_ratio - WIDTH as f32).max(0.) * 0.5;
         if z > 0.85 {
-            (-64. ..=704.).contains(&x) && (-32. ..=640.).contains(&y)
+            (-64. - extra_width..=704. + extra_width).contains(&x) && (-32. ..=640.).contains(&y)
         } else {
-            (-640. ..=1280.).contains(&x) && (-640. ..=1280.).contains(&y)
+            (-640. - extra_width..=1280. + extra_width).contains(&x)
+                && (-640. ..=1280.).contains(&y)
         }
     }
     pub fn start_path(&mut self) {
@@ -422,6 +446,12 @@ mod tests {
         assert!(!rig.animates([0., -1000., 0.]));
         assert!(!rig.animates([0., 100., 0.]));
         assert!(!rig.animates([0., 50000., 0.]));
+        let wide = CameraRig {
+            view_aspect_ratio: 16. / 9.,
+            ..rig
+        };
+        assert!(wide.animates([400., 1000., 0.]));
+        assert!(!wide.animates([600., 1000., 0.]));
     }
 
     #[test]

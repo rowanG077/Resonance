@@ -50,6 +50,7 @@ struct Settings {
     eye: Vec4,
     uv: Vec4,
     parameters: Vec4,
+    screen_copy: Vec4,
     pulses: [Pulse; 16],
 }
 #[derive(Component, Clone, ExtractComponent)]
@@ -101,6 +102,12 @@ fn sync(
             // scene at every output resolution.
             recipe.displacement[0] / resonance_content::WIDTH as f32,
             recipe.displacement[1] / resonance_content::SCENE_HEIGHT as f32,
+            0.,
+        ),
+        screen_copy: Vec4::new(
+            world.screen_copy_depth[0],
+            world.screen_copy_depth[1],
+            100. / 40000.,
             0.,
         ),
         ..default()
@@ -229,6 +236,8 @@ fn render(
     // Warm both ping-pong bindings once, even when there is no live ripple.
     // A field with no ripple otherwise incurs no extra full-screen draw.
     if settings.parameters.x == 0.
+        && settings.screen_copy.x == 0.
+        && settings.screen_copy.y == 0.
         && bindings
             .views
             .contains_key(&target.main_texture_view().id())

@@ -20,7 +20,7 @@ use symphonia_script::{Program, scenario, semantics::NativeRegistry};
 mod tests;
 
 #[cfg(test)]
-fn cook(root: &Path, inputs: Inputs) -> Result<Manifest> {
+pub(crate) fn cook(root: &Path, inputs: Inputs) -> Result<Manifest> {
     let _publications = crate::publication::Session::start_if_needed(root)?;
     publish(root, build(root, inputs)?)
 }

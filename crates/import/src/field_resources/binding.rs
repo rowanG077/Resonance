@@ -128,6 +128,7 @@ mod tests {
             party_field_motions: vec![],
             field_services: vec![],
             save_point: "unused.cab".into(),
+            treasures: std::array::from_fn(|_| "unused.cab".into()),
         };
         let resources = Resources::decoded(&catalogue, &decoded);
         assert_eq!(resources.resource(0)?, b"dependency");

@@ -13,10 +13,10 @@ mod projection;
 pub(crate) mod source;
 pub(crate) mod title;
 
-fn camera(track: crate::all_assets::CameraTrack) -> Result<Vec<CameraKey>> {
+pub(crate) fn camera(track: crate::all_assets::CameraTrack) -> Result<Vec<CameraKey>> {
     ensure!(
         track.transforms.len() >= 2 && track.transforms.len() == track.targets.len(),
-        "title camera needs matching position and target tracks"
+        "scene camera needs matching position and target tracks"
     );
     track
         .transforms

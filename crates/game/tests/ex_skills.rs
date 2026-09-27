@@ -59,6 +59,7 @@ fn gems_stats_compounds_and_save_restore() {
     party.validate(&data).unwrap();
 
     let progress = SavedProgress {
+        script_state: Default::default(),
         script_globals: vec![0; 256],
         party,
         event_flags: Default::default(),

@@ -105,6 +105,12 @@ pub(super) fn discover<'a>(
                     let path = crate::field_resources::resolve_path(&files, &catalogue.save_point)?;
                     dependencies.insert(source_hash(sources, disc, &files, &path)?);
                 }
+                if declarations.treasures {
+                    for treasure in &catalogue.treasures {
+                        let path = crate::field_resources::resolve_path(&files, treasure)?;
+                        dependencies.insert(source_hash(sources, disc, &files, &path)?);
+                    }
+                }
                 Ok(Some(Field {
                     id: phase.id.try_into()?,
                     extracted,

@@ -1,0 +1,10 @@
+script library;
+use game::audio;
+pub enum Cue {
+    OpenChest = 28,
+    OpenAlternateChest = 29,
+    ReceivedItem = 6,
+}
+pub fn play(cue: Cue) {
+    audio::sound(i32(cue));
+}

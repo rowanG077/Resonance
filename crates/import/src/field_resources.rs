@@ -13,6 +13,7 @@ use symphonia_script::{NativeCall, Op, Program, scenario, semantics::NativeRegis
 pub(crate) struct Declarations {
     pub resources: BTreeSet<u32>,
     pub save_point: bool,
+    pub treasures: bool,
     /// Native call PCs whose resource selector depends on runtime input.
     pub dynamic: BTreeSet<u32>,
 }
@@ -96,6 +97,11 @@ pub(crate) fn declarations(bytes: &[u8]) -> Result<Declarations> {
     Ok(Declarations {
         resources: resources.into_iter().map(|id| id as u32).collect(),
         dynamic,
+        treasures: analysis.instructions.keys().any(|&pc| {
+            program
+                .instruction(pc)
+                .is_some_and(|(op, _)| op == Op::Native(NativeCall::CreateTreasureChest as u8))
+        }),
         save_point: analysis.instructions.keys().any(|&pc| {
             program
                 .instruction(pc)
