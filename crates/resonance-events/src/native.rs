@@ -401,7 +401,7 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(Some(previous)));
                 }
                 require(
-                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=18 | 20..=22 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53 | 66 | CONDITIONS | 101 | 102 | 104 | 112)
+                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=22 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53 | 66 | CONDITIONS | 101 | 102 | 104 | 112)
                         && (a[1] != 112 || op == NativeCall::GetActorProperty),
                     "actor property shim is not implemented",
                 )?;
@@ -503,7 +503,7 @@ impl NativeHost<'_> {
                         self.world
                             .actors
                             .get(id)
-                            .is_some_and(|a| a.role == crate::ActorRole::Pushable)
+                            .is_some_and(crate::Actor::pushable)
                     });
                     return Ok(NativeResult::Continue(Some(block.unwrap_or(0))));
                 }
@@ -535,6 +535,7 @@ impl NativeHost<'_> {
                     16 => i32::from(actor.appearance.expression),
                     17 => actor.interaction_label(),
                     18 => i32::from(actor.model_collision.is_some()),
+                    19 => i32::from(actor.pushable()),
                     20 => i32::from(actor.contact_event),
                     21..=22 => actor.enemy.as_ref().map_or(0, |enemy| {
                         i32::from(enemy.event_parameters[(a[1] - 21) as usize] as u16)
@@ -611,6 +612,14 @@ impl NativeHost<'_> {
                             } else {
                                 None
                             };
+                        }
+                        19 => {
+                            actor.properties.insert(19, a[2] & 1);
+                            if actor.pushable() {
+                                // fn_8001A6FC selects the block controller and
+                                // its contact radius when property 19 is set.
+                                actor.radius = 50.;
+                            }
                         }
                         21..=22 => {
                             if let Some(enemy) = &mut actor.enemy {

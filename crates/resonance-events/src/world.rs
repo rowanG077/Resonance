@@ -146,6 +146,12 @@ impl Actor {
     pub fn interaction_label(&self) -> i32 {
         self.properties.get(&17).copied().unwrap_or(2)
     }
+    /// Property 19 can turn an ordinary model into a movable block after spawn.
+    pub fn pushable(&self) -> bool {
+        self.properties
+            .get(&19)
+            .map_or(self.role == ActorRole::Pushable, |value| value & 1 != 0)
+    }
     pub fn ring_contact_enabled(&self) -> bool {
         self.properties.get(&48).is_none_or(|value| value & 1 == 0)
     }

@@ -117,6 +117,9 @@ impl Actor {
         random: &mut impl FnMut() -> u32,
     ) -> AmbientMotion {
         let mut intent = AmbientMotion::default();
+        if self.pushable() {
+            return intent;
+        }
         let Some(ai) = &mut self.autonomy else {
             return intent;
         };

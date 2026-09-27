@@ -37,6 +37,54 @@ fn interactive_effect(setup: &[u16], interaction: &[u16]) -> EventRuntime {
 }
 
 #[test]
+fn script_can_enable_and_disable_a_pushable_model_after_spawn() {
+    let mut world = GameWorld::default();
+    world.insert_actor(5000, Actor::new(267, [0.; 3]));
+    let main = script(&[
+        (Call::SetActorProperty, &[5000, 19, 3]),
+        (Call::GetActorProperty, &[5000, 19]),
+    ]);
+    let child = script(&[(Call::SetActorProperty, &[5000, 19, 2])]);
+    let mut events = runtime(program(&main, &child), Default::default(), world);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    assert!(events.world.actors[&5000].pushable());
+    assert_eq!(events.world.actors[&5000].radius, 50.);
+    events.world.input_enabled = true;
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    assert!(!events.world.actors[&5000].pushable());
+}
+
+#[test]
+fn ordinary_locomotion_replaces_same_slot_from_a_block_animation_bank() {
+    use resonance_content::field::FIELD_SERVICE_MOTION_RESOURCE_BASE;
+    use resonance_events::animation::{AnimationSource, slot};
+    for (slot, speed) in [(slot::WALK, 4), (slot::RUN, 8)] {
+        let mut actor = Actor::new(1, [0.; 3]);
+        actor.animation = Some(Animation {
+            source: AnimationSource::Resource,
+            ..Animation::new(FIELD_SERVICE_MOTION_RESOURCE_BASE + 1, slot, 20, 0)
+        });
+        let mut world = GameWorld::default();
+        world.controlled_actor = 1;
+        world.input_enabled = true;
+        world.insert_actor(1, actor);
+        let resources = ResourceLibrary {
+            models: [(1, model([slot], 30))].into(),
+            ..Default::default()
+        };
+        let main = script(&[(Call::MoveActor, &[1, 0, -100, 0, speed])]);
+        let mut events = runtime(program(&main, &[0x20ff]), resources, world);
+        events.step().unwrap();
+        let animation = events.world.actors[&1].animation.as_ref().unwrap();
+        assert_eq!(animation.source, AnimationSource::Model);
+        assert_eq!(animation.resource, 1);
+        assert_eq!(animation.slot, slot);
+    }
+}
+
+#[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
 fn colette_costume_change_returns_previous_value_and_survives_save() {
     let setup = script(&[(Call::SetCharacterCostume, &[2, 3])]);

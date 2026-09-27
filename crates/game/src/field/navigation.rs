@@ -43,9 +43,7 @@ impl WalkMesh {
             .actors
             .iter()
             .filter(|(id, actor)| {
-                moving != Some(**id)
-                    && actor.role == resonance_events::ActorRole::Pushable
-                    && actor.motion.is_none()
+                moving != Some(**id) && actor.pushable() && actor.motion.is_none()
             })
             .map(|(&id, actor)| {
                 let floor = self

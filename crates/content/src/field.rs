@@ -21,8 +21,8 @@ pub enum ServiceMotion {
     OpenDoor = 20,
     PullDoor = 24,
     HoldBlock = 32,
-    PushBlock = 40,
-    PullBlock = 36,
+    PushBlock = 36,
+    PullBlock = 40,
     CastRing = 52,
 }
 impl ServiceMotion {
