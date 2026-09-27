@@ -107,12 +107,7 @@ pub(crate) fn bank_sources(extracted: &Path, executable: &[u8]) -> Result<Vec<St
             if entry.file_type()?.is_dir() {
                 directories.push(path);
             } else if entry.file_type()?.is_file() && file_role(&path)? == Some(Role::SoundBank) {
-                sources.insert(
-                    path.strip_prefix(&files)?
-                        .to_str()
-                        .context("non-UTF8 audio source")?
-                        .into(),
-                );
+                sources.insert(crate::relative_source_path(&files, &path)?);
             }
         }
     }
@@ -911,6 +906,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn source_inventory_paths_bind_declared_songs() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let files = root.path().join("files");
+        fs::create_dir_all(files.join("S"))?;
+        let song = files.join("S").join("bgm_damy_start.song");
+        fs::write(&song, b"song inventory fixture")?;
+        let hash = media::hash_file(&song)?;
+        let directory = crate::music_directory::Directory {
+            entries: vec![crate::music_directory::Entry {
+                id: 7,
+                buffer: crate::music_directory::Buffer::Resident,
+                file: Some("s/bgm_damy_start.song".into()),
+            }],
+        };
+        for path in [song, files.join(r"S\bgm_damy_start.song")] {
+            let inventory =
+                BTreeMap::from([(crate::relative_source_path(&files, &path)?, hash.clone())]);
+            assert_eq!(
+                song_setups(root.path(), &directory, &inventory)?[&hash],
+                [7]
+            );
+        }
+        assert!(song_setups(root.path(), &directory, &BTreeMap::new()).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn renamed_banks_and_songs_keep_their_roles_aliases_and_publications() -> Result<()> {
         let root = crate::temporary_path(&std::env::temp_dir().join("renamed-audio"));
         let result = (|| -> Result<()> {
@@ -1059,13 +1081,7 @@ mod tests {
                             );
                         }
                         if let Some(role) = role {
-                            discovered.insert(
-                                path.strip_prefix(&files)?
-                                    .to_str()
-                                    .context("source path")?
-                                    .to_owned(),
-                                role,
-                            );
+                            discovered.insert(crate::relative_source_path(&files, &path)?, role);
                         }
                     }
                 }
