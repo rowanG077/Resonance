@@ -1,6 +1,8 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
 #[path = "field_ui_coverage.rs"]
 mod coverage;
+#[path = "field_ui_damage.rs"]
+mod damage;
 #[path = "field_ui_failure.rs"]
 mod failure;
 pub(super) use failure::update as transition_failure;
@@ -113,6 +115,7 @@ pub(super) struct Artwork {
     overlays: overlay::Artwork,
     menu: menu::MenuArtwork,
     prompt_layers: Vec<Layer>,
+    damage_layer: Option<Layer>,
     skits: skit::Artwork,
 }
 struct Layer {
@@ -245,6 +248,7 @@ impl Artwork {
             .into_values()
             .chain(self.menu.layers.drain(..))
             .chain(self.prompt_layers.drain(..))
+            .chain(self.damage_layer.take())
             .chain(self.skits.layers.drain(..))
             .chain(self.skits.warm.drain(..))
         {
@@ -354,6 +358,7 @@ impl Artwork {
             overlays: overlay::Artwork::load(overlays, read, server, materials, image_assets)?,
             menu,
             prompt_layers: Vec::new(),
+            damage_layer: None,
         })
     }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
@@ -372,6 +377,7 @@ impl Artwork {
         self.menu.prepare(commands, meshes);
         self.skits.prepare(commands, meshes);
         self.prepare_prompt(commands, meshes, materials);
+        self.prepare_damage(commands, meshes);
         self.overlays.prepare(commands, meshes);
         for slot in 0..DIALOGUE_SLOTS {
             for (index, texture) in layer::TEXTURES.into_iter().enumerate() {
@@ -437,6 +443,7 @@ impl Artwork {
             .chain(&self.overlays.warm)
             .chain(&self.menu.layers)
             .chain(&self.prompt_layers)
+            .chain(self.damage_layer.iter())
             .chain(&self.skits.layers)
             .chain(&self.skits.warm)
             .map(|layer| (&layer.mesh, &layer.material))
@@ -494,6 +501,7 @@ impl Artwork {
         images: &mut Assets<Image>,
     ) -> Result<()> {
         self.render_prompt(session, commands, meshes)?;
+        self.render_damage(session, commands, meshes)?;
         self.skits.render(
             session.active_skit.as_ref(),
             &self.font,
@@ -1025,8 +1033,7 @@ fn layout(
             .field_camera
             .as_ref()
             .map_or([320., 240.], |camera| {
-                let transform = Transform::from_translation(Vec3::from_array(camera.position))
-                    .looking_at(Vec3::from_array(camera.target), Vec3::Z);
+                let transform = super::field_view::camera_transform(camera);
                 project_dialogue_point(&transform, camera.fov_degrees(), point, resolution)
             })
     };

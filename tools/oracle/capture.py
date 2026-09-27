@@ -170,8 +170,6 @@ def main():
                 parser.error(f"conflicting watcher location: {address}")
             actor_locations[address] = name
         args.watch_state = True
-    # fn_80137FD0 / fn_8013769C: read the envelope itself so voice overlap
-    # in a mixed PCM recording cannot conceal an incorrect music fade.
     for group in set(args.watch_volume_group):
         for index, name in enumerate(["value", "target", "previous", "progress", "step"]):
             address = 0x8030817c + group * 0x30 + index * 4

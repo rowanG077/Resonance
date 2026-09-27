@@ -4,8 +4,7 @@ Run from the repository root inside `nix develop`. Reusable inputs belong in
 [cases](cases/); discs, savestates, captures and reports stay in ignored `local/`.
 Capture output directories must be fresh.
 
-Read the relevant original routines and recovered asset recipes before a fidelity
-batch. Group related fixes, build once, then run independent cases with up to 12
+Group related fixes, build once, then run independent cases with up to 12
 workers. Give each worker a separate output directory; fresh Dolphin recordings
 also require isolated profiles, displays and watcher sockets. Retain exit codes,
 timings and failed comparisons. Reuse verified source captures when only native

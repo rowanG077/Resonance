@@ -2,7 +2,6 @@
 """Read named title observations from a Dolphin 2606 checkpoint; never execute it.
 
 Header layout: Dolphin 2606 Source/Core/Core/State.h and State.cpp.
-Game offsets: fn_80072AD8.c, fn_800708C8.c and their original symbols.
 This development tool is independent of the Resonance runtime.
 """
 import argparse
@@ -77,7 +76,6 @@ def inspect(path, library=None):
     result["field_presentation"] = {
         "scene_flags": u32(0x35a760), "control_flags": u32(0x35a73c),
     }
-    # fn_80124BF4: observe the shared generator without advancing it.
     result["random_state"] = u32(0x35a340)
     # Gameplay MT19937 is independent of field animation and particle effects.
     next_word = u32(0x35a7e0)
@@ -132,8 +130,6 @@ def inspect(path, library=None):
         "height": ((scene_texture[2] >> 10) & 1023) + 1,
         "format": scene_texture[5],
     }
-    # fn_80104FA8 is lwz r3,-0x75e4(r13), with r13=0x80362000.
-    # fn_800DE37C uses this VI clock and retains a short integer cursor trail.
     result["choice_cursor"] = {
         "clock": u32(0x35aa1c),
         "trail_anchor": list(struct.unpack_from(">2h", ram, 0x35a1d0)),
@@ -253,8 +249,6 @@ def inspect(path, library=None):
                 "speaker": bytes(ram[base + 0x13320:base + 0x13338]).split(b"\0")[0].hex(),
                 "body": bytes(ram[base + 0x13338:base + 0x13538]).split(b"\0")[0].hex(),
             })
-    # fn_8006EEF4 logo phases and fn_800B081C's startup save check. These
-    # observations distinguish presented startup frames from pure VI waits.
     result["startup"] = {
         "logo_phase": u32(0x35a634), "logo_tick": u32(0x35a630),
         "logo_next_phase": u32(0x35a638),
@@ -319,8 +313,6 @@ def inspect(path, library=None):
         "target": [floating(0x2c8ecc + i*4) for i in range(3)],
         "view_matrix": [floating(0x2caf50 + i*4) for i in range(12)],
     }
-    # Camera properties are persistent settings; the live fractional orbit is
-    # separate oracle state (fn_8004A3F8, fn_8005F1E8).
     axes = [bool(ram[camera_base + 0x10] & bit) for bit in (4, 2, 1)]
     result["field_camera"]["position_settled"] = bool(ram[0x35a589])
     result["field_camera"]["target_settled"] = bool(ram[0x35a588])
@@ -342,9 +334,6 @@ def inspect(path, library=None):
         "position": result["field_camera"]["position"],
         "target": result["field_camera"]["target"],
     }
-    # fn_800262D0 draws this bounded actor table by signed layer, preserving
-    # table order within each layer. Read the model and animation observations
-    # directly; this is evidence inspection, never asset conversion/playback.
     def pointer(address, size):
         offset = address - 0x80000000
         return offset if 0 <= offset <= len(ram) - size else None
@@ -382,7 +371,6 @@ def inspect(path, library=None):
                 "coordinates": list(struct.unpack_from(">13h", ram, at + 24)),
             })
 
-    # fn_800A2100 / fn_800A0E24 configure two standard-reverb callbacks.
     result["audio_setup"] = {
         "synth_clock": struct.unpack_from(">Q", ram, 0x35ac70)[0],
         "macro_clock": struct.unpack_from(">Q", ram, 0x35acd0)[0],
@@ -415,9 +403,6 @@ def inspect(path, library=None):
             "loop_count": struct.unpack_from(">H", ram, sequence + 0x153c)[0],
         }
 
-    # musyx_hw_dspctrl_80146DB0.c allocates count * 0xF8 DSP voices.
-    # Inactive slots retain parameters; record their state rather than implying
-    # they are playing. These observations are never inputs to cooked assets.
     voice_count = ram[0x35ad7d]
     if voice_count > 128:
         raise ValueError("unexpected DSP voice count")
@@ -537,8 +522,6 @@ def inspect(path, library=None):
         result["audio_setup"]["dsp_voices"] = voices
 
     def model_nodes(actor):
-        # fn_8012B390 creates the node table, fn_8006CEB0 fills world/skin
-        # matrices. These snapshots let us distinguish pose and shading errors.
         model = pointer(u32(actor + 0x100), 0x70)
         if model is None:
             return []
@@ -571,7 +554,6 @@ def inspect(path, library=None):
         return nodes
 
     def secondary_chains(actor):
-        # fn_80069088 operates on the model state embedded at actor + 0x100.
         chain = pointer(u32(actor + 0x71c), 20)
         chains, seen = [], set()
         while chain is not None:
@@ -792,8 +774,6 @@ def inspect(path, library=None):
                 "callback_address": f"{u32(at + 0x68):08x}",
             })
         result["particles"] = particles
-    # fn_80018278 submits transient ground-shadow quads into a separate pool.
-    # Keep their transforms/texture descriptor as observations, never assets.
     result["shadow_texture_words"] = [u32(0x2bff64 + i*4) for i in range(8)]
     words = result["shadow_texture_words"]
     width, height = (words[2] & 1023) + 1, ((words[2] >> 10) & 1023) + 1

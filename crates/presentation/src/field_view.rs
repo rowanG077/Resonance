@@ -74,7 +74,15 @@ impl Plugin for FieldPlugin {
                     .after(load_live),
             )
             .add_systems(PreUpdate, gather_controls.after(bevy::input::InputSystems))
-            .add_systems(FixedUpdate, advance_live.before(super::new_game::advance))
+            .add_systems(
+                FixedUpdate,
+                advance_live
+                    .before(super::new_game::advance),
+            )
+            .add_systems(
+                Update,
+                super::field_rumble::update.after(super::new_game::transition),
+            )
             .add_systems(
                 Update,
                 (
@@ -125,6 +133,7 @@ impl Plugin for FieldRendering {
                     super::field_pose::outlines,
                     shadows::pose,
                     super::field_effects::render,
+                    fog,
                     ui,
                 )
                     .chain()
@@ -149,6 +158,7 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
         prepare,
         audit::begin,
         instances,
+        super::field_model_particles::sync,
         pose,
         super::field_animation::bind,
         super::secondary_motion::bind,
@@ -193,6 +203,7 @@ struct RetainedFields(
 pub(super) struct Art {
     pub(super) map: u32,
     pub(super) models: BTreeMap<u32, Vec<Part>>,
+    texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
     pub(super) behavior_sources: BTreeMap<String, String>,
     instances: BTreeMap<i32, Vec<Entity>>,
     pub(super) ready: bool,
@@ -210,6 +221,8 @@ pub(super) struct Part {
     pub(super) scene: Handle<WorldAsset>,
     pub(super) clips: Vec<Handle<super::sparse_animation::Clip>>,
     pub(super) materials: Vec<Surface>,
+    /// Physical GLB meshes can remain uninstanced; only scene draws are required.
+    scene_materials: std::collections::BTreeSet<usize>,
 }
 pub(super) struct Surface {
     pub(super) color: Option<(Handle<Image>, TextureBinding)>,
@@ -258,6 +271,7 @@ impl Part {
                 })
                 .collect(),
             materials,
+            scene_materials: Default::default(),
             spec,
         }
     }
@@ -327,6 +341,7 @@ impl Part {
             .iter()
             .zip(&self.spec.materials)
             .map(|(material, spec)| TitleSurface {
+                field_fog: true,
                 vertex_color: spec.vertex_color,
                 multiply: super::scene::sampled_image(material.multiply.clone(), images, sampled),
                 constant_color: self.spec.outline_color.is_some(),
@@ -376,17 +391,14 @@ impl Art {
             .zip(&part.spec.materials)
             .map(move |(material, spec)| {
                 TitleSurface {
+                    field_fog: true,
                     vertex_color: spec.vertex_color,
                     multiply: super::scene::sampled_image(
                         material.multiply.clone(),
                         images,
                         sampled,
                     ),
-                    toon_ramp: (resource < SCENERY_RESOURCE_BASE
-                        && index == 0
-                        && part.spec.bone_names.len() > 1
-                        && spec.color.is_some())
-                    .then(|| self.toon_ramp.clone()),
+                    toon_ramp: self.toon_ramp_for(resource, index, spec, None),
                     constant_color: part.spec.outline_color.is_some(),
                     blend: spec.blend,
                     additive: resource == resonance_content::field::SAVE_POINT_RESOURCE,
@@ -404,6 +416,26 @@ impl Art {
                     ))
                 }
             })
+    }
+
+    pub(super) fn toon_ramp_for(
+        &self,
+        resource: u32,
+        index: usize,
+        material: &resonance_content::SceneMaterial,
+        enabled: Option<i32>,
+    ) -> Option<Handle<Image>> {
+        (index == 0
+            && material.color.is_some()
+            && enabled.map_or_else(
+                || {
+                    self.models[&resource]
+                        .iter()
+                        .any(|part| part.spec.outline_color.is_some())
+                },
+                |value| value != 0,
+            ))
+        .then(|| self.toon_ramp.clone())
     }
 
     pub(super) fn shadow_binding(&self) -> Option<(Handle<Mesh>, Handle<TitleSurface>)> {
@@ -465,6 +497,7 @@ pub(super) fn shadow_diagnostic(world: &mut World) -> serde_json::Value {
 
 /// A warm restart keeps meshes, clips, textures and compiled materials alive.
 pub(super) fn reset_live(world: &mut World) {
+    super::field_model_particles::retire(world);
     if let Some(mut art) = world.get_resource_mut::<Art>() {
         let instances = std::mem::take(&mut art.instances);
         for entity in instances.into_values().flatten() {
@@ -476,6 +509,14 @@ pub(super) fn reset_live(world: &mut World) {
     }
 }
 
+pub(super) fn camera_transform(camera: &resonance_events::camera::CameraRig) -> Transform {
+    let mut transform = Transform::from_translation(Vec3::from_array(camera.position))
+        .looking_at(Vec3::from_array(camera.target), Vec3::Z);
+    let [right, up] = camera.shake.offset;
+    transform.translation -= transform.rotation * Vec3::new(right, up, 0.);
+    transform
+}
+
 pub(super) fn ready(world: &mut World) -> bool {
     let Some(session) = world.get_resource::<super::new_game::Session>() else {
         return false;
@@ -483,6 +524,14 @@ pub(super) fn ready(world: &mut World) -> bool {
     let Some(art) = world.get_resource::<Art>() else {
         return false;
     };
+    let particle_parts = session
+        .field
+        .events
+        .world
+        .model_particles
+        .values()
+        .map(|p| art.models.get(&p.resource).map_or(1, Vec::len))
+        .sum::<usize>();
     session.overworld.is_none()
         && art.ready
         && art.map == session.assets.map_id
@@ -493,6 +542,12 @@ pub(super) fn ready(world: &mut World) -> bool {
             .query::<&ActorPart>()
             .iter(world)
             .all(|part| part.prepared)
+        && world
+            .query::<&super::field_model_particles::Part>()
+            .iter(world)
+            .filter(|part| part.prepared())
+            .count()
+            == particle_parts
 }
 
 fn retire_live(world: &mut World) {
@@ -515,6 +570,7 @@ fn retire_live(world: &mut World) {
         for entity in std::mem::take(&mut art.instances).into_values().flatten() {
             world.despawn(entity);
         }
+        super::field_model_particles::retire(world);
         ui.despawn(world);
         effects.despawn(world);
         world
@@ -664,6 +720,45 @@ pub(super) fn gather_controls(
         edge
     };
     let controls = &mut *controls;
+    use resonance_events::input::Button;
+    controls.input.held_buttons = [
+        (
+            Button::Accept,
+            pressed(&[KeyCode::Enter, KeyCode::Space], South),
+        ),
+        (
+            Button::Cancel,
+            pressed(
+                &[KeyCode::Escape, KeyCode::ShiftLeft, KeyCode::ShiftRight],
+                East,
+            ),
+        ),
+        (Button::Skit, pressed(&[KeyCode::KeyZ], Z)),
+        (Button::Menu, pressed(&[KeyCode::Tab], North)),
+        (Button::Start, pressed(&[KeyCode::Home], Start)),
+        (Button::Ring, pressed(&[KeyCode::KeyX], West)),
+        (Button::PreviousPage, pressed(&[KeyCode::KeyQ], LeftTrigger)),
+        (Button::NextPage, pressed(&[KeyCode::KeyE], RightTrigger)),
+        (
+            Button::Left,
+            pressed(&[KeyCode::ArrowLeft, KeyCode::KeyA], DPadLeft),
+        ),
+        (
+            Button::Right,
+            pressed(&[KeyCode::ArrowRight, KeyCode::KeyD], DPadRight),
+        ),
+        (
+            Button::Down,
+            pressed(&[KeyCode::ArrowDown, KeyCode::KeyS], DPadDown),
+        ),
+        (
+            Button::Up,
+            pressed(&[KeyCode::ArrowUp, KeyCode::KeyW], DPadUp),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(button, held)| held.then_some(button))
+    .collect();
     controls.input.run = pressed(&[KeyCode::ShiftLeft, KeyCode::ShiftRight], East);
     controls.input.interact |= latch(
         &[KeyCode::Enter, KeyCode::Space],
@@ -730,6 +825,33 @@ pub(super) fn advance_live(
     }
 }
 
+fn fog(state: State, mut materials: ResMut<Assets<TitleSurface>>) {
+    const EXPONENTIAL_SQUARED: f32 = 2.;
+    let (color, range) = state
+        .get()
+        .events
+        .world
+        .fog()
+        .map_or((Vec4::ZERO, Vec4::ZERO), |fog| {
+            (
+                Vec3::from_array(fog.color.map(|c| f32::from(c) / 255.)).extend(1.),
+                Vec4::new(fog.start, fog.end, EXPONENTIAL_SQUARED, 0.),
+            )
+        });
+    let changed: Vec<_> = materials
+        .iter()
+        .filter_map(|(id, surface)| {
+            (surface.field_fog && (surface.fog_color != color || surface.fog_range != range))
+                .then_some(id)
+        })
+        .collect();
+    for id in changed {
+        let mut surface = materials.get_mut(id).unwrap();
+        surface.fog_color = color;
+        surface.fog_range = range;
+    }
+}
+
 fn camera(
     state: State,
     display: Option<Res<super::display::Display>>,
@@ -765,8 +887,7 @@ fn camera(
         *output_stage,
     );
     for (mut transform, mut projection) in &mut cameras {
-        *transform = Transform::from_translation(Vec3::from_array(camera.position))
-            .looking_at(Vec3::from_array(camera.target), Vec3::Z);
+        *transform = camera_transform(camera);
         *projection = Projection::custom(TitleProjection(PerspectiveProjection {
             fov: camera.fov_degrees().to_radians(),
             aspect_ratio: display.as_ref().map_or(4. / 3., |d| d.0.aspect()),
@@ -821,6 +942,17 @@ fn ui(
         return;
     }
     if !art.ready(&images) {
+        if state
+            .get()
+            .events
+            .world
+            .damage_numbers
+            .samples(state.get().events.tick())
+            .next()
+            .is_some()
+        {
+            applied.loading(Request::FieldDamage);
+        }
         if state.get().menu.is_some() || state.get().shop.is_some() {
             applied.loading(Request::Menu);
         }
@@ -892,6 +1024,7 @@ fn ui(
         error!("Field dialogue rendering failed: {error:#}");
         exit.write(AppExit::error());
     } else {
+        applied.ack(Request::FieldDamage);
         if state.get().menu.is_some() || state.get().shop.is_some() {
             applied.ack(Request::Menu);
         }
@@ -1018,9 +1151,13 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         let entry = super::new_game::Session::load(&root)?;
         (entry.assets, entry.field)
     } else {
-        let path = resonance_content::field::metadata_path(checkpoint.map_or(340, |c| c.map_id));
-        let assets: FieldAssets = serde_json::from_slice(&fs::read(root.join(path))?)?;
-        let messages = serde_json::from_slice(&fs::read(root.join(&assets.messages))?)?;
+        let package = super::new_game::FieldPackage::prepare(
+            &root,
+            checkpoint.map_or(340, |c| c.map_id),
+            &mut Default::default(),
+            || false,
+        )?;
+        let assets = package.assets.clone();
         let entry = if let Some(checkpoint) = checkpoint {
             let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
             checkpoint.clone().entry(
@@ -1031,12 +1168,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         } else {
             Default::default()
         };
-        let mut session = FieldSession::enter(
-            &fs::read(root.join(&assets.script.path))?,
-            messages,
-            &assets,
-            entry,
-        )?;
+        let mut session = package.enter(entry)?;
         if let Some(checkpoint) = checkpoint {
             super::new_game::initialize_checkpoint(&mut session, checkpoint)?;
         }
@@ -1335,8 +1467,7 @@ fn setup(
             order: -1,
             ..default()
         },
-        Transform::from_translation(Vec3::from_array(camera.position))
-            .looking_at(Vec3::from_array(camera.target), Vec3::Z),
+        camera_transform(camera),
         Projection::custom(TitleProjection(PerspectiveProjection {
             fov: camera.fov_degrees().to_radians(),
             aspect_ratio: 4. / 3.,
@@ -1378,6 +1509,7 @@ fn load_art(
     }
     Art {
         map: manifest.map_id,
+        texture_animations: manifest.texture_animations.clone(),
         models,
         behavior_sources,
         instances: BTreeMap::new(),
@@ -1410,6 +1542,7 @@ fn prepare(
     mut art: ResMut<Art>,
     server: Res<AssetServer>,
     gltfs: Res<Assets<bevy::gltf::Gltf>>,
+    scenes: Res<Assets<WorldAsset>>,
     clips: Res<Assets<super::sparse_animation::Clip>>,
     images: Res<Assets<Image>>,
     mut exit: MessageWriter<AppExit>,
@@ -1433,6 +1566,9 @@ fn prepare(
                 exit.write(AppExit::error());
                 return;
             };
+            let Some(instanced) = scenes.get(scene) else {
+                continue;
+            };
             if !part.clips.iter().all(|handle| clips.contains(handle)) {
                 continue;
             }
@@ -1449,6 +1585,9 @@ fn prepare(
                 }
             }
             part.scene = scene.clone();
+            part.scene_materials =
+                super::materials::MaterialSlot::scene_slots(&instanced.world, part.materials.len())
+                    .expect("prepared scene meshes must have declared material slots");
             if gltf.meshes.len() != part.materials.len() {
                 error!(
                     "Field material count differs from its recipe: {}",
@@ -1564,6 +1703,8 @@ fn instances(
             .flat_map(|(index, part)| {
                 (0..if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                     2
+                } else if actor.resource == resonance_content::field::COLETTE_WINGS_RESOURCE {
+                    3
                 } else {
                     1
                 })
@@ -1694,8 +1835,21 @@ fn pose(
         );
         let part = &art.models[&instance.resource][instance.part];
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
+        let sealed = save_point.is_some_and(|p| !p.is_open(&world.event_flags));
         let brightness = world.brightness();
-        let tint = Vec4::new(brightness, brightness, brightness, 1.)
+        let reaction_tint = world
+            .pose_tint(instance.actor)
+            .or_else(|| actor.enemy.as_ref()?.stun?.effect.tint())
+            .map_or(Vec4::ONE, |color| {
+                Vec4::new(
+                    color[0] as f32 / f32::from(resonance_events::effect::NEUTRAL_TINT),
+                    color[1] as f32 / f32::from(resonance_events::effect::NEUTRAL_TINT),
+                    color[2] as f32 / f32::from(resonance_events::effect::NEUTRAL_TINT),
+                    1.,
+                )
+            });
+        let tint = reaction_tint
+            * Vec4::new(brightness, brightness, brightness, 1.)
             * Vec4::from_array([42, 43, 44, 8].map(|property| {
                 actor.properties.get(&property).copied().unwrap_or(255) as f32 / 255.
             }))
@@ -1703,11 +1857,20 @@ fn pose(
                 Vec4::from_array(color.map(|c| f32::from(c) / 255.))
             })
             * if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
-                if instance.pass == 0 {
+                if sealed {
+                    Vec4::new(255. / 64., 255. / 64., 255. / 64., 128. / 255.)
+                } else if instance.pass == 0 {
                     Vec4::new(4. / 64., 4. / 64., 255. / 64., 1.)
                 } else {
                     Vec4::new(1., 1., 1., 128. / 255.)
                 }
+            } else if actor.resource == resonance_content::field::COLETTE_WINGS_RESOURCE {
+                Vec4::new(
+                    1.,
+                    1.,
+                    1.,
+                    [127., 63., 255.][usize::from(instance.pass)] / 255.,
+                )
             } else {
                 Vec4::ONE
             };
@@ -1769,60 +1932,93 @@ fn pose(
                     offset[1] += frame as f32 / 4.;
                 }
             }
-            let offsets = Vec4::new(offset[0], offset[1], 0., 0.);
+            let mut offsets = Vec4::new(offset[0], offset[1], 0., 0.);
+            for animation in &art.texture_animations {
+                if animation.actor.resolve(&world.render_settings) != instance.actor {
+                    continue;
+                }
+                let texture = animation.motion.texture.resolve(&world.render_settings);
+                let uv = animation.motion.offset(world.texture_animation_tick);
+                for (stage, binding) in [&material.color, &material.multiply]
+                    .into_iter()
+                    .enumerate()
+                {
+                    if binding
+                        .as_ref()
+                        .is_some_and(|b| b.texture as i32 == texture)
+                    {
+                        offsets[stage * 2] += uv[0];
+                        offsets[stage * 2 + 1] += uv[1];
+                    }
+                }
+            }
             let scales = [&material.color, &material.multiply].map(|binding| {
                 if binding.as_ref().is_some_and(|b| b.texture == 1) {
-                    save_point.map_or(1., |p| p.glow_scale)
+                    save_point.filter(|_| !sealed).map_or(1., |p| p.glow_scale)
                 } else {
                     1.
                 }
             });
             let uv_scales = Vec4::new(1., scales[0], 1., scales[1]);
+            const TOON_LIGHTING: i32 = 38;
+            let toon_ramp = art.toon_ramp_for(
+                instance.resource,
+                instance.part,
+                material,
+                actor.properties.get(&TOON_LIGHTING).copied(),
+            );
             let depth_write = material.depth_write && actor.depth_write;
+            let blend = material.blend || actor.blend.is_some();
+            let additive = actor.blend.map_or(
+                actor.ring_station || (save_point.is_some() && !sealed),
+                |blend| blend == resonance_events::model_particle::Blend::Additive,
+            );
+            let subtractive =
+                actor.blend == Some(resonance_events::model_particle::Blend::Subtractive);
             if surfaces.get(&instance.materials[index]).is_some_and(|s| {
                 s.uv_offsets != offsets
                     || s.uv_scales != uv_scales
                     || s.tint != tint
                     || s.depth_write != depth_write
-                    || s.additive != (actor.ring_station || save_point.is_some())
+                    || s.blend != blend
+                    || s.additive != additive
+                    || s.subtractive != subtractive
                     || s.field_light != light_position
                     || s.shade_colors != shades
+                    || s.toon_ramp != toon_ramp
             }) {
                 let mut surface = surfaces.get_mut(&instance.materials[index]).unwrap();
                 surface.uv_offsets = offsets;
                 surface.uv_scales = uv_scales;
                 surface.tint = tint;
                 surface.depth_write = depth_write;
-                surface.additive = actor.ring_station || save_point.is_some();
+                surface.blend = blend;
+                surface.additive = additive;
+                surface.subtractive = subtractive;
                 surface.field_light = light_position;
                 surface.shade_colors = shades;
+                surface.toon_ramp = toon_ramp;
             }
         }
-        transform.translation = Vec3::from_array(actor.position);
-        transform.scale = Vec3::from_array(std::array::from_fn(|axis| {
-            actor
-                .properties
-                .get(&(30 + axis as i32))
-                .copied()
-                .unwrap_or(100) as f32
-                / 100.
-        }));
+        transform.translation = Vec3::from_array(actor.visual_position());
+        transform.scale = Vec3::from_array(actor.model_scale());
+        if instance.actor == world.controlled_actor {
+            transform.scale *= world.player_size.model_scale();
+        }
         transform.rotation = Quat::from_rotation_z(
             actor
                 .appearance
                 .fixed_heading
                 .unwrap_or(actor.heading)
                 .to_radians(),
-        ) * Quat::from_rotation_y(
-            (actor.properties.get(&36).copied().unwrap_or(0) as f32).to_radians(),
-        ) * Quat::from_rotation_x(
-            (actor.properties.get(&35).copied().unwrap_or(0) as f32).to_radians(),
-        );
-        *visibility = if actor.visible && !actor.appearance.model_hidden {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
+        ) * Quat::from_rotation_y(actor.tilt_degrees()[1].to_radians())
+            * Quat::from_rotation_x(actor.tilt_degrees()[0].to_radians());
+        *visibility =
+            if actor.visible && !actor.appearance.model_hidden && !(sealed && instance.pass != 0) {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
         let animation = actor.animation.as_ref().and_then(|a| {
             part.spec
                 .clips
@@ -1922,11 +2118,11 @@ fn pose(
         }
         instance.active_clip = animation.map(|(_, index)| index);
         if instance.prepared
-            && (0..part.spec.materials.len()).all(|index| {
+            && part.scene_materials.iter().all(|index| {
                 instance
                     .geometry
                     .iter()
-                    .any(|(material, _)| *material == index)
+                    .any(|(material, _)| material == index)
             })
         {
             applied.ack(Request::Actor(instance.actor, instance.part));

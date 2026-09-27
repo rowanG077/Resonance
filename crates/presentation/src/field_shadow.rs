@@ -107,6 +107,7 @@ pub(super) fn sync(
         }
         shadows.mesh = Some(meshes.add(mesh));
         shadows.material = Some(surfaces.add(TitleSurface {
+            field_fog: true,
             tint: Vec4::new(0., 0., 0., f32::from(shadows.spec.alpha) / 255.),
             blend: true,
             depth_write: false,
@@ -129,10 +130,14 @@ pub(super) fn sync(
         if !actor.casts_shadow || shadows.instances.contains_key(&id) {
             continue;
         }
+        let material = surfaces
+            .get(shadows.material.as_ref().unwrap())
+            .unwrap()
+            .clone();
         let entity = commands
             .spawn((
                 Mesh3d(shadows.mesh.as_ref().unwrap().clone()),
-                MeshMaterial3d(shadows.material.as_ref().unwrap().clone()),
+                MeshMaterial3d(surfaces.add(material)),
                 Transform::default(),
                 Visibility::Hidden,
                 // Contact shadows darken translucent floor effects too.
@@ -151,9 +156,16 @@ pub(super) fn pose(
     actors: Query<&ActorPart>,
     mut transforms: ParamSet<(
         TransformHelper,
-        Query<(&mut Shadow, &mut Transform, &mut Visibility, &mut DrawOrder)>,
+        Query<(
+            &mut Shadow,
+            &mut Transform,
+            &mut Visibility,
+            &mut DrawOrder,
+            &MeshMaterial3d<TitleSurface>,
+        )>,
     )>,
     mut applied: ResMut<Applied>,
+    mut materials: ResMut<Assets<TitleSurface>>,
 ) {
     // Animation has run, but propagation has not. Compute this tick's joint
     // transforms explicitly so moving characters do not leave a delayed shadow.
@@ -177,10 +189,17 @@ pub(super) fn pose(
             ))
         })
         .collect();
-    for (mut shadow, mut transform, mut visibility, mut order) in &mut transforms.p1() {
+    for (mut shadow, mut transform, mut visibility, mut order, material) in &mut transforms.p1() {
         let Some(actor) = state.get().events.world.actors.get(&shadow.0) else {
             continue;
         };
+        let alpha = f32::from(actor.shadow_alpha) / 255.;
+        if materials
+            .get(&material.0)
+            .is_some_and(|m| m.tint.w != alpha)
+        {
+            materials.get_mut(&material.0).unwrap().tint.w = alpha;
+        }
         // Overlapping black-alpha quads still round differently when reordered.
         let actor_order = state
             .get()
