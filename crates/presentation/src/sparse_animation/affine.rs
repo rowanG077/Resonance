@@ -55,43 +55,11 @@ impl Pose {
     }
 }
 
-/// Native setters replace matrix mode; they do not decompose its translation,
-/// scale or shear. Quaternion extraction uses the complete 3x3 basis, then the
-/// quaternion-to-matrix writer normalizes it.
 pub(crate) fn rotation(matrix: Affine3A) -> Quat {
-    let columns = matrix.matrix3.to_cols_array_2d();
-    let m = |row: usize, col: usize| columns[col][row];
-    let trace = m(0, 0) + m(1, 1) + m(2, 2);
-    let mut q = [0.; 4];
-    if trace > 0. {
-        let scale = (1. + trace).sqrt();
-        q[3] = 0.5 * scale;
-        let scale = 0.5 / scale;
-        q[0] = (m(2, 1) - m(1, 2)) * scale;
-        q[1] = (m(0, 2) - m(2, 0)) * scale;
-        q[2] = (m(1, 0) - m(0, 1)) * scale;
-    } else {
-        let mut i = usize::from(m(1, 1) > m(0, 0));
-        if m(2, 2) > m(i, i) {
-            i = 2;
-        }
-        let j = (i + 1) % 3;
-        let k = (j + 1) % 3;
-        let mut scale = ((m(i, i) - (m(j, j) + m(k, k))) + 1.).sqrt();
-        q[i] = 0.5 * scale;
-        if scale != 0. {
-            scale = 0.5 / scale;
-        }
-        q[3] = (m(k, j) - m(j, k)) * scale;
-        q[j] = (m(i, j) + m(j, i)) * scale;
-        q[k] = (m(i, k) + m(k, i)) * scale;
-    }
-    let q = Quat::from_array(q);
-    assert!(
-        q.is_finite() && q.length_squared().is_finite() && q.length_squared() > 0.,
-        "invalid native matrix rotation"
-    );
-    q.normalize()
+    Quat::from_array(
+        resonance_content::animation::matrix_rotation(Mat4::from(matrix).to_cols_array_2d())
+            .expect("invalid native matrix rotation"),
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -127,9 +95,17 @@ impl Adjustment {
 #[derive(Resource, Default)]
 pub(crate) struct Locals {
     poses: BTreeMap<Entity, (Affine3A, Transform)>,
+    worlds: BTreeMap<Entity, GlobalTransform>,
     adjustments: BTreeMap<Entity, Vec<Adjustment>>,
 }
 impl Locals {
+    /// Native dynamics and outline copying can write a world matrix even when
+    /// an ancestor has zero scale. No local matrix can represent that result.
+    pub fn set_world(&mut self, entity: Entity, pose: GlobalTransform) {
+        assert!(pose.affine().is_finite(), "nonfinite native world pose");
+        self.worlds.insert(entity, pose);
+    }
+
     pub fn get(&self, entity: Entity, transform: Transform) -> Pose {
         self.poses
             .get(&entity)
@@ -196,6 +172,10 @@ impl Helper<'_, '_> {
         })
     }
 
+    fn world_override(&self, entity: Entity) -> Option<GlobalTransform> {
+        self.affine.as_ref()?.worlds.get(&entity).copied()
+    }
+
     pub fn adjusted(
         &self,
         entity: Entity,
@@ -218,8 +198,14 @@ impl Helper<'_, '_> {
         &self,
         entity: Entity,
     ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
+        if let Some(pose) = self.world_override(entity) {
+            return Ok(pose);
+        }
         let mut pose = self.local(entity)?.global();
         for parent in self.parents.iter_ancestors(entity) {
+            if let Some(world) = self.world_override(parent) {
+                return Ok(world * pose);
+            }
             pose = self.local(parent)?.global() * pose;
         }
         Ok(pose)
@@ -236,8 +222,18 @@ impl Helper<'_, '_> {
                 .copied()
                 .map_or_else(|| self.local(entity), Ok)
         };
+        if !locals.contains_key(&entity)
+            && let Some(world) = self.world_override(entity)
+        {
+            return Ok(world);
+        }
         let mut world = local(entity)?.global();
         for parent in self.parents.iter_ancestors(entity) {
+            if !locals.contains_key(&parent)
+                && let Some(pose) = self.world_override(parent)
+            {
+                return Ok(pose * world);
+            }
             world = local(parent)?.global() * world;
         }
         Ok(world)
@@ -273,7 +269,11 @@ pub(super) fn install(app: &mut App) {
 
 fn clear(mut affine: ResMut<Locals>, mut transforms: Query<&mut Transform>) {
     affine.adjustments.clear();
-    for entity in std::mem::take(&mut affine.poses).into_keys() {
+    let worlds = std::mem::take(&mut affine.worlds);
+    for entity in std::mem::take(&mut affine.poses)
+        .into_keys()
+        .chain(worlds.into_keys())
+    {
         if let Ok(mut transform) = transforms.get_mut(entity) {
             // A dropped matrix clip must restore ordinary descendant globals too.
             transform.set_changed();
@@ -288,7 +288,7 @@ fn propagate(
     mut globals: Query<&mut GlobalTransform>,
 ) {
     let mut seen = BTreeSet::new();
-    for &root in affine.poses.keys() {
+    for &root in affine.poses.keys().chain(affine.worlds.keys()) {
         for entity in std::iter::once(root).chain(children.iter_descendants(root)) {
             if seen.insert(entity) {
                 let pose = helper
@@ -310,6 +310,61 @@ mod tests {
 
     #[derive(Resource)]
     struct Playback(Option<f32>);
+
+    #[test]
+    fn native_world_pose_survives_collapsed_parent_and_restores_after_release() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = App::new();
+        app.add_plugins(bevy::transform::TransformPlugin);
+        install(&mut app);
+        let collapsed = Transform::from_scale(Vec3::new(0., 0., 3.));
+        let root = app.world_mut().spawn(collapsed).id();
+        let rest = Transform::from_xyz(1., 2., 3.);
+        let bone = app.world_mut().spawn((rest, ChildOf(root))).id();
+        let offset = Transform::from_xyz(4., 5., 6.);
+        let child = app.world_mut().spawn((offset, ChildOf(bone))).id();
+        // Dynamics can place the bone outside the collapsed parent's Z axis;
+        // no local transform under that parent could reproduce this matrix.
+        let driven = GlobalTransform::from_translation(Vec3::new(20., 30., 40.));
+        app.add_systems(
+            Update,
+            move |mut locals: ResMut<Locals>, mut once: Local<bool>| {
+                if !*once {
+                    locals.set_world(bone, driven);
+                    *once = true;
+                }
+            },
+        );
+        app.update();
+        let expected = driven.mul_transform(offset);
+        assert_eq!(
+            *app.world().get::<GlobalTransform>(child).unwrap(),
+            expected
+        );
+        app.world_mut()
+            .run_system_once(move |helper: Helper| {
+                assert_eq!(helper.compute_global_transform(child).unwrap(), expected);
+                assert_eq!(
+                    helper.global_with(child, &BTreeMap::new()).unwrap(),
+                    expected
+                );
+            })
+            .unwrap();
+        assert_eq!(*app.world().get::<Transform>(bone).unwrap(), rest);
+        app.update();
+        assert_eq!(
+            *app.world().get::<GlobalTransform>(child).unwrap(),
+            GlobalTransform::from(collapsed)
+                .mul_transform(rest)
+                .mul_transform(offset)
+        );
+        app.world_mut().entity_mut(root).insert(Transform::IDENTITY);
+        app.update();
+        assert_eq!(
+            *app.world().get::<GlobalTransform>(child).unwrap(),
+            GlobalTransform::from(rest).mul_transform(offset)
+        );
+    }
 
     #[test]
     fn native_setters_replace_matrix_mode_and_replay_for_held_attachments() {
