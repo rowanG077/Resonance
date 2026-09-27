@@ -90,7 +90,7 @@ pub struct MenuTexture {
     pub opaque: bool,
 }
 impl MenuArt {
-    pub const VERSION: u32 = 15;
+    pub const VERSION: u32 = 18;
 
     pub fn validate(&self) -> Result<()> {
         ensure!(
@@ -179,8 +179,15 @@ impl MenuArt {
             "talk",
             "shop",
             "examine",
+            "open",
+            "climb",
+            "descend",
+            "jump",
             "rest",
             "go_out",
+            "move",
+            "grab",
+            "warp",
             "load",
             "customize",
             "empty",

@@ -641,7 +641,11 @@ impl Frames {
             }
             AudioCommand::StopVoice => self.voice = None,
             AudioCommand::SelectBank(bank) => {
-                ensure!(bank == 0 || bank == 2, "uncooked event sound bank {bank}")
+                // The native selector addresses eight event banks. The cooker
+                // resolves each cue's unique owner across that complete table;
+                // all sounds needed by this field are already resident, so a
+                // bank switch needs no additional load or playback change.
+                ensure!(bank < 8, "invalid event sound bank {bank}")
             }
         }
         Ok(())

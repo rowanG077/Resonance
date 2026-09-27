@@ -58,6 +58,13 @@ pub(crate) fn cook_text(
         characters,
         items: names,
         titles,
+        techniques: menu
+            .arte
+            .definitions
+            .iter()
+            .enumerate()
+            .filter_map(|(id, arte)| arte.name.as_ref().map(|name| (id as u16, name.clone())))
+            .collect(),
     };
     let path = "game/text.json";
     write_atomic(&output.join(path), &serde_json::to_vec_pretty(&text)?)?;

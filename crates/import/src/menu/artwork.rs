@@ -230,6 +230,7 @@ fn original_menu_sprite_atlas_preserves_frozen_pixels_and_layout() -> Result<()>
         )?;
         let actual: resonance_content::menu::MenuArt =
             serde_json::from_slice(&fs::read(output.join("ui/menu.json"))?)?;
+        actual.validate()?;
         crate::texture::compare_images(
             &output.join("ui/menu/party.ktx2"),
             &baseline.join("ui/menu/party.ktx2"),

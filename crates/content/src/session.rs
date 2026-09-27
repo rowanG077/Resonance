@@ -22,6 +22,8 @@ pub struct GameText {
     pub characters: BTreeMap<i32, String>,
     pub items: BTreeMap<u16, String>,
     pub titles: BTreeMap<u16, String>,
+    #[serde(default)]
+    pub techniques: BTreeMap<u16, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,9 +34,14 @@ pub struct ItemDefinition {
     pub stack_limit: u8,
 }
 
+pub const DEFAULT_ITEM_STACK_LIMIT: u8 = 20;
 /// Key items are unique; ordinary inventory uses the base-game twenty-item cap.
 pub const fn item_stack_limit(category: u8) -> u8 {
-    if category == 45 { 1 } else { 20 }
+    if category == 45 {
+        1
+    } else {
+        DEFAULT_ITEM_STACK_LIMIT
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
