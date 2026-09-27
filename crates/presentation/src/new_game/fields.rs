@@ -33,7 +33,8 @@ pub(crate) struct FieldPackage {
     pub audio: Arc<super::super::field_audio::Assets>,
     pub files: Arc<Files>,
     authored: Option<resonance_game::authored::FieldEvent>,
-    treasure: Arc<resonance_game::authored::PreparedEvent>,
+    services: Arc<resonance_game::authored::FieldServices>,
+    attachments: resonance_game::field::attachments::Attachments,
 }
 impl FieldPackage {
     pub fn load(root: &Path, files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
@@ -60,7 +61,9 @@ impl FieldPackage {
         let audio = cache
             .audio
             .load(root, manifest.inputs.audio.first().unwrap(), &files)?;
-        let (authored, treasure) = Self::prepare_scripts(map, &files, cache)?;
+        let (authored, services) = Self::prepare_scripts(map, &files, cache)?;
+        let attachments =
+            resonance_game::field::attachments::prepare(&assets, |path| files.read(path))?;
         Ok(Self {
             script: files.read(&assets.script.path)?,
             messages: files.read(&assets.messages)?,
@@ -68,7 +71,8 @@ impl FieldPackage {
             audio,
             files,
             authored,
-            treasure,
+            services,
+            attachments,
         })
     }
 
@@ -88,7 +92,7 @@ impl FieldPackage {
     /// Revisit shared cooked bytes while refreshing only editable source inputs.
     pub fn refresh_scripts(&self, cache: &mut Cache) -> Result<Self> {
         let mut package = self.clone();
-        (package.authored, package.treasure) =
+        (package.authored, package.services) =
             Self::prepare_scripts(self.assets.map_id, &self.files, cache)?;
         Ok(package)
     }
@@ -99,17 +103,12 @@ impl FieldPackage {
         cache: &mut Cache,
     ) -> Result<(
         Option<resonance_game::authored::FieldEvent>,
-        Arc<resonance_game::authored::PreparedEvent>,
+        Arc<resonance_game::authored::FieldServices>,
     )> {
         let sources = files.script_sources()?;
-        let treasure = Arc::new(resonance_game::authored::PreparedEvent::prepare(
+        let services = Arc::new(resonance_game::authored::FieldServices::prepare(
             &mut cache.service_scripts,
             &sources,
-            resonance_game::authored::Entry {
-                module: "field::treasure",
-                task: "open",
-                arguments: &[0],
-            },
             &mut ScriptResources { files, font: None },
         )?);
         let authored = cache
@@ -120,7 +119,7 @@ impl FieldPackage {
             })
             .transpose()?
             .flatten();
-        Ok((authored, treasure))
+        Ok((authored, services))
     }
 
     pub fn queue_entry(&self, field: &mut FieldSession, kind: resonance_game::field::EntryKind) {
@@ -137,7 +136,8 @@ impl FieldPackage {
         menu.validate()?;
         entry.menu_data = Some(Arc::new(menu));
         entry.text = Arc::new(self.files.json("game/text.json")?);
-        entry.treasure_event = Some(self.treasure.clone());
+        entry.services = Some(self.services.clone());
+        entry.attachments = self.attachments.clone();
         let mut field = FieldSession::enter(
             &self.script,
             serde_json::from_slice(&self.messages)?,

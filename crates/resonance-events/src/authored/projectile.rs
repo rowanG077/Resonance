@@ -1,7 +1,6 @@
 use super::effects::{CONTEXT, origin};
 use super::*;
-use crate::projectile::{Contact, Motion, OwnedPose, Projectile};
-use symphonia_script::authored::{NativeField, NativeVariant};
+use crate::projectile::{OwnedPose, Projectile};
 
 const ACTOR: Type = Type::Handle("game::actors::Actor");
 const POSE: Type = Type::Handle("game::actors::Pose");
@@ -9,88 +8,34 @@ pub(super) const PROJECTILE: Type = Type::Handle("game::projectiles::Projectile"
 pub(super) const VECTOR: Type = Type::Record {
     name: "game::geometry::Vector",
     fields: &[
-        NativeField {
-            name: "x",
-            ty: Type::F32,
-        },
-        NativeField {
-            name: "y",
-            ty: Type::F32,
-        },
-        NativeField {
-            name: "z",
-            ty: Type::F32,
-        },
+        field("x", Type::F32),
+        field("y", Type::F32),
+        field("z", Type::F32),
     ],
 };
 pub(super) const COLOR: Type = Type::Record {
     name: "game::effects::Color",
     fields: &[
-        NativeField {
-            name: "red",
-            ty: Type::I32,
-        },
-        NativeField {
-            name: "green",
-            ty: Type::I32,
-        },
-        NativeField {
-            name: "blue",
-            ty: Type::I32,
-        },
+        field("red", Type::I32),
+        field("green", Type::I32),
+        field("blue", Type::I32),
     ],
 };
 const SPARK: Type = Type::Record {
     name: "game::effects::Spark",
     fields: &[
-        NativeField {
-            name: "lifetime",
-            ty: Type::Ticks,
-        },
-        NativeField {
-            name: "size",
-            ty: Type::F32,
-        },
-        NativeField {
-            name: "growth",
-            ty: Type::F32,
-        },
-        NativeField {
-            name: "rotation",
-            ty: Type::F32,
-        },
-        NativeField {
-            name: "spin",
-            ty: Type::F32,
-        },
-        NativeField {
-            name: "velocity",
-            ty: VECTOR,
-        },
-        NativeField {
-            name: "inherit_velocity",
-            ty: Type::F32,
-        },
-        NativeField {
-            name: "color",
-            ty: COLOR,
-        },
-        NativeField {
-            name: "offset",
-            ty: VECTOR,
-        },
-        NativeField {
-            name: "fade",
-            ty: Type::F32,
-        },
-        NativeField {
-            name: "alpha",
-            ty: Type::I32,
-        },
-        NativeField {
-            name: "blend",
-            ty: super::visual::BLEND,
-        },
+        field("lifetime", Type::Ticks),
+        field("size", Type::F32),
+        field("growth", Type::F32),
+        field("rotation", Type::F32),
+        field("spin", Type::F32),
+        field("velocity", VECTOR),
+        field("inherit_velocity", Type::F32),
+        field("color", COLOR),
+        field("offset", VECTOR),
+        field("fade", Type::F32),
+        field("alpha", Type::I32),
+        field("blend", super::visual::BLEND),
     ],
 };
 #[repr(i32)]
@@ -102,104 +47,33 @@ enum ContactTag {
 const CONTACT: Type = Type::Enum {
     name: "game::projectiles::Contact",
     variants: &[
-        NativeVariant {
-            name: "Flying",
-            tag: ContactTag::Flying as i32,
-            payload: &[],
-        },
-        NativeVariant {
-            name: "Actor",
-            tag: ContactTag::Actor as i32,
-            payload: &[ACTOR],
-        },
-        NativeVariant {
-            name: "Barrier",
-            tag: ContactTag::Barrier as i32,
-            payload: &[],
-        },
+        variant("Flying", ContactTag::Flying as i32, &[]),
+        variant("Actor", ContactTag::Actor as i32, &[ACTOR]),
+        variant("Barrier", ContactTag::Barrier as i32, &[]),
     ],
 };
 const ACTOR_SCAN: Type = Type::Enum {
     name: "game::projectiles::ActorScan",
     variants: &[
-        NativeVariant {
-            name: "Start",
-            tag: 0,
-            payload: &[],
-        },
-        NativeVariant {
-            name: "After",
-            tag: 1,
-            payload: &[ACTOR],
-        },
-        NativeVariant {
-            name: "End",
-            tag: 2,
-            payload: &[],
-        },
+        variant("Start", 0, &[]),
+        variant("After", 1, &[ACTOR]),
+        variant("End", 2, &[]),
     ],
 };
 
 const TARGETS: Type = Type::Enum {
     name: "game::projectiles::Targets",
-    variants: &[
-        NativeVariant {
-            name: "All",
-            tag: 0,
-            payload: &[],
-        },
-        NativeVariant {
-            name: "Interactions",
-            tag: 1,
-            payload: &[],
-        },
-    ],
+    variants: &[variant("All", 0, &[]), variant("Interactions", 1, &[])],
 };
 
 const STUN_EFFECT: Type = Type::Enum {
     name: "game::actors::StunEffect",
     variants: &[
-        NativeVariant {
-            name: "None",
-            tag: 0,
-            payload: &[],
-        },
-        NativeVariant {
-            name: "Electric",
-            tag: 1,
-            payload: &[],
-        },
-        NativeVariant {
-            name: "Lightning",
-            tag: 2,
-            payload: &[],
-        },
-        NativeVariant {
-            name: "Ice",
-            tag: 3,
-            payload: &[],
-        },
-        NativeVariant {
-            name: "Darkness",
-            tag: 4,
-            payload: &[],
-        },
-    ],
-};
-
-const MOTION: Type = Type::Enum {
-    name: "game::projectiles::Motion",
-    variants: &[
-        NativeVariant {
-            name: "Swept",
-            tag: 0,
-            payload: &[],
-        },
-        NativeVariant {
-            name: "Scripted",
-            tag: 1,
-            payload: &[],
-        },
+        variant("None", 0, &[]),
+        variant("Electric", 1, &[]),
+        variant("Lightning", 2, &[]),
+        variant("Ice", 3, &[]),
+        variant("Darkness", 4, &[]),
     ],
 };
 
@@ -308,8 +182,6 @@ pub(super) const fn register(
                     ],
                     velocity: [sin * v[1], -cos * v[1], 0.],
                     radius: v[2],
-                    contact: Contact::Flying,
-                    motion: Motion::Swept,
                     shadow: None,
                     paused: false,
                     blocks_menu: false,
@@ -327,8 +199,8 @@ pub(super) const fn register(
             false,
             |h, a, _| {
                 let shot = projectile(h, a[0])?;
-                let mut contact = shot.contact;
-                if contact == Contact::Flying && shot.motion == Motion::Scripted {
+                let mut blocked = shot.barrier(h.world).is_some();
+                if !blocked {
                     let (position, radius) = (shot.position, shot.radius);
                     for index in 0..h.world.triggers.len() {
                         let trigger = &mut h.world.triggers[index];
@@ -346,17 +218,18 @@ pub(super) const fn register(
                         let started = h.start_trigger(key, context)?;
                         h.world.triggers[index].record_activation(started);
                         if started {
-                            contact = Contact::Barrier;
+                            blocked = true;
                         }
                     }
                 }
-                Ok(NativeResult::Values(match contact {
-                    Contact::Flying => vec![ContactTag::Flying as i32, 0],
-                    Contact::Actor(actor) => {
-                        vec![ContactTag::Actor as i32, h.world.authored_actor(actor)?]
-                    }
-                    Contact::Barrier => vec![ContactTag::Barrier as i32, 0],
-                }))
+                Ok(NativeResult::Values(vec![
+                    if blocked {
+                        ContactTag::Barrier
+                    } else {
+                        ContactTag::Flying
+                    } as i32,
+                    0,
+                ]))
             },
         )
         .function(
@@ -382,32 +255,14 @@ pub(super) const fn register(
             },
         )
         .function(
-            "game::projectiles::motion",
-            &[PROJECTILE, MOTION],
-            None,
-            false,
-            |h, a, _| {
-                projectile(h, a[0])?;
-                h.world.projectiles.get_mut(&a[0]).unwrap().motion = match a[1] {
-                    0 => Motion::Swept,
-                    1 => Motion::Scripted,
-                    _ => return Err("invalid projectile motion".into()),
-                };
-                Ok(NativeResult::Continue(None))
-            },
-        )
-        .function(
             "game::projectiles::advance",
             &[PROJECTILE],
             None,
             false,
             |h, a, _| {
-                if projectile(h, a[0])?.motion != Motion::Scripted {
-                    return Err("only scripted projectiles may advance explicitly".into());
-                }
+                projectile(h, a[0])?;
                 let shot = h.world.projectiles.get_mut(&a[0]).unwrap();
                 shot.position = std::array::from_fn(|i| shot.position[i] + shot.velocity[i]);
-                shot.contact = Contact::Flying;
                 Ok(NativeResult::Continue(None))
             },
         )
@@ -461,12 +316,13 @@ pub(super) const fn register(
                     2 => return Ok(NativeResult::Values(vec![2, 0])),
                     _ => return Err("invalid contact cursor".into()),
                 };
+                let barrier = shot.barrier(h.world);
                 let actor = h.world.actor_order[start..].iter().find(|id| {
                     **id != shot.source
                         && h.world.actors.get(id).is_some_and(|actor| {
                             (!interaction_only || actor.role == crate::ActorRole::Interaction)
                                 && actor.projectile_target()
-                                && shot.touches_actor(actor, radius)
+                                && shot.reaches(actor, radius, barrier)
                         })
                 });
                 let actor = actor.copied();
@@ -616,20 +472,11 @@ pub(super) const fn register(
                 let velocity = floats::<3>(&[vx, vy, vz])?;
                 let effect = crate::effect::BillboardEffect {
                     operation: Some(shot.operation.clone()),
-                    owner: None,
-                    field_lighting: false,
-                    field_fog: true,
                     recipe: crate::effect::GLOW_SPRITE,
-                    orientation: crate::effect::SpriteOrientation::Camera,
-                    anchor: resonance_content::effect::VerticalAnchor::Center,
-                    palette: None,
                     born: h.world.tick,
                     lifetime: u32::try_from(life).map_err(|_| "invalid particle lifetime")?,
                     position: std::array::from_fn(|i| shot.position[i] + offset[i]),
                     velocity: std::array::from_fn(|i| velocity[i] + shot.velocity[i] * inherit),
-                    controller: None,
-                    acceleration: None,
-                    gravity: 0.,
                     rotation: [0., 0., rotation],
                     angular_velocity: [0., 0., spin],
                     size: [size; 2],
@@ -637,6 +484,7 @@ pub(super) const fn register(
                     rgba: color(&[red, green, blue, alpha])?,
                     fade: crate::effect::Fade::Linear(fade),
                     blend_mode: Some(super::visual::blend(blend)?),
+                    ..Default::default()
                 };
                 h.world.emit_billboard(effect)?;
                 Ok(NativeResult::Continue(None))
@@ -644,7 +492,7 @@ pub(super) const fn register(
         )
 }
 
-// Native field services use a separate per-character bank (lbl_8035A524).
+// Field service clips share a separate per-character bank.
 fn play_clip(h: &mut FieldHost<'_>, a: &[i32], service: bool) -> Result<NativeResult, String> {
     let id = h.actor_id(a[0])?;
     let slot = u16::try_from(a[1]).map_err(|_| "invalid animation slot")?;

@@ -186,30 +186,59 @@ impl Actor {
         [cz * x - sz * y, sz * x + cz * y, z]
     }
 
-    /// Native solid queries test every outward plane of a convex model group.
     pub fn contains_solid(
         &self,
         point: [f32; 3],
         query: resonance_content::field::CollisionQuery,
     ) -> bool {
-        self.model_collision.as_ref().is_some_and(|model| {
-            model.solids.iter().any(|group| {
-                query.accepts(group.surface)
-                    && !group.triangles.is_empty()
-                    && group.triangles.iter().all(|triangle| {
-                        let [a, b, c] =
-                            triangle.map(|i| self.collision_point(group.vertices[usize::from(i)]));
-                        let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
-                        let v: [f32; 3] = std::array::from_fn(|i| c[i] - a[i]);
-                        let normal = [
-                            u[1] * v[2] - u[2] * v[1],
-                            u[2] * v[0] - u[0] * v[2],
-                            u[0] * v[1] - u[1] * v[0],
-                        ];
-                        (0..3).map(|i| (point[i] - a[i]) * normal[i]).sum::<f32>() < 0.
-                    })
+        self.solid_contact(point, point, query).is_some()
+    }
+    /// Clip a segment against every outward plane of each convex solid.
+    pub fn solid_contact(
+        &self,
+        start: [f32; 3],
+        end: [f32; 3],
+        query: resonance_content::field::CollisionQuery,
+    ) -> Option<f32> {
+        self.model_collision
+            .as_ref()?
+            .solids
+            .iter()
+            .filter_map(|group| {
+                if !query.accepts(group.surface) || group.triangles.is_empty() {
+                    return None;
+                }
+                let (mut enter, mut exit) = (0_f32, 1_f32);
+                for triangle in &group.triangles {
+                    let [a, b, c] =
+                        triangle.map(|i| self.collision_point(group.vertices[usize::from(i)]));
+                    let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
+                    let v: [f32; 3] = std::array::from_fn(|i| c[i] - a[i]);
+                    let normal = [
+                        u[1] * v[2] - u[2] * v[1],
+                        u[2] * v[0] - u[0] * v[2],
+                        u[0] * v[1] - u[1] * v[0],
+                    ];
+                    let distance =
+                        |p: [f32; 3]| (0..3).map(|i| (p[i] - a[i]) * normal[i]).sum::<f32>();
+                    let from = distance(start);
+                    let speed = distance(end) - from;
+                    if speed == 0. {
+                        if from >= 0. {
+                            return None;
+                        }
+                    } else if speed < 0. {
+                        enter = enter.max(-from / speed);
+                    } else {
+                        exit = exit.min(-from / speed);
+                    }
+                    if enter > exit {
+                        return None;
+                    }
+                }
+                Some(enter)
             })
-        })
+            .min_by(f32::total_cmp)
     }
 
     pub fn collision_point(&self, point: [f32; 3]) -> [f32; 3] {

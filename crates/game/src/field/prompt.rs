@@ -11,9 +11,16 @@ pub enum FieldAction {
     Talk = 2,
     Shop = 4,
     Examine = 5,
+    Open = 6,
+    Climb = 11,
+    Descend = 12,
+    Jump = 13,
     Rest = 16,
     Leave = 18,
+    Move = 19,
+    Grab = 20,
     Save = 23,
+    Warp = 24,
 }
 impl FieldAction {
     pub(super) fn from_id(id: u32) -> Result<Option<Self>> {
@@ -23,9 +30,16 @@ impl FieldAction {
             2 => Some(Self::Talk),
             4 => Some(Self::Shop),
             5 => Some(Self::Examine),
+            6 => Some(Self::Open),
+            11 => Some(Self::Climb),
+            12 => Some(Self::Descend),
+            13 => Some(Self::Jump),
             16 => Some(Self::Rest),
             3 | 18 => Some(Self::Leave),
+            19 => Some(Self::Move),
+            20 => Some(Self::Grab),
             23 => Some(Self::Save),
+            24 => Some(Self::Warp),
             _ => anyhow::bail!("unsupported field action hint {id}"),
         })
     }
@@ -40,12 +54,21 @@ impl super::FieldSession {
     }
 
     pub(super) fn interaction_action(&self) -> Result<Option<FieldAction>> {
+        if super::save_point::SavePoints::sealed_target(&self.events.world).is_some() {
+            return Ok(Some(FieldAction::Examine));
+        }
+        if super::treasure::Treasures::target(&self.events.world).is_some() {
+            return Ok(Some(FieldAction::Examine));
+        }
+        if super::blocks::Blocks::target(&self.events.world).is_some() {
+            return Ok(Some(FieldAction::Grab));
+        }
         let Some(id) = self.interaction_target() else {
             return Ok(None);
         };
         let actor = &self.events.world.actors[&id];
         // Actor property 17 selects its interaction label; zero suppresses it.
-        FieldAction::from_id(actor.properties.get(&17).copied().unwrap_or(2) as u32)
+        FieldAction::from_id(actor.interaction_label() as u32)
     }
 }
 
@@ -189,6 +212,7 @@ mod tests {
         hints.step(Some(FieldAction::Leave), true);
         assert_eq!(hints.prompt.unwrap().opacity, 8);
         assert!(FieldAction::from_id(0).unwrap().is_none());
+        assert_eq!(FieldAction::from_id(6).unwrap(), Some(FieldAction::Open));
         assert!(FieldAction::from_id(99).is_err());
     }
 }

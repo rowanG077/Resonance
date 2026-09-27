@@ -1,24 +1,7 @@
 //! Scene-local projectile state. Scripts own lifetime and reactions; the field
-//! resolves each movement segment against its geometry before the next VM update.
+//! queries each movement segment before the script advances it.
 use crate::{ACTOR_CONTACT_HEIGHT, Animation, GameWorld, Operation, Outcome};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Contact {
-    Flying,
-    Actor(i32),
-    Barrier,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Motion {
-    /// Move to the first swept contact before the controller runs.
-    Swept,
-    /// Probe barriers, leaving overlap order and advancement to the script.
-    Scripted,
-}
-
-// A swept contact can round just outside the cylinder when stored as f32.
-const CONTACT_TOLERANCE: f32 = 0.001;
 impl crate::Actor {
     pub fn projectile_target(&self) -> bool {
         // Native contact survives alpha-zero phases, including Ice's rising water.
@@ -27,24 +10,40 @@ impl crate::Actor {
             && (self.resource < resonance_content::field::SCENERY_RESOURCE_BASE
                 || resonance_content::field::LOCAL_MODEL_RESOURCES.contains(&self.resource))
     }
-    pub fn touches_projectile(&self, position: [f32; 3], radius: f32) -> bool {
-        self.contact != crate::ActorContact::None
-            && (position[2] - self.position[2]).abs() <= ACTOR_CONTACT_HEIGHT
-            && (position[0] - self.position[0]).hypot(position[1] - self.position[1])
-                <= radius + self.radius + CONTACT_TOLERANCE
-    }
-    pub fn touches_moving_projectile(
-        &self,
-        position: [f32; 3],
-        velocity: [f32; 3],
-        radius: f32,
-    ) -> bool {
-        let x = position[0] + velocity[0] - self.position[0];
-        let y = position[1] - self.position[1];
-        self.contact == crate::ActorContact::Cylinder
-            && (position[2] + velocity[2] - self.position[2]).abs() <= ACTOR_CONTACT_HEIGHT
-            && (x.hypot(y) < radius + self.radius
-                || x.hypot(y + velocity[1]) < radius + self.radius)
+    /// First contact along a segment with the actor's horizontal collision cylinder.
+    fn projectile_contact(&self, start: [f32; 3], delta: [f32; 3], radius: f32) -> Option<f32> {
+        if self.contact != crate::ActorContact::Cylinder {
+            return None;
+        }
+        let offset: [f32; 3] = std::array::from_fn(|i| start[i] - self.position[i]);
+        let radius = radius + self.radius;
+        let speed = delta[0] * delta[0] + delta[1] * delta[1];
+        let distance = offset[0] * offset[0] + offset[1] * offset[1] - radius * radius;
+        let (mut enter, mut exit) = (0_f32, 1_f32);
+        if speed == 0. {
+            if distance > 0. {
+                return None;
+            }
+        } else {
+            let approach = offset[0] * delta[0] + offset[1] * delta[1];
+            let discriminant = approach * approach - speed * distance;
+            if discriminant < 0. {
+                return None;
+            }
+            enter = enter.max((-approach - discriminant.sqrt()) / speed);
+            exit = exit.min((-approach + discriminant.sqrt()) / speed);
+        }
+        if delta[2] == 0. {
+            if offset[2].abs() > ACTOR_CONTACT_HEIGHT {
+                return None;
+            }
+        } else {
+            let bottom = (-ACTOR_CONTACT_HEIGHT - offset[2]) / delta[2];
+            let top = (ACTOR_CONTACT_HEIGHT - offset[2]) / delta[2];
+            enter = enter.max(bottom.min(top));
+            exit = exit.min(bottom.max(top));
+        }
+        (enter <= exit).then_some(enter)
     }
 }
 
@@ -56,8 +55,6 @@ pub struct Projectile {
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub radius: f32,
-    pub contact: Contact,
-    pub motion: Motion,
     pub shadow: Option<Shadow>,
     /// A script may retain an impact effect's velocity without advancing its origin.
     pub paused: bool,
@@ -66,16 +63,33 @@ pub struct Projectile {
 }
 
 impl Projectile {
-    /// Held effects retain velocity for particles, but contact stops advancing.
+    fn movement(&self) -> [f32; 3] {
+        if self.paused { [0.; 3] } else { self.velocity }
+    }
     pub(crate) fn touches_actor(&self, actor: &crate::Actor, radius: f32) -> bool {
-        match self.motion {
-            Motion::Scripted => actor.touches_moving_projectile(
-                self.position,
-                if self.paused { [0.; 3] } else { self.velocity },
-                radius,
-            ),
-            Motion::Swept => actor.touches_projectile(self.position, radius),
-        }
+        actor
+            .projectile_contact(self.position, self.movement(), radius)
+            .is_some()
+    }
+    pub(crate) fn barrier(&self, world: &GameWorld) -> Option<f32> {
+        let end = std::array::from_fn(|i| self.position[i] + self.movement()[i]);
+        world
+            .actors
+            .iter()
+            .filter(|(id, actor)| **id != self.source && actor.ring_contact_enabled())
+            .filter_map(|(_, actor)| {
+                actor.solid_contact(
+                    self.position,
+                    end,
+                    resonance_content::field::CollisionQuery::All,
+                )
+            })
+            .min_by(f32::total_cmp)
+    }
+    pub(crate) fn reaches(&self, actor: &crate::Actor, radius: f32, barrier: Option<f32>) -> bool {
+        actor
+            .projectile_contact(self.position, self.movement(), radius)
+            .is_some_and(|time| barrier.is_none_or(|barrier| time < barrier))
     }
 }
 
@@ -211,6 +225,29 @@ impl GameWorld {
                 actor.animation = pose.previous.take();
                 actor.scripted_animation = pose.scripted;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn contact_checks_the_entire_segment_including_vertical_motion() {
+        let mut actor = crate::Actor::new(1, [0.; 3]);
+        actor.radius = 1.;
+        for (start, delta, hits) in [
+            ([-10., -10., 0.], [20., 20., 0.], true),
+            ([-10., -10., 0.], [20., 0., 0.], false),
+            (
+                [0., 0., 2. * ACTOR_CONTACT_HEIGHT],
+                [0., 0., -2. * ACTOR_CONTACT_HEIGHT],
+                true,
+            ),
+            ([10., 0., 0.], [20., 0., 0.], false),
+            ([0.; 3], [0.; 3], true),
+        ] {
+            assert_eq!(actor.projectile_contact(start, delta, 1.).is_some(), hits);
         }
     }
 }

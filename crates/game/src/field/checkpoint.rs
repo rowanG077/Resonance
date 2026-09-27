@@ -33,6 +33,10 @@ impl FieldSession {
         );
         let world = &self.events.world;
         ensure!(
+            !world.menu_blocked(),
+            "quicksave unavailable while a field effect owns the menu"
+        );
+        ensure!(
             world.field_transition.is_none() && world.world_transition.is_none(),
             "quicksave unavailable during a field transition"
         );
@@ -126,7 +130,8 @@ impl FieldCheckpoint {
         );
         let leader = i32::from(self.progress.party.field_leader);
         Ok(FieldEntry {
-            treasure_event: None,
+            services: None,
+            attachments: Default::default(),
             allow_incomplete_scripts: self.allow_incomplete_scripts,
             kind: super::EntryKind::Restore,
             play_time: crate::clock::PlayTime::resume(self.played_ticks()),
