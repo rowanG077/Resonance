@@ -981,7 +981,11 @@ impl EventRuntime {
                     slot::IDLE
                 };
                 if model.clips.contains_key(&slot)
-                    && actor.animation.as_ref().is_none_or(|a| a.slot != slot)
+                    && actor.animation.as_ref().is_none_or(|a| {
+                        a.source != crate::animation::AnimationSource::Model
+                            || a.resource != actor.resource
+                            || a.slot != slot
+                    })
                 {
                     actor.animation = Some(Animation {
                         blend_ticks: if matches!(slot, slot::TURN_RIGHT | slot::TURN_LEFT)

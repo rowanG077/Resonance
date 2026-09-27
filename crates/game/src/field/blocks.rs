@@ -1,7 +1,7 @@
 //! Shared block controls; room scripts retain ownership of puzzle responses.
 use super::{FieldInput, navigation::WalkMesh};
 use resonance_content::field::ServiceMotion;
-use resonance_events::{ActorRole, Animation, EventRuntime, GameWorld, input::Button};
+use resonance_events::{Animation, EventRuntime, GameWorld, input::Button};
 
 const GRIP_DISTANCE: f32 = 125.;
 const CELL: f32 = 150.;
@@ -23,13 +23,11 @@ enum Direction {
 }
 impl Direction {
     fn nearest([x, y]: [f32; 2]) -> Self {
-        // Native bearings truncate before wrapping, then face the opposite side.
-        let bearing = (-x.atan2(y).to_degrees()).trunc().rem_euclid(360.);
-        match (((bearing + 45.) / 90.) as u8 + 2) % 4 {
-            0 => Self::North,
-            1 => Self::East,
-            2 => Self::South,
-            _ => Self::West,
+        match (x.abs() > y.abs(), x > 0., y > 0.) {
+            (true, true, _) => Self::East,
+            (true, false, _) => Self::West,
+            (false, _, true) => Self::South,
+            (false, _, false) => Self::North,
         }
     }
     fn vector(self) -> [f32; 2] {
@@ -86,9 +84,7 @@ impl Blocks {
         let player = world.actors.get(&world.controlled_actor)?;
         world.actor_order().iter().copied().find(|id| {
             world.actors.get(id).is_some_and(|block| {
-                block.role == ActorRole::Pushable
-                    && block.visible
-                    && super::within_interaction_reach(player, block)
+                block.pushable() && block.visible && super::within_interaction_reach(player, block)
             })
         })
     }
@@ -152,7 +148,7 @@ impl Blocks {
             && world
                 .actors
                 .get(&grip.block)
-                .is_some_and(|a| a.instance == grip.instance && a.role == ActorRole::Pushable)
+                .is_some_and(|a| a.instance == grip.instance && a.pushable())
             && world
                 .actors
                 .get(&grip.player)
@@ -268,7 +264,7 @@ mod tests {
     use resonance_content::field::{
         CollisionGroup, FIELD_SERVICE_MOTION_RESOURCE_BASE, ModelCollision,
     };
-    use resonance_events::{Actor, AnimationClip, ResourceLibrary};
+    use resonance_events::{Actor, ActorRole, AnimationClip, ResourceLibrary};
     use std::sync::Arc;
 
     fn room() -> (EventRuntime, WalkMesh, Blocks) {
@@ -333,11 +329,33 @@ mod tests {
         }
     }
     #[test]
-    fn grabbing_near_a_corner_preserves_native_face_rounding() {
+    fn pushing_and_pulling_select_the_native_motion_banks() {
+        for (direction, slot, displacement) in [([0., -1.], 36, -150.), ([0., 1.], 40, 150.)] {
+            let (mut events, mesh, mut blocks) = room();
+            step(
+                &mut events,
+                &mesh,
+                &mut blocks,
+                FieldInput {
+                    interact: true,
+                    ..Default::default()
+                },
+            );
+            for _ in 0..50 {
+                step(&mut events, &mesh, &mut blocks, held(direction));
+            }
+            assert_eq!(events.world.actors[&2].position, [0., displacement, 0.]);
+            let animation = events.world.actors[&1].animation.as_ref().unwrap();
+            assert_eq!(animation.resource, FIELD_SERVICE_MOTION_RESOURCE_BASE + 1);
+            assert_eq!(animation.slot, slot);
+        }
+    }
+    #[test]
+    fn property_enabled_block_can_be_grabbed_moved_and_disabled() {
         let (mut events, mesh, mut blocks) = room();
-        let player = events.world.actors.get_mut(&1).unwrap();
-        player.position = [-89., 90., 0.];
-        player.face(45.);
+        let block = events.world.actors.get_mut(&2).unwrap();
+        block.role = ActorRole::Ordinary;
+        block.properties.insert(19, 1);
         step(
             &mut events,
             &mesh,
@@ -347,8 +365,33 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert_eq!(events.world.actors[&1].position, [-125., 0., 0.]);
-        assert_eq!(events.world.actors[&1].heading, 90.);
+        assert_eq!(events.world.grabbed_block, Some(2));
+        for _ in 0..50 {
+            step(&mut events, &mesh, &mut blocks, held([0., -1.]));
+        }
+        assert_eq!(events.world.actors[&2].position, [0., -150., 0.]);
+        events
+            .world
+            .actors
+            .get_mut(&2)
+            .unwrap()
+            .properties
+            .insert(19, 0);
+        step(&mut events, &mesh, &mut blocks, held([0.; 2]));
+        assert_eq!(events.world.grabbed_block, None);
+        assert!(events.player_has_control());
+    }
+
+    #[test]
+    fn gripping_uses_the_closest_face() {
+        for (offset, direction) in [
+            ([89., -90.], [0., -1.]),
+            ([90., -89.], [1., 0.]),
+            ([-90., 89.], [-1., 0.]),
+            ([89., 90.], [0., 1.]),
+        ] {
+            assert_eq!(Direction::nearest(offset).vector(), direction);
+        }
     }
     #[test]
     fn released_button_finishes_the_cell_then_returns_control() {
