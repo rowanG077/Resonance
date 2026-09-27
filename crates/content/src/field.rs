@@ -49,6 +49,8 @@ pub fn metadata_path(map: u32) -> String {
 pub fn audio_path(map: u32) -> String {
     format!("fields/map-{map}-audio.json")
 }
+/// Native field treasure models: ordinary, reinforced and bag-shaped.
+pub const TREASURE_RESOURCE_BASE: u32 = 0x7fff_0100;
 
 pub fn preload_path(map: u32) -> String {
     format!("fields/map-{map}.preload.json")
@@ -99,6 +101,8 @@ pub struct FieldAssets {
     pub ground: Vec<CollisionGroup>,
     pub regions: Vec<CollisionGroup>,
     pub doors: Vec<Door>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub camera_tracks: BTreeMap<u32, Vec<crate::CameraKey>>,
     #[serde(default)]
     pub actors: Vec<ActorAssets>,
     /// Geometry recipes requiring a caller texture binding before instantiation.
@@ -177,6 +181,21 @@ pub struct UnboundGeometry {
 impl FieldAssets {
     pub fn validate(&self) -> Result<()> {
         ensure!(self.version == FIELD_VERSION, "unsupported field assets");
+        for track in self.camera_tracks.values() {
+            ensure!(
+                track.len() >= 2
+                    && track.len() <= 100_000
+                    && track.iter().all(|key| key.time.is_finite()
+                        && key.time >= 0.
+                        && key
+                            .position
+                            .iter()
+                            .chain(&key.target)
+                            .all(|v| v.is_finite()))
+                    && track.windows(2).all(|keys| keys[0].time < keys[1].time),
+                "invalid field camera track"
+            );
+        }
         for actor in &self.actors {
             ensure!(
                 actor.parts.len() <= 2
@@ -325,57 +344,7 @@ impl FieldAssets {
             .iter()
             .chain(self.actors.iter().flat_map(|c| &c.parts))
         {
-            for chain in &part.secondary_motion.chains {
-                chain.validate(part.bone_names.len())?;
-            }
-            ensure!(
-                part.clips
-                    .iter()
-                    .flat_map(|c| &c.secondary_pose_nodes)
-                    .all(|node| usize::from(*node) < part.bone_names.len()),
-                "secondary animation node exceeds skeleton"
-            );
-            ensure!(
-                part.material_nodes.is_empty() || part.material_nodes.len() == part.materials.len(),
-                "field material node mapping is incomplete"
-            );
-            ensure!(
-                part.material_nodes
-                    .iter()
-                    .flatten()
-                    .all(|node| usize::from(*node) < part.bone_names.len()),
-                "field material node index exceeds skeleton"
-            );
-            validate_asset_path(&part.mesh)?;
-            ensure!(
-                self.files.contains_key(&part.mesh),
-                "field mesh is missing from dependency inventory"
-            );
-            for texture in part
-                .textures
-                .iter()
-                .chain(part.clips.iter().map(|clip| &clip.motion))
-            {
-                validate_asset_path(texture)?;
-                ensure!(
-                    self.files.contains_key(texture),
-                    "field texture is missing from dependency inventory"
-                );
-            }
-            ensure!(
-                part.translation.iter().all(|v| v.is_finite()),
-                "invalid field translation"
-            );
-            for material in &part.materials {
-                ensure!(
-                    material
-                        .color
-                        .iter()
-                        .chain(&material.multiply)
-                        .all(|b| b.texture < part.textures.len()),
-                    "invalid field material texture"
-                );
-            }
+            part.validate(|path| self.files.contains_key(path))?;
         }
         for actor in &self.actors {
             ensure!(
@@ -384,6 +353,63 @@ impl FieldAssets {
                     .iter()
                     .all(|node| usize::from(*node) < part.bone_names.len())),
                 "invalid initial actor visibility"
+            );
+        }
+        Ok(())
+    }
+}
+
+impl crate::ScenePart {
+    pub fn validate(&self, available: impl Fn(&str) -> bool) -> Result<()> {
+        for chain in &self.secondary_motion.chains {
+            chain.validate(self.bone_names.len())?;
+        }
+        ensure!(
+            self.clips
+                .iter()
+                .flat_map(|c| &c.secondary_pose_nodes)
+                .all(|node| usize::from(*node) < self.bone_names.len()),
+            "secondary animation node exceeds skeleton"
+        );
+        ensure!(
+            self.material_nodes.is_empty() || self.material_nodes.len() == self.materials.len(),
+            "field material node mapping is incomplete"
+        );
+        ensure!(
+            self.material_nodes
+                .iter()
+                .flatten()
+                .all(|node| usize::from(*node) < self.bone_names.len()),
+            "field material node index exceeds skeleton"
+        );
+        validate_asset_path(&self.mesh)?;
+        ensure!(
+            available(&self.mesh),
+            "field mesh is missing from dependency inventory"
+        );
+        for texture in self
+            .textures
+            .iter()
+            .chain(self.clips.iter().map(|clip| &clip.motion))
+        {
+            validate_asset_path(texture)?;
+            ensure!(
+                available(texture),
+                "field texture is missing from dependency inventory"
+            );
+        }
+        ensure!(
+            self.translation.iter().all(|v| v.is_finite()),
+            "invalid field translation"
+        );
+        for material in &self.materials {
+            ensure!(
+                material
+                    .color
+                    .iter()
+                    .chain(&material.multiply)
+                    .all(|b| b.texture < self.textures.len()),
+                "invalid field material texture"
             );
         }
         Ok(())

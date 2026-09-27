@@ -2,7 +2,7 @@
 use crate::{embedded, read::u16 as half, rel::Rel};
 use anyhow::{Context, Result, ensure};
 use resonance_content::menu_data::MapLocation;
-use serde::Serialize;
+use resonance_content::overworld::Guidepost as LongRangeUnlock;
 use std::{collections::BTreeMap, num::NonZeroU16, path::Path};
 
 const DATA: usize = 6;
@@ -10,16 +10,6 @@ const ROW_BYTES: usize = 12;
 const TABLE_BYTES: usize = 13 * ROW_BYTES;
 // The original event-bit region occupies 512 bytes before the party roster.
 const EVENT_FLAGS: u16 = 512 * 8;
-
-#[derive(Debug, PartialEq, Serialize)]
-pub(crate) struct LongRangeUnlock {
-    pub name: String,
-    /// Canonical source-string identity, including shared region names.
-    name_id: usize,
-    pub location: u16,
-    /// The first flag also records discovery; empty extra slots do nothing.
-    pub event_flags: [Option<NonZeroU16>; 3],
-}
 
 fn table(file: &Path) -> Option<usize> {
     match file.file_name()?.to_str()? {

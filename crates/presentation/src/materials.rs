@@ -165,10 +165,14 @@ pub(super) struct TitleSurface {
     /// World-space light position and channel strength (0..255).
     pub field_light: Vec4,
     pub shade_colors: [Vec4; 2],
+    /// Linear scene fog: RGB color, and camera-depth start/end (zero disables).
+    pub fog_color: Vec4,
+    pub fog_range: Vec4,
     pub vertex_color: bool,
     pub constant_color: bool,
     pub blend: bool,
     pub additive: bool,
+    pub subtractive: bool,
     pub depth_test: bool,
     pub depth_write: bool,
     pub cull: resonance_content::CullFace,
@@ -186,10 +190,13 @@ impl Default for TitleSurface {
             tint: Vec4::ONE,
             field_light: Vec4::ZERO,
             shade_colors: [Vec4::ONE; 2],
+            fog_color: Vec4::ZERO,
+            fog_range: Vec4::ZERO,
             vertex_color: true,
             constant_color: false,
             blend: false,
             additive: false,
+            subtractive: false,
             depth_test: true,
             depth_write: true,
             cull: resonance_content::CullFace::Back,
@@ -216,6 +223,8 @@ pub(super) struct SurfaceUniform {
     tint: Vec4,
     field_light: Vec4,
     shade_colors: [Vec4; 2],
+    fog_color: Vec4,
+    fog_range: Vec4,
 }
 impl From<&TitleSurface> for SurfaceUniform {
     fn from(value: &TitleSurface) -> Self {
@@ -225,6 +234,8 @@ impl From<&TitleSurface> for SurfaceUniform {
             tint: value.tint,
             field_light: value.field_light,
             shade_colors: value.shade_colors,
+            fog_color: value.fog_color,
+            fog_range: value.fog_range,
         }
     }
 }
@@ -238,6 +249,7 @@ pub(super) struct SurfaceKey {
     depth_write: bool,
     blend: bool,
     additive: bool,
+    subtractive: bool,
     cull: resonance_content::CullFace,
 }
 
@@ -251,6 +263,7 @@ impl From<&TitleSurface> for SurfaceKey {
             depth_write: material.depth_write,
             blend: material.blend,
             additive: material.additive,
+            subtractive: material.subtractive,
             cull: material.cull,
         }
     }
@@ -309,7 +322,17 @@ impl Material for TitleSurface {
         }
         if let Some(fragment) = &mut descriptor.fragment {
             for target in fragment.targets.iter_mut().flatten() {
-                if key.bind_group_data.additive {
+                if key.bind_group_data.subtractive {
+                    let component = BlendComponent {
+                        src_factor: BlendFactor::One,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::ReverseSubtract,
+                    };
+                    target.blend = Some(BlendState {
+                        color: component,
+                        alpha: component,
+                    });
+                } else if key.bind_group_data.additive {
                     let component = BlendComponent {
                         src_factor: BlendFactor::SrcAlpha,
                         dst_factor: BlendFactor::One,

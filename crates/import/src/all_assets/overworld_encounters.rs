@@ -2,7 +2,10 @@
 //! These IDs feed the weighted encounter table; they are not formation IDs.
 use crate::{embedded, read::u32 as word, rel::Rel};
 use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
+use resonance_content::overworld::{
+    EncounterArea as Area, EncounterTables as Tables, EncounterWorld as World, Terrain,
+    TerrainLabel, TileLoadingOrder, TravelEndpoint, WorldKind,
+};
 use std::{collections::BTreeSet, path::Path};
 #[path = "overworld_tiles.rs"]
 pub(super) mod tiles;
@@ -20,91 +23,7 @@ const TRAVEL_POINTS_TABLE: usize = 0x60;
 const TRAVEL_POINTS: usize = 8;
 const TRAVEL_PAIR_BYTES: usize = 32;
 
-/// Indexed [heading sector][position quadrant][priority][column, row].
-type TileLoadingOrder = [[[[i8; 2]; 9]; 4]; 8];
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum Terrain {
-    Grassland,
-    Road,
-    Wasteland,
-    Snowfield,
-    Desert,
-    Forest,
-    DeepForest,
-    Beach,
-    Bridge,
-    Mountains,
-}
-
-const TERRAIN: [Terrain; TERRAINS] = [
-    Terrain::Grassland,
-    Terrain::Road,
-    Terrain::Wasteland,
-    Terrain::Snowfield,
-    Terrain::Desert,
-    Terrain::Forest,
-    Terrain::DeepForest,
-    Terrain::Beach,
-    Terrain::Bridge,
-    Terrain::Mountains,
-];
-
-#[derive(Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum WorldKind {
-    Sylvarant,
-    TetheAlla,
-    /// The encounter lookup switches to this table at story phase 0x9ec488.
-    TetheAllaLate,
-}
-
-#[derive(Serialize)]
-struct Tables {
-    terrains: Vec<TerrainLabel>,
-    worlds: Vec<World>,
-    /// Sylvarant and Tethe'alla each map 16 collision surfaces to a terrain.
-    /// Null is the authored 0xff sentinel, which suppresses encounters.
-    surface_terrain: Vec<[Option<Terrain>; SURFACES]>,
-    /// Two complete world maps, indexed [world][row][column]. Values select areas.
-    area_grids: Vec<Vec<[u8; WORLD_COLUMNS]>>,
-    /// Paired embark/disembark endpoints in their authored order.
-    travel_points: Vec<[TravelEndpoint; 2]>,
-    tile_loading_order: TileLoadingOrder,
-}
-
-#[derive(Deserialize, Serialize)]
-struct TravelEndpoint {
-    map_x: i32,
-    map_z: i32,
-    height: f32,
-    /// Retail and debug travel selectors/transfers consume XYZ only.
-    /// Keep the authored bits; their original editor meaning is unknown.
-    unused_word: u32,
-}
-
-#[derive(Serialize)]
-struct TerrainLabel {
-    terrain: Terrain,
-    name: String,
-}
-
-#[derive(Serialize)]
-struct World {
-    kind: WorldKind,
-    name: String,
-    /// Names and encounter slots have different physical lengths.
-    area_names: Vec<Option<String>>,
-    areas: Vec<Option<Area>>,
-    arena_by_terrain: [u8; TERRAINS],
-}
-
-#[derive(Serialize)]
-struct Area {
-    /// Indexed [terrain][enemy symbol kind]. Both authored alternatives remain.
-    encounter_groups: [[u16; 2]; TERRAINS],
-}
+const TERRAIN: [Terrain; TERRAINS] = Terrain::ALL;
 
 #[derive(Clone, Copy)]
 struct Layout {
@@ -353,7 +272,17 @@ pub(super) fn cook(file: &Path, output: &Path) -> Result<Option<Vec<String>>> {
     };
     let rel = Rel::read(file)?;
     let tables = read(&rel, layout)?;
+    tables.validate()?;
     embedded::write(file, output, "overworld-encounters", &tables).map(Some)
+}
+
+pub(super) fn prepare(file: &Path) -> Result<Tables> {
+    let tables = read(
+        &Rel::read(file)?,
+        layout(file).context("unsupported world encounter module")?,
+    )?;
+    tables.validate()?;
+    Ok(tables)
 }
 
 #[test]

@@ -17,9 +17,29 @@ use std::{
 #[derive(Resource)]
 pub(super) struct Request(pub Option<Vec<u8>>);
 
+/// Keep the source and its pending operation alive after preparation fails.
+#[derive(Resource)]
+pub(super) struct TransitionFailure;
+
+fn transition_failed(world: &mut World, error: anyhow::Error) {
+    error!("Area transition failed: {error:#}");
+    world.remove_resource::<super::loading::FieldPending>();
+    world.remove_resource::<super::loading::WorldPending>();
+    world.insert_resource(TransitionFailure);
+    world
+        .resource::<super::loading::Resident>()
+        .active
+        .store(true, std::sync::atomic::Ordering::Release);
+    for mut window in world.query::<&mut Window>().iter_mut(world) {
+        window.title = format!("Resonance — {error:#} — Enter: Retry / F9: Load quicksave");
+    }
+}
+
 #[derive(Resource)]
 pub(super) struct Session {
     pub field: FieldSession,
+    pub overworld: Option<super::overworld::Scene>,
+    world_package: Option<Arc<super::overworld::Package>>,
     pub assets: FieldAssets,
     pub ready_for_field: bool,
     pub audio: Option<super::field_audio::Assets>,
@@ -35,7 +55,9 @@ pub(super) struct Session {
 
 impl Session {
     pub(super) fn movie_owns_audio(&self) -> bool {
-        self.assets.map_id != 5 && (!self.movie_started || !self.ready_for_field)
+        self.overworld.is_none()
+            && self.assets.map_id != 5
+            && (!self.movie_started || !self.ready_for_field)
     }
 
     pub(super) fn load(root: &Path) -> Result<Self> {
@@ -73,23 +95,7 @@ impl Session {
             hash.update(map.to_be_bytes());
             hash.update(Sha256::digest(script));
         }
-        let mut content: [u8; 32] = hash.finalize().into();
-        // Correcting four equipment-owner permissions leaves the saved layout
-        // unchanged. Preserve its identity only for this exact content revision;
-        // other data or script changes still produce an incompatible identity.
-        if content
-            == [
-                0xfd, 0x25, 0x6c, 0x03, 0x98, 0xd5, 0xc8, 0x07, 0x7d, 0x31, 0x94, 0xf2, 0xdd, 0x79,
-                0x12, 0x00, 0x35, 0xe2, 0x98, 0x5b, 0xb0, 0xdf, 0x9c, 0xd1, 0x3f, 0xe8, 0xe7, 0x8b,
-                0x64, 0xce, 0xeb, 0xfd,
-            ]
-        {
-            content = [
-                0x71, 0xe4, 0x84, 0xac, 0xda, 0x23, 0xd9, 0x5c, 0x3a, 0xc0, 0xb6, 0x66, 0xa8, 0x47,
-                0x73, 0x19, 0x98, 0xaf, 0x87, 0x73, 0x5b, 0xdf, 0x06, 0x12, 0x65, 0x16, 0x97, 0xc4,
-                0x1e, 0x93, 0x41, 0xac,
-            ];
-        }
+        let content = hash.finalize().into();
         Ok(resonance_persistence::Identity { schema: 1, content })
     }
 
@@ -119,6 +125,8 @@ impl Session {
                 .entry(&initial.assets, data.clone(), available_fields.clone())?
         } else {
             FieldEntry {
+                treasure_event: None,
+                allow_incomplete_scripts: false,
                 kind: Default::default(),
                 menu_data: None,
                 play_time: Default::default(),
@@ -170,6 +178,8 @@ impl Session {
         fields.insert(map, initial.clone());
         Ok(Self {
             field,
+            overworld: None,
+            world_package: None,
             assets: initial.assets.clone(),
             ready_for_field: true,
             audio: Some((*initial.audio).clone()),
@@ -185,11 +195,77 @@ impl Session {
     }
 
     pub(super) fn files(&self) -> Arc<Files> {
-        self.fields[&self.assets.map_id].files.clone()
+        self.overworld.as_ref().map_or_else(
+            || self.fields[&self.assets.map_id].files.clone(),
+            |scene| scene.package.files.clone(),
+        )
+    }
+
+    pub(super) fn load_world_prepared(
+        root: &Path,
+        files: Arc<Files>,
+        saved: super::saves::WorldCheckpoint,
+        cache: &mut super::loading::Cache,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<Self> {
+        let available_fields = available_fields(root)?;
+        let world = Arc::new(resonance_game::overworld::Prepared::load(
+            root,
+            &mut cache.bytes,
+            available_fields.clone(),
+            cancelled,
+        )?);
+        let data = world
+            .resources
+            .session_data
+            .clone()
+            .context("world session data missing")?;
+        let skits = world
+            .resources
+            .skits
+            .clone()
+            .context("world skits missing")?;
+        let persistent = saved.overworld.progress.clone().into_state(&data)?;
+        let game = resonance_game::overworld::Session::restore(
+            world.assets(saved.overworld.state.world, &persistent)?,
+            saved.overworld,
+        )?;
+        let audio = cache.audio.load(root, "worlds/audio.json", &world.files)?;
+        let scene = super::overworld::Scene::new(game, world.clone())?;
+        let package = Arc::new(FieldPackage::load(root, files, saved.anchor_field, cache)?);
+        // The scene owner retains a suspended field, just as it does on a live
+        // exit. It never executes this field's arrival script on a world load.
+        let mut field = package.enter(FieldEntry {
+            persistent,
+            data: Some(data.clone()),
+            skits: Some(skits.clone()),
+            available_fields: available_fields.clone(),
+            ..Default::default()
+        })?;
+        field.events.cancel();
+        Ok(Self {
+            field,
+            overworld: Some(scene),
+            world_package: Some(Arc::new(super::overworld::Package {
+                world,
+                audio: audio.clone(),
+            })),
+            assets: package.assets.clone(),
+            ready_for_field: false,
+            audio: Some((*audio).clone()),
+            identity: Self::identity(root)?,
+            story_movie: None,
+            prepared_movie: None,
+            movie_started: true,
+            data,
+            skits,
+            fields: [(saved.anchor_field, package)].into(),
+            available_fields,
+        })
     }
 
     pub(super) fn replace_loaded(&mut self, mut candidate: Self) {
-        self.field.events.cancel();
+        self.events_mut().cancel();
         for (id, package) in std::mem::take(&mut self.fields) {
             candidate.fields.entry(id).or_insert(package);
         }
@@ -233,7 +309,8 @@ impl Session {
     }
 
     fn activate(&mut self, field: FieldSession, package: &FieldPackage, starting_story: bool) {
-        self.field.events.cancel();
+        self.events_mut().cancel();
+        self.overworld = None;
         self.field = field;
         self.assets = package.assets.clone();
         self.ready_for_field = true;
@@ -241,10 +318,73 @@ impl Session {
         self.audio = Some((*package.audio).clone());
     }
 
+    pub(super) fn events(&self) -> &resonance_events::EventRuntime {
+        self.overworld
+            .as_ref()
+            .map_or(&self.field.events, |scene| &scene.session.events)
+    }
+
+    pub(super) fn events_mut(&mut self) -> &mut resonance_events::EventRuntime {
+        self.overworld
+            .as_mut()
+            .map_or(&mut self.field.events, |scene| &mut scene.session.events)
+    }
+
+    fn change_world(&mut self, package: Arc<super::overworld::Package>) -> Result<()> {
+        let persistent = self.events().persistent_state()?;
+        let session = if let Some(scene) = &self.overworld
+            && let Some(destination) = scene.session.world_destination()
+        {
+            scene
+                .session
+                .change_world(package.world.assets(destination, &persistent)?)?
+        } else {
+            let request = self
+                .events()
+                .world
+                .world_transition
+                .as_ref()
+                .context("world transition is missing")?;
+            let destination = super::overworld::destination(request.location, &persistent)?;
+            let play_time = self
+                .overworld
+                .as_ref()
+                .map_or(self.field.play_time, |s| s.session.play_time);
+            let assets = package.world.assets(destination, &persistent)?;
+            if (513..=526).contains(&request.location) {
+                let definition = package
+                    .world
+                    .definition
+                    .visuals
+                    .cinematics
+                    .get(&request.location)
+                    .context("world cinematic is not prepared")?
+                    .clone();
+                resonance_game::overworld::Session::play_cinematic(
+                    assets,
+                    request,
+                    Arc::new(definition),
+                    persistent,
+                    play_time,
+                )?
+            } else {
+                resonance_game::overworld::Session::return_from_field(
+                    assets, request, persistent, play_time,
+                )?
+            }
+        };
+        let scene = super::overworld::Scene::new(session, package.world.clone())?;
+        self.events_mut().cancel();
+        self.overworld = Some(scene);
+        self.audio = Some((*package.audio).clone());
+        self.world_package = Some(package);
+        self.ready_for_field = false;
+        Ok(())
+    }
+
     fn change_field(&mut self, package: Arc<FieldPackage>) -> Result<()> {
         let request = self
-            .field
-            .events
+            .events()
             .world
             .field_transition
             .as_ref()
@@ -253,19 +393,34 @@ impl Session {
             package.assets.map_id == request.map,
             "prepared field differs from the requested destination"
         );
-        let starting_story = self.assets.map_id == 5 && request.map == 340;
-        let mut field = package.enter(FieldEntry {
-            play_time: self.field.play_time,
-            persistent: self.field.events.persistent_state()?,
-            data: Some(self.data.clone()),
-            skits: Some(self.skits.clone()),
-            available_fields: self.available_fields.clone(),
-            position: request.position,
-            heading: request.heading,
-            camera: request.camera.clone(),
-            ..Default::default()
-        })?;
-        field.continue_ambient(&self.field);
+        let starting_story =
+            self.overworld.is_none() && self.assets.map_id == 5 && request.map == 340;
+        let mut entry = if let Some(scene) = &self.overworld {
+            scene.session.field_entry()?
+        } else {
+            FieldEntry {
+                play_time: self.field.play_time,
+                persistent: self.field.events.persistent_state()?,
+                data: Some(self.data.clone()),
+                skits: Some(self.skits.clone()),
+                available_fields: self.available_fields.clone(),
+                position: request.position,
+                heading: request.heading,
+                camera: request.camera.clone(),
+                ..Default::default()
+            }
+        };
+        entry.allow_incomplete_scripts = self.field.allow_incomplete_scripts;
+        let mut field = package.enter(entry)?;
+        if let Some(reason) = &field.events.exploration_error {
+            warn!(
+                "Field {} entered as an exploration preview: {reason}",
+                package.assets.map_id
+            );
+        }
+        if self.overworld.is_none() {
+            field.continue_ambient(&self.field);
+        }
         package.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
         self.activate(field, &package, starting_story);
         self.fields.insert(package.assets.map_id, package);
@@ -457,13 +612,50 @@ pub(super) fn activate(world: &mut World, session: Session) {
     );
 }
 
+/// This switch belongs to the temporary test, including fields reached from it.
+pub(super) fn skip_test_battles(options: Res<RunOptions>, session: Option<ResMut<Session>>) {
+    if options.skip_battles
+        && let Some(mut session) = session
+    {
+        session.field.allow_incomplete_scripts = true;
+        if let Err(error) = session.events_mut().world.skip_battle_as_victory() {
+            error!("Could not finish test battle: {error}");
+        }
+    }
+}
+
 /// The VM requests a field; the scene owner replaces it after validating its
 /// cooked package. Outstanding callbacks are cancelled before actors retire.
 pub(super) fn transition(world: &mut World) {
+    if world.contains_resource::<super::saves::WorldLoad>() {
+        return;
+    }
+    if world.contains_resource::<TransitionFailure>() {
+        let retry = world
+            .resource::<ButtonInput<KeyCode>>()
+            .just_pressed(KeyCode::Enter)
+            || world
+                .query::<&Gamepad>()
+                .iter(world)
+                .any(|pad| pad.just_pressed(GamepadButton::South));
+        if !retry {
+            return;
+        }
+        world.remove_resource::<TransitionFailure>();
+    }
     let Some(session) = world.get_resource::<Session>() else {
         return;
     };
-    let Some(request) = session.field.events.world.field_transition.clone() else {
+    if session.events().world.world_transition.is_some()
+        || session
+            .overworld
+            .as_ref()
+            .is_some_and(|s| s.session.world_destination().is_some())
+    {
+        transition_world(world);
+        return;
+    }
+    let Some(request) = session.events().world.field_transition.clone() else {
         return;
     };
     let script_root = world
@@ -474,7 +666,6 @@ pub(super) fn transition(world: &mut World) {
         .active
         .store(false, std::sync::atomic::Ordering::Release);
     let result = (|| -> Result<()> {
-        super::field_audio::leave_field(world)?;
         let next = if let Some(pending) = world.get_resource::<super::loading::FieldPending>() {
             let Some(result) = pending.poll()? else {
                 return Ok(());
@@ -501,6 +692,7 @@ pub(super) fn transition(world: &mut World) {
             return Ok(());
         };
         world.resource_mut::<Session>().change_field(next)?;
+        super::field_audio::leave_field(world)?;
         let files = world.resource::<Session>().files();
         *world
             .resource::<super::loading::Resident>()
@@ -511,9 +703,45 @@ pub(super) fn transition(world: &mut World) {
         Ok(())
     })();
     if let Err(error) = result {
-        error!("Field transition failed: {error:#}");
-        world.resource_mut::<Session>().field.events.cancel();
-        world.write_message(AppExit::error());
+        transition_failed(world, error);
+    }
+}
+
+fn transition_world(world: &mut World) {
+    world
+        .resource::<super::loading::Resident>()
+        .active
+        .store(false, std::sync::atomic::Ordering::Release);
+    let result = (|| -> Result<()> {
+        let package = if let Some(package) = &world.resource::<Session>().world_package {
+            package.clone()
+        } else if let Some(pending) = world.get_resource::<super::loading::WorldPending>() {
+            let Some(result) = pending.poll()? else {
+                return Ok(());
+            };
+            world.remove_resource::<super::loading::WorldPending>();
+            Arc::new(result?)
+        } else {
+            let pending = super::loading::WorldPending::overworld(
+                world.resource::<RunOptions>().assets.clone(),
+                world.resource::<Session>().available_fields.clone(),
+                world.resource::<super::loading::Resident>(),
+            )?;
+            world.insert_resource(pending);
+            return Ok(());
+        };
+        world.resource_mut::<Session>().change_world(package)?;
+        super::field_audio::leave_field(world)?;
+        *world
+            .resource::<super::loading::Resident>()
+            .files
+            .write()
+            .unwrap() = Some(world.resource::<Session>().files());
+        info!("Entered overworld through SymphoniaScript");
+        Ok(())
+    })();
+    if let Err(error) = result {
+        transition_failed(world, error);
     }
 }
 
@@ -528,6 +756,9 @@ pub(super) fn advance(
     let Some(session) = &mut session else {
         return;
     };
+    if session.overworld.is_some() {
+        return;
+    }
     if session.movie_started {
         return;
     }
@@ -568,6 +799,7 @@ pub(super) fn advance(
 
 pub(super) fn movie_handoff(mut session: Option<ResMut<Session>>, movie: Res<movie::Playback>) {
     if let Some(session) = &mut session
+        && session.overworld.is_none()
         && session.movie_started
         && !movie.active
         && !session.ready_for_field

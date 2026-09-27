@@ -69,12 +69,6 @@ impl PreparedEvent {
             function.is_task && function.results == 0,
             "event entry must be a task without a return value"
         );
-        ensure!(
-            usize::from(function.parameters) == entry.arguments.len(),
-            "event entry {task} needs {} argument slots, got {}",
-            function.parameters,
-            entry.arguments.len()
-        );
         symphonia_script_vm::Vm::validate_arguments(
             &module.program,
             function.entry,
@@ -95,7 +89,15 @@ impl PreparedEvent {
 
     /// Activation performs no source reads, compilation, or asset loading.
     pub fn start(&self, events: &mut EventRuntime) -> Result<i32> {
-        events.start_authored(self.module.program.clone(), &self.task, &self.arguments)
+        self.start_with_arguments(events, &self.arguments)
+    }
+    /// Activate a prepared reusable event with checked scene-local handles.
+    pub fn start_with_arguments(
+        &self,
+        events: &mut EventRuntime,
+        arguments: &[i32],
+    ) -> Result<i32> {
+        events.start_authored(self.module.program.clone(), &self.task, arguments)
     }
 }
 

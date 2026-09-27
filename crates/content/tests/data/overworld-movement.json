@@ -1,0 +1,37 @@
+{
+  "heading_quantization": 4096.0,
+  "camera_yaw_quantization": 32.0,
+  "stick_maximum": 80.0,
+  "foot_stick_divisor": 8.0,
+  "mounted_stick_divisor": 6.800000190734863,
+  "flight_speed_multiplier": 4.0,
+  "ship_speed_multiplier": 2.5,
+  "direct_vehicle_stick_divisor": 1.5,
+  "flight_bank_divisor": 3.0,
+  "flight_acceleration_ticks": 30.0,
+  "ship_acceleration_ticks": 60.0,
+  "pitch_limit": 64.0,
+  "pitch_step": 4.266666889190674,
+  "altitude_per_pitch": 0.25,
+  "maximum_altitude": 1500.0,
+  "flight_clearance": 300.0,
+  "turn_limit": 48.0,
+  "flight_turn_step": 1.600000023841858,
+  "ship_turn_step": 0.800000011920929,
+  "zoom_transition_ticks": 30.0,
+  "lift_step": 20.0,
+  "minimum_lift_step": 2.5,
+  "descent_easing_height": 150.0,
+  "camera_turn_degrees": 0.014999999664723873,
+  "collision_radius": 1200.0,
+  "camera_distances": [
+    [
+      1200.0,
+      2800.0
+    ],
+    [
+      1800.0,
+      3400.0
+    ]
+  ]
+}

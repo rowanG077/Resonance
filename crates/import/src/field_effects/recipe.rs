@@ -160,7 +160,7 @@ fn effects(
                 })
                 .collect::<Result<_>>()?,
         },
-        sprites: [0, 8, 10]
+        sprites: [0, 4, 7, 8, 10, 22]
             .into_iter()
             .map(|kind| Ok((kind, sprite(kind)?)))
             .collect::<Result<_>>()?,

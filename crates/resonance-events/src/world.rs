@@ -15,6 +15,8 @@ pub struct Actor {
     /// depth, including equal-depth fragments. This is presentation state.
     pub depth_write: bool,
     pub animation: Option<Animation>,
+    /// Independent scenery motion layers, sampled over its base animation.
+    pub scenery_animations: BTreeMap<i8, Animation>,
     /// Explicit model updates in the latest binding tick. Presentation must
     /// reject collapsed intermediate poses when secondary motion needs them.
     pub animation_bindings: (u32, u32),
@@ -28,12 +30,30 @@ pub struct Actor {
     pub animation_culled: bool,
     pub grounded: bool,
     pub collidable: bool,
+    pub radius: f32,
+    pub path: crate::autonomy::Path,
     pub casts_shadow: bool,
+    pub ambient_sound: Option<crate::AmbientSound>,
+    pub enemy: Option<Enemy>,
+    pub ring_station: bool,
     pub attachment: Option<Attachment>,
     pub motion: Option<ActorMotion>,
     pub autonomy: Option<crate::Autonomy>,
     pub scripted_animation: bool,
     pub idle_animation: u16,
+}
+#[derive(Debug, Clone)]
+pub struct Enemy {
+    pub event: u16,
+    pub behavior: u8,
+    pub normal_speed: f32,
+    pub alert_speed: f32,
+    pub random_turns: bool,
+    pub chase_on_sight: bool,
+    pub sight_angle: f32,
+    pub sight_distance: f32,
+    pub event_parameters: [i16; 2],
+    pub contact_cooldown: u16,
 }
 #[derive(Debug, Clone, Copy)]
 pub struct ActorCreation {
@@ -52,6 +72,7 @@ impl Actor {
             interaction_anchor: false,
             depth_write: true,
             animation: None,
+            scenery_animations: BTreeMap::new(),
             animation_bindings: (0, 0),
             properties: BTreeMap::new(),
             heading: 0.,
@@ -62,7 +83,12 @@ impl Actor {
             animation_culled: false,
             grounded: true,
             collidable: true,
+            radius: 42.,
+            path: Default::default(),
             casts_shadow: true,
+            ambient_sound: None,
+            enemy: None,
+            ring_station: false,
             attachment: None,
             motion: None,
             autonomy: None,
@@ -167,13 +193,33 @@ pub enum BoneTarget {
 #[derive(Debug, Clone)]
 pub struct BoneAdjustment {
     pub bone: BoneTarget,
+    /// Native node setters replace the local rotation; skeletal adjustments add to it.
+    pub absolute_rotation: bool,
     /// Angles in model coordinates, after the native's integer half-angle conversion.
     pub angles: [f32; 3],
     pub from: [f32; 3],
     pub duration_ticks: u32,
     pub start_tick: u32,
+    pub translation: Option<BoneTranslation>,
+}
+#[derive(Debug, Clone)]
+pub struct BoneTranslation {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
+    pub duration_ticks: u32,
+    pub start_tick: u32,
 }
 impl BoneAdjustment {
+    pub fn translation(&self, tick: u32) -> [f32; 3] {
+        self.translation.as_ref().map_or([0.; 3], |translation| {
+            let fraction = (tick.saturating_sub(translation.start_tick) + 1)
+                .min(translation.duration_ticks) as f32
+                / translation.duration_ticks.max(1) as f32;
+            std::array::from_fn(|i| {
+                translation.from[i] + (translation.to[i] - translation.from[i]) * fraction
+            })
+        })
+    }
     pub fn sample(&self, tick: u32) -> [f32; 3] {
         let fraction = (tick.saturating_sub(self.start_tick) + 1).min(self.duration_ticks) as f32
             / self.duration_ticks.max(1) as f32;
@@ -218,6 +264,10 @@ impl Particle {
 #[derive(Default)]
 pub struct GameWorld {
     pub tick: u32,
+    /// The owning scene's map, also available to its nested skit scripts.
+    pub current_field: Option<u32>,
+    /// Native runtime EA9 bit 7. Ordinary starts and New Game Plus clear it.
+    pub debug_session: bool,
     pub skit: Option<crate::skit::Scene>,
     pub skit_request: Option<crate::skit::Request>,
     pub menu_request: Option<crate::menu::Request>,
@@ -231,10 +281,14 @@ pub struct GameWorld {
     pub effect_settings: BTreeMap<(i32, i32), [i32; 3]>,
     pub character_lights: BTreeMap<i32, crate::effect::CharacterLight>,
     pub render_settings: BTreeMap<i32, i32>,
+    /// Two enlarged framebuffer copies, selected by their native depth test.
+    /// Zero disables a pass; values are orthographic screen depths.
+    pub screen_copy_depth: [f32; 2],
     pub dialogue: BTreeMap<u8, crate::dialogue::Dialogue>,
     pub choices: BTreeMap<u8, crate::dialogue::Choice>,
     pub party: Option<crate::party::Party>,
     pub field_transition: Option<FieldTransition>,
+    pub world_transition: Option<WorldTransition>,
     pub(crate) field_exit: Option<crate::field_exit::DoorExit>,
     pub preload_field: Option<u32>,
     pub movie: Option<crate::dialogue::Movie>,
@@ -245,20 +299,28 @@ pub struct GameWorld {
     pub input_enabled: bool,
     pub controlled_actor: i32,
     pub event_flags: std::collections::BTreeSet<u16>,
+    pub script_state: symphonia_script::authored::ScriptState,
     pub event_records: BTreeMap<u8, EventRecord>,
     /// Optional Unix time supplied by a replay; live events use the system clock.
     pub calendar_time: Option<i64>,
     pub triggers: Vec<Trigger>,
     pub save_points: Vec<SavePoint>,
+    pub treasures: Vec<TreasureChest>,
+    pub treasure_models: [Option<u32>; 2],
     /// Search distance for automatic scenery-door interactions; absent uses 250.
     pub door_interaction_radius: Option<f32>,
     pub audio_commands: Vec<AudioCommand>,
+    pub(crate) ambient_voices: [Option<crate::ambient::Voice>; 2],
+    pub voice_banks: [Option<u16>; 2],
     pub emotes: BTreeMap<i32, Emote>,
     pub paralysis: Option<crate::effect::Paralysis>,
     pub billboards: BTreeMap<i32, crate::effect::BillboardEffect>,
     pub refractions: BTreeMap<i32, crate::effect::RefractionPulse>,
     pub random_state: u32,
     pub gameplay_random: crate::GameplayRandom,
+    pub battle_request: Option<crate::battle::Request>,
+    /// Overworld bottles count movement updates; their scene owns that clock.
+    pub external_encounter_clock: bool,
     pub(crate) pending_animation_bindings: std::collections::BTreeSet<i32>,
     pub(crate) loaded_resources: BTreeMap<i32, (crate::ResourceKind, u32)>,
     pub(crate) operations: crate::operation::OperationScope,
@@ -291,6 +353,99 @@ pub struct FieldTransition {
     pub operation: crate::Operation,
 }
 
+/// Script field IDs >= 3000 enter the world service. Their second and fifth
+/// arguments are a landmark and exit octant, rather than field coordinates.
+#[derive(Debug, Clone)]
+pub struct WorldTransition {
+    pub location: u16,
+    pub direction: i16,
+    /// Numbered cinematics retire their caller and enter this destination afterward.
+    pub following: Option<SceneDestination>,
+    pub operation: crate::Operation,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SceneDestination {
+    pub map: u32,
+    pub position: [f32; 3],
+    pub heading: f32,
+}
+
+impl GameWorld {
+    /// Cinematic completion publishes another scene request. The source remains
+    /// alive until the destination owner has prepared and accepted it.
+    pub fn request_destination(&mut self, destination: SceneDestination) -> Result<(), String> {
+        if self.field_transition.is_some()
+            || self.world_transition.is_some()
+            || self.field_exit.is_some()
+        {
+            return Err("scene transition is already pending".into());
+        }
+        if !destination
+            .position
+            .iter()
+            .chain([&destination.heading])
+            .all(|n| n.is_finite())
+        {
+            return Err("invalid scene destination".into());
+        }
+        if destination.map >= 3000 {
+            let location = destination.position[0];
+            if location.fract() != 0.
+                || !(0. ..=337.).contains(&location)
+                || destination.heading.fract() != 0.
+                || destination.heading < f32::from(i16::MIN)
+                || destination.heading > f32::from(i16::MAX)
+            {
+                return Err("invalid world destination".into());
+            }
+            self.request_world(location as u16, destination.heading as i16, None)?;
+        } else {
+            self.field_transition = Some(FieldTransition {
+                map: destination.map,
+                position: destination.position,
+                heading: destination.heading.rem_euclid(360.),
+                camera: None,
+                operation: self.operations.begin()?,
+            });
+            self.input_enabled = false;
+        }
+        Ok(())
+    }
+
+    pub fn request_world(
+        &mut self,
+        location: u16,
+        direction: i16,
+        following: Option<SceneDestination>,
+    ) -> Result<crate::Operation, String> {
+        if self.field_transition.is_some()
+            || self.world_transition.is_some()
+            || self.field_exit.is_some()
+        {
+            return Err("scene transition is already pending".into());
+        }
+        let cinematic = (513..=526).contains(&location);
+        if !(location == 0
+            || (1..=98).contains(&location)
+            || (257..=337).contains(&location)
+            || cinematic)
+            || cinematic != following.is_some()
+        {
+            return Err("invalid world scene or cinematic continuation".into());
+        }
+        let operation = self.operations.begin()?;
+        self.world_transition = Some(WorldTransition {
+            location,
+            direction,
+            following,
+            operation: operation.clone(),
+        });
+        self.input_enabled = false;
+        Ok(operation)
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EventRecord {
     pub value: u8,
@@ -312,8 +467,35 @@ pub struct Emote {
     pub start_tick: u32,
     pub duration: Option<u32>,
 }
+/// Music requests decoded at the native script boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MusicCommand {
+    Play(u16),
+    PlayJingle(u16),
+    Stop,
+    Suspend,
+    Resume,
+}
+
+impl TryFrom<i16> for MusicCommand {
+    type Error = &'static str;
+
+    fn try_from(command: i16) -> Result<Self, Self::Error> {
+        // Dispatch these wire values before ordinary track IDs.
+        Ok(match command {
+            -1 => Self::Stop,
+            -2 => Self::Suspend,
+            -3 => Self::Resume,
+            97 => Self::PlayJingle(97),
+            0.. => Self::Play(command as u16),
+            _ => return Err("unknown native music command"),
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum AudioCommand {
+    SoundReverb(u8),
     Voice(u32),
     StopVoice,
     SelectBank(u8),
@@ -326,7 +508,7 @@ pub enum AudioCommand {
         slot: u16,
         pan: u8,
     },
-    Music(i16),
+    Music(MusicCommand),
     MusicVolume {
         volume: u8,
         duration_ticks: u32,
@@ -337,10 +519,20 @@ pub enum AudioCommand {
         volume: u8,
         slot: Option<u8>,
     },
+    /// Restart a vehicle engine whenever its original sound program ends.
+    /// StopSound or replacing the owning scene retires this lease.
+    RepeatSound {
+        id: i16,
+        pan: u8,
+        volume: u8,
+        slot: u8,
+    },
 }
 #[derive(Debug, Clone)]
 pub struct Trigger {
     pub key: u32,
+    /// Automatic contact using registry 2, shared with confirmed triggers.
+    pub automatic_event: bool,
     pub shape: TriggerShape,
     /// Vertical extent above the line, not a horizontal activation radius.
     pub height: f32,
@@ -353,7 +545,50 @@ pub struct Trigger {
 #[derive(Debug, Clone)]
 pub enum TriggerShape {
     Line([[f32; 3]; 2]),
+    Triangle([[f32; 3]; 3]),
     Quad([[f32; 3]; 4]),
+}
+#[derive(Debug, Clone)]
+pub struct TreasureChest {
+    pub actor: i32,
+    pub flag: u16,
+    pub reward: TreasureReward,
+    pub kind: TreasureKind,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TreasureKind {
+    UnknownId0 = 0,
+    UnknownId1 = 1,
+    UnknownId2 = 2,
+    CustomModel0 = 3,
+    CustomModel1 = 4,
+}
+impl TryFrom<i32> for TreasureKind {
+    type Error = &'static str;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::UnknownId0),
+            1 => Ok(Self::UnknownId1),
+            2 => Ok(Self::UnknownId2),
+            3 => Ok(Self::CustomModel0),
+            4 => Ok(Self::CustomModel1),
+            _ => Err("invalid treasure kind"),
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreasureReward {
+    Item(u16),
+    Gald(u16),
+}
+impl TreasureReward {
+    pub fn from_source(value: u16) -> Self {
+        match value.checked_sub(1024) {
+            Some(amount) => Self::Gald(amount),
+            None => Self::Item(value),
+        }
+    }
 }
 impl GameWorld {
     /// Controlled actor first, followed by other actors in creation order.

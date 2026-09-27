@@ -215,6 +215,14 @@ impl Sources {
         for (id, bytes) in field.models()? {
             self.insert(u32::from(id), bytes.to_vec(), decoded)?;
         }
+        for (index, _) in field.sections().filter(|(index, _)| *index >= 16) {
+            if crate::animation::is_animation(field.source_section(index)?) {
+                self.animations.push((
+                    0xffee0000 + (index - 16) as u32,
+                    field.decoded.animation(field.source_section(index)?)?,
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -342,6 +350,19 @@ pub(crate) fn cook_field(
             &[],
         )?;
     }
+    if declarations.treasures {
+        for (kind, path) in resources.treasures.iter().enumerate() {
+            let bytes = original.source(path)?;
+            assets.add(
+                &binder,
+                resonance_content::field::TREASURE_RESOURCE_BASE + kind as u32,
+                &format!("treasure-{kind}"),
+                &bytes,
+                &bytes,
+                &[],
+            )?;
+        }
+    }
     crate::field_resources::validate_cooked(
         &model_resources,
         assets
@@ -359,6 +380,40 @@ pub(crate) fn cook_field(
             .chain(assets.unbound.iter().map(|geometry| geometry.resource)),
     )?;
     Ok(assets)
+}
+
+#[cfg(test)]
+pub(crate) fn cook_treasure_fixture(extracted: &Path, output: &Path) -> Result<Vec<ActorAssets>> {
+    let catalogue = crate::resource::read(&std::fs::read(extracted.join("sys/main.dol"))?)?;
+    catalogue
+        .treasures
+        .iter()
+        .enumerate()
+        .map(|(kind, path)| {
+            let bytes = std::fs::read(extracted.join("files").join(
+                crate::field_resources::resolve_path(&extracted.join("files"), path)?,
+            ))?;
+            let decoded = crate::scene::decoded::Package::cook(
+                &bytes,
+                &format!("assets/{}", crate::digest(&bytes)),
+                output,
+                crate::all_assets::geometry::Input::File,
+            )?;
+            let bytes = crate::compression::payload(bytes)?;
+            Binder {
+                output,
+                decoded: &decoded,
+                shared: &[],
+            }
+            .cook(
+                resonance_content::field::TREASURE_RESOURCE_BASE + kind as u32,
+                &format!("treasure-{kind}"),
+                &bytes,
+                &bytes,
+                &[],
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

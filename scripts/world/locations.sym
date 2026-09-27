@@ -1,0 +1,229 @@
+script library;
+use game::world;
+use world::markers;
+// World-event registry, from the cooked location catalogue.
+pub enum Location {
+    DirksHouse = 1,
+    Iselia = 2,
+    Triet = 3,
+    Izoold = 4,
+    Palmacosta = 5,
+    Asgard = 6,
+    Luin_7 = 7,
+    Hima = 8,
+    KatzVillage = 9,
+    UnknownId10 = 10,
+    IseliaHumanRanch = 11,
+    IseliaForest_12 = 12,
+    IseliaForest_13 = 13,
+    MartelTemple = 14,
+    SylvarantBase = 15,
+    TrietRuins = 16,
+    OssaTrail_17 = 17,
+    OssaTrail_18 = 18,
+    ThodaGeyser = 19,
+    PalmacostaRanch = 20,
+    BalacrufMausoleum = 21,
+    AsgardRanch = 22,
+    TowerOfMana = 23,
+    TowerOfSalvation_24 = 24,
+    IslandRanch = 25,
+    UnknownId26 = 26,
+    LakeUmacy = 27,
+    HouseOfSalvation_28 = 28,
+    ThodaDock = 29,
+    HouseOfSalvation_30 = 30,
+    HouseOfSalvation_31 = 31,
+    UnknownId32 = 32,
+    UnknownId33 = 33,
+    UnknownId34 = 34,
+    UnknownId35 = 35,
+    UnknownId36 = 36,
+    UnknownId37 = 37,
+    UnknownId38 = 38,
+    UnknownId39 = 39,
+    UnknownId40 = 40,
+    HakonesiaPeak_41 = 41,
+    HakonesiaPeak_42 = 42,
+    Luin_43 = 43,
+    Luin_44 = 44,
+    StoneMarker_45 = 45,
+    StoneMarker_46 = 46,
+    StoneMarker_47 = 47,
+    StoneMarker_48 = 48,
+    StoneMarker_49 = 49,
+    StoneMarker_50 = 50,
+    StoneMarker_51 = 51,
+    UnknownId52 = 52,
+    NovasCaravan_53 = 53,
+    NovasCaravan_54 = 54,
+    NovasCaravan_55 = 55,
+    UnknownId56 = 56,
+    NovasCaravan_57 = 57,
+    NovasCaravan_58 = 58,
+    UnknownId59 = 59,
+    NovasCaravan_60 = 60,
+    LinkiteTree = 61,
+    ExSkillTutorialEvent = 62,
+    SylvarantExploration00Genis = 63,
+    SylvarantExploration01Item1 = 64,
+    SylvarantExploration02Raine = 65,
+    SylvarantExploration03Colette = 66,
+    SylvarantExploration04Kratos = 67,
+    SylvarantExploration05Item2 = 68,
+    SylvarantExploration06Presea = 69,
+    SylvarantExploration07Item3 = 70,
+    SylvarantExploration08Sheena = 71,
+    SylvarantExploration09Regal = 72,
+    SylvarantExploration10Zelos = 73,
+    SylvarantExploration11Item4 = 74,
+    SylvarantExploration12Item5 = 75,
+    SylvarantExploration13Item6 = 76,
+    SylvarantExploration14Zelos = 77,
+    SylvarantExploration15Item7 = 78,
+    SylvarantExploration16Colette = 79,
+    SylvarantExploration17Raine = 80,
+    SylvarantExploration18Item8 = 81,
+    SylvarantExploration19Kratos = 82,
+    SylvarantExploration20Item9 = 83,
+    SylvarantExploration21Raine = 84,
+    SylvarantExploration22Genis = 85,
+    SylvarantExploration23Kratos = 86,
+    SylvarantExploration24Colette = 87,
+    SylvarantExploration25Item10 = 88,
+    SylvarantExploration26Genis = 89,
+    SylvarantExploration27Sheena = 90,
+    SylvarantExploration28Item11 = 91,
+    SylvarantExploration29Regal = 92,
+    SylvarantExploration30Presea = 93,
+    SylvarantExploration31SandWorm = 94,
+    Skit00 = 95,
+    Skit01 = 96,
+    Skit02 = 97,
+    Skit03 = 98,
+    Meltokio = 257,
+    Sybak = 258,
+    Mizuho = 259,
+    Ozette = 260,
+    AltessasHouse = 261,
+    Flanoir = 262,
+    Altamira = 263,
+    ProvisionalGrandTetheallaBridgeEastDeparture = 264,
+    Heimdall = 265,
+    Exire = 266,
+    FoojiMountains = 267,
+    TetheallaBridge_268 = 268,
+    TetheallaBridge_269 = 269,
+    UnknownId270 = 270,
+    TetheallaBase = 271,
+    ToizeValleyMine = 272,
+    TempleOfIce = 273,
+    TempleOfLightning = 274,
+    TempleOfEarth = 275,
+    TempleOfDarkness = 276,
+    MysteriousTemple = 277,
+    YmirForest = 278,
+    LatheonGorge = 279,
+    TowerOfSalvation_280 = 280,
+    UnknownId281 = 281,
+    UnknownId282 = 282,
+    GaoracchiaForest_283 = 283,
+    GaoracchiaForest_284 = 284,
+    GaoracchiaForest_285 = 285,
+    GaoracchiaForest_286 = 286,
+    UnknownId287 = 287,
+    HotSpring = 288,
+    UnknownId289 = 289,
+    HouseOfGuidance_290 = 290,
+    SEAbbey = 291,
+    HouseOfGuidance_292 = 292,
+    UnknownId293 = 293,
+    TetheallaLongRangeModeSwitch00 = 294,
+    TetheallaLongRangeModeSwitch01 = 295,
+    TetheallaLongRangeModeSwitch02 = 296,
+    TetheallaLongRangeModeSwitch03 = 297,
+    TetheallaLongRangeModeSwitch04 = 298,
+    UnknownId299 = 299,
+    UnknownId300 = 300,
+    UnknownId301 = 301,
+    UnknownId302 = 302,
+    OzetteAttackEvent = 303,
+    FlyingDragon = 304,
+    OtherworldlyGate = 305,
+    TetheallaExploration00Item = 306,
+    TetheallaExploration01Raine = 307,
+    TetheallaExploration02Item = 308,
+    TetheallaExploration03Item = 309,
+    TetheallaExploration04Genis = 310,
+    TetheallaExploration05Zelos = 311,
+    TetheallaExploration06Sheena = 312,
+    TetheallaExploration07Item = 313,
+    TetheallaExploration08Colette = 314,
+    TetheallaExploration09Presea = 315,
+    TetheallaExploration10Sheena = 316,
+    TetheallaExploration11Colette = 317,
+    TetheallaExploration12Kratos = 318,
+    TetheallaExploration13Zelos = 319,
+    TetheallaExploration14Genis = 320,
+    TetheallaExploration15Regal = 321,
+    TetheallaExploration16Zelos = 322,
+    TetheallaExploration17Item = 323,
+    TetheallaExploration18Sheena = 324,
+    TetheallaExploration19Raine = 325,
+    TetheallaExploration20Presea = 326,
+    TetheallaExploration21Regal = 327,
+    TetheallaExploration22Item = 328,
+    TetheallaExploration23Kratos = 329,
+    TetheallaExploration24Presea = 330,
+    TetheallaExploration25Item = 331,
+    TetheallaExploration26Colette = 332,
+    TetheallaExploration27Item = 333,
+    TetheallaExploration28Kratos = 334,
+    TetheallaExploration29Item = 335,
+    TetheallaExploration30Regal = 336,
+    TetheallaExploration31Item = 337,
+}
+pub enum Interaction {
+    Disabled = 0,
+    Active = 1,
+    Blocked = 2,
+}
+pub fn set_interaction(location: Location, state: Interaction) {
+    world::set_interaction(i32(location), i32(state));
+}
+pub fn model(location: Location, model: markers::Model) {
+    world::set_model(i32(location), i32(model));
+}
+pub fn hide(location: Location) {
+    world::hide_marker(i32(location));
+}
+pub fn unmodeled(location: Location) {
+    world::unmodeled_marker(i32(location));
+}
+pub fn visited(location: Location) -> bool {
+    return world::visited(i32(location));
+}
+pub fn blocked(location: Location) -> bool {
+    return world::blocked(i32(location));
+}
+// Contiguous catalogue ranges are converted only here, never in story rules.
+pub fn discoveries(first: Location, last: Location) {
+    for key in i32(first) .. i32(last) + 1 {
+        let available = !world::visited(key) && world::party_available(key);
+        if available {
+            world::set_interaction(key, i32(Interaction::Active));
+        } else {
+            world::set_interaction(key, i32(Interaction::Disabled));
+        }
+    }
+}
+pub fn record_range(key: i32, first: Location, last: Location) -> bool {
+    return key >= i32(first) && key <= i32(last);
+}
+pub fn refresh_guideposts() {
+    for index in 0 .. world::guidepost_count() {
+        if world::guidepost_known(index) {
+            world::set_interaction(world::guidepost_location(index), i32(Interaction::Blocked));
+        }
+    }
+}

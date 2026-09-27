@@ -67,6 +67,7 @@ pub(crate) struct Catalogue {
     pub(crate) party_field_motions: Vec<InlineName>,
     pub(crate) field_services: Vec<InlineName>,
     pub(crate) save_point: String,
+    pub(crate) treasures: [String; 3],
 }
 
 impl Catalogue {
@@ -153,6 +154,12 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
         party_field_motions: inline_names(executable, FIELD_MOTIONS, 9, INLINE_BYTES)?,
         field_services: inline_names(executable, FIELD_SERVICES, 10, 16)?,
         save_point: dol::text(executable, SAVE_POINT)?,
+        treasures: [0x8017_a538, 0x8017_a544, 0x8017_a550]
+            .map(|address| dol::text(executable, address))
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?
+            .try_into()
+            .unwrap(),
     })
 }
 
@@ -177,7 +184,7 @@ mod tests {
             (FIELD_MOTIONS, 9 * INLINE_BYTES),
             (FIELD_SERVICES, 10 * 16),
             (0x80001000, 8),
-            (SAVE_POINT, 16),
+            (SAVE_POINT, 48),
         ]
         .into_iter()
         .enumerate()
@@ -200,6 +207,10 @@ mod tests {
         executable[offsets[1] + 9..offsets[1] + 12].copy_from_slice(&[0x81, 0xfe, 0x7f]);
         executable[offsets[6]..offsets[6] + 8].copy_from_slice(b"absent\0\0");
         executable[offsets[7]..offsets[7] + 12].copy_from_slice(b"renamed.cab\0");
+        for (offset, name) in [(12, "box.cab"), (24, "box2.cab"), (36, "box3.cab")] {
+            executable[offsets[7] + offset..offsets[7] + offset + name.len()]
+                .copy_from_slice(name.as_bytes());
+        }
         for (index, stride) in [(4, INLINE_BYTES), (5, 16)] {
             for row in executable[offsets[index]..offsets[index + 1]].chunks_exact_mut(stride) {
                 row[..7].copy_from_slice(&[0x83, 0x65, 0x83, 0x58, 0x83, 0x67, 0]);

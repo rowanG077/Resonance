@@ -132,6 +132,7 @@ fn record(
             movie_frame: None,
             boot_frame: None,
             skip_intro: true,
+            skip_battles: false,
             record_playthrough: Some(output.into()),
             record_title_ticks: 1000,
         },

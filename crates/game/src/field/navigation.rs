@@ -8,6 +8,7 @@ pub fn touches_trigger(trigger: &resonance_events::Trigger, p: [f32; 3], radius:
     use resonance_events::TriggerShape;
     let points: &[[f32; 3]] = match &trigger.shape {
         TriggerShape::Line(points) => points,
+        TriggerShape::Triangle(points) => points,
         TriggerShape::Quad(points) => points,
     };
     let low = points.iter().map(|v| v[2]).fold(f32::INFINITY, f32::min);
@@ -18,12 +19,14 @@ pub fn touches_trigger(trigger: &resonance_events::Trigger, p: [f32; 3], radius:
     if p[2] + radius < low || p[2] > high + trigger.height {
         return false;
     }
-    if let TriggerShape::Quad(points) = &trigger.shape {
-        let sides: [f32; 4] = std::array::from_fn(|i| {
-            let (a, b) = (points[i], points[(i + 1) % 4]);
-            (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
-        });
-        return sides.iter().all(|s| *s >= 0.) || sides.iter().all(|s| *s <= 0.);
+    if points.len() > 2 {
+        let sides = || {
+            (0..points.len()).map(|i| {
+                let (a, b) = (points[i], points[(i + 1) % points.len()]);
+                (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+            })
+        };
+        return sides().all(|s| s >= 0.) || sides().all(|s| s <= 0.);
     }
     let (a, b) = (points[0], points[1]);
     let delta = [b[0] - a[0], b[1] - a[1]];
@@ -61,6 +64,29 @@ impl WalkMesh {
             );
         }
         Ok(Self { triangles })
+    }
+    /// Keep an entrance on its floor, or use the nearest valid triangle when an
+    /// unfinished setup script never placed the player.
+    pub fn exploration_start(&self, point: [f32; 3]) -> Option<[f32; 3]> {
+        if let Some(z) = self.height(point, f32::MAX) {
+            return Some([point[0], point[1], z]);
+        }
+        self.triangles
+            .iter()
+            .filter_map(|(vertices, _)| {
+                let center =
+                    std::array::from_fn(|axis| vertices.iter().map(|p| p[axis]).sum::<f32>() / 3.);
+                height(*vertices, center).map(|z| [center[0], center[1], z])
+            })
+            .min_by(|a, b| {
+                let distance = |p: &[f32; 3]| {
+                    p.iter()
+                        .zip(point)
+                        .map(|(a, b)| (a - b).powi(2))
+                        .sum::<f32>()
+                };
+                distance(a).total_cmp(&distance(b))
+            })
     }
     /// Select the closest reachable floor. This also preserves authored ramps
     /// and raised platforms without importing the original collision engine.
@@ -139,13 +165,22 @@ impl WalkMesh {
         };
         for _ in 0..steps {
             let delta: [f32; 2] = std::array::from_fn(|axis| {
-                let mut probe = point;
-                probe[axis] += radius.copysign(delta[axis]);
-                if delta[axis] != 0. && self.height(probe, 32.).is_some() {
-                    delta[axis]
-                } else {
-                    0.
+                if delta[axis] == 0. {
+                    return 0.;
                 }
+                // Follow the floor through the clearance probe. Comparing a
+                // whole body radius against one 32-unit step rejects continuous
+                // steep stairs, even though each actual walking step is valid.
+                let probe_steps = (radius / 4.).ceil().max(1.) as u32;
+                let mut probe = Some(point);
+                for _ in 0..probe_steps {
+                    probe = probe.and_then(|mut p| {
+                        p[axis] += radius.copysign(delta[axis]) / probe_steps as f32;
+                        p[2] = self.height(p, 32.)?;
+                        Some(p)
+                    });
+                }
+                if probe.is_some() { delta[axis] } else { 0. }
             });
             if let Some(next) = fit([point[0] + delta[0], point[1] + delta[1], point[2]]) {
                 point = next;
@@ -179,6 +214,30 @@ fn height([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn triangular_triggers_use_the_polygon_instead_of_its_bounding_box() {
+        let mut trigger = resonance_events::Trigger {
+            key: 1,
+            automatic_event: false,
+            shape: resonance_events::TriggerShape::Triangle([
+                [0., 0., 10.],
+                [100., 0., 10.],
+                [0., 100., 10.],
+            ]),
+            height: 50.,
+            transition: Some([18, 0, 243]),
+            touch_metadata: [0; 3],
+        };
+        for _ in 0..2 {
+            assert!(touches_trigger(&trigger, [20., 20., 10.], 5.));
+            assert!(!touches_trigger(&trigger, [80., 80., 10.], 5.));
+            assert!(!touches_trigger(&trigger, [20., 20., 61.], 5.));
+            assert!(!touches_trigger(&trigger, [20., 20., 4.], 5.));
+            if let resonance_events::TriggerShape::Triangle(points) = &mut trigger.shape {
+                points.reverse();
+            }
+        }
+    }
     #[test]
     fn walking_intent_tilts_onto_single_and_double_axis_slopes() {
         let mesh = WalkMesh::new(&[CollisionGroup {
@@ -215,6 +274,7 @@ mod tests {
     fn doorway_height_does_not_expand_its_horizontal_reach() {
         let trigger = resonance_events::Trigger {
             key: 3001,
+            automatic_event: false,
             shape: resonance_events::TriggerShape::Line([[-540., -264., 0.], [-540., -380., 0.]]),
             height: 200.,
             transition: None,
@@ -236,6 +296,7 @@ mod tests {
         ];
         let mut trigger = resonance_events::Trigger {
             key: 2002,
+            automatic_event: false,
             shape: resonance_events::TriggerShape::Quad(points),
             height: 200.,
             transition: None,

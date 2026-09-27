@@ -1,0 +1,21 @@
+script library;
+// Cooked world marker resources. Unknown variants retain their source ID.
+pub enum Model {
+    Portal = 1,
+    UnknownId2 = 2,
+    FlyingDragon = 3,
+    UnknownId4 = 4,
+    UnknownId5 = 5,
+    UnknownId6 = 6,
+    LuinRuins = 7,
+    LuinRebuilding = 8,
+    UnknownId9 = 9,
+    UnknownId10 = 10,
+    Caravan = 11,
+    LinkiteTreeDormant = 12,
+    LinkiteTreeRestored = 13,
+    SylvarantTower = 14,
+    IslandRanch = 15,
+    UnknownId16 = 16,
+    UnknownId17 = 17,
+}

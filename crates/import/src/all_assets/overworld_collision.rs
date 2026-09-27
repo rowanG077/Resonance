@@ -1,7 +1,7 @@
 //! World collision maps each surface and movement mode to a signed response class.
 use crate::{embedded, read::f32 as float, rel::Rel};
 use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
+use resonance_content::overworld::CollisionTables as Tables;
 use std::path::Path;
 
 const FAMILY: &str = "overworld-collision";
@@ -28,16 +28,6 @@ fn layout(file: &Path) -> Option<Layout> {
         surface_responses,
         probe_half_extents,
     })
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct Tables {
-    /// Indexed [surface][movement mode]. -1 rejects the surface; other values
-    /// are returned as response classes, which can differ from the surface ID.
-    surface_responses: [[i8; MODES]; SURFACES],
-    /// Collision tests all four corners at these offsets on both map axes.
-    mode2_probe_half_extent: f32,
-    other_probe_half_extent: f32,
 }
 
 fn decode(responses: &[u8], probes: &[u8]) -> Result<Tables> {
@@ -76,7 +66,18 @@ pub(super) fn cook(file: &Path, output: &Path) -> Result<Option<Vec<String>>> {
     let Some(layout) = layout(file) else {
         return Ok(None);
     };
-    embedded::write(file, output, FAMILY, &read(&Rel::read(file)?, layout)?).map(Some)
+    let tables = read(&Rel::read(file)?, layout)?;
+    tables.validate()?;
+    embedded::write(file, output, FAMILY, &tables).map(Some)
+}
+
+pub(super) fn prepare(file: &Path) -> Result<Tables> {
+    let tables = read(
+        &Rel::read(file)?,
+        layout(file).context("unsupported world collision module")?,
+    )?;
+    tables.validate()?;
+    Ok(tables)
 }
 
 #[cfg(test)]

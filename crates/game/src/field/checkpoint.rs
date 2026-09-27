@@ -6,6 +6,8 @@ use resonance_events::SavedProgress;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldCheckpoint {
+    #[serde(default)]
+    pub allow_incomplete_scripts: bool,
     pub map_id: u32,
     pub position: [f32; 3],
     pub heading: f32,
@@ -31,7 +33,7 @@ impl FieldSession {
         );
         let world = &self.events.world;
         ensure!(
-            world.field_transition.is_none(),
+            world.field_transition.is_none() && world.world_transition.is_none(),
             "quicksave unavailable during a field transition"
         );
         ensure!(
@@ -77,6 +79,7 @@ impl FieldSession {
             "controlled actor has no valid field position"
         );
         Ok(FieldCheckpoint {
+            allow_incomplete_scripts: self.allow_incomplete_scripts,
             map_id: self.map_id,
             position: actor.position,
             heading: actor.heading.rem_euclid(360.),
@@ -123,6 +126,8 @@ impl FieldCheckpoint {
         );
         let leader = i32::from(self.progress.party.field_leader);
         Ok(FieldEntry {
+            treasure_event: None,
+            allow_incomplete_scripts: self.allow_incomplete_scripts,
             kind: super::EntryKind::Restore,
             play_time: crate::clock::PlayTime::resume(self.played_ticks()),
             persistent: self.progress.into_state(&data)?,

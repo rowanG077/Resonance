@@ -22,6 +22,57 @@ impl RefractionPulse {
 }
 
 impl crate::GameWorld {
+    pub(crate) fn step_ring_stations(&mut self) -> Result<(), String> {
+        // fn_8007BF58 / fn_8007C964: the ring pedestal spins beneath four
+        // short-lived glows. Its script owns the selected ring power.
+        let stations: Vec<_> = self
+            .actors
+            .values_mut()
+            .filter(|a| a.ring_station && a.visible)
+            .map(|actor| {
+                actor.face((self.tick % 360) as f32);
+                let mut position = actor.position;
+                position[2] += (self.tick as f32).to_radians().sin() * 10. + 150.;
+                let rgb = std::array::from_fn::<_, 3, _>(|i| {
+                    actor
+                        .properties
+                        .get(&(42 + i as i32))
+                        .copied()
+                        .unwrap_or(255) as u8
+                });
+                (position, rgb)
+            })
+            .collect();
+        for (position, rgb) in stations {
+            for (index, (recipe, lifetime, base, mask, alpha, fade, rotation, blend)) in [
+                (4, 1, 48, 7, 64, -16., 0., None),
+                (4, 2, 40, 3, 128, -64., 0., Some(0)),
+                (22, 4, 80, 3, 255, -48., self.tick as f32 * 4., None),
+                (22, 4, 80, 3, 255, -48., -(self.tick as f32) * 8., None),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let size = (base + (self.random() & mask)) as f32;
+                let color = if index < 2 { rgb } else { [255; 3] };
+                self.emit_billboard(BillboardEffect {
+                    recipe,
+                    born: self.tick,
+                    lifetime,
+                    position,
+                    velocity: [0.; 3],
+                    rotation: [rotation, 0., 0.],
+                    angular_velocity: [0.; 3],
+                    size: [size; 2],
+                    size_delta: 0.,
+                    rgba: [color[0], color[1], color[2], alpha],
+                    alpha_delta: fade,
+                    blend_mode: blend,
+                })?;
+            }
+        }
+        Ok(())
+    }
     pub fn emit_particle(&mut self, mut particle: crate::Particle) -> Result<i32, String> {
         if self.particles.len() >= 2048 {
             return Err("particle pool exhausted".into());
@@ -300,6 +351,13 @@ impl CharacterLight {
             2 => self.strength = value[0] as u8,
             3 => self.position = LightPosition::Relative(value.map(|v| v as f32)),
             4 => self.position = LightPosition::World(value.map(|v| v as f32)),
+            5 => {
+                // fn_8004F1AC rotates (0, -10000, 0) by Rx * Rz.
+                let (sx, cx) = (value[0] as f32).to_radians().sin_cos();
+                let (sz, cz) = (value[2] as f32).to_radians().sin_cos();
+                self.position =
+                    LightPosition::Relative([10000. * sz, -10000. * cz * cx, -10000. * cz * sx]);
+            }
             6 => {
                 self.position = LightPosition::Actor {
                     id: value[0],
@@ -343,6 +401,7 @@ pub struct BillboardEffect {
     pub size_delta: f32,
     pub rgba: [u8; 4],
     pub alpha_delta: f32,
+    pub blend_mode: Option<u8>,
 }
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct Paralysis {
@@ -363,6 +422,7 @@ impl BillboardEffect {
             size_delta: 0.,
             rgba: [13, 63, 4, 255],
             alpha_delta: 0.,
+            blend_mode: None,
         }
     }
 
@@ -386,6 +446,7 @@ impl BillboardEffect {
             size_delta: 0.,
             rgba: [64, 64, 64, 255],
             alpha_delta: 0.,
+            blend_mode: None,
         }
     }
 

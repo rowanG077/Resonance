@@ -71,10 +71,12 @@ pub struct StandardReverb {
 /// effect tails survive source replacement and overlap before final clipping.
 pub struct Studio {
     effects: [StandardReverb; 2],
+    sound_parameters: [f32; 5],
 }
 impl Studio {
     pub fn new(parameters: [[f32; 5]; 2]) -> Result<Self> {
         Ok(Self {
+            sound_parameters: parameters[1],
             effects: [
                 StandardReverb::new(parameters[0])?,
                 StandardReverb::new(parameters[1])?,
@@ -89,6 +91,20 @@ impl Studio {
             }
         }
         output
+    }
+    /// Native field ambience changes only the second auxiliary bus.
+    pub fn set_sound_preset(&mut self, preset: u8) -> anyhow::Result<()> {
+        let parameters = match preset {
+            2 => [0.9, 0.6, 3.6, 0.6, 0.06],
+            3 => [0.3, 0.6, 4.0, 0.4, 0.08],
+            _ => [1.0, 0.5, 1.0, 0.8, 0.01],
+        };
+        // fn_800A1DD8 / fn_800A1E74 / fn_800A1F0C replace the sound reverb.
+        if self.sound_parameters != parameters {
+            self.effects[1] = StandardReverb::new(parameters)?;
+            self.sound_parameters = parameters;
+        }
+        Ok(())
     }
 }
 

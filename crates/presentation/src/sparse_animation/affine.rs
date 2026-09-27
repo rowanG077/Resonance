@@ -98,10 +98,19 @@ pub(crate) fn rotation(matrix: Affine3A) -> Quat {
 enum Adjustment {
     Rotate(Quat),
     Scale(Vec3),
+    Translate(Vec3),
 }
 impl Adjustment {
     fn apply(self, pose: Pose) -> Pose {
         match (self, pose) {
+            (Self::Translate(delta), Pose::Trs(mut value)) => {
+                value.translation += delta;
+                value.into()
+            }
+            (Self::Translate(delta), Pose::Affine(mut matrix)) => {
+                matrix.translation += bevy::math::Vec3A::from(delta);
+                Pose::Affine(matrix)
+            }
             (Self::Rotate(delta), Pose::Trs(mut value)) => {
                 value.rotation *= delta;
                 value.into()
@@ -157,6 +166,9 @@ impl Locals {
 
     pub fn scale(&mut self, entity: Entity, transform: &mut Transform, scale: Vec3) {
         self.adjust(entity, transform, Adjustment::Scale(scale));
+    }
+    pub fn translate(&mut self, entity: Entity, transform: &mut Transform, delta: Vec3) {
+        self.adjust(entity, transform, Adjustment::Translate(delta));
     }
 }
 

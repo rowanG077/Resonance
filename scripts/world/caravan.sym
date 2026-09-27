@@ -1,0 +1,81 @@
+script library;
+use world::locations;
+use world::locations::Location;
+use world::locations::Interaction;
+use world::markers::Model;
+use world::flags;
+use world::flags::Flag;
+use world::quests;
+use world::quests::Quest;
+use world::quests::Step;
+use world::story;
+use world::story::Stage;
+use world::items;
+use world::travel::World;
+// Each stop's discriminant is its landmark ID.
+enum Stop {
+    Triet = 54,
+    Hima = 55,
+    LakeUmacy = 57,
+    Asgard = 58,
+    Palmacosta = 60,
+}
+state stop: Stop = Stop::Triet;
+pub fn on_enter(world: World) {
+    if world != World::Sylvarant || !flags::enabled(Flag::CaravanRoaming) {
+        return;
+    }
+    match stop {
+        Stop::Triet => {
+            stop = Stop::Hima;
+        },
+        Stop::Hima => {
+            stop = Stop::LakeUmacy;
+        },
+        Stop::LakeUmacy => {
+            stop = Stop::Asgard;
+        },
+        Stop::Asgard => {
+            stop = Stop::Palmacosta;
+        },
+        Stop::Palmacosta => {
+            stop = Stop::Triet;
+        },
+    }
+}
+fn camp(location: Location, available: bool) {
+    if available {
+        locations::set_interaction(location, Interaction::Active);
+        locations::model(location, Model::Caravan);
+    } else {
+        locations::set_interaction(location, Interaction::Disabled);
+        locations::hide(location);
+    }
+}
+pub fn refresh() {
+    if flags::enabled(Flag::CaravanRoaming) {
+        for location in[Location::NovasCaravan_53, Location::NovasCaravan_54, Location::NovasCaravan_55, Location::NovasCaravan_57, Location::NovasCaravan_58, Location::NovasCaravan_60] {
+            camp(location, i32(location) == i32(stop));
+        }
+        return;
+    }
+    let has_balacruf_map = items::count(items::Item::MapOfBalacruf) == 1;
+    let has_desian_orb = items::count(items::Item::DesianOrb) != 0;
+    let has_unicorn_horn = items::count(items::Item::UnicornHorn) == 1;
+    let before_asgard_camp = story::before(Stage::UnknownId13201000);
+    let northern_journey = story::reached(Stage::UnknownId1403000);
+    let ranch_not_cleared = quests::through(Quest::PalmacostaRanch, Step::UnknownId15000);
+    camp(Location::NovasCaravan_53, story::reached(Stage::UnknownId903000) && story::before(Stage::UnknownId1001000));
+    camp(Location::NovasCaravan_54, flags::enabled(Flag::UnknownId1287) && story::after(Stage::UnknownId20701000));
+    let hima_unicorn_phase = quests::at(Quest::Hima, Step::UnknownId301);
+    let before_unicorn_phase = quests::before(Quest::Hima, Step::UnknownId301);
+    let before_asgard_quest = quests::before(Quest::Asgard, Step::UnknownId1000);
+    let missing_balacruf_map = items::count(items::Item::MapOfBalacruf) == 0;
+    let northern_hima_route = northern_journey && ranch_not_cleared && missing_balacruf_map;
+    let hima_camp =(northern_hima_route && before_asgard_quest) || hima_unicorn_phase;
+    let lake_camp =(has_balacruf_map && !has_desian_orb) ||(has_unicorn_horn && before_unicorn_phase);
+    camp(Location::NovasCaravan_55, before_asgard_camp && hima_camp);
+    camp(Location::NovasCaravan_57, before_asgard_camp && lake_camp);
+    camp(Location::NovasCaravan_58, !before_asgard_camp && quests::before(Quest::LinkiteTree, Step::UnknownId40000));
+    camp(Location::NovasCaravan_60, northern_journey && before_asgard_camp && ranch_not_cleared);
+}

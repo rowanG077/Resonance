@@ -10,6 +10,17 @@ impl Default for Memory {
     }
 }
 impl Memory {
+    /// Copy a byte range without interpreting its values or changing other memory.
+    pub fn copy_from(&mut self, source: &Self, range: std::ops::Range<u16>) -> Result<(), Fault> {
+        let bytes = usize::from(range.start)..usize::from(range.end);
+        let values = source
+            .0
+            .get(bytes.clone())
+            .ok_or(Fault::Memory(range.start))?;
+        self.0[bytes].copy_from_slice(values);
+        Ok(())
+    }
+
     pub fn read(&self, offset: u16, width: Width) -> Result<i32, Fault> {
         let start = usize::from(offset);
         let b = self

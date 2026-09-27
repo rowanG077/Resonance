@@ -10,6 +10,8 @@ pub enum Behavior {
     Stationary = 0,
     Wander = 1,
     WanderNearHome = 2,
+    FollowPath = 3,
+    RandomPath = 11,
     WatchPlayer = 4,
     ApproachPlayer = 5,
     Player = 10,
@@ -22,6 +24,8 @@ impl TryFrom<i32> for Behavior {
             0 => Self::Stationary,
             1 => Self::Wander,
             2 => Self::WanderNearHome,
+            3 => Self::FollowPath,
+            11 => Self::RandomPath,
             4 => Self::WatchPlayer,
             5 => Self::ApproachPlayer,
             10 => Self::Player,
@@ -83,6 +87,16 @@ impl Autonomy {
     }
 }
 
+/// Native actors retain up to twelve patrol destinations, independent of AI state.
+#[derive(Debug, Clone, Default)]
+pub struct Path {
+    pub points: [[f32; 3]; 12],
+    pub count: u8,
+    pub next: u8,
+    pub reverse_at_end: bool,
+    pub reverse: bool,
+}
+
 #[derive(Default)]
 pub(crate) struct AmbientMotion {
     pub walking: bool,
@@ -101,6 +115,32 @@ impl Actor {
         let Some(ai) = &mut self.autonomy else {
             return intent;
         };
+        if let Some(enemy) = &mut self.enemy {
+            if free_control {
+                enemy.contact_cooldown = enemy.contact_cooldown.saturating_sub(1);
+            }
+            let alert = player.is_some_and(|p| {
+                let dx = p[0] - self.position[0];
+                let dy = p[1] - self.position[1];
+                let distance = dx.hypot(dy);
+                let angle = self.heading.to_radians();
+                distance < enemy.sight_distance
+                    && (distance == 0.
+                        || (dx * angle.sin() - dy * angle.cos()) / distance
+                            > (enemy.sight_angle.to_radians() * 0.5).cos())
+            });
+            ai.speed = if alert {
+                enemy.alert_speed
+            } else {
+                enemy.normal_speed
+            };
+            if alert
+                && enemy.chase_on_sight
+                && let Some(p) = player
+            {
+                self.target_heading = heading(self.position, p);
+            }
+        }
         if self.motion.is_some() {
             ai.conversing = false;
             ai.select(Activity::Select);
@@ -113,6 +153,54 @@ impl Actor {
             }
             // Conversation leaves the decision timer alone. Resume through a
             // separate selection update before initializing another activity.
+            return intent;
+        }
+        if matches!(ai.behavior, Behavior::FollowPath | Behavior::RandomPath) {
+            let path = &mut self.path;
+            if path.count == 0 {
+                return intent;
+            }
+            intent.paused = !free_control;
+            if intent.paused {
+                return intent;
+            }
+            path.next = path.next.min(path.count - 1);
+            let target = path.points[usize::from(path.next)];
+            let delta: [f32; 3] = std::array::from_fn(|i| {
+                if i == 2 && self.grounded {
+                    0.
+                } else {
+                    target[i] - self.position[i]
+                }
+            });
+            let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
+            if distance < 1. {
+                if path.count == 1 {
+                    return intent;
+                }
+                if ai.behavior == Behavior::RandomPath {
+                    path.next = (random() % u32::from(path.count)) as u8;
+                } else if path.reverse {
+                    if path.next == 0 {
+                        path.reverse = false;
+                    } else {
+                        path.next -= 1;
+                    }
+                } else if path.next + 1 < path.count {
+                    path.next += 1;
+                } else if path.reverse_at_end {
+                    path.reverse = true;
+                } else {
+                    path.next = 0;
+                }
+                return intent;
+            }
+            self.target_heading = heading(self.position, target);
+            intent.walking = true;
+            let fraction = (ai.speed / distance).min(1.);
+            for (position, delta) in self.position.iter_mut().zip(delta) {
+                *position += delta * fraction;
+            }
             return intent;
         }
         if ai.activity == Activity::Select {
@@ -226,4 +314,28 @@ pub struct ActorOrigin {
     pub animation_slot: Option<u16>,
     pub animation_sample: f32,
     pub animation_repeat: bool,
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+    #[test]
+    fn patrol_reverses_at_end_and_pauses_for_dialogue() {
+        let mut actor = Actor::new(1, [0.; 3]);
+        actor.autonomy = Some(Autonomy::new(Behavior::FollowPath, 2., actor.position));
+        actor.path.count = 2;
+        actor.path.points[0] = [4., 0., 0.];
+        actor.path.points[1] = [8., 0., 0.];
+        actor.path.reverse_at_end = true;
+        let mut random = || panic!("a fixed patrol must not consume random state");
+        actor.step_autonomy(true, false, None, &mut random);
+        assert_eq!(actor.position[0], 2.);
+        actor.step_autonomy(false, true, None, &mut random);
+        assert_eq!(actor.position[0], 2.);
+        for _ in 0..8 {
+            actor.step_autonomy(true, false, None, &mut random);
+        }
+        assert!(actor.path.reverse);
+        assert_eq!(actor.position[0], 4.);
+    }
 }

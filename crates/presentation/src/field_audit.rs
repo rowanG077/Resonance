@@ -109,12 +109,18 @@ pub(super) fn actor_requests(
     actor: &resonance_events::Actor,
 ) -> impl Iterator<Item = Request> + '_ {
     std::iter::once(Request::Actor(id, part))
-        .chain(actor.animation.iter().map(move |a| Request::Animation {
-            actor: id,
-            part,
-            resource: a.resource,
-            slot: a.slot,
-        }))
+        .chain(
+            actor
+                .animation
+                .iter()
+                .chain(actor.scenery_animations.values())
+                .map(move |a| Request::Animation {
+                    actor: id,
+                    part,
+                    resource: a.resource,
+                    slot: a.slot,
+                }),
+        )
         .chain(
             actor
                 .attachment

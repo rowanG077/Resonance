@@ -22,6 +22,10 @@ pub(crate) mod field_unlocks;
 pub(crate) mod geometry;
 mod overworld_collision;
 mod overworld_encounters;
+mod overworld_landmarks;
+mod overworld_movement;
+mod overworld_preparation;
+mod overworld_visuals;
 pub(crate) mod physical_scene;
 pub(crate) mod pool;
 mod preparation;
@@ -500,9 +504,13 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         );
     }
     let fields = preparation::discover(&discs, &documents, &mut sources, &mut report)?;
+    let (&primary_disc, &primary) = discs.first_key_value().context("no source disc")?;
+    let overworld =
+        overworld_preparation::discover(primary, &sources, &documents[&primary_disc].executable)?;
     let required = fields
         .iter()
         .flat_map(|field| field.dependencies.iter().cloned())
+        .chain(overworld.dependencies.iter().cloned())
         .collect::<BTreeSet<_>>();
     let maps = fields
         .iter()
@@ -527,7 +535,6 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
             aliases
         },
     );
-    let (&primary_disc, &primary) = discs.first_key_value().context("no source disc")?;
     let mut packages = BTreeMap::new();
     eprintln!(
         "Cooking general assets: {} jobs on {workers} workers",
@@ -651,6 +658,94 @@ pub fn cook(options: &Options<'_>) -> Result<Report> {
         shared.context("no field preparation jobs")?,
         options.output,
     )?;
+    // Bind each terrain package as soon as its decoder finishes. Keeping all
+    // 228 decoded packages until one join would exceed the bounded worker pool.
+    let mut world_inputs = Vec::new();
+    for (hash, asset) in overworld.terrain_sources() {
+        let input = packages
+            .get(&hash)
+            .copied()
+            .context("world depends on an unqueued source")?;
+        let task = dag.add(
+            format!("world terrain {hash}/prepare"),
+            [input.dependency()],
+            move |_, resolver| {
+                let package = resolver.get(input)?;
+                package.require_success()?;
+                Ok((
+                    hash.clone(),
+                    overworld_preparation::tile(options.output, &asset, &package.decoded)?,
+                ))
+            },
+        );
+        dag.estimate(task, 512 * 1024, 64 * 1024 * 1024)?;
+        world_inputs.push(task);
+    }
+    let shared_world = shared.context("no shared world preparation")?;
+    let visual_plan = overworld.visuals.clone();
+    let visual_inputs = visual_plan
+        .dependencies
+        .keys()
+        .map(|hash| {
+            packages
+                .get(hash)
+                .copied()
+                .context("world visual depends on unqueued source")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let world_visuals = dag.add(
+        "overworld visuals/prepare",
+        visual_inputs
+            .iter()
+            .map(|input| input.dependency())
+            .collect::<Vec<_>>(),
+        move |_, resolver| {
+            let mut decoded = crate::scene::decoded::Package::default();
+            for input in &visual_inputs {
+                let package = resolver.get(*input)?;
+                package.require_success()?;
+                decoded.extend(&package.decoded);
+            }
+            visual_plan.prepare(options.output, &decoded)
+        },
+    );
+    dag.estimate(world_visuals, 4 * 1024 * 1024, 128 * 1024 * 1024)?;
+    let world_output = output_session.clone();
+    let world_task = dag.add(
+        "overworld/prepare",
+        world_inputs
+            .iter()
+            .map(|input| input.dependency())
+            .chain([shared_world.dependency(), world_visuals.dependency()])
+            .collect::<Vec<_>>(),
+        move |_, resolver| {
+            resolver.get(shared_world)?;
+            let mut terrain = BTreeMap::new();
+            for input in &world_inputs {
+                let prepared = resolver.get(*input)?;
+                terrain.insert(prepared.0.clone(), prepared.1.clone());
+            }
+            let visuals = resolver.get(world_visuals)?;
+            let mut audio = crate::media::FieldAudioCooker::new(
+                world_output.workspace(primary)?,
+                &fs::read(options.coefficients)?,
+                discs
+                    .values()
+                    .find(|&&path| path != primary)
+                    .map(|path| path.to_path_buf()),
+            )?;
+            audio.world(&fs::read(primary.join("files").join(&overworld.script))?)?;
+            overworld_preparation::prepare(
+                &overworld,
+                primary,
+                options.output,
+                &terrain,
+                (*visuals).clone(),
+            )?;
+            Ok(())
+        },
+    );
+    dag.estimate(world_task, 0, 256 * 1024 * 1024)?;
     let mut prepared_fields = BTreeSet::new();
     dag.run_bounded(
         workers,

@@ -22,6 +22,13 @@ pub struct NativeField {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeVariant {
+    pub name: &'static str,
+    pub tag: i32,
+    pub payload: &'static [Type],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     I32,
     F32,
@@ -35,6 +42,10 @@ pub enum Type {
     Record {
         name: &'static str,
         fields: &'static [NativeField],
+    },
+    Enum {
+        name: &'static str,
+        variants: &'static [NativeVariant],
     },
     Array {
         element: &'static Type,
@@ -67,6 +78,23 @@ impl Type {
                 }
                 total
             }
+            Self::Enum { variants, .. } => {
+                let mut largest = 0;
+                let mut index = 0;
+                while index < variants.len() {
+                    let mut width = 0usize;
+                    let mut field = 0;
+                    while field < variants[index].payload.len() {
+                        width = width.saturating_add(variants[index].payload[field].slots());
+                        field += 1;
+                    }
+                    if width > largest {
+                        largest = width;
+                    }
+                    index += 1;
+                }
+                largest.saturating_add(1)
+            }
             Self::Array { element, len } => element.slots().saturating_mul(len as usize),
             _ => 1,
         }
@@ -76,18 +104,36 @@ impl Type {
             Self::Handle(name)
             | Self::Asset(name)
             | Self::Record { name, .. }
+            | Self::Enum { name, .. }
             | Self::TextReference { name, .. }
             | Self::Collection { name, .. } => Some(name),
             _ => None,
         }
     }
     pub const fn aggregate(self) -> bool {
-        matches!(self, Self::Record { .. } | Self::Array { .. })
+        matches!(
+            self,
+            Self::Record { .. } | Self::Enum { .. } | Self::Array { .. }
+        )
     }
     pub const fn contains_message(self) -> bool {
         match self {
             Self::Message => true,
             Self::Array { element, .. } => element.contains_message(),
+            Self::Enum { variants, .. } => {
+                let mut index = 0;
+                while index < variants.len() {
+                    let mut field = 0;
+                    while field < variants[index].payload.len() {
+                        if variants[index].payload[field].contains_message() {
+                            return true;
+                        }
+                        field += 1;
+                    }
+                    index += 1;
+                }
+                false
+            }
             Self::Record { fields, .. } => {
                 let mut index = 0;
                 while index < fields.len() {
@@ -189,6 +235,13 @@ pub fn validate_natives(natives: &[NativeDeclaration]) -> Result<(), String> {
     Ok(())
 }
 
+fn identifier(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().enumerate().all(|(index, byte)| {
+            byte == b'_' || byte.is_ascii_alphabetic() || index > 0 && byte.is_ascii_digit()
+        })
+}
+
 fn validate_type(
     ty: Type,
     path: &mut Vec<Type>,
@@ -203,16 +256,30 @@ fn validate_type(
     }
     path.push(ty);
     match ty {
+        Type::Enum { name, variants } => {
+            let mut names = std::collections::BTreeSet::new();
+            let mut tags = std::collections::BTreeSet::new();
+            if variants.is_empty() {
+                return Err(format!("native enum '{name}' is empty"));
+            }
+            for variant in variants {
+                if !identifier(variant.name)
+                    || !names.insert(variant.name)
+                    || !tags.insert(variant.tag)
+                {
+                    return Err(format!(
+                        "native enum '{name}' has an invalid or duplicate variant"
+                    ));
+                }
+                for ty in variant.payload {
+                    validate_type(*ty, path, types)?;
+                }
+            }
+        }
         Type::Record { name, fields } => {
             let mut names = std::collections::BTreeSet::new();
             for field in fields {
-                let identifier = !field.name.is_empty()
-                    && field.name.bytes().enumerate().all(|(index, byte)| {
-                        byte == b'_'
-                            || byte.is_ascii_alphabetic()
-                            || index > 0 && byte.is_ascii_digit()
-                    });
-                if !identifier || !names.insert(field.name) {
+                if !identifier(field.name) || !names.insert(field.name) {
                     return Err(format!(
                         "native record '{name}' has an invalid or duplicate field"
                     ));
@@ -274,8 +341,8 @@ pub enum ValueLayout {
         element: Box<Self>,
         len: u16,
     },
-    /// A zero-based tag, selected payload, then zero padding to the widest payload.
-    Variants(Vec<Self>),
+    /// A declared discriminant, selected payload, then zero padding to the widest payload.
+    Variants(BTreeMap<i32, Self>),
 }
 impl ValueLayout {
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -289,9 +356,12 @@ impl ValueLayout {
             }
             match layout {
                 ValueLayout::Scalar(ty) => validate_type(*ty, &mut Vec::new(), types),
-                ValueLayout::Sequence(fields) | ValueLayout::Variants(fields) => fields
+                ValueLayout::Sequence(fields) => fields
                     .iter()
                     .try_for_each(|field| visit(field, depth + 1, types)),
+                ValueLayout::Variants(variants) => variants
+                    .values()
+                    .try_for_each(|variant| visit(variant, depth + 1, types)),
                 ValueLayout::Array { element, .. } => visit(element, depth + 1, types),
             }
         }
@@ -306,17 +376,45 @@ impl ValueLayout {
                 .try_fold(0usize, |sum, field| sum.checked_add(field.slots()?)),
             Self::Array { element, len } => element.slots()?.checked_mul(usize::from(*len)),
             Self::Variants(variants) => {
-                let first = variants.first()?.slots()?;
-                variants[1..]
-                    .iter()
-                    .try_fold(first, |largest, variant| {
-                        Some(largest.max(variant.slots()?))
-                    })?
+                if variants.is_empty() {
+                    return None;
+                }
+                variants
+                    .values()
+                    .try_fold(0, |largest, variant| Some(largest.max(variant.slots()?)))?
                     .checked_add(1)
             }
         }
     }
 }
+
+/// A stable, module-qualified save key with a typed default.
+#[derive(Debug, Clone)]
+pub struct State {
+    pub name: String,
+    pub layout: ValueLayout,
+    pub initial: i32,
+}
+impl State {
+    pub fn accepts(&self, value: i32) -> bool {
+        match &self.layout {
+            ValueLayout::Scalar(Type::I32) => true,
+            ValueLayout::Scalar(Type::F32) => f32::from_bits(value as u32).is_finite(),
+            ValueLayout::Scalar(Type::Bool) => matches!(value, 0 | 1),
+            ValueLayout::Scalar(Type::Ticks) => value >= 0,
+            ValueLayout::Variants(variants) => {
+                variants
+                    .values()
+                    .all(|v| matches!(v, ValueLayout::Sequence(fields) if fields.is_empty()))
+                    && variants.contains_key(&value)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Saved values are independent of program instances, native byte offsets and actors.
+pub type ScriptState = BTreeMap<String, i32>;
 
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -336,6 +434,7 @@ pub struct Module {
     pub code: Vec<Op>,
     pub functions: Vec<Function>,
     pub natives: Vec<NativeDeclaration>,
+    pub states: Vec<State>,
     /// Unique strings: equal values share one index throughout a program.
     pub strings: Vec<String>,
     pub texts: Vec<String>,

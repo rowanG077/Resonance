@@ -19,7 +19,7 @@ use resonance_audio::{
     volume::Fade,
 };
 use resonance_content::field_audio::{Asset as Reference, FieldAudio};
-use resonance_events::AudioCommand;
+use resonance_events::{AudioCommand, MusicCommand};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -427,6 +427,7 @@ struct ScorePlayer {
     length: usize,
     slot: Option<u16>,
     volume: f32,
+    repeat: Option<Arc<Loaded>>,
 }
 impl ScorePlayer {
     fn new(package: Arc<Loaded>, looping: bool, synth: &Synthesizer) -> Result<Self> {
@@ -441,6 +442,7 @@ impl ScorePlayer {
             length: 0,
             slot: None,
             volume: 1.,
+            repeat: None,
         })
     }
     fn prepare_shared(&self, gains: impl FnOnce() -> [f32; 5]) -> Result<()> {
@@ -505,6 +507,8 @@ pub(super) struct Frames {
     rendered: Arc<AtomicU64>,
     music: Option<ScorePlayer>,
     music_id: Option<i16>,
+    /// Room score retained while the native inn jingle (97) plays.
+    background_music: Option<i16>,
     sounds: Vec<ScorePlayer>,
     studio: Studio,
     voice: Option<Spoken>,
@@ -519,23 +523,51 @@ pub(super) struct Frames {
 }
 impl Frames {
     fn command(&mut self, command: AudioCommand) -> Result<()> {
+        if let AudioCommand::RepeatSound {
+            id,
+            pan,
+            volume,
+            slot,
+        } = command
+        {
+            self.command(AudioCommand::Sound {
+                id,
+                pan,
+                volume,
+                slot: Some(slot),
+            })?;
+            self.sounds.last_mut().unwrap().repeat = Some(self.assets.sounds[&id].clone());
+            return Ok(());
+        }
         match command {
-            AudioCommand::Music(id) => {
-                let package = (id >= 0)
-                    .then(|| {
+            AudioCommand::SoundReverb(preset) => self.studio.set_sound_preset(preset)?,
+            AudioCommand::Music(command) => {
+                let selected = match command {
+                    MusicCommand::Play(id) | MusicCommand::PlayJingle(id) => {
+                        Some(i16::try_from(id).context("music ID exceeds native range")?)
+                    }
+                    MusicCommand::Resume => self.background_music,
+                    MusicCommand::Stop | MusicCommand::Suspend => None,
+                };
+                let package = selected
+                    .map(|id| {
                         self.assets
                             .music
                             .get(&id)
                             .with_context(|| format!("uncooked field music {id}"))
                     })
                     .transpose()?;
-                if self.music_id == (id >= 0).then_some(id) {
+                match command {
+                    MusicCommand::Play(_) | MusicCommand::Stop => self.background_music = selected,
+                    MusicCommand::PlayJingle(_) | MusicCommand::Suspend | MusicCommand::Resume => {}
+                }
+                if self.music_id == selected {
                     return Ok(());
                 }
                 self.music = package
                     .map(|package| ScorePlayer::new(package.clone(), true, &self.synth))
                     .transpose()?;
-                self.music_id = (id >= 0).then_some(id);
+                self.music_id = selected;
                 // New scores fade from silence to the user’s volume over 100 ms,
                 // independently of the previous track’s scripted fade.
                 self.fade = Fade::new(0.0, 1.0, 100)?;
@@ -583,6 +615,7 @@ impl Frames {
                 self.sounds.push(sound);
             }
             AudioCommand::StopSound(slot) => self.release(slot),
+            AudioCommand::RepeatSound { .. } => unreachable!(),
             AudioCommand::SoundVolume { slot, volume } => {
                 ensure!(volume < 128, "invalid sound volume");
                 for sound in self.sounds.iter_mut().filter(|s| s.slot == Some(slot)) {
@@ -615,6 +648,7 @@ impl Frames {
     }
     fn release(&mut self, slot: u16) {
         for sound in self.sounds.iter_mut().filter(|s| s.slot == Some(slot)) {
+            sound.repeat = None;
             sound.controls.release = true;
             sound.slot = None;
         }
@@ -720,6 +754,16 @@ impl Frames {
                     }
                 }
             } else {
+                if let Some(package) = &sound.repeat {
+                    let mut restarted = ScorePlayer::new(package.clone(), false, &self.synth)?;
+                    restarted.repeat = Some(package.clone());
+                    restarted.slot = sound.slot;
+                    restarted.volume = sound.volume;
+                    restarted.controls = sound.controls;
+                    *sound = restarted;
+                    index += 1;
+                    continue;
+                }
                 self.sounds.remove(index);
                 continue;
             }
@@ -827,6 +871,7 @@ impl Decodable for FieldSource {
             rendered: self.rendered.clone(),
             music: None,
             music_id: None,
+            background_music: None,
             sounds: Vec::new(),
             studio: Studio::new(self.assets.reverbs).expect("validated field studio effects"),
             voice: None,
@@ -854,7 +899,15 @@ pub(super) fn update(world: &mut World) {
         .active
         .load(Ordering::Acquire)
         || world.resource::<super::new_game::Session>().audio.is_some()
-            && !super::field_view::ready(world)
+            && !(if world
+                .resource::<super::new_game::Session>()
+                .overworld
+                .is_some()
+            {
+                super::overworld::ready(world)
+            } else {
+                super::field_view::ready(world)
+            })
     {
         return;
     }
@@ -874,23 +927,28 @@ pub(super) fn update(world: &mut World) {
                 world.spawn((AudioPlayer(handle), PlaybackSettings::ONCE));
                 world.insert_resource(control);
             }
-            let control = world.resource::<Control>().clone();
-            world
-                .resource_mut::<super::new_game::Session>()
-                .field
-                .voice_feedback = Some(Arc::new(control));
+            if world
+                .resource::<super::new_game::Session>()
+                .overworld
+                .is_none()
+            {
+                let control = world.resource::<Control>().clone();
+                world
+                    .resource_mut::<super::new_game::Session>()
+                    .field
+                    .voice_feedback = Some(Arc::new(control));
+            }
         }
         let commands = std::mem::take(
             &mut world
                 .resource_mut::<super::new_game::Session>()
-                .field
-                .events
+                .events_mut()
                 .world
                 .audio_commands,
         );
-        let field = &world.resource::<super::new_game::Session>().field;
-        let preferences = field
-            .events
+        let owner = world.resource::<super::new_game::Session>();
+        let preferences = owner
+            .events()
             .world
             .party
             .as_ref()
@@ -909,25 +967,22 @@ pub(super) fn update(world: &mut World) {
         });
         // Music previews while editing. New cues and stereo use the committed
         // settings, including the Back cue emitted when Customize commits.
-        if let Some(preview) = field
-            .menu
-            .as_ref()
-            .and_then(resonance_game::menu::Menu::preferences)
+        if owner.overworld.is_none()
+            && let Some(preview) = owner
+                .field
+                .menu
+                .as_ref()
+                .and_then(resonance_game::menu::Menu::preferences)
         {
             levels[0] = preview.volumes.music;
         }
         world.resource_mut::<Control>().stereo(stereo)?;
         world.resource_mut::<Control>().levels(levels)?;
         let session = world.resource::<super::new_game::Session>();
-        let movie_active =
-            session.movie_owns_audio() || session.field.events.world.blocked_by_movie();
+        let movie_active = session.movie_owns_audio() || session.events().world.blocked_by_movie();
         world.resource_mut::<Control>().movie(movie_active)?;
         if world.contains_resource::<Trace>() {
-            let tick = world
-                .resource::<super::new_game::Session>()
-                .field
-                .events
-                .tick();
+            let tick = world.resource::<super::new_game::Session>().events().tick();
             let frame = world.resource::<Control>().rendered_frames();
             let mut trace = world.resource_mut::<Trace>();
             ensure!(
@@ -951,8 +1006,7 @@ pub(super) fn update(world: &mut World) {
         error!("Field audio adapter failed: {error:#}");
         world
             .resource_mut::<super::new_game::Session>()
-            .field
-            .events
+            .events_mut()
             .cancel();
         world.write_message(AppExit::error());
     }
@@ -1006,6 +1060,68 @@ pub(super) fn acknowledge(world: &mut World) {
 mod tests {
     use super::*;
 
+    #[test]
+    #[ignore = "requires RESONANCE_WORLD_ASSETS; synthesizes native world music and vehicles without a device"]
+    fn original_world_music_and_vehicle_sounds_render_from_verified_assets() -> Result<()> {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        );
+        let prepared = resonance_game::overworld::Prepared::load(
+            &root,
+            &mut Default::default(),
+            (0..547).collect(),
+            || false,
+        )?;
+        let bank = Cache::default().load(&root, "worlds/audio.json", &prepared.files)?;
+        for id in [2, 3, 4, 5] {
+            let (source, control) = (*bank).clone().session();
+            let mut frames = source.decoder();
+            control.send(AudioCommand::Music(MusicCommand::Play(id)))?;
+            let mut audible = false;
+            for _ in 0..RATE * 2 {
+                let frame = frames.frame()?.context("world music ended")?;
+                ensure!(frame.iter().all(|v| v.is_finite()), "invalid music sample");
+                audible |= frame.iter().any(|v| v.abs() > 0.001);
+            }
+            ensure!(audible, "silent world music {id}");
+        }
+        for id in [24, 25] {
+            let (source, control) = (*bank).clone().session();
+            let mut frames = source.decoder();
+            control.send(AudioCommand::RepeatSound {
+                id,
+                pan: 64,
+                volume: 64,
+                slot: 15,
+            })?;
+            let mut audible = false;
+            for index in 0..RATE * 8 {
+                let frame = frames.frame()?.context("world vehicle sound ended")?;
+                ensure!(
+                    frame.iter().all(|v| v.is_finite()),
+                    "invalid vehicle sample"
+                );
+                if index >= RATE * 7 {
+                    audible |= frame.iter().any(|v| v.abs() > 0.001);
+                }
+            }
+            ensure!(audible, "silent world vehicle {id}");
+            assert_eq!(
+                frames
+                    .sounds
+                    .iter()
+                    .filter(|sound| sound.slot == Some(15))
+                    .count(),
+                1
+            );
+            control.send(AudioCommand::StopSound(15))?;
+            frames.frame()?;
+            assert!(frames.sounds.iter().all(|sound| sound.slot != Some(15)));
+            assert!(frames.sounds.iter().all(|sound| sound.repeat.is_none()));
+        }
+        Ok(())
+    }
+
     fn synthetic_assets() -> Assets {
         Assets {
             reverbs: [[0.5, 0.5, 1., 0.5, 0.]; 2],
@@ -1014,6 +1130,51 @@ mod tests {
             voices: BTreeMap::new(),
             voice_gains: [1.; 128],
         }
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_WORLD_ASSETS; original inn jingle and Thoda ambience without a device"]
+    fn original_rest_resumes_room_music_and_thoda_ambience_renders() -> Result<()> {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+        );
+        let (source, _control) = Assets::load(&root, 59)?.session();
+        let mut frames = source.decoder();
+        frames.command(AudioCommand::Music(MusicCommand::Play(10)))?;
+        frames.command(AudioCommand::Music(MusicCommand::Suspend))?;
+        ensure!(
+            frames.music_id.is_none(),
+            "inn fade did not stop room music"
+        );
+        frames.command(AudioCommand::Music(MusicCommand::PlayJingle(97)))?;
+        ensure!(frames.music_id == Some(97), "rest jingle missing");
+        frames.command(AudioCommand::Music(MusicCommand::Resume))?;
+        ensure!(
+            frames.music_id == Some(10),
+            "rest did not restore room music"
+        );
+        frames.command(AudioCommand::Music(MusicCommand::Stop))?;
+        frames.command(AudioCommand::Music(MusicCommand::Resume))?;
+        ensure!(frames.music_id.is_none(), "stopped music was restored");
+
+        let (source, _control) = Assets::load(&root, 6)?.session();
+        let mut frames = source.decoder();
+        frames.command(AudioCommand::RepeatSound {
+            id: 286,
+            pan: 64,
+            volume: 100,
+            slot: 12,
+        })?;
+        let mut audible = false;
+        for _ in 0..RATE {
+            audible |= frames
+                .frame()?
+                .context("field mixer stopped")?
+                .iter()
+                .any(|sample| sample.abs() > 0.0001);
+        }
+        ensure!(audible, "Thoda ambience was silent");
+        Ok(())
     }
 
     #[test]
@@ -1047,8 +1208,12 @@ mod tests {
         let (source, mut control) = banks[0].clone().session();
         let mut reference = reference.decoder();
         let mut frames = source.decoder();
-        reference_control.send(AudioCommand::Music(7)).unwrap();
-        control.send(AudioCommand::Music(7)).unwrap();
+        reference_control
+            .send(AudioCommand::Music(MusicCommand::Play(7)))
+            .unwrap();
+        control
+            .send(AudioCommand::Music(MusicCommand::Play(7)))
+            .unwrap();
         let mut audible = false;
         for bank in banks.into_iter().skip(1) {
             // Cross score block boundaries and leave a live reverb tail.
@@ -1081,7 +1246,9 @@ mod tests {
             assert!(control.completions.lock().unwrap().is_empty());
             assert!(!completion.load(Ordering::Acquire));
             control.enter_field(bank).unwrap();
-            control.send(AudioCommand::Music(7)).unwrap();
+            control
+                .send(AudioCommand::Music(MusicCommand::Play(7)))
+                .unwrap();
         }
         for _ in 0..RATE {
             assert_eq!(frames.frame().unwrap(), reference.frame().unwrap());
@@ -1126,7 +1293,9 @@ mod tests {
         };
         let (source, _control) = assets.session();
         let mut frames = source.decoder();
-        frames.command(AudioCommand::Music(77)).unwrap();
+        frames
+            .command(AudioCommand::Music(MusicCommand::Play(77)))
+            .unwrap();
         let mut audible = false;
         let mut count = 0;
         while frames.music.is_some() {
@@ -1138,7 +1307,9 @@ mod tests {
         assert!(audible);
         assert_eq!(frames.music_id, None);
         assert!(frames.frame().unwrap().is_some());
-        frames.command(AudioCommand::Music(77)).unwrap();
+        frames
+            .command(AudioCommand::Music(MusicCommand::Play(77)))
+            .unwrap();
         assert!(frames.music.is_some());
         assert_eq!(frames.music_id, Some(77));
         assert!((0..RATE * 2).any(|_| {

@@ -178,6 +178,11 @@ pub(crate) fn bindings(root: &Path, directory: &str, part: &ScenePart) -> Result
 }
 
 impl<'a> Map<'a> {
+    pub(crate) fn camera_tracks(
+        &self,
+    ) -> Result<std::collections::BTreeMap<u32, Vec<resonance_content::CameraKey>>> {
+        self.archive.camera_tracks()
+    }
     pub(crate) fn open(root: &'a Path, source: &Path) -> Result<Self> {
         let archive = Arc::new(crate::field::MapArchive::open(source)?);
         let decoded = super::decoded::Package::cook(

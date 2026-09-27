@@ -14,7 +14,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv_offsets = material.uv_offsets;
     let shades = material.shade_colors;
 #ifdef CONSTANT_COLOR
-    return tint;
+    var color = tint;
 #else
     var color = vec4<f32>(1.0);
 #ifdef VERTEX_COLORS
@@ -52,6 +52,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     color = vec4<f32>(lit / 255.0, color.a);
 #endif
 #endif
-    return color * tint;
+    color *= tint;
 #endif
+    if material.fog_range.y > material.fog_range.x {
+        let depth = 1.0 / in.position.w;
+        let fog = clamp((depth - material.fog_range.x)
+            / (material.fog_range.y - material.fog_range.x), 0.0, 1.0);
+        color = vec4<f32>(mix(color.rgb, material.fog_color.rgb, fog), color.a);
+    }
+    return color;
 }

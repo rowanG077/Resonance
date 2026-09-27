@@ -33,6 +33,30 @@ impl NativeHost<'_> {
             Ok(id as usize - 1)
         };
         match op {
+            NativeCall::SetRingTimer => party.travel.ring_timer = a[0] as u32,
+            NativeCall::GetRingTimer => value = Some(party.travel.ring_timer as i32),
+            NativeCall::RankCharacterAffinity => {
+                // Lloyd is excluded; ties favor the lower member ID.
+                let mut candidates: Vec<usize> = (1..9).filter(|&id| a[id] as u8 != 0).collect();
+                candidates.sort_by_key(|&id| (std::cmp::Reverse(party.members[id].affinity), id));
+                require(!candidates.is_empty(), "affinity ranking has no candidates")?;
+                let rank = a[0].max(1) as usize;
+                value = Some(candidates[rank.min(candidates.len()) - 1] as i32 + 1);
+            }
+            NativeCall::ConfigureSorcerersRing => {
+                let old = party.travel.sorcerers_ring;
+                self.registers[0] = i32::from(old[0]);
+                self.registers[1] = i32::from(old[1]);
+                if a[0] != -1 {
+                    party.travel.sorcerers_ring = [a[0] as u8, a[1] as u8];
+                }
+                value = Some(i32::from(old[0]));
+            }
+            NativeCall::SnapshotParty => match a[0] {
+                0 => party.travel.saved_formation = party.formation.clone(),
+                1 => party.travel.saved_formation.clear(),
+                _ => {}
+            },
             NativeCall::LearnRecipe | NativeCall::ForgetRecipe | NativeCall::HasRecipe => {
                 let bit = 1 << (a[0] as u32 & 31);
                 match op {
@@ -105,6 +129,20 @@ impl NativeHost<'_> {
                     a[1] as i8,
                 )?))
             }
+            NativeCall::GetEquippedItem => {
+                value = Some(
+                    party
+                        .members
+                        .get(member()?)
+                        .and_then(|m| {
+                            usize::try_from(a[1])
+                                .ok()
+                                .and_then(|slot| m.equipment.get(slot))
+                        })
+                        .copied()
+                        .map_or(0, i32::from),
+                );
+            }
             NativeCall::EquipItem => party.equip(
                 data,
                 member()?,
@@ -129,6 +167,10 @@ impl NativeHost<'_> {
                 party.heal(|| crate::world::random(random));
             }
             NativeCall::AddGald => value = Some(party.add_gald(a[0]) as i32),
+            NativeCall::IsSkitViewed => {
+                require((0..=860).contains(&a[0]), "invalid skit history index")?;
+                value = Some(i32::from(party.viewed_skits.contains(&(a[0] as u16))));
+            }
             NativeCall::RaisePartyMemberLevel => {
                 let index = member()?;
                 let level = if a[1] == -1 {
