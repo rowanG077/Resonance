@@ -183,20 +183,22 @@ fn effects(
                 .collect::<Result<_>>()?,
         },
         palette: constructors.palette.clone(),
-        sprites: [0, 1, 4, 5, 6, 7, 8, 10, 11, 12, 14, 22, 23, 41, 42, 68, 69]
-            .into_iter()
-            .map(|kind| Ok((kind, sprite(kind)?)))
-            .chain(std::iter::once(Ok((
-                resonance_content::effect::WING_SPARK_SPRITE,
-                SpriteRecipe {
-                    texture: Atlas::Effect(0),
-                    uv: [16., 192., 31., 207.].map(|v| v / 256.),
-                    additive: false,
-                    frames: Vec::new(),
-                    repeat: false,
-                },
-            ))))
-            .collect::<Result<_>>()?,
+        sprites: [
+            0, 1, 4, 5, 6, 7, 8, 10, 11, 12, 14, 22, 23, 41, 42, 52, 53, 54, 68, 69,
+        ]
+        .into_iter()
+        .map(|kind| Ok((kind, sprite(kind)?)))
+        .chain(std::iter::once(Ok((
+            resonance_content::effect::WING_SPARK_SPRITE,
+            SpriteRecipe {
+                texture: Atlas::Effect(0),
+                uv: [16., 192., 31., 207.].map(|v| v / 256.),
+                additive: false,
+                frames: Vec::new(),
+                repeat: false,
+            },
+        ))))
+        .collect::<Result<_>>()?,
         refraction: resonance_content::effect::RefractionRecipe {
             sprite: sprite(27)?,
             displacement: [value(0x801E3828)? * 2., value(0x801E3838)? * 2.],
