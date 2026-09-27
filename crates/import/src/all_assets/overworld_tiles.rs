@@ -141,6 +141,78 @@ mod tests {
     use std::{collections::BTreeSet, fs};
 
     #[test]
+    fn source_inventory_paths_bind_every_terrain_tile() -> Result<()> {
+        let mut bytes = vec![0];
+        let mut text = |value: &str| {
+            let pointer = (0, bytes.len() - 1);
+            bytes.extend(value.as_bytes());
+            bytes.push(0);
+            pointer
+        };
+        let axis = text("0123456789ab");
+        let templates = [
+            "/field/%c%c.dat",
+            "/field/a%c%c.dat",
+            "/field/t%c%c.dat",
+            "/field/ta%c%c.dat",
+        ]
+        .map(&mut text);
+        let rel = Rel {
+            sections: vec![(1, bytes.len() - 1)],
+            bytes,
+            pointers: BTreeMap::new(),
+            local_targets: BTreeSet::new(),
+        };
+        let root = Path::new("files");
+        let mut sources = BTreeMap::new();
+        for prefix in ["", "t"] {
+            for row in b'0'..=b'8' {
+                for column in b"0123456789ab" {
+                    let name = format!("{prefix}{}{}.dat", char::from(row), char::from(*column));
+                    let path = root.join("FIELD").join(name);
+                    sources.insert(crate::relative_source_path(root, &path)?, "a".repeat(64));
+                }
+            }
+        }
+        sources.insert("FIELD/a00.dat".into(), "b".repeat(64));
+        let windows_sources: BTreeMap<_, _> = sources
+            .iter()
+            .map(|(path, hash)| (path.replace('/', "\\"), hash.clone()))
+            .collect();
+        assert_eq!(
+            decode(&rel, Layout { axis, templates }, &windows_sources)
+                .unwrap_err()
+                .to_string(),
+            "missing world 0 terrain tile (0, 0)"
+        );
+        let normalized = windows_sources
+            .iter()
+            .map(|(path, hash)| {
+                Ok((
+                    crate::relative_source_path(root, &root.join(path))?,
+                    hash.clone(),
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        for inventory in [&sources, &normalized] {
+            let catalogue = decode(&rel, Layout { axis, templates }, inventory)?;
+            assert!(
+                catalogue
+                    .worlds
+                    .iter()
+                    .all(|world| world.tiles.len() == 108)
+            );
+            assert_eq!(catalogue.worlds[0].tiles[0].base.source, "FIELD/00.dat");
+            assert_eq!(catalogue.worlds[1].tiles[0].base.source, "FIELD/t00.dat");
+            let alternate = catalogue.worlds[0].tiles[0].alternate.as_ref().unwrap();
+            assert_eq!(alternate.source, "FIELD/a00.dat");
+            assert_eq!(alternate.package, format!("assets/{}", "b".repeat(64)));
+            assert!(catalogue.worlds[0].tiles[1].alternate.is_none());
+        }
+        Ok(())
+    }
+
+    #[test]
     fn templates_keep_native_argument_order_and_reject_other_formatters() -> Result<()> {
         assert_eq!(
             filename("/Terrain/r%c-c%c.mesh", b'8', b'b')?,
@@ -165,12 +237,7 @@ mod tests {
         for disc in [1, 2] {
             let files = root.join(format!("disc{disc}/files"));
             let terrain = fs::read_dir(files.join("FIELD"))?
-                .map(|entry| {
-                    Ok(format!(
-                        "FIELD/{}",
-                        entry?.file_name().to_str().context("invalid filename")?
-                    ))
-                })
+                .map(|entry| crate::relative_source_path(&files, &entry?.path()))
                 .collect::<Result<Vec<_>>>()?;
             let sources = terrain
                 .iter()

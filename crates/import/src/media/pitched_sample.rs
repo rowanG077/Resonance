@@ -9,7 +9,6 @@ use std::{fs, path::Path};
 pub struct PitchedSampleOptions<'a> {
     pub extracted: &'a Path,
     pub bank: &'a Path,
-    pub coefficients: &'a Path,
     pub output: &'a Path,
     pub id: u16,
     pub key: Option<u8>,
@@ -50,7 +49,7 @@ pub fn render_pitched_sample(options: PitchedSampleOptions<'_>) -> Result<()> {
     let _publications = crate::publication::Session::start_if_needed(options.output)?;
     let executable_bytes = fs::read(workspace.extracted.join("sys/main.dol"))?;
     let bank_bytes = fs::read(options.bank)?;
-    let coefficient_bytes = fs::read(options.coefficients)?;
+    let coefficient_bytes = resonance_audio_cook::interpolation::coefficients();
     let coefficients = resample::Coefficients::from_be_bytes(&coefficient_bytes)?;
     let bank = Bank::parse(&bank_bytes)?;
     let sample = bank.sample(options.id)?;

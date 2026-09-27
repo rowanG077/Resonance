@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-type Source = Box<dyn Iterator<Item = f32> + Send>;
+type Source = Box<dyn crate::Source>;
 type Factory = Box<dyn FnOnce() -> Result<Source> + Send>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -222,7 +222,9 @@ impl Mixer {
             let mut count = 0;
             for frame in &mut output[start..] {
                 let Some(left) = playing.source.next() else {
-                    state.ended.store(true, Ordering::Release);
+                    if !playing.source.is_pending() {
+                        state.ended.store(true, Ordering::Release);
+                    }
                     break;
                 };
                 let right = playing

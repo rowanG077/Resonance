@@ -56,4 +56,3 @@ contract. It does not enable resizing in ordinary play. The benchmark requires
 the compositor to honor the requested physical window size.
 Audio starvation, output underruns, backend xruns and callback deadline misses
 must be counted separately; a short callback alone does not prove clean delivery.
-See [audio/video contracts](audio-video-architecture.md) for timing limits.

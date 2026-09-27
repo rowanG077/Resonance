@@ -135,16 +135,15 @@ impl Output {
             "audio output device failed: {:?}",
             self.diagnostics()
         );
-        ensure!(
-            self.underrun_callbacks.load(Ordering::Acquire) == 0,
-            "audio output underrun: {:?}",
-            self.diagnostics()
-        );
         Ok(())
     }
     pub fn device_error(&self, underrun: bool, lost: bool) {
         if underrun {
             self.backend_underruns.fetch_add(1, Ordering::Relaxed);
+            // CPAL recovers backend xruns; an audio glitch is not device loss.
+            if !lost {
+                return;
+            }
         }
         if lost {
             self.device_lost.fetch_add(1, Ordering::Relaxed);
@@ -161,10 +160,15 @@ impl Output {
 pub struct Callback {
     output: Arc<Output>,
     silent: bool,
+    buffering: bool,
 }
 impl Callback {
     pub fn new(output: Arc<Output>, silent: bool) -> Self {
-        Self { output, silent }
+        Self {
+            output,
+            silent,
+            buffering: false,
+        }
     }
     pub fn render<T: Copy>(
         &mut self,
@@ -182,10 +186,15 @@ impl Callback {
             (count * 3).clamp(OUTPUT_BLOCK * 3, CAPACITY / 2),
             Ordering::Relaxed,
         );
+        if self.buffering && output.ready() {
+            self.buffering = false;
+        }
         let mut missing = 0;
         let mut last = None;
         for (index, dest) in data.chunks_exact_mut(channels).enumerate() {
-            let sample = if let Some(frame) = output.queue.pop() {
+            let sample = if !self.buffering
+                && let Some(frame) = output.queue.pop()
+            {
                 last = Some((frame.position.0 + 1, index + 1));
                 if self.silent {
                     [0.; 2]
@@ -193,6 +202,10 @@ impl Callback {
                     frame.samples.map(|s| s.clamp(-1., 1.))
                 }
             } else {
+                // Keep this callback's PCM contiguous, then refill the normal
+                // device lookahead before resuming. Silence has no PCM position,
+                // so the audible clock stops when the preceding audio drains.
+                self.buffering = true;
                 missing += 1;
                 [0.; 2]
             };

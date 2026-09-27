@@ -14,6 +14,7 @@ pub struct Pcm {
     finished: AtomicBool,
     underruns: AtomicU64,
     capacity: u64,
+    rate: crate::SampleRate,
 }
 impl Default for Pcm {
     fn default() -> Self {
@@ -29,6 +30,7 @@ impl Pcm {
             finished: AtomicBool::new(false),
             underruns: AtomicU64::new(0),
             capacity: u64::from(rate) / 2,
+            rate: crate::SampleRate::new(rate).expect("nonzero PCM sample rate"),
         }
     }
     pub fn buffered(&self) -> u64 {
@@ -50,10 +52,8 @@ impl Pcm {
         );
         ensure!(self.needs_data(), "decoded audio lookahead exceeded");
         let frames = samples.len() as u64 / 2;
-        self.chunks
-            .lock()
-            .expect("PCM queue poisoned")
-            .push_back(samples);
+        let mut chunks = self.chunks.lock().expect("PCM queue poisoned");
+        chunks.push_back(samples);
         self.decoded.fetch_add(frames, Ordering::Release);
         Ok(())
     }
@@ -72,6 +72,7 @@ impl Pcm {
             chunk: Vec::new().into_iter(),
             right: None,
             mono,
+            buffering: false,
         }
     }
 }
@@ -80,6 +81,7 @@ pub struct PcmSource {
     chunk: std::vec::IntoIter<f32>,
     right: Option<f32>,
     mono: bool,
+    buffering: bool,
 }
 impl Iterator for PcmSource {
     type Item = f32;
@@ -88,27 +90,28 @@ impl Iterator for PcmSource {
             self.buffer.consumed.fetch_add(1, Ordering::Release);
             return Some(right);
         }
+        // Refill the lookahead before resuming, so repeated mixer polls or
+        // tiny producer chunks do not turn a single stall into rapid gaps.
+        // EOF releases a short final tail without requiring a full buffer.
+        if self.buffering && self.buffer.needs_data() && !self.buffer.finished() {
+            return None;
+        }
         if self.chunk.len() == 0 {
-            if let Some(chunk) = self
-                .buffer
-                .chunks
-                .lock()
-                .expect("PCM queue poisoned")
-                .pop_front()
-            {
+            let mut chunks = self.buffer.chunks.lock().expect("PCM queue poisoned");
+            if let Some(chunk) = chunks.pop_front() {
                 self.chunk = chunk.into_iter();
             } else if self.buffer.finished() {
+                self.buffering = false;
                 return None;
             } else {
-                // A source starvation is distinct from a device starvation.
-                // The control thread reports it; never block the mixer worker.
-                self.buffer.underruns.fetch_add(1, Ordering::Release);
-                // Terminal failure keeps stereo pairing intact even if the
-                // producer resumes between the left and right sample calls.
-                self.buffer.finish();
+                if !self.buffering {
+                    self.buffer.underruns.fetch_add(1, Ordering::Release);
+                }
+                self.buffering = true;
                 return None;
             }
         }
+        self.buffering = false;
         let left = self.chunk.next()?;
         let right = self.chunk.next().expect("incomplete decoded stereo frame");
         let (left, right) = if self.mono {
@@ -119,5 +122,16 @@ impl Iterator for PcmSource {
         };
         self.right = Some(right);
         Some(left)
+    }
+}
+impl crate::Source for PcmSource {
+    fn channels(&self) -> crate::ChannelCount {
+        crate::ChannelCount::new(2).expect("stereo")
+    }
+    fn sample_rate(&self) -> crate::SampleRate {
+        self.buffer.rate
+    }
+    fn is_pending(&self) -> bool {
+        self.buffering
     }
 }

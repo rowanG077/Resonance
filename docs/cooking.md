@@ -10,8 +10,7 @@ claim of complete battle coverage.
 ```sh
 resonance-import cook-all --jobs 6 \
   --extracted local/extracted/disc1 local/extracted/disc2 \
-  --output local/all-assets \
-  --coefficients /path/to/Dolphin/Sys/GC/dsp_coef.bin
+  --output local/all-assets
 ```
 
 Extraction happens once. Cooking reads the extracted filesystem and processes
@@ -33,6 +32,13 @@ The engine applies only generic
 instance-local transforms and flag queries. These rules never change shared
 geometry or animation clips. Other native preparation remains game-specific;
 the entire importer is not independent of the original game's organization.
+
+## Audio interpolation
+
+Cooking generates Resonance's interpolation filters in Rust and includes their
+bytes in the cooked audio tables. No external coefficient file is required.
+Diagnostic previews use the same generated filters. Their hash is part of audio
+package identities, so changing the generator invalidates cached audio recipes.
 
 ## Jobs and publication
 

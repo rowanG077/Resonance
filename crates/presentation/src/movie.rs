@@ -11,7 +11,7 @@ use bevy::{
 };
 use resonance_content::{HEIGHT, MovieAsset, WIDTH};
 use resonance_media::{MovieDecoder, MovieEvent, MovieStream, VideoFrame};
-use resonance_playback::{ChannelCount, Decodable, SampleRate, Source};
+use resonance_playback::Decodable;
 use std::{
     collections::VecDeque,
     fs,
@@ -29,42 +29,13 @@ type AudioBuffer = resonance_playback::Pcm;
 #[derive(Asset, TypePath, Clone)]
 pub(super) struct MovieAudio {
     buffer: Arc<AudioBuffer>,
-    rate: SampleRate,
     mono: bool,
-}
-pub(super) struct MovieSamples {
-    source: resonance_playback::PcmSource,
-    rate: SampleRate,
-}
-impl Iterator for MovieSamples {
-    type Item = f32;
-    fn next(&mut self) -> Option<f32> {
-        self.source.next()
-    }
-}
-
-impl Source for MovieSamples {
-    fn current_span_len(&self) -> Option<usize> {
-        None
-    }
-    fn channels(&self) -> ChannelCount {
-        ChannelCount::new(2).expect("stereo")
-    }
-    fn sample_rate(&self) -> SampleRate {
-        self.rate
-    }
-    fn total_duration(&self) -> Option<Duration> {
-        None
-    }
 }
 
 impl Decodable for MovieAudio {
-    type Decoder = MovieSamples;
+    type Decoder = resonance_playback::PcmSource;
     fn decoder(&self) -> Self::Decoder {
-        MovieSamples {
-            source: self.buffer.source(self.mono),
-            rate: self.rate,
-        }
+        self.buffer.source(self.mono)
     }
 }
 
@@ -82,6 +53,7 @@ pub(super) struct Playback {
     pub dropped_frames: u64,
     frames: VecDeque<VideoFrame>,
     buffer: Arc<AudioBuffer>,
+    reported_underruns: u64,
     captured: Option<VideoFrame>,
     audio_entity: Option<Entity>,
     texture: Handle<Image>,
@@ -109,6 +81,8 @@ impl Prepared {
         let decoder = MovieDecoder::open(&root.join(&asset.path), asset.clone())?;
         let mut events = VecDeque::new();
         let (mut video, mut audio, mut chunks) = (0, 0, 0);
+        let video_target = (asset.frames as usize).min(resonance_media::VIDEO_LOOKAHEAD);
+        let audio_target = asset.audio_frames.min(u64::from(asset.sample_rate) / 2) as usize * 2;
         let started = Instant::now();
         loop {
             ensure!(!cancelled(), "movie preparation cancelled");
@@ -116,26 +90,28 @@ impl Prepared {
                 started.elapsed() < Duration::from_secs(30),
                 "movie preparation timed out"
             );
-            let Some(event) = decoder.try_next()? else {
-                std::thread::sleep(Duration::from_millis(1));
-                continue;
-            };
-            match &event {
-                MovieEvent::Video(_) => video += 1,
-                MovieEvent::Audio(chunk) => {
-                    audio += chunk.samples.len();
-                    chunks += 1;
-                }
-                MovieEvent::End => anyhow::bail!("movie ended during preparation"),
+            if video < video_target
+                && let Some(frame) = decoder.try_video()?
+            {
+                events.push_back(MovieEvent::Video(frame));
+                video += 1;
             }
-            events.push_back(event);
-            if video > 0 && audio >= asset.sample_rate as usize {
+            if audio < audio_target
+                && let Some(chunk) = decoder.try_audio()?
+            {
+                audio += chunk.samples.len();
+                chunks += 1;
+                events.push_back(MovieEvent::Audio(chunk));
+            }
+            if video >= video_target && audio >= audio_target {
                 break;
             }
             ensure!(
-                video < 32 && chunks < 64,
-                "movie exceeds startup buffer limits"
+                !decoder.video_complete() && !decoder.audio_complete(),
+                "movie ended during preparation"
             );
+            ensure!(chunks < 64, "movie exceeds startup buffer limits");
+            std::thread::sleep(Duration::from_millis(1));
         }
         Ok(Self { decoder, events })
     }
@@ -398,6 +374,14 @@ fn advance(
     }
     let stream = movie.stream.as_ref().unwrap();
     stream.check()?;
+    let underruns = movie.buffer.underruns();
+    if underruns != movie.reported_underruns {
+        warn!(
+            underruns,
+            "Movie decoded audio underrun; rebuffering preserves the movie clock"
+        );
+        movie.reported_underruns = underruns;
+    }
     // Free stale presentation frames before draining the producer. Otherwise a
     // long stall with a full local queue would flash an old frame for one update.
     let mut latest = None;
@@ -426,12 +410,12 @@ fn advance(
     movie.ended = stream.complete();
     if movie.audio_entity.is_none() {
         let buffered = movie.buffer.buffered();
-        if !movie.frames.is_empty() && (buffered >= u64::from(asset.sample_rate) / 2 || movie.ended)
+        if movie.frames.len() >= (asset.frames as usize).min(resonance_media::VIDEO_LOOKAHEAD)
+            && buffered >= asset.audio_frames.min(u64::from(asset.sample_rate) / 2)
         {
             let audio = MovieAudio {
                 buffer: movie.buffer.clone(),
                 mono: movie.mono,
-                rate: SampleRate::new(asset.sample_rate).context("invalid movie sample rate")?,
             };
             movie.audio_entity = Some(
                 commands

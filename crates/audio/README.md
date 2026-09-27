@@ -41,6 +41,5 @@ voice buses through shared effects before saturation. Baking gain or quantizing
 each wet tail separately changes fades and overlapping cues. Unsupported
 instruments/controllers fail explicitly; current coverage is not full-game coverage.
 
-See [audio compilation](../audio-cook/README.md),
-[playback ownership](../../docs/audio-video-architecture.md), and
+See [audio compilation](../audio-cook/README.md) and
 [offline comparisons](../../tools/oracle/README.md).

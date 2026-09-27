@@ -132,6 +132,7 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<String> {
     Ok(path.into())
 }
 #[test]
+#[cfg(unix)]
 #[ignore = "requires both original discs, RESONANCE_COOKED audio and frozen skit catalogues; no playback"]
 fn original_skit_preparation_matches_both_disc_catalogues_without_intermediate_assets() -> Result<()>
 {
@@ -230,6 +231,7 @@ fn original_skit_preparation_matches_both_disc_catalogues_without_intermediate_a
 }
 
 #[test]
+#[cfg(unix)]
 #[ignore = "requires original disc and RESONANCE_COOKED audio; writes RESONANCE_WORLD_SKITS"]
 fn original_world_skit_resources_are_prepared_alongside_notifications() -> Result<()> {
     let library = std::path::PathBuf::from(

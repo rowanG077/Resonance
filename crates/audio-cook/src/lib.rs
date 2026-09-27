@@ -13,6 +13,7 @@ pub mod compile;
 pub mod decode;
 pub mod dsp;
 pub mod instrument;
+pub mod interpolation;
 pub mod parameters;
 pub mod pool;
 pub mod render;

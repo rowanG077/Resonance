@@ -1,9 +1,10 @@
 use resonance_content::MovieAsset;
 use resonance_media::{
-    MovieDecoder, MovieEvent, VideoReader,
+    MovieDecoder, MovieEvent, MovieStream, VideoReader,
     encode::{AUDIO_BLOCK, MovieWriter},
 };
 use std::{
+    collections::VecDeque,
     fs,
     path::PathBuf,
     sync::atomic::{AtomicU32, Ordering},
@@ -54,10 +55,8 @@ fn reads_independent_rgb_fixture_including_non_keyframes() {
     assert!(reader.next_frame().unwrap().is_none());
 }
 
-#[test]
-fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
+fn fixture(frames: u32) -> (Temporary, MovieAsset, Vec<i16>) {
     let path = Temporary::new();
-    let frames = 40u32;
     let audio_frames = u64::from(frames) * 33366 * 32028 / 1_000_000;
     let pcm: Vec<i16> = (0..audio_frames * 2)
         .map(|i| (i.wrapping_mul(7919) as i16).wrapping_sub(17000))
@@ -96,6 +95,13 @@ fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
         audio_frames,
         audio_track: 0,
     };
+    (path, asset, pcm)
+}
+
+#[test]
+fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
+    let (path, asset, pcm) = fixture(40);
+    let frames = asset.frames;
     let decoder = MovieDecoder::open(&path.0, asset.clone()).unwrap();
     let start = Instant::now();
     let (mut count, mut actual) = (0, Vec::new());
@@ -147,6 +153,54 @@ fn encoded_movie_preserves_rgb_pcm_and_timestamps_and_cancels_when_full() {
             _ => {}
         }
     }
+}
+
+#[test]
+fn full_video_queues_do_not_block_audio_or_discard_future_frames() {
+    let (path, asset, expected) = fixture(96);
+    let decoder = MovieDecoder::open(&path.0, asset.clone()).unwrap();
+    let stream = MovieStream::start(decoder, VecDeque::new(), asset.sample_rate).unwrap();
+    let pcm = stream.audio();
+    let mut source = pcm.source(false);
+    let mut actual = Vec::new();
+    // Play all audio without consuming any video: both bounded video queues
+    // must fill and stop video decoding while FLAC keeps progressing.
+    while actual.len() < expected.len() {
+        let frames = AUDIO_BLOCK.min((expected.len() - actual.len()) / 2);
+        stream
+            .wait_for_audio(frames as u64, Duration::from_secs(5))
+            .unwrap();
+        for _ in 0..frames * 2 {
+            actual.push((source.next().unwrap() * 32768.).round() as i16);
+        }
+    }
+    stream.wait_for_audio(1, Duration::from_secs(5)).unwrap();
+    assert!(source.next().is_none());
+    assert_eq!(pcm.underruns(), 0);
+    assert_eq!(actual, expected);
+    assert!(!stream.complete(), "video has not finished yet");
+
+    // The consumer can resume from frame zero. Backpressure preserves the
+    // decoded frames instead of dropping images that have not been displayed.
+    let started = Instant::now();
+    let mut video = 0;
+    loop {
+        stream.check().unwrap();
+        while let Some(frame) = stream.try_video() {
+            assert_eq!(frame.index, video);
+            assert_eq!(
+                frame.timestamp,
+                Duration::from_micros(u64::from(video) * 33366)
+            );
+            video += 1;
+        }
+        if stream.complete() && video == asset.frames {
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(5));
+        thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(video, asset.frames);
 }
 
 #[test]
