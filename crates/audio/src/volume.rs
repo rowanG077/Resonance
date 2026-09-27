@@ -43,8 +43,7 @@ impl Fade {
 
     pub fn advance_block(&mut self) {
         if self.progress > 0.0 {
-            // Preserve single-precision rounding and the original update order.
-            // The original function explicitly disables multiply-add contraction.
+            // Keep the multiply and subtraction separate for single-precision rounding.
             let delta = self.target - self.previous;
             let weighted = self.progress * delta;
             self.value = self.target - weighted;
