@@ -82,17 +82,24 @@ impl Catalogue {
         music.extend(native_music);
         let simple = arguments(script, NativeCall::PlaySoundSimple, 2)?;
         let extended = arguments(script, NativeCall::PlaySound, 4)?;
+        let positional: Option<BTreeSet<i32>> =
+            crate::field_resources::literal_arguments(script, NativeCall::PlayActorSound, 4)?
+                .into_iter()
+                .map(|args| args[1])
+                .collect();
         let ambient: Option<BTreeSet<i32>> =
             crate::field_resources::literal_arguments(script, NativeCall::SetActorAmbientSound, 4)?
                 .into_iter()
                 .map(|args| args[1])
                 .collect();
-        let dynamic_sounds = simple.is_none() || extended.is_none() || ambient.is_none();
+        let dynamic_sounds =
+            simple.is_none() || extended.is_none() || ambient.is_none() || positional.is_none();
         let mut sounds: BTreeSet<_> = simple
             .into_iter()
             .flatten()
             .chain(extended.into_iter().flatten())
             .chain(ambient.into_iter().flatten())
+            .chain(positional.into_iter().flatten())
             // Negative sound IDs update or stop an existing slot.
             .filter(|id| *id >= 0)
             .map(u16::try_from)
@@ -328,112 +335,6 @@ mod tests {
             );
             assert!(resources.music.is_empty() && resources.voices.is_empty());
         }
-        Ok(())
-    }
-
-    #[test]
-    #[ignore = "refreshes disposable RESONANCE_WORLD_ASSETS audio inventories from original scripts"]
-    fn original_fields_prepare_all_scripted_sounds() -> Result<()> {
-        use resonance_content::{
-            field::FieldAssets, field_audio::FieldAudio, field_preload::Manifest,
-        };
-        use std::{fs, path::PathBuf};
-
-        let root = PathBuf::from(
-            std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
-        );
-        let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
-        let catalogue = Catalogue::read(&extracted, &fs::read(extracted.join("sys/main.dol"))?)?;
-        let mut fields = Vec::new();
-        let mut sounds = BTreeMap::new();
-        for entry in fs::read_dir(root.join("fields"))? {
-            let path = entry?.path();
-            if !path
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("map-")
-                || !path.to_string_lossy().ends_with(".preload.json")
-            {
-                continue;
-            }
-            let manifest: Manifest = serde_json::from_slice(&fs::read(path)?)?;
-            for path in &manifest.inputs.audio {
-                let bank: FieldAudio = serde_json::from_slice(&fs::read(root.join(path))?)?;
-                sounds.extend(bank.sounds);
-            }
-            fields.push(manifest);
-        }
-        // Reuse already published programs, cooking only missing shared sounds.
-        let missing: Vec<_> = catalogue
-            .banks
-            .iter()
-            .filter_map(|(source, bank)| {
-                let ids: Vec<_> = bank
-                    .ids
-                    .iter()
-                    .copied()
-                    .filter(|id| !sounds.contains_key(&(*id as i16)))
-                    .collect();
-                (!ids.is_empty()).then(|| (source.clone(), ids))
-            })
-            .collect();
-        if !missing.is_empty() {
-            let mut cooker = super::super::FieldAudioCooker::new(
-                crate::media::Workspace::open(&extracted, &root)?,
-                None,
-            )?;
-            let path = "audio/field-sound-refresh.json";
-            cooker.cook_resources(
-                path,
-                Resources {
-                    music: BTreeSet::new(),
-                    voices: BTreeSet::new(),
-                    banks: missing,
-                },
-            )?;
-            let bank: FieldAudio = serde_json::from_slice(&fs::read(root.join(path))?)?;
-            sounds.extend(bank.sounds);
-            fs::remove_file(root.join(path))?;
-        }
-        let mut refreshed = 0;
-        for manifest in fields {
-            let path = root.join(&manifest.inputs.field);
-            let mut field: FieldAssets = serde_json::from_slice(&fs::read(&path)?)?;
-            let required = catalogue.resources(&fs::read(root.join(&field.script.path))?)?;
-            let mut changed = false;
-            for audio in &manifest.inputs.audio {
-                let path = root.join(audio);
-                let mut bank: FieldAudio = serde_json::from_slice(&fs::read(&path)?)?;
-                let before = bank.sounds.len();
-                for id in required.banks.iter().flat_map(|(_, ids)| ids) {
-                    bank.sounds.entry(*id as i16).or_insert(
-                        sounds
-                            .get(&(*id as i16))
-                            .with_context(|| format!("sound {id} needs cooking"))?
-                            .clone(),
-                    );
-                }
-                if bank.sounds.len() != before {
-                    crate::write_atomic(&path, &serde_json::to_vec_pretty(&bank)?)?;
-                    field
-                        .files
-                        .insert(audio.clone(), crate::media::hash_file(&path)?);
-                    changed = true;
-                }
-            }
-            if changed {
-                crate::write_atomic(&path, &serde_json::to_vec_pretty(&field)?)?;
-                ensure!(
-                    crate::field_preload::cook(&root, manifest.inputs)?
-                        .missing_inputs
-                        .is_empty(),
-                    "missing audio inputs"
-                );
-                refreshed += 1;
-            }
-        }
-        println!("Refreshed {refreshed} field audio inventories");
         Ok(())
     }
 

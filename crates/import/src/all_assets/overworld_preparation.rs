@@ -368,27 +368,9 @@ pub(super) fn prepare(
 }
 
 #[test]
-#[ignore = "refreshes RESONANCE_WORLD_ASSETS inventory after shared UI/script changes; uses already prepared terrain"]
-fn original_world_prepared_inventory_includes_shared_menu_assets() -> Result<()> {
-    let (output, package) = refresh_prepared_world(false)?;
-    let files = resonance_content::prepared::Files::from_inventory(
-        &output,
-        package.files,
-        &mut Default::default(),
-        || false,
-    )?;
-    let menu: resonance_content::menu::MenuArt = files.json("ui/menu.json")?;
-    for texture in menu.textures {
-        files.read(&texture.path)?;
-    }
-    assert!(!files.script_sources()?.is_empty());
-    Ok(())
-}
-
-#[test]
 #[ignore = "prepares original numbered scenes into RESONANCE_WORLD_ASSETS; reuses prepared terrain"]
 fn original_world_cinematic_packages_bind_cameras_and_all_actor_motion() -> Result<()> {
-    let (output, package) = refresh_prepared_world(true)?;
+    let (output, package) = prepare_cinematic_fixture()?;
     assert_eq!(package.visuals.cinematics.len(), 14);
     let files = resonance_content::prepared::Files::from_inventory(
         &output,
@@ -433,7 +415,7 @@ fn original_world_cinematic_packages_bind_cameras_and_all_actor_motion() -> Resu
 }
 
 #[cfg(test)]
-fn refresh_prepared_world(visuals: bool) -> Result<(std::path::PathBuf, Package)> {
+fn prepare_cinematic_fixture() -> Result<(std::path::PathBuf, Package)> {
     let extracted = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted/disc1");
     let output = std::path::PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
@@ -464,7 +446,7 @@ fn refresh_prepared_world(visuals: bool) -> Result<(std::path::PathBuf, Package)
         .flat_map(|tile| std::iter::once(tile.base).chain(tile.alternate))
         .map(|tile| (tile.source_sha256.clone(), tile))
         .collect();
-    let visuals = if visuals {
+    let visuals = {
         let mut world_audio = crate::media::FieldAudioCooker::new(
             crate::media::Workspace::open(&extracted, &output)?,
             Some(extracted.parent().unwrap().join("disc2")),
@@ -485,8 +467,6 @@ fn refresh_prepared_world(visuals: bool) -> Result<(std::path::PathBuf, Package)
             decoded.remember_source(name, bytes);
         }
         plan.visuals.prepare(&output, &decoded)?
-    } else {
-        previous.visuals
     };
     let package = prepare(&plan, &extracted, &output, &tiles, visuals)?;
     Ok((output, package))

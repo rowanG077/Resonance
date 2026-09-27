@@ -93,8 +93,15 @@ impl Source {
                 ("talk", 0x8035af1c),
                 ("shop", 0x8035af24),
                 ("examine", 0x8035af2c),
+                ("open", 0x8035af34),
+                ("climb", 0x8035af5c),
+                ("descend", 0x8035af64),
+                ("jump", 0x8035af6c),
                 ("rest", 0x8035af80),
                 ("go_out", 0x8035af8c),
+                ("move", 0x8035af94),
+                ("grab", 0x8035af9c),
+                ("warp", 0x8035afb4),
             ]
             .into_iter()
             .map(|(key, address)| Ok((key.into(), text(executable, address)?)))
