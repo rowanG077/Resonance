@@ -358,6 +358,41 @@ fn palmacosta_post_boss_exit_runs_the_ranch_destruction() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn iselia_exit_restores_empty_party_slots_and_finishes_the_scene() -> Result<()> {
+    // Field 193 dispatches the post-Forcystus exit at story 20307000.
+    let mut field = enter(5, 193, Some(20_307_000))?;
+    advance_until(&mut field, |field| {
+        field.events.world.field_transition.is_some()
+    })?;
+    assert_eq!(
+        field.events.world.field_transition.as_ref().unwrap().map,
+        80
+    );
+    assert_eq!(
+        field
+            .events
+            .memory()
+            .read(0x40, symphonia_script::Width::S32)?,
+        20_308_000
+    );
+    for id in [1, 2, 3, 4, 9] {
+        assert!(
+            field
+                .events
+                .world
+                .party
+                .as_ref()
+                .unwrap()
+                .formation
+                .contains(&id)
+        );
+    }
+    assert!(field.events.exploration_error.is_none());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
     let mut field = enter(1, 219, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
