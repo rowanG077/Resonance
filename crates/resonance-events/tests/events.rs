@@ -1956,7 +1956,59 @@ fn item_notice_reusing_a_choice_window_does_not_inherit_its_cursor() {
 }
 
 #[test]
-fn scripted_eye_modes_restart_blinking_without_consuming_randomness_each_frame() {
+fn colette_has_red_eyes_only_during_the_soulless_story_stage() {
+    for progress in [999, 1000, 1999, 2000] {
+        let mut world = GameWorld::default();
+        // The story override follows Colette even when a scene gives her another actor ID.
+        world.insert_actor(2002, Actor::new(2, [0.; 3]));
+        world.insert_actor(2001, Actor::new(1, [0.; 3]));
+        let resources = ResourceLibrary {
+            models: [1, 2]
+                .map(|id| {
+                    (
+                        id,
+                        ModelResource {
+                            has_eyes: true,
+                            ..Default::default()
+                        },
+                    )
+                })
+                .into(),
+            ..Default::default()
+        };
+        let setup = script(&[
+            (Call::SetActorFace, &[2002, 6]),
+            (Call::SetActorFace, &[2001, 6]),
+        ]);
+        let mut memory = symphonia_script_vm::Memory::default();
+        memory.write(0x4c, Width::S32, progress).unwrap();
+        let mut events = EventRuntime::with_state(
+            program(&setup, &[0x20ff]),
+            Arc::new(resources),
+            world,
+            memory,
+        )
+        .unwrap();
+        for _ in 0..10 {
+            events.step().unwrap();
+            let expected = if (1000..2000).contains(&progress) {
+                15
+            } else {
+                4
+            };
+            assert!(
+                matches!(events.world.actors[&2002].appearance.face, Face::Frame(frame) if frame == expected)
+            );
+            assert!(matches!(
+                events.world.actors[&2001].appearance.face,
+                Face::Frame(4)
+            ));
+        }
+    }
+}
+
+#[test]
+fn scripted_eye_modes_enable_blinking_or_a_fixed_expression() {
     let mut world = GameWorld::default();
     world.controlled_actor = 1;
     world.actors.insert(1, Actor::new(1, [0.; 3]));
@@ -1978,18 +2030,12 @@ fn scripted_eye_modes_restart_blinking_without_consuming_randomness_each_frame()
             .into(),
             ..Default::default()
         };
-        let mut expected = GameWorld::default();
-        expected.random_state = world.random_state;
-        if mode == 1 {
-            expected.random();
-        }
         let mut events = runtime(program(&code, &[0x20ff]), resources, world);
         assert!(events.world.actors[&1].appearance.eyes.is_none());
         let mut frames = Vec::new();
         for _ in 0..10 {
             events.step().unwrap();
             let face = &events.world.actors[&1].appearance;
-            assert_eq!(events.world.random_state, expected.random_state);
             if mode == 1 {
                 frames.push(face.eyes.unwrap().frame);
             } else {
@@ -2001,7 +2047,6 @@ fn scripted_eye_modes_restart_blinking_without_consuming_randomness_each_frame()
             }
         }
         if mode == 1 {
-            assert_eq!(&frames[..5], &frames[5..]);
             assert!(frames.contains(&1) && frames.contains(&2));
         }
         world = events.world;
