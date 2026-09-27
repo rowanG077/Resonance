@@ -34,8 +34,6 @@ impl NativeHost<'_> {
         };
         match op {
             NativeCall::SetCharacterCostume => {
-                // fn_80054470 returns the old value; -1 only queries. Invalid
-                // character IDs return zero without changing the party.
                 let id = if a[0] == crate::CONTROLLED_ACTOR {
                     controlled_actor
                 } else {
@@ -127,6 +125,7 @@ impl NativeHost<'_> {
                     titles.insert(bit as u8);
                 }
             }
+            NativeCall::AddPartyMember if a[0] == 0 => value = Some(1),
             NativeCall::AddPartyMember => {
                 let id = member()? as u8 + 1;
                 value = Some(
@@ -139,8 +138,6 @@ impl NativeHost<'_> {
                 );
             }
             NativeCall::RemovePartyMember => {
-                // fn_80080880 compacts the formation and returns zero only
-                // when it removed a member. Zero/absent IDs return one.
                 let id = a[0] as u8;
                 value = Some(
                     if let Some(index) = party.formation.iter().position(|&p| p == id) {

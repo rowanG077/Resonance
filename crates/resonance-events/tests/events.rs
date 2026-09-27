@@ -93,6 +93,37 @@ fn ordinary_locomotion_replaces_same_slot_from_a_block_animation_bank() {
 }
 
 #[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
+fn empty_slots_in_party_reunion_do_not_abort_the_event() {
+    let session = Arc::new(cooked::<resonance_content::session::SessionData>(
+        "session-data.json",
+    ));
+    let mut party = party::Party::new(&session, Default::default()).unwrap();
+    party.formation = vec![1, 4];
+    let mut world = GameWorld::default();
+    world.party = Some(party);
+    let resources = ResourceLibrary {
+        session_data: Some(session),
+        ..Default::default()
+    };
+    let setup = script(&[
+        (Call::AddPartyMember, &[2]),
+        (Call::AddPartyMember, &[0]),
+        (Call::AddPartyMember, &[3]),
+        (Call::AddPartyMember, &[0]),
+        (Call::AddPartyMember, &[9]),
+        (Call::AddPartyMember, &[0]),
+        (Call::SetEventBit, &[123]),
+    ]);
+    let events = runtime(program(&setup, &[0x20ff]), resources, world);
+    let party = events.world.party.as_ref().unwrap();
+    assert_eq!(party.formation, [1, 4, 2, 3, 9]);
+    assert_eq!(party.field_leader, 1);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    assert!(events.world.event_flags.contains(&123));
+}
+
+#[test]
 fn scripted_enemy_reaction_returns_the_previous_mode_and_reads_its_current_value() {
     let main = script(&[
         (
