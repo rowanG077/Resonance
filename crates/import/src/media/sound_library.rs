@@ -144,17 +144,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires both original discs, frozen audio and DSP coefficients; no playback"]
+    #[ignore = "requires both original discs and frozen audio; no playback"]
     fn original_sound_preparation_matches_frozen_packages_and_pcm() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
         let baseline = std::env::var_os("RESONANCE_AUDIO_BASELINE")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| local.join("worktrees/generic-cooking/local/all-assets"));
         let sources = source_index(&baseline)?;
-        let coefficients = fs::read(
-            std::env::var_os("RESONANCE_DSP_COEFFICIENTS")
-                .context("set RESONANCE_DSP_COEFFICIENTS to Dolphin's dsp_coef.bin")?,
-        )?;
         let banks = [("S/se.snd", vec![1, 2, 3, 4]), ("S/se_ev00.snd", vec![425])];
         for disc in [1, 2] {
             let extracted = local.join(format!("extracted/disc{disc}"));
@@ -173,16 +169,14 @@ mod tests {
                         .context("missing frozen sound")?;
                     let expected: Resources =
                         serde_json::from_slice(&fs::read(baseline.join(frozen))?)?;
-                    let expected = expected.package(
-                        super::super::synthesis_tables(&executable, &coefficients)?,
-                        reverbs,
-                    )?;
+                    let expected =
+                        expected.package(super::super::synthesis_tables(&executable)?, reverbs)?;
                     let (resources, score) = sound(&bank, id)?;
                     let actual = package(
                         output.path(),
                         &resources,
                         score,
-                        super::super::synthesis_tables(&executable, &coefficients)?,
+                        super::super::synthesis_tables(&executable)?,
                         reverbs,
                     )?;
                     assert_eq!(

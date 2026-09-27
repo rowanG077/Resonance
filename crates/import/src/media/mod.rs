@@ -205,6 +205,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn generated_interpolation_coefficients_are_stable() {
+        // Guard quantization and platform-dependent table changes in CI.
+        assert_eq!(
+            crate::digest(&resonance_audio_cook::interpolation::coefficients()),
+            "b5683269fba74a145778697b88961e17e857dd35f13c06af63524e71c7a1de4f"
+        );
+    }
+
+    #[test]
     fn shared_samples_replace_previous_cook_outputs() -> Result<()> {
         let output = tempfile::tempdir()?;
         let sample = resonance_audio::sample::Sample {

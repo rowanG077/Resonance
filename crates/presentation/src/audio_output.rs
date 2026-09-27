@@ -219,6 +219,21 @@ fn update(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct Constant;
+    impl Iterator for Constant {
+        type Item = f32;
+        fn next(&mut self) -> Option<f32> {
+            Some(0.5)
+        }
+    }
+    impl resonance_playback::Source for Constant {
+        fn channels(&self) -> resonance_playback::ChannelCount {
+            resonance_playback::ChannelCount::new(2).unwrap()
+        }
+        fn sample_rate(&self) -> resonance_playback::SampleRate {
+            resonance_playback::SampleRate::new(resonance_playback::SOURCE_RATE).unwrap()
+        }
+    }
     #[test]
     #[ignore = "opens a real output device with mandatory mute; injects a device-loss notification"]
     fn muted_device_loss_reopens_output_without_restarting_sources() {
@@ -228,7 +243,7 @@ mod tests {
         let mut device = app.world_mut().remove_non_send::<Device>().unwrap();
         let handle = device
             .control
-            .play(false, || Ok(Box::new(std::iter::repeat(0.5))))
+            .play(false, || Ok(Box::new(Constant)))
             .unwrap();
         std::thread::sleep(Duration::from_millis(400));
         device.output.check().unwrap();

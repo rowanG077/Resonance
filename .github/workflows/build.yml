@@ -70,7 +70,12 @@ jobs:
           RESONANCE_SMOKE_OUTPUT: ${{ github.workspace }}/target/smoke
         run: |
           cargo test --locked --release -p resonance-import --lib texture::tests::
-          cargo test --locked --release -p resonance-media --test rust_codecs --test audio_smoke
+          cargo test --locked --release -p resonance-import --lib source_inventory_paths
+          cargo test --locked --release -p resonance-audio-cook --lib interpolation::tests::
+          cargo test --locked --release -p resonance-import --lib coefficients
+          cargo test --locked --release -p resonance-import-cli
+          cargo test --locked --release -p resonance-playback --lib
+          cargo test --locked --release -p resonance-media --lib --test rust_codecs --test audio_smoke
           cargo test --locked --release -p resonance-persistence --test slots
           "target/release/resonance$EXE" --help
           "target/release/resonance-import$EXE" --help

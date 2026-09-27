@@ -5,13 +5,11 @@ use resonance_audio::{package::Package, sequence, volume};
 use serde_json::json;
 use std::{fs, path::Path};
 
-pub(crate) fn prepare_title_audio(workspace: Workspace, coefficients: &Path) -> Result<()> {
+pub(crate) fn prepare_title_audio(workspace: Workspace) -> Result<()> {
     let _publications = crate::publication::Session::start_if_needed(&workspace.output)?;
     let executable = fs::read(workspace.extracted.join("sys/main.dol"))?;
-    let coefficients = fs::read(coefficients)?;
     let pools = crate::media::library::Pools::read(&workspace.extracted)?;
-    let package =
-        super::music_library::package(&workspace, &executable, &coefficients, &pools, 1, None)?;
+    let package = super::music_library::package(&workspace, &executable, &pools, 1, None)?;
     let metadata = workspace.output.join("title-audio.json");
     let path = workspace.output.join("audio/title-music.json");
     super::field_audio::write_package(&workspace, "audio/title-music.json", &package)?;

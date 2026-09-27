@@ -107,12 +107,7 @@ pub(crate) fn bank_sources(extracted: &Path, executable: &[u8]) -> Result<Vec<St
             if entry.file_type()?.is_dir() {
                 directories.push(path);
             } else if entry.file_type()?.is_file() && file_role(&path)? == Some(Role::SoundBank) {
-                sources.insert(
-                    path.strip_prefix(&files)?
-                        .to_str()
-                        .context("non-UTF8 audio source")?
-                        .into(),
-                );
+                sources.insert(crate::relative_source_path(&files, &path)?);
             }
         }
     }
@@ -170,7 +165,6 @@ pub(crate) struct ArchiveMember {
 pub(crate) struct Cooker {
     workspace: Workspace,
     executable: Vec<u8>,
-    coefficients: Vec<u8>,
     song_setups: BTreeMap<String, Vec<u16>>,
     pools: Arc<Pools>,
     environment: String,
@@ -186,7 +180,6 @@ impl Cooker {
     pub(crate) fn new(
         extracted: &Path,
         session: &Arc<media::OutputSession>,
-        coefficients: &Path,
         files: &BTreeMap<String, String>,
     ) -> Result<Self> {
         let executable = fs::read(extracted.join("sys/main.dol"))?;
@@ -197,12 +190,11 @@ impl Cooker {
             &crate::music_directory::Directory::read(&executable)?,
             files,
         )?;
-        let coefficients = fs::read(coefficients)?;
         let pools = Arc::new(Pools::read(extracted)?);
         let battle_sources = pools.sources()?;
         let mut dependencies = vec![
             crate::digest(&executable),
-            crate::digest(&coefficients),
+            crate::digest(&resonance_audio_cook::interpolation::coefficients()),
             pools.fingerprint()?,
         ];
         for source in [
@@ -220,7 +212,6 @@ impl Cooker {
         Ok(Self {
             workspace: session.workspace(extracted)?,
             executable,
-            coefficients,
             song_setups,
             pools,
             environment: crate::digest(&serde_json::to_vec(&dependencies)?),
@@ -375,7 +366,7 @@ impl Cooker {
                 let mut files: Vec<_> =
                     samples.values().map(|sample| sample.path.clone()).collect();
                 self.json(&path, &json!({"version":1, "setup":setup, "note_bindings":notes, "first_event_count":first_event_count, "programs":resources.programs,
-                "samples":samples, "tables":media::synthesis_tables(&self.executable, &self.coefficients)?,
+                "samples":samples, "tables":media::synthesis_tables(&self.executable)?,
                 "reverb":media::song_reverb_change(&self.executable, id)?}))?;
                 files.push(path.clone());
                 files.sort();
@@ -911,6 +902,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn source_inventory_paths_bind_declared_songs() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let files = root.path().join("files");
+        fs::create_dir_all(files.join("S"))?;
+        let song = files.join("S").join("bgm_damy_start.song");
+        fs::write(&song, b"song inventory fixture")?;
+        let hash = media::hash_file(&song)?;
+        let directory = crate::music_directory::Directory {
+            entries: vec![crate::music_directory::Entry {
+                id: 7,
+                buffer: crate::music_directory::Buffer::Resident,
+                file: Some("s/bgm_damy_start.song".into()),
+            }],
+        };
+        for path in [song, files.join(r"S\bgm_damy_start.song")] {
+            let inventory =
+                BTreeMap::from([(crate::relative_source_path(&files, &path)?, hash.clone())]);
+            assert_eq!(
+                song_setups(root.path(), &directory, &inventory)?[&hash],
+                [7]
+            );
+        }
+        assert!(song_setups(root.path(), &directory, &BTreeMap::new()).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn renamed_banks_and_songs_keep_their_roles_aliases_and_publications() -> Result<()> {
         let root = crate::temporary_path(&std::env::temp_dir().join("renamed-audio"));
         let result = (|| -> Result<()> {
@@ -982,7 +1000,6 @@ mod tests {
             let cooker = Cooker {
                 workspace: Workspace::open(&root, &output)?,
                 executable: vec![],
-                coefficients: vec![],
                 song_setups: BTreeMap::new(),
                 pools: Arc::new(pools),
                 environment: "synthetic".into(),
@@ -1059,13 +1076,7 @@ mod tests {
                             );
                         }
                         if let Some(role) = role {
-                            discovered.insert(
-                                path.strip_prefix(&files)?
-                                    .to_str()
-                                    .context("source path")?
-                                    .to_owned(),
-                                role,
-                            );
+                            discovered.insert(crate::relative_source_path(&files, &path)?, role);
                         }
                     }
                 }
@@ -1206,11 +1217,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires both extracted discs and RESONANCE_DSP_COEFFICIENTS; no audio playback"]
+    #[ignore = "requires both extracted discs; no audio playback"]
     fn original_song_aliases_keep_all_setups_and_isolate_member_failures() -> Result<()> {
         let output = crate::temporary_path(&std::env::temp_dir().join("resonance-song-aliases"));
         let session = media::OutputSession::open(&output)?;
-        let coefficients = PathBuf::from(std::env::var("RESONANCE_DSP_COEFFICIENTS")?);
         let mut cookers = Vec::new();
         for disc in [1, 2] {
             let extracted = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1228,7 +1238,7 @@ mod tests {
                 .filter(|(name, _)| name.ends_with(".song"))
                 .map(|(name, path)| Ok((name, media::hash_file(&path)?)))
                 .collect::<Result<BTreeMap<_, _>>>()?;
-            let cooker = Cooker::new(&extracted, &session, &coefficients, &files)?;
+            let cooker = Cooker::new(&extracted, &session, &files)?;
             cookers.push((cooker, files));
         }
         for (mut cooker, files) in cookers {

@@ -1,11 +1,10 @@
-use crate::{AudioChunk, DecodeResult, MovieEvent, VideoFrame, container};
+use crate::{AudioChunk, DecodeResult, VideoFrame, VideoReader, container};
 use anyhow::{Context, Result, ensure};
 use matroska_demuxer::TrackType;
 use resonance_content::MovieAsset;
 use std::{
     path::Path,
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
         mpsc::SyncSender,
     },
@@ -17,24 +16,17 @@ use symphonia::core::{
     formats::Packet,
 };
 
-pub(super) fn decode(
+pub(super) fn audio(
     path: &Path,
     asset: &MovieAsset,
-    cancelled: &Arc<AtomicBool>,
-    sender: &SyncSender<DecodeResult>,
+    cancelled: &AtomicBool,
+    sender: &SyncSender<DecodeResult<AudioChunk>>,
 ) -> Result<()> {
     if cancelled.load(Ordering::Acquire) {
         return Ok(());
     }
     let mut input = container::open(path)?;
     let scale = input.info().timestamp_scale().get();
-    let video_track = container::track(&input, TrackType::Video)?;
-    let video_id = video_track.track_number().get();
-    let mut video = container::RgbDecoder::new(video_track)?;
-    ensure!(
-        (video.width, video.height) == (asset.width, asset.height),
-        "movie video format disagrees with the cooked manifest"
-    );
     let audio_track = input
         .tracks()
         .iter()
@@ -76,8 +68,7 @@ pub(super) fn decode(
                 .is_some_and(|c| c.count() == usize::from(asset.channels)),
         "FLAC format disagrees with manifest"
     );
-    let (mut video_frames, mut audio_frames) = (0u32, 0u64);
-    let mut previous_video_pts = None;
+    let mut audio_frames = 0u64;
     let mut packet = matroska_demuxer::Frame::default();
     loop {
         if cancelled.load(Ordering::Acquire) {
@@ -86,29 +77,7 @@ pub(super) fn decode(
         if !input.next_frame(&mut packet)? {
             break;
         }
-        if packet.track == video_id {
-            ensure!(
-                video_frames < asset.frames && !packet.is_invisible,
-                "unexpected movie video frame"
-            );
-            let pts = container::timestamp(packet.timestamp, scale)?;
-            ensure!(
-                previous_video_pts.is_none_or(|p| pts > p),
-                "nonmonotonic movie video timestamps"
-            );
-            previous_video_pts = Some(pts);
-            let rgba = video.decode(&packet.data)?;
-            sender
-                .send(Ok(MovieEvent::Video(VideoFrame {
-                    index: video_frames,
-                    timestamp: pts,
-                    width: asset.width,
-                    height: asset.height,
-                    rgba,
-                })))
-                .context("movie consumer closed")?;
-            video_frames += 1;
-        } else if packet.track == audio_id {
+        if packet.track == audio_id {
             let pts = container::timestamp(packet.timestamp, scale)?;
             let expected =
                 Duration::from_secs_f64(audio_frames as f64 / f64::from(asset.sample_rate));
@@ -134,7 +103,7 @@ pub(super) fn decode(
                 "movie audio exceeds cooked frame count"
             );
             sender
-                .send(Ok(MovieEvent::Audio(AudioChunk {
+                .send(Ok(Some(AudioChunk {
                     start_frame,
                     timestamp: pts,
                     samples: samples.samples().to_vec(),
@@ -143,13 +112,44 @@ pub(super) fn decode(
         }
     }
     ensure!(
-        video_frames == asset.frames && audio_frames == asset.audio_frames,
-        "movie ended early: {video_frames}/{} video frames, {audio_frames}/{} audio frames",
-        asset.frames,
+        audio_frames == asset.audio_frames,
+        "movie audio ended early: {audio_frames}/{} frames",
         asset.audio_frames
     );
-    sender
-        .send(Ok(MovieEvent::End))
-        .context("movie consumer closed")?;
+    Ok(())
+}
+
+/// Video has its own reader and worker. Sharing a demux loop would let a full
+/// video packet queue block delivery of the following audio packets again.
+pub(super) fn video(
+    path: &Path,
+    asset: &MovieAsset,
+    cancelled: &AtomicBool,
+    sender: &SyncSender<DecodeResult<VideoFrame>>,
+) -> Result<()> {
+    if cancelled.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    let mut input = VideoReader::open(path)?;
+    ensure!(
+        input.dimensions() == (asset.width, asset.height),
+        "movie video format disagrees with the cooked manifest"
+    );
+    let mut frames = 0;
+    while !cancelled.load(Ordering::Acquire) {
+        let Some(frame) = input.next_frame()? else {
+            ensure!(
+                frames == asset.frames,
+                "movie video ended early: {frames}/{} frames",
+                asset.frames
+            );
+            return Ok(());
+        };
+        ensure!(frames < asset.frames, "unexpected movie video frame");
+        sender
+            .send(Ok(Some(frame)))
+            .context("movie consumer closed")?;
+        frames += 1;
+    }
     Ok(())
 }

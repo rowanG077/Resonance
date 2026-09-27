@@ -2,9 +2,10 @@
 use super::{Report, pool};
 use crate::{field::MapArchive, scene::decoded::Package};
 use anyhow::{Context, Result, ensure};
+#[cfg(test)]
+use std::fs;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::Path,
     sync::Arc,
 };
@@ -202,17 +203,12 @@ pub(super) fn finish(
     crate::media::bind_all_movies(options.discs, options.output, sources)?;
     // Audio caches are owned by each source environment. All fields select
     // references into the same library; no output device is opened.
-    let coefficients = fs::read(options.coefficients)?;
     for &extracted in discs.values() {
         let other = discs
             .values()
             .find(|&&path| path != extracted)
             .map(|path| path.to_path_buf());
-        let mut audio = crate::media::FieldAudioCooker::new(
-            session.workspace(extracted)?,
-            &coefficients,
-            other,
-        )?;
+        let mut audio = crate::media::FieldAudioCooker::new(session.workspace(extracted)?, other)?;
         for field in fields
             .iter()
             .filter(|field| field.extracted == extracted && prepared.contains(&field.id))
@@ -222,8 +218,8 @@ pub(super) fn finish(
                 .with_context(|| format!("prepare field {} audio", field.id))?;
         }
     }
-    crate::media::prepare_title_audio(session.workspace(primary)?, options.coefficients)?;
-    crate::media::prepare_title_sounds(session.workspace(primary)?, options.coefficients)?;
+    crate::media::prepare_title_audio(session.workspace(primary)?)?;
+    crate::media::prepare_title_sounds(session.workspace(primary)?)?;
     crate::field::finish(options.output, prepared.iter().copied())?;
     ensure!(
         !fields.is_empty(),
@@ -244,7 +240,6 @@ fn original_catalogue_fields_share_the_production_graph() -> Result<()> {
     let options = super::Options {
         discs: &paths,
         output: &output,
-        coefficients: Path::new("unused"),
         jobs: 3,
     };
     let _publications = crate::publication::Session::start_if_needed(&output)?;

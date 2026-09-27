@@ -8,7 +8,6 @@ use std::fs;
 pub(super) fn package(
     workspace: &Workspace,
     executable: &[u8],
-    coefficients: &[u8],
     pools: &crate::media::library::Pools,
     id: u16,
     current_reverbs: Option<[[f32; 5]; 2]>,
@@ -40,7 +39,7 @@ pub(super) fn package(
         &workspace.output,
         &resources,
         score,
-        super::synthesis_tables(executable, coefficients)?,
+        super::synthesis_tables(executable)?,
         reverbs,
     )
     .with_context(|| format!("prepare music {id}: {source}"))
@@ -126,10 +125,6 @@ mod tests {
         let root = std::env::var_os("RESONANCE_AUDIO_BASELINE")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| local.join("worktrees/generic-cooking/local/all-assets"));
-        let coefficients = fs::read(
-            std::env::var_os("RESONANCE_DSP_COEFFICIENTS")
-                .context("set RESONANCE_DSP_COEFFICIENTS to Dolphin's dsp_coef.bin")?,
-        )?;
         let sources = sound_library::source_index(&root)?;
         let mut count = 0;
         let mut arrangements = 0;
@@ -176,20 +171,18 @@ mod tests {
                             .with_context(|| format!("disc{disc} source music {id}: {source}"))?;
                     let current = super::super::music::title_reverbs(&executable)?;
                     let reverb = super::super::song_reverb_change(&executable, id)?;
-                    let package = package(
-                        &workspace,
-                        &executable,
-                        &coefficients,
-                        &pools,
-                        id,
-                        Some(current),
-                    )?;
+                    let package = package(&workspace, &executable, &pools, id, Some(current))?;
                     let frozen = paths
                         .iter()
                         .find(|path| path.ends_with(&format!("/setup-{id}.json")))
                         .context("missing frozen music setup")?;
                     let frozen: Playback = serde_json::from_slice(&fs::read(root.join(frozen))?)?;
-                    let expected = frozen.package(&song, Some(current))?;
+                    let mut expected = frozen.package(&song, Some(current))?;
+                    // Binding is unchanged; filters now come from Resonance's generator.
+                    expected.tables.coefficients =
+                        resonance_audio::resample::Coefficients::from_be_bytes(
+                            &resonance_audio_cook::interpolation::coefficients(),
+                        )?;
                     assert_eq!(
                         serde_json::to_vec(&package)?,
                         serde_json::to_vec(&expected)?,
@@ -211,28 +204,13 @@ mod tests {
                         ReverbChange::Keep => {
                             assert_eq!(package.reverbs, current);
                             assert!(
-                                super::package(
-                                    &workspace,
-                                    &executable,
-                                    &coefficients,
-                                    &pools,
-                                    id,
-                                    None
-                                )
-                                .is_err()
+                                super::package(&workspace, &executable, &pools, id, None).is_err()
                             );
                             let mut changed = current;
                             changed[0][1] = 0.25;
                             assert_eq!(
-                                super::package(
-                                    &workspace,
-                                    &executable,
-                                    &coefficients,
-                                    &pools,
-                                    id,
-                                    Some(changed)
-                                )?
-                                .reverbs,
+                                super::package(&workspace, &executable, &pools, id, Some(changed))?
+                                    .reverbs,
                                 changed
                             );
                         }

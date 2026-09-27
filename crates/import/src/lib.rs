@@ -47,6 +47,8 @@ mod session;
 mod shared;
 mod skit;
 pub(crate) mod source_assets;
+mod source_paths;
+pub(crate) use source_paths::relative_source_path;
 mod stream_mixer;
 mod texture;
 mod texture_animation;
