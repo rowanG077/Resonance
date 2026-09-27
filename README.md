@@ -161,7 +161,6 @@ check against the cooked library instead.
 
 - [Generic asset cooking](docs/cooking.md)
 - [SymphoniaScript and native registration](docs/symphonia-script.md)
-- [Audio/video ownership and clocks](docs/audio-video-architecture.md)
 - [Dolphin capture, replay and comparison](tools/oracle/README.md)
 - [Offline media tools](tools/media/README.md)
 
