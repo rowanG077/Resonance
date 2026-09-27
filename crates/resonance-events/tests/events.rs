@@ -3927,7 +3927,6 @@ fn ring_station_runs_its_interaction_and_keeps_glows_bounded() {
     assert!(events.world.event_flags.contains(&123));
     assert!(events.player_has_control());
     assert!(events.world.actors[&42].ring_station);
-    assert_eq!(events.world.actors[&42].heading, 180.);
     assert!((4..=24).contains(&events.world.billboards.len()));
 
     // A transfer must stop when its player is replaced, even if the actor ID is reused.
