@@ -331,6 +331,38 @@ fn controlled_actor_wait_finishes_the_vertical_motion_before_resuming() {
 }
 
 #[test]
+fn rheaird_crash_debris_moves_without_spinning_and_expires() {
+    for kind in 52..=54 {
+        let setup = script(&[(
+            Call::CreateEffectObject,
+            &[
+                kind, 162, 4618, -950, 158, 50, -2, 100, 261, 25, 255, 0, 33, 0,
+            ],
+        )]);
+        let mut events = runtime(
+            program(&setup, &[0x20ff]),
+            Default::default(),
+            Default::default(),
+        );
+        let debris = events.world.billboards[&1].clone();
+        let speed = debris.velocity.iter().map(|v| v * v).sum::<f32>().sqrt();
+        assert!((speed - 2.61).abs() < 0.0001);
+        events.step().unwrap();
+        let moved = &events.world.billboards[&1];
+        assert!(moved.position[0] > debris.position[0]);
+        assert!(moved.position[1] < debris.position[1]);
+        assert!(moved.position[2] > debris.position[2]);
+        assert_eq!(moved.rotation, [0.; 3]);
+        assert_eq!(debris.alpha(debris.born), 255.);
+        assert!(debris.alpha(debris.born + 162) < 255.);
+        for _ in 1..163 {
+            events.step().unwrap();
+        }
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
 fn particle_fade_decreases_to_zero_at_expiry() {
     let setup = script(&[
         (

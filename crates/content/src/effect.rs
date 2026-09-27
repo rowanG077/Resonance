@@ -110,7 +110,7 @@ pub struct FieldEffects<Image = String> {
     pub mouth_cycle: Vec<u8>,
 }
 pub const SMOKE_SPRITE: u16 = 1;
-pub const FIELD_EFFECTS_VERSION: u32 = 8;
+pub const FIELD_EFFECTS_VERSION: u32 = 9;
 pub const STREAK_SPRITE: u16 = 23;
 pub const SMOKE_UPDATES: u32 = 56;
 
@@ -253,6 +253,9 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
                 && self.sprites.contains_key(&14)
                 && self.sprites.contains_key(&41)
                 && self.sprites.contains_key(&42)
+                && self.sprites.contains_key(&52)
+                && self.sprites.contains_key(&53)
+                && self.sprites.contains_key(&54)
                 && self.sprites.contains_key(&68)
                 && self.sprites.contains_key(&69)
                 && self.sprites.contains_key(&6)

@@ -682,6 +682,8 @@ impl NativeHost<'_> {
                 const STAR: i32 = crate::effect::STAR_SPRITE as i32;
                 const SEAL_SPARK: i32 = 69;
                 const FALLING_SPARK: i32 = 43;
+                const DEBRIS_FIRST: i32 = 52;
+                const DEBRIS_LAST: i32 = 54;
                 const STAR_ROTATION: f32 = 45.;
                 const ELECTRIC_SPARK: i32 = crate::effect::ELECTRIC_SPARK_SPRITE as i32;
                 const STREAK_ASPECT: f32 = 6.;
@@ -746,6 +748,7 @@ impl NativeHost<'_> {
                                 | FALLING_SPARK
                                 | SPINNING_STAR
                                 | ELECTRIC_SPARK
+                                | DEBRIS_FIRST..=DEBRIS_LAST
                         )
                     } else {
                         matches!(
@@ -759,6 +762,7 @@ impl NativeHost<'_> {
                                 | STAR
                                 | SPINNING_STAR
                                 | ELECTRIC_SPARK
+                                | DEBRIS_FIRST..=DEBRIS_LAST
                         )
                     }) && (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32)
                         .contains(&palette)
@@ -782,6 +786,7 @@ impl NativeHost<'_> {
                         | SEAL_SPARK
                         | FALLING_SPARK
                         | ELECTRIC_SPARK
+                        | DEBRIS_FIRST..=DEBRIS_LAST
                 ) {
                     0.
                 } else if self.world.effect_tick & 1 == 0 {
@@ -791,7 +796,7 @@ impl NativeHost<'_> {
                 };
                 let velocity = [a[5] as f32, a[6] as f32, a[7] as f32];
                 let length = velocity.iter().map(|x| x * x).sum::<f32>().sqrt();
-                let speed = (a[8] / 100) as f32;
+                let speed = a[8] as f32 / 100.;
                 let flutter = if a[0] == FALLING_SPARK {
                     let Some(crate::ParticleKind::Flutter(recipe)) =
                         self.resources.particles.get(&25)

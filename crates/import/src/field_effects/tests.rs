@@ -23,6 +23,19 @@ fn ring_sprites_and_palette_cook_from_both_discs() -> Result<()> {
             effects.air_refraction.texture
         );
         assert!(effects.sprites[&23].additive);
+        // Debris variants share one atlas.
+        for (kind, uv) in [
+            (52, [128., 0., 191., 63.]),
+            (53, [192., 0., 255., 63.]),
+            (54, [64., 64., 127., 127.]),
+        ] {
+            let debris = &effects.sprites[&kind];
+            assert_eq!(debris.uv, uv.map(|v| v / 256.));
+            assert_eq!(debris.texture, effects.sprites[&0].texture);
+            assert!(!debris.additive);
+            assert_eq!(debris.uv_at(162), debris.uv);
+        }
+        assert_eq!(effects.palette[33], [63, 63, 63, 255]);
         let electric = &effects.sprites[&42];
         assert_eq!(electric.uv_at(2), [32., 128., 62., 254.].map(|v| v / 256.));
         assert_eq!(electric.uv_at(6), electric.uv_at(0));
@@ -35,8 +48,7 @@ fn ring_sprites_and_palette_cook_from_both_discs() -> Result<()> {
         assert_eq!(ring.uv, [129., 0., 192., 63.].map(|v| v / 256.));
         assert_eq!(ring.texture, sprite.texture);
         assert!(ring.additive);
-        // Original station sequence headers/frames at 0x8020A4B4, A4CC,
-        // A4D8, and A56C on both discs: dimensions and inclusive UV corners.
+        // Station sprites retain their atlas regions on both discs.
         for (id, uv) in [
             (4, [0., 0., 63., 63.]),
             (5, [129., 0., 192., 63.]),
@@ -46,7 +58,7 @@ fn ring_sprites_and_palette_cook_from_both_discs() -> Result<()> {
             assert_eq!(effects.sprites[&id].uv, uv.map(|v| v / 256.));
             assert_eq!(effects.sprites[&id].texture, sprite.texture);
         }
-        // Air refraction's 255x255 sequence at 0x8020A76C uses shared image 3.
+        // Air refraction uses the full image except its padded border.
         assert_eq!(
             effects.air_refraction.uv,
             [0., 0., 254. / 256., 254. / 256.]
