@@ -48,7 +48,7 @@ pub(super) fn apply(
     let (mut transforms, mut affine) = transforms.p1();
     for (entity, local) in locals {
         if let Ok(mut transform) = transforms.get_mut(entity) {
-            affine.set(entity, &mut transform, local);
+            local.apply(entity, &mut transform, &mut affine);
         }
     }
 }
