@@ -146,26 +146,34 @@ pub(super) fn sample(
         let &(entity, rest) = bones
             .get(usize::from(track.bone))
             .context("animation bone outside bound model")?;
-        let bind = PoseTransform {
-            translation: rest.translation.to_array(),
-            rotation: rest.rotation.to_array(),
-            scale: rest.scale.to_array(),
-        };
-        let pose = if track.matrices.is_some() {
-            affine::Pose::Affine(bevy::math::Affine3A::from_mat4(Mat4::from_cols_array_2d(
-                &track.sample_matrix(frame, bind)?,
-            )))
-        } else {
-            let pose = track.sample(frame, bind)?;
-            affine::Pose::Trs(Transform {
-                translation: Vec3::from_array(pose.translation),
-                rotation: Quat::from_array(pose.rotation),
-                scale: Vec3::from_array(pose.scale),
-            })
-        };
+        let pose = sample_track(track, frame, rest)?;
         affine.set(entity, &mut *nodes.get_mut(entity)?, pose);
     }
     Ok(())
+}
+
+pub(super) fn sample_track(
+    track: &resonance_content::animation::Track,
+    frame: f32,
+    rest: Transform,
+) -> Result<affine::Pose> {
+    let bind = PoseTransform {
+        translation: rest.translation.to_array(),
+        rotation: rest.rotation.to_array(),
+        scale: rest.scale.to_array(),
+    };
+    Ok(if track.matrices.is_some() {
+        affine::Pose::Affine(bevy::math::Affine3A::from_mat4(Mat4::from_cols_array_2d(
+            &track.sample_matrix(frame, bind)?,
+        )))
+    } else {
+        let pose = track.sample(frame, bind)?;
+        affine::Pose::Trs(Transform {
+            translation: Vec3::from_array(pose.translation),
+            rotation: Quat::from_array(pose.rotation),
+            scale: Vec3::from_array(pose.scale),
+        })
+    })
 }
 
 #[cfg(test)]
