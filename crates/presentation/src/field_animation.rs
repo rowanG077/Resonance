@@ -1,4 +1,5 @@
 //! Blend authored skeletal poses before script adjustments and secondary motion.
+mod binding;
 mod frame;
 use super::field_view::{ActorPart, Art, State};
 use super::sparse_animation::affine::{Helper, Locals, Pose};
@@ -15,6 +16,8 @@ pub(super) struct Rig {
     from: Vec<Frame>,
     presented: Vec<Frame>,
     binding_pose: Vec<Frame>,
+    binding_tick: Option<u32>,
+    pub(super) bindings: Vec<binding::PoseUpdate>,
     bind_channels: Vec<u8>,
     authored_channels: Vec<u8>,
     clip: Option<(resonance_events::animation::AnimationSource, u32, u16, u32)>,
@@ -97,11 +100,18 @@ pub(super) fn sample(
                 .get(&model.clips[index])
                 .expect("prepared sparse clip")
                 .0;
-            let time = animation.sample(
+            let mut time = animation.sample(
                 world.tick,
                 0,
                 model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ,
             );
+            if actor.resource == resonance_content::field::COLETTE_WINGS_RESOURCE && part.pass < 2 {
+                let duration =
+                    model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ;
+                if duration > 0. {
+                    time = (time - 2. * f32::from(part.pass + 1)).rem_euclid(duration);
+                }
+            }
             for track in &clip.tracks {
                 rig.authored_channels[usize::from(track.bone)] |= track.channels().0;
             }
@@ -124,6 +134,13 @@ pub(super) fn sample(
 }
 
 impl Rig {
+    pub(super) fn bind_scale(&self, entity: Entity) -> Option<Vec3> {
+        self.bones
+            .iter()
+            .find(|(id, _)| *id == entity)
+            .map(|(_, t)| t.scale)
+    }
+
     pub(super) fn bone_at(&self, index: u16) -> Option<Entity> {
         self.bones
             .get(usize::from(index))
@@ -140,6 +157,8 @@ impl Rig {
             from: previous.clone(),
             presented: previous.clone(),
             binding_pose: Vec::new(),
+            binding_tick: None,
+            bindings: Vec::new(),
             previous,
             clip: None,
             late_binding: false,
@@ -187,6 +206,9 @@ impl Rig {
 
     /// Event attachments can observe a binding before its first model draw.
     pub(super) fn binding_locals(&self, transforms: &Helper) -> Option<BTreeMap<Entity, Pose>> {
+        if let Some(binding) = self.bindings.last() {
+            return Some(binding.locals.clone());
+        }
         if self.binding_pose.is_empty() {
             return None;
         }
@@ -219,12 +241,14 @@ impl Rig {
 
 pub(super) fn blend(
     state: State,
-    mut rigs: Query<(&ActorPart, &mut Rig)>,
+    art: Res<Art>,
+    clips: Res<Assets<super::sparse_animation::Clip>>,
+    mut rigs: Query<(Entity, &ActorPart, &mut Rig)>,
     mut nodes: Query<&mut Transform>,
     mut affine: ResMut<Locals>,
 ) {
     let world = &state.get().events.world;
-    for (part, mut rig) in &mut rigs {
+    for (root, part, mut rig) in &mut rigs {
         let actor = world.actors.get(&part.actor);
         let animation = actor.and_then(|a| a.animation.as_ref());
         let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
@@ -240,6 +264,33 @@ pub(super) fn blend(
             rig.clip = key;
         }
         let hold = rig.late_binding && animation.is_some_and(|a| a.start_tick == world.tick);
+        if rig.binding_tick != Some(world.tick) {
+            rig.bindings.clear();
+        }
+        if hold
+            && let Some(actor) = actor
+            && actor.animation_bindings.tick == world.tick
+            && !actor.animation_bindings.updates.is_empty()
+        {
+            if rig.binding_tick != Some(world.tick) {
+                rig.replay_bindings(
+                    root,
+                    &art.models[&part.resource][part.part].spec,
+                    &art.models[&part.resource][part.part].clips,
+                    &clips,
+                    actor,
+                    world.tick,
+                )
+                .expect("prepared binding poses must evaluate");
+            }
+            for (i, &(entity, _)) in rig.bones.iter().enumerate() {
+                if let Ok(mut transform) = nodes.get_mut(entity) {
+                    affine.set(entity, &mut transform, rig.presented[i].pose);
+                }
+            }
+            rig.sampled = true;
+            continue;
+        }
         if !hold {
             rig.binding_pose.clear();
         }
@@ -303,6 +354,8 @@ mod tests {
                 from: vec![old.into()],
                 presented: vec![old.into()],
                 binding_pose: Vec::new(),
+                binding_tick: None,
+                bindings: Vec::new(),
                 bind_channels: vec![frame::TRS],
                 authored_channels: vec![0],
                 clip: None,
@@ -371,6 +424,8 @@ mod tests {
                 from: held.clone(),
                 presented: held,
                 binding_pose: vec![adjusted.into(), Transform::from_xyz(0., 10., 19.).into()],
+                binding_tick: None,
+                bindings: Vec::new(),
                 bind_channels: vec![frame::TRS; 2],
                 authored_channels: vec![0; 2],
                 clip: None,
@@ -429,6 +484,8 @@ mod tests {
             from: vec![authored.into()],
             presented: vec![authored.into()],
             binding_pose: Vec::new(),
+            binding_tick: None,
+            bindings: Vec::new(),
             bind_channels: vec![frame::TRS],
             authored_channels: vec![0],
             clip: None,
