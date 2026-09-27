@@ -1716,7 +1716,7 @@ fn instances(
             .flat_map(|(index, part)| {
                 (0..if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                     2
-                } else if actor.resource == resonance_content::field::COLETTE_WINGS_RESOURCE {
+                } else if id == resonance_events::COLETTE_WINGS_ACTOR {
                     3
                 } else {
                     1
@@ -1877,7 +1877,7 @@ fn pose(
                 } else {
                     Vec4::new(1., 1., 1., 128. / 255.)
                 }
-            } else if actor.resource == resonance_content::field::COLETTE_WINGS_RESOURCE {
+            } else if instance.actor == resonance_events::COLETTE_WINGS_ACTOR {
                 Vec4::new(
                     1.,
                     1.,
@@ -1946,6 +1946,17 @@ fn pose(
                 }
             }
             let mut offsets = Vec4::new(offset[0], offset[1], 0., 0.);
+            // Both wing controllers scroll texture 0: fn_80019B3C / fn_800F420C.
+            if instance.actor == resonance_events::COLETTE_WINGS_ACTOR {
+                for (stage, binding) in [&material.color, &material.multiply]
+                    .into_iter()
+                    .enumerate()
+                {
+                    if binding.as_ref().is_some_and(|b| b.texture == 0) {
+                        offsets[stage * 2] += (world.effect_tick & 127) as f32 / 128.;
+                    }
+                }
+            }
             for animation in &art.texture_animations {
                 if animation.actor.resolve(&world.render_settings) != instance.actor {
                     continue;

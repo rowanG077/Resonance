@@ -50,13 +50,17 @@ impl Frames<'_> {
 }
 
 impl GameWorld {
-    pub(crate) fn attachment_root(&self, resources: &ResourceLibrary, id: i32) -> Result<Matrix> {
+    pub(crate) fn attachment_parent(
+        &self,
+        resources: &ResourceLibrary,
+        attachment: &Attachment,
+    ) -> Result<Matrix> {
         Frames {
             world: self,
             resources,
             roots: BTreeMap::new(),
         }
-        .root(id, 0)
+        .parent(attachment, 0)
     }
 
     pub(crate) fn update_collision_attachments(

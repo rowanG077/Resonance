@@ -1346,6 +1346,21 @@ impl NativeHost<'_> {
                         )
                     });
                 }
+                if a[0] == crate::COLETTE_WINGS_ACTOR {
+                    // SpawnActor selects fn_800F3A78 by actor ID, even when the
+                    // script supplies a different model (NPC 356 at the fire seal).
+                    actor.collidable = false;
+                    actor.contact = crate::ActorContact::None;
+                    actor.grounded = false;
+                    actor.casts_shadow = false;
+                    actor.cull_outside_view = false;
+                    actor.depth_write = false;
+                    actor.blend = Some(crate::model_particle::Blend::Additive);
+                    actor.scripted_animation = true;
+                    if let Some(animation) = &mut actor.animation {
+                        animation.rate = 0.002;
+                    }
+                }
                 self.world.insert_actor(a[0], actor);
             }
             NativeCall::DespawnActor => {

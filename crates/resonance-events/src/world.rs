@@ -581,6 +581,7 @@ pub struct GameWorld {
     /// first object; fn_80058D64 destroys every object carrying that key.
     pub(crate) duplicate_actors: BTreeMap<i32, i32>,
     pub(crate) automatic_wings: Option<(u64, u64)>,
+    pub(crate) wing_attachment: Option<crate::wings::RetainedAttachment>,
     pub(crate) actor_order: Vec<i32>,
     pub(crate) next_actor_instance: u64,
     pub camera: Option<CameraTrack>,
