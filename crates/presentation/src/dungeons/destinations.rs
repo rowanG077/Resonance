@@ -17,6 +17,7 @@ pub(crate) struct Destination {
 #[derive(Clone, Copy)]
 enum Progress {
     Story(i32),
+    AfterSalvation(i32),
     AfterFireSeal(Mission, i32),
     IseliaInfiltration,
 }
@@ -67,7 +68,7 @@ pub(super) const DESTINATIONS: [Destination; 10] = [
         map: 362,
         position: [-9., -46., -3.],
         heading: 180.,
-        progress: Progress::AfterFireSeal(Mission::Mana, 12_000),
+        progress: Progress::AfterFireSeal(Mission::Mana, 1000),
     },
     Destination {
         name: "ISELIA HUMAN RANCH",
@@ -102,7 +103,7 @@ pub(super) const DESTINATIONS: [Destination; 10] = [
         map: 279,
         position: [-1084., 1472., 0.],
         heading: 90.,
-        progress: Progress::Story(2_403_000),
+        progress: Progress::AfterSalvation(2_403_000),
     },
 ];
 
@@ -124,11 +125,40 @@ impl Destination {
         };
         let story = match self.progress {
             Progress::Story(story) => story,
+            Progress::AfterSalvation(story) => {
+                persistent.memory.write(0x4c, Width::S32, 1000)?;
+                story
+            }
             Progress::AfterFireSeal(mission, value) => {
                 // Later seals require Colette's first angel progression branch.
                 persistent.memory.write(0x4c, Width::S32, 1)?;
                 persistent.memory.write(mission as u16, Width::S32, value)?;
-                4_000_000
+                if matches!(mission, Mission::Asgard) {
+                    // Stage 3010 follows the party split. Field 214 rebuilds
+                    // both three-person groups from these per-member bits.
+                    let party = persistent.party.as_mut().unwrap();
+                    party.formation = vec![1, 2, 9, 4, 3, 5];
+                    party.travel.saved_formation = party.formation.clone();
+                    for (index, &id) in party.formation.iter().enumerate() {
+                        let slot = index % 3;
+                        let base = 150 + u16::from(id) * 3;
+                        for (offset, set) in [index >= 3, slot & 2 != 0, slot & 1 != 0]
+                            .into_iter()
+                            .enumerate()
+                        {
+                            if set {
+                                persistent.event_flags.insert(base + offset as u16);
+                            }
+                        }
+                    }
+                }
+                if matches!(mission, Mission::Palmacosta) {
+                    // Field 198's post-Magnius evacuation and destruction
+                    // dispatch requires this story stage as well as mission B8.
+                    2_002_000
+                } else {
+                    4_000_000
+                }
             }
             Progress::IseliaInfiltration => {
                 // FAA_D03 reconstructs groups from three bits per character:
