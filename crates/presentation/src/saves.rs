@@ -347,7 +347,10 @@ fn load(world: &mut World) -> Result<String> {
     ))
 }
 
-fn restored(world: &mut World, changing_field: bool) {
+pub(super) fn reset_scene(world: &mut World, changing_field: bool) {
+    if let Some(mut menu) = world.get_resource_mut::<super::dungeons::Menu>() {
+        menu.testing = false;
+    }
     world.remove_resource::<new_game::TransitionFailure>();
     let files = world.resource::<new_game::Session>().files();
     *world.resource::<loading::Resident>().files.write().unwrap() = Some(files);
@@ -359,6 +362,10 @@ fn restored(world: &mut World, changing_field: bool) {
     }
     field_view::reset_live(world);
     super::field_audio::retire(world);
+}
+
+fn restored(world: &mut World, changing_field: bool) {
+    reset_scene(world, changing_field);
     // Keep the last field image until its new actor instances are prepared.
     // Output compositing continues; only cameras writing the scene image pause.
     let source = world.resource::<super::display::Targets>().source.id();
@@ -383,7 +390,14 @@ pub(super) fn release_frame(world: &mut World) {
     {
         return;
     }
-    for (entity, active) in world.remove_resource::<RetainedFrame>().unwrap().0 {
+    release_retained_frame(world);
+}
+
+pub(super) fn release_retained_frame(world: &mut World) {
+    let Some(frame) = world.remove_resource::<RetainedFrame>() else {
+        return;
+    };
+    for (entity, active) in frame.0 {
         if let Some(mut camera) = world.get_mut::<Camera>(entity) {
             camera.is_active = active;
         }

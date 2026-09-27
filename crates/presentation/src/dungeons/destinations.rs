@@ -1,0 +1,160 @@
+use anyhow::Result;
+use resonance_content::session::SessionData;
+use resonance_events::{PersistentState, party::Party};
+use resonance_game::field::FieldEntry;
+use std::{collections::BTreeSet, sync::Arc};
+use symphonia_script::Width;
+
+#[derive(Clone, Copy)]
+pub(crate) struct Destination {
+    pub name: &'static str,
+    pub map: u32,
+    position: [f32; 3],
+    heading: f32,
+    progress: Progress,
+}
+
+#[derive(Clone, Copy)]
+enum Progress {
+    Story(i32),
+    AfterFireSeal(Mission, i32),
+    IseliaInfiltration,
+}
+
+#[derive(Clone, Copy)]
+#[repr(u16)]
+enum Mission {
+    Palmacosta = 0xB8,
+    Thoda = 0xC4,
+    Balacruf = 0xC8,
+    Mana = 0xCC,
+    Asgard = 0xE0,
+}
+
+const PARTY: [u8; 5] = [1, 2, 3, 4, 9];
+
+pub(super) const DESTINATIONS: [Destination; 10] = [
+    Destination {
+        name: "TEMPLE OF MARTEL",
+        map: 307,
+        position: [1., 194., 0.],
+        heading: 180.,
+        progress: Progress::Story(107_000),
+    },
+    Destination {
+        name: "TRIET RUINS - FIRE SEAL",
+        map: 219,
+        position: [-265., -4., 15.],
+        heading: 272.,
+        progress: Progress::Story(1_302_000),
+    },
+    Destination {
+        name: "THODA GEYSER - WATER SEAL",
+        map: 7,
+        position: [21., 67., 0.],
+        heading: 188.,
+        progress: Progress::AfterFireSeal(Mission::Thoda, 12_000),
+    },
+    Destination {
+        name: "BALACRUF MAUSOLEUM - AIR SEAL",
+        map: 508,
+        position: [8., 222., 0.],
+        heading: 180.,
+        progress: Progress::AfterFireSeal(Mission::Balacruf, 11_000),
+    },
+    Destination {
+        name: "TOWER OF MANA",
+        map: 362,
+        position: [-9., -46., -3.],
+        heading: 180.,
+        progress: Progress::AfterFireSeal(Mission::Mana, 12_000),
+    },
+    Destination {
+        name: "ISELIA HUMAN RANCH",
+        map: 194,
+        position: [679., -3369., 0.],
+        heading: 180.,
+        progress: Progress::IseliaInfiltration,
+    },
+    Destination {
+        name: "PALMACOSTA HUMAN RANCH",
+        map: 201,
+        position: [10., -498., 0.],
+        heading: 180.,
+        progress: Progress::AfterFireSeal(Mission::Palmacosta, 1200),
+    },
+    Destination {
+        name: "ASGARD HUMAN RANCH",
+        map: 213,
+        position: [285., -218., 49.],
+        heading: 270.,
+        progress: Progress::AfterFireSeal(Mission::Asgard, 3010),
+    },
+    Destination {
+        name: "SYLVARANT BASE - GUARD ENTRANCE",
+        map: 267,
+        position: [-744., 441., -49.],
+        heading: 0.,
+        progress: Progress::Story(1_101_000),
+    },
+    Destination {
+        name: "SYLVARANT BASE - GENERATOR WING",
+        map: 279,
+        position: [-1084., 1472., 0.],
+        heading: 90.,
+        progress: Progress::Story(2_403_000),
+    },
+];
+
+impl Destination {
+    pub(crate) fn entry(
+        self,
+        data: Arc<SessionData>,
+        available_fields: BTreeSet<u32>,
+    ) -> Result<FieldEntry> {
+        let mut party = Party::new(&data, Default::default())?;
+        party.formation = PARTY.to_vec();
+        party.field_leader = 1;
+        party.travel.saved_formation = party.formation.clone();
+        party.travel.sorcerers_ring = resonance_events::ring::SorcerersRing::Fire;
+        party.items.insert(resonance_events::ring::ITEM, 1);
+        let mut persistent = PersistentState {
+            party: Some(party),
+            ..Default::default()
+        };
+        let story = match self.progress {
+            Progress::Story(story) => story,
+            Progress::AfterFireSeal(mission, value) => {
+                // Later seals require Colette's first angel progression branch.
+                persistent.memory.write(0x4c, Width::S32, 1)?;
+                persistent.memory.write(mission as u16, Width::S32, value)?;
+                4_000_000
+            }
+            Progress::IseliaInfiltration => {
+                // FAA_D03 reconstructs groups from three bits per character:
+                // reserve group followed by the two slot bits.
+                for (slot, id) in PARTY.into_iter().enumerate() {
+                    let base = 150 + u16::from(id) * 3;
+                    for (offset, set) in [slot >= 4, slot & 2 != 0, slot & 1 != 0]
+                        .into_iter()
+                        .enumerate()
+                    {
+                        if set {
+                            persistent.event_flags.insert(base + offset as u16);
+                        }
+                    }
+                }
+                20_303_000
+            }
+        };
+        persistent.memory.write(0x40, Width::S32, story)?;
+        Ok(FieldEntry {
+            persistent,
+            data: Some(data),
+            available_fields,
+            position: self.position,
+            heading: self.heading,
+            ..Default::default()
+        })
+    }
+}

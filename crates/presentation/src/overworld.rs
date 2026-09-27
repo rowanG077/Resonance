@@ -188,6 +188,7 @@ impl Plugin for OverworldPlugin {
             .add_systems(
                 FixedUpdate,
                 advance
+                    .run_if(super::dungeons::running)
                     .before(super::new_game::advance)
                     .before(super::field_view::advance_live),
             )
@@ -215,12 +216,17 @@ impl Plugin for OverworldPlugin {
     }
 }
 #[derive(Resource, Default)]
-struct Controls(game::Input);
-fn controls(
+pub(super) struct Controls(game::Input);
+pub(super) fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     mut controls: ResMut<Controls>,
+    dungeons: Option<Res<super::dungeons::Menu>>,
 ) {
+    if dungeons.is_some_and(|menu| menu.blocked()) {
+        *controls = Controls::default();
+        return;
+    }
     use GamepadButton::*;
     let held = |keys_: &[KeyCode], button| {
         keys_.iter().any(|k| keys.pressed(*k)) || pads.iter().any(|p| p.pressed(button))

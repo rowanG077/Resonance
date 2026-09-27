@@ -150,6 +150,31 @@ pub(super) struct Task<T: Send + 'static> {
     pub started: Instant,
 }
 impl Pending {
+    pub fn dungeon(
+        root: PathBuf,
+        script_root: Option<PathBuf>,
+        destination: super::dungeons::Destination,
+        resident: &Resident,
+    ) -> Result<Self> {
+        let cache = resident.cache.clone();
+        Self::spawn(move |stop| {
+            let mut cache = cache.lock().unwrap();
+            cache.configure_scripts(script_root);
+            let files = Arc::new(Files::load(
+                &root,
+                &[&super::new_game::manifest_path(destination.map)],
+                &mut cache.bytes,
+                || stop.load(Ordering::Relaxed),
+            )?);
+            super::new_game::Session::load_start(
+                &root,
+                files,
+                super::new_game::Start::Dungeon(destination),
+                &mut cache,
+            )
+        })
+    }
+
     pub fn start(
         root: PathBuf,
         script_root: Option<PathBuf>,

@@ -77,7 +77,8 @@ impl Plugin for FieldPlugin {
             .add_systems(
                 FixedUpdate,
                 advance_live
-                    .before(super::new_game::advance),
+                    .before(super::new_game::advance)
+                    .run_if(super::dungeons::running),
             )
             .add_systems(
                 Update,
@@ -665,7 +666,12 @@ pub(super) fn gather_controls(
     input: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     mut controls: ResMut<Controls>,
+    dungeons: Option<Res<super::dungeons::Menu>>,
 ) {
+    if dungeons.is_some_and(|menu| menu.blocked()) {
+        *controls = Controls::default();
+        return;
+    }
     use GamepadButton::*;
     let axis = |positive: [KeyCode; 2], negative: [KeyCode; 2]| {
         f32::from(positive.into_iter().any(|key| input.pressed(key)))
@@ -706,11 +712,18 @@ pub(super) fn gather_controls(
     }
     controls.input.direction = direction.clamp_length_max(1.).to_array();
     let pressed = |keys: &[KeyCode], button| {
-        keys.iter().any(|&key| input.pressed(key)) || pads.iter().any(|pad| pad.pressed(button))
+        keys.iter().any(|&key| {
+            input.pressed(key)
+                && (key != KeyCode::Tab
+                    || !input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]))
+        }) || pads.iter().any(|pad| pad.pressed(button))
     };
     let just_pressed = |keys: &[KeyCode], button| {
-        keys.iter().any(|&key| input.just_pressed(key))
-            || pads.iter().any(|pad| pad.just_pressed(button))
+        keys.iter().any(|&key| {
+            input.just_pressed(key)
+                && (key != KeyCode::Tab
+                    || !input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]))
+        }) || pads.iter().any(|pad| pad.just_pressed(button))
     };
     // Preserve edges between fixed updates, including devices newly reporting a held button.
     let latch = |keys: &[KeyCode], button, held: &mut bool| {
