@@ -94,6 +94,9 @@ impl crate::GameWorld {
             })
             .ok_or("all dialogue slots are occupied")?;
         let operation = self.operations.begin()?;
+        if let Some(choice) = self.choices.remove(&slot) {
+            choice.operation.cancel();
+        }
         self.dialogue.insert(
             slot,
             Dialogue {

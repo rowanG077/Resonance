@@ -1932,6 +1932,30 @@ fn npc_walk_speed_and_turn_braking_match_dolphin_positions() {
 }
 
 #[test]
+fn item_notice_reusing_a_choice_window_does_not_inherit_its_cursor() {
+    let mut world = GameWorld::default();
+    let message = |text: &str| dialogue::ResolvedMessage {
+        tokens: vec![dialogue::TextToken::Text { text: text.into() }],
+    };
+    let (notice, _) = world.show_choice_notice(message("Yes\nNo"), 0, 1).unwrap();
+    world.choices[&0]
+        .finish(dialogue::ChoiceExit::Confirm)
+        .unwrap();
+    notice.complete(None).unwrap();
+    let received = world
+        .show_notice(message("Received Apple Gel."), dialogue::flags::INSTANT)
+        .unwrap();
+    assert!(
+        world.choices.is_empty(),
+        "the preceding selection cursor leaked into the item notice"
+    );
+    assert!(received.is_pending());
+    received.complete(None).unwrap();
+    world.show_choice_notice(message("Yes\nNo"), 0, 1).unwrap();
+    assert!(world.choices[&0].operation.is_pending());
+}
+
+#[test]
 fn scripted_eye_modes_restart_blinking_without_consuming_randomness_each_frame() {
     let mut world = GameWorld::default();
     world.controlled_actor = 1;
