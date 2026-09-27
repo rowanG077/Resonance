@@ -77,6 +77,7 @@ impl NativeCallback {
     pub const CONVEYOR: Self = Self(0x8003de14);
     pub const MARTEL_SEAL: Self = Self(0x800393f8);
     pub const ACTOR_SCROLL: Self = Self(0x8003d038);
+    pub const MANA_BRIDGES: Self = Self(0x8003c924);
 }
 
 #[derive(Clone, Serialize)]
