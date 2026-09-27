@@ -53,6 +53,12 @@ pub(super) struct Session {
     available_fields: BTreeSet<u32>,
 }
 
+pub(super) enum Start<'a> {
+    NewGame,
+    Saved(&'a FieldCheckpoint),
+    Dungeon(super::dungeons::Destination),
+}
+
 impl Session {
     pub(super) fn movie_owns_audio(&self) -> bool {
         self.overworld.is_none()
@@ -105,6 +111,20 @@ impl Session {
         saved: Option<FieldCheckpoint>,
         cache: &mut super::loading::Cache,
     ) -> Result<Self> {
+        Self::load_start(
+            root,
+            files,
+            saved.as_ref().map_or(Start::NewGame, Start::Saved),
+            cache,
+        )
+    }
+
+    pub(super) fn load_start(
+        root: &Path,
+        files: Arc<Files>,
+        start: Start<'_>,
+        cache: &mut super::loading::Cache,
+    ) -> Result<Self> {
         let mut data: resonance_content::session::SessionData =
             files.json("game/session-data.json")?;
         let menu: resonance_content::menu_data::MenuData = files.json("game/menu-data.json")?;
@@ -116,10 +136,21 @@ impl Session {
         skits.validate()?;
         let skits = Arc::new(skits);
         let identity = Self::identity(root)?;
-        let map = saved.as_ref().map_or(5, |c| c.map_id);
+        let map = match &start {
+            Start::NewGame => 5,
+            Start::Saved(checkpoint) => checkpoint.map_id,
+            Start::Dungeon(destination) => destination.map,
+        };
+        let saved = match &start {
+            Start::Saved(checkpoint) => Some(*checkpoint),
+            _ => None,
+        };
+        let new_game = matches!(start, Start::NewGame);
         let initial = Arc::new(FieldPackage::load(root, files.clone(), map, cache)?);
         let available_fields = available_fields(root)?;
-        let mut entry = if let Some(checkpoint) = &saved {
+        let mut entry = if let Start::Dungeon(destination) = &start {
+            destination.entry(data.clone(), available_fields.clone())?
+        } else if let Some(checkpoint) = saved {
             checkpoint
                 .clone()
                 .entry(&initial.assets, data.clone(), available_fields.clone())?
@@ -150,7 +181,7 @@ impl Session {
         };
         entry.skits = Some(skits.clone());
         let mut field = initial.enter(entry)?;
-        if let Some(checkpoint) = &saved {
+        if let Some(checkpoint) = saved {
             initialize_checkpoint(&mut field, checkpoint)?;
         }
         initial.queue_entry(
@@ -161,7 +192,7 @@ impl Session {
                 resonance_game::field::EntryKind::Arrival
             },
         );
-        let story_movie = if saved.is_none() {
+        let story_movie = if new_game {
             let movie: MovieAsset = files.json("movies/1.json")?;
             movie.validate()?;
             ensure!(
@@ -187,7 +218,7 @@ impl Session {
             identity,
             story_movie,
             prepared_movie: None,
-            movie_started: saved.is_some(),
+            movie_started: !new_game,
             data,
             skits,
             fields,
@@ -614,11 +645,17 @@ pub(super) fn activate(world: &mut World, session: Session) {
 }
 
 /// This switch belongs to the temporary test, including fields reached from it.
-pub(super) fn skip_test_battles(options: Res<RunOptions>, session: Option<ResMut<Session>>) {
-    if options.skip_battles
+pub(super) fn skip_test_battles(
+    options: Res<RunOptions>,
+    dungeons: Option<Res<super::dungeons::Menu>>,
+    session: Option<ResMut<Session>>,
+) {
+    if (options.skip_battles || dungeons.is_some_and(|menu| menu.testing))
         && let Some(mut session) = session
     {
-        session.field.allow_incomplete_scripts = true;
+        if options.skip_battles {
+            session.field.allow_incomplete_scripts = true;
+        }
         if let Err(error) = session.events_mut().world.skip_battle_as_victory() {
             error!("Could not finish test battle: {error}");
         }

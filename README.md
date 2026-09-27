@@ -101,6 +101,12 @@ clock. Simulation remains at 60000/1001 updates per second.
 | Pause movie | Space | — |
 | Performance overlay / snapshot | F3 / F4 | — |
 | Development quicksave / quickload | F5 / F9 | — |
+| Dungeon entrance selector | Shift+Tab | — |
+
+Press **Shift+Tab** at the title or during play to select a Sylvarant dungeon
+entrance. Choose with arrows and Enter, click a row, or press 1–0; Escape closes
+it. Each jump resets the run with fresh puzzle progress and the Sorcerer's Ring,
+and skips battles. Disk saves are unchanged.
 
 From the menu's bottom row, press Down to select the party. Field leader and
 formation order are saved independently; Escape cancels a pending exchange.

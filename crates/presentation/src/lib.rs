@@ -27,7 +27,9 @@ mod audio_output;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
 mod camera;
+mod debug_font;
 mod display;
+mod dungeons;
 mod field_warm;
 mod loading;
 mod renderer;
@@ -410,18 +412,18 @@ fn build_app_with_display(
             (
                 timing::advance_clock,
                 boot::advance,
-                advance,
-                new_game::advance,
+                advance.run_if(dungeons::running),
+                new_game::advance.run_if(dungeons::running),
             )
                 .chain(),
         )
         .add_systems(
             Update,
             (
-                saves::update,
+                saves::update.run_if(dungeons::running),
                 new_game::enter,
-                new_game::skip_test_battles,
-                new_game::transition,
+                new_game::skip_test_battles.run_if(dungeons::running),
+                new_game::transition.run_if(dungeons::running),
                 scene::bind_animated,
                 prepare_field,
                 update_materials,
@@ -445,6 +447,7 @@ fn build_app_with_display(
         Update,
         field_ui::transition_failure.after(new_game::transition),
     );
+    dungeons::install(&mut app, capture_only);
     if !capture_only {
         audio_output::install(&mut app, silent)?;
     } else {
@@ -758,7 +761,12 @@ fn gather_input(
     gamepads: Query<&Gamepad>,
     mut pending: ResMut<PendingInput>,
     replay: Option<Res<Replay>>,
+    dungeons: Option<Res<dungeons::Menu>>,
 ) {
+    if dungeons.is_some_and(|menu| menu.blocked()) {
+        *pending = PendingInput::default();
+        return;
+    }
     if replay.is_some_and(|r| r.0.is_some()) {
         return;
     }
