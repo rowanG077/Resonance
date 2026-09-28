@@ -986,8 +986,17 @@ fn pose(
             let tint = part.spec.outline_color.map_or(Vec4::ONE, |c| {
                 Vec4::from_array(c.map(|v| f32::from(v) / 255.))
             }) * Vec4::new(brightness, brightness, brightness, alpha);
-            let fog_range = if instance.model != Model::Sky && cinema.is_none() {
-                let far = session.travel.camera_distance() + 10000.;
+            // fn_2_D994 draws the sky before enabling distance fog for both
+            // ordinary travel and numbered world scenes.
+            let background = instance.model == Model::Sky
+                || matches!(instance.model, Model::Cinematic(actor)
+                    if cinematic::background(cinema.unwrap().id, actor));
+            let fog_range = if !background {
+                let far = if cinema.is_some() {
+                    cinematic::FAR_CLIP
+                } else {
+                    session.travel.camera_distance() + 10000.
+                };
                 Vec4::new(far * 0.5, far * 0.75, 0., 0.)
             } else {
                 Vec4::ZERO
@@ -1175,19 +1184,27 @@ fn camera(
             eye += Vec3::new(jitter(0), jitter(1), jitter(2)) / 500.;
             target += Vec3::new(jitter(3), jitter(4), jitter(5)) / 50.;
         }
-        (eye - center, target - center, Vec3::Z, 18.9f32, 12800.)
+        (
+            eye - center,
+            target - center,
+            Vec3::Z,
+            18.9f32,
+            cinematic::FAR_CLIP,
+        )
     } else {
         (eye, target, up, 31.668, distance + 10000.)
     };
     for (mut transform, mut projection) in &mut cameras {
         *transform = Transform::from_translation(eye).looking_at(target, up);
-        *projection = Projection::custom(super::camera::TitleProjection(PerspectiveProjection {
-            fov: fov.to_radians(),
-            aspect_ratio: display.0.aspect(),
-            near: 100.,
-            far,
-            ..default()
-        }));
+        *projection = Projection::custom(super::camera::WorldProjection(
+            super::camera::TitleProjection(PerspectiveProjection {
+                fov: fov.to_radians(),
+                aspect_ratio: display.0.aspect(),
+                near: 100.,
+                far,
+                ..default()
+            }),
+        ));
     }
     TitleOutput::update(&mut outputs, |brightness| {
         let (fade, white) = scene

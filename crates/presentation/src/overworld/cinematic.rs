@@ -2,6 +2,8 @@
 use super::*;
 use resonance_game::overworld::cinematic::Playback;
 
+pub(super) const FAR_CLIP: f32 = 12800.;
+
 pub(super) fn origin(playback: &Playback) -> Position {
     let eye = playback.camera().position;
     Position::from_map([38400. + eye[0], 28800. - eye[1], 0.]).unwrap()
