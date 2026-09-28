@@ -56,7 +56,6 @@ pub struct TravelState {
     pub heading: f32,
     pub camera_yaw: f32,
     pub alternate_perspective: bool,
-    #[serde(default)]
     pub map_display: MapDisplay,
     pub mount: Mount,
     /// Flight display altitude, separate from the terrain underneath.
