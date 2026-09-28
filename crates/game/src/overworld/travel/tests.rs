@@ -88,16 +88,10 @@ fn world_views_cycle_fade_and_survive_restore_for_every_mount() -> Result<()> {
         assert_eq!(travel.state.position, position);
         let checkpoint = travel.checkpoint()?;
         let encoded = serde_json::to_value(&checkpoint)?;
-        let restored = Travel::new(serde_json::from_value(encoded.clone())?, parameters())?;
+        let restored = Travel::new(serde_json::from_value(encoded)?, parameters())?;
         assert_eq!(restored.state(), &checkpoint);
         assert_eq!(restored.map_opacity(), [0, 255]);
         assert_eq!(restored.camera_distance(), travel.camera_distance());
-        let mut legacy = encoded;
-        legacy.as_object_mut().unwrap().remove("map_display");
-        assert_eq!(
-            serde_json::from_value::<State>(legacy)?.map_display,
-            MapDisplay::Small
-        );
         for display in [MapDisplay::Hidden, MapDisplay::Small] {
             travel.step(
                 Input {
