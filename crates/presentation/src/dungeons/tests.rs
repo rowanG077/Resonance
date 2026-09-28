@@ -358,6 +358,39 @@ fn palmacosta_post_boss_exit_runs_the_ranch_destruction() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn iselia_damage_spheres_keep_moving() -> Result<()> {
+    for (map, first, count) in [(194, 3021, 8), (196, 3301, 13)] {
+        let mut field = enter(5, map, None)?;
+        advance_until(&mut field, FieldSession::player_has_control)?;
+        // Let reverse clips cross zero before measuring: they previously moved
+        // once, then froze together at the first sample for the rest of play.
+        for _ in 0..1200 {
+            field.step(FieldInput::default())?;
+        }
+        let mut bounds = vec![([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]); count];
+        for _ in 0..1200 {
+            field.step(FieldInput::default())?;
+            for (i, (min, max)) in bounds.iter_mut().enumerate() {
+                let actor = &field.events.world.actors[&(first + i as i32)];
+                for axis in 0..2 {
+                    min[axis] = min[axis].min(actor.position[axis]);
+                    max[axis] = max[axis].max(actor.position[axis]);
+                }
+            }
+        }
+        for (i, (min, max)) in bounds.into_iter().enumerate() {
+            assert!(
+                (max[0] - min[0]).max(max[1] - min[1]) > 200.,
+                "map {map} sphere {} stopped moving: {min:?}..{max:?}",
+                first + i as i32
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn iselia_exit_restores_empty_party_slots_and_finishes_the_scene() -> Result<()> {
     // Field 193 dispatches the post-Forcystus exit at story 20307000.
     let mut field = enter(5, 193, Some(20_307_000))?;

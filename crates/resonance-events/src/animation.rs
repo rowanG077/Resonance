@@ -157,8 +157,12 @@ impl Animation {
         }
     }
     pub fn sample(&self, tick: u32, presentation_delay: u32, duration: f32) -> f32 {
-        let elapsed = self.elapsed(tick, presentation_delay).max(0.);
-        if self.repeat && duration > self.loop_start && elapsed > duration {
+        let elapsed = self.elapsed(tick, presentation_delay);
+        if self.repeat && duration > 0. && elapsed < 0. {
+            // fn_8006D2E0 wraps reverse playback through the full duration.
+            // The loop-start offset applies only to forward playback.
+            elapsed.rem_euclid(duration)
+        } else if self.repeat && duration > self.loop_start && elapsed > duration {
             let phase = (elapsed - self.loop_start) % (duration - self.loop_start);
             if phase == 0. {
                 duration
@@ -166,7 +170,7 @@ impl Animation {
                 self.loop_start + phase
             }
         } else {
-            elapsed.min(duration)
+            elapsed.clamp(0., duration)
         }
     }
     pub fn seek(&mut self, sample: f32, tick: u32) {
@@ -212,6 +216,21 @@ impl Animation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reverse_loops_cross_zero_and_keep_moving_after_multiple_cycles() {
+        let mut clip = Animation::new(1, 12, 100, 0);
+        clip.start_frame = 10.;
+        clip.rate = -2.;
+        clip.loop_start = 20.;
+        assert_eq!(clip.sample(5, 0, 100.), 0.);
+        assert_eq!(clip.sample(6, 0, 100.), 98.);
+        assert_eq!(clip.sample(55, 0, 100.), 0.);
+        assert_eq!(clip.sample(106, 0, 100.), 98.);
+        clip.repeat = false;
+        assert_eq!(clip.sample(6, 0, 100.), 0.);
+        assert_eq!(clip.sample(106, 0, 100.), 0.);
+    }
 
     #[test]
     fn changing_speed_during_a_script_pause_keeps_the_pose_until_resume() {
