@@ -956,6 +956,10 @@ impl GameWorld {
         if !self.actors.contains_key(&script) {
             return Ok(script);
         }
+        self.unaddressable_actor_key()
+    }
+
+    pub(crate) fn unaddressable_actor_key(&self) -> Result<i32, String> {
         // Field services reserve the preceding 2048 negative IDs. Duplicates
         // keep separate render/animation instances without replacing the first.
         (i32::MIN + 2048..i32::MIN + 6144)
