@@ -2572,6 +2572,35 @@ fn loaded_motion_and_party_model_keep_their_own_resource_namespaces() {
 }
 
 #[test]
+fn zero_id_spawns_keep_independent_models_but_cannot_be_addressed() {
+    let resources = ResourceLibrary {
+        bindings: [(1, (ResourceKind::Model, 1))].into(),
+        models: [(1, model([12], 20))].into(),
+        ..Default::default()
+    };
+    let code = script(&[
+        (Call::SpawnActor, &[0, 10, 20, 30, 0, 0, 0, 0]),
+        (Call::SpawnActor, &[0, 40, 50, 60, 0, 0, 0, 0]),
+        (Call::SetActorPosition, &[0, 100, 200, 300]),
+        (Call::DespawnActor, &[0]),
+    ]);
+    let events = runtime(program(&code, &[0x20ff]), resources, GameWorld::default());
+    assert!(!events.world.actors.contains_key(&0));
+    assert_eq!(events.world.actors.len(), 2);
+    let positions: Vec<_> = events
+        .world
+        .actor_order()
+        .iter()
+        .map(|id| {
+            let actor = &events.world.actors[id];
+            assert_eq!(actor.resource, 1);
+            actor.position
+        })
+        .collect();
+    assert_eq!(positions, [[10., 20., 30.], [40., 50., 60.]]);
+}
+
+#[test]
 fn caller_palette_geometry_rejects_actor_instantiation_through_direct_and_loaded_handles() {
     let resource = 0xffee0000_u32;
     for handle in [resource as i32, 0xffff0000_u32 as i32] {

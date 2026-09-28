@@ -1275,7 +1275,9 @@ impl NativeHost<'_> {
                 let resource = if locator {
                     a[5] as u32
                 } else {
-                    self.resolve(a[5], ResourceKind::Model)?
+                    // fn_8005D138 falls back to Lloyd for model ID zero:
+                    // the field model table contains only IDs above nine.
+                    self.resolve(if a[5] == 0 { 1 } else { a[5] }, ResourceKind::Model)?
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
                 if self.world.field_camera.is_some() {
@@ -1361,7 +1363,15 @@ impl NativeHost<'_> {
                         animation.rate = 0.002;
                     }
                 }
-                self.world.insert_actor(a[0], actor);
+                // fn_80059CFC allocates ID-zero actors, but find_actor(0)
+                // always returns null. Keep each instance drawable without
+                // making later script commands address or replace it.
+                let id = if a[0] == 0 {
+                    self.world.unaddressable_actor_key()?
+                } else {
+                    a[0]
+                };
+                self.world.insert_actor(id, actor);
             }
             NativeCall::DespawnActor => {
                 self.world.despawn_scene_actors(a[0]);
