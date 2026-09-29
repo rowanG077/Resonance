@@ -415,7 +415,7 @@ fn iselia_exit_restores_empty_party_slots_and_finishes_the_scene() -> Result<()>
             .read(0x40, symphonia_script::Width::S32)?,
         20_308_000
     );
-    for id in [1, 2, 3, 4, 9] {
+    for id in [1, 2, 3, 4, 5, 6, 7, 8] {
         assert!(
             field
                 .events
@@ -428,6 +428,7 @@ fn iselia_exit_restores_empty_party_slots_and_finishes_the_scene() -> Result<()>
         );
     }
     assert!(field.events.exploration_error.is_none());
+    assert_eq!(field.events.world.party.as_ref().unwrap().field_leader, 1);
     Ok(())
 }
 
