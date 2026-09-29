@@ -395,6 +395,13 @@ fn iselia_exit_restores_empty_party_slots_and_finishes_the_scene() -> Result<()>
     // Field 193 dispatches the post-Forcystus exit at story 20307000.
     let mut field = enter(5, 193, Some(20_307_000))?;
     advance_until(&mut field, |field| {
+        field.events.world.actors.contains_key(&715)
+    })?;
+    // The shipped malformed SpawnActor is ignored in Dolphin; it does not
+    // create actor 701. The remaining scene actors must still be present.
+    assert!(!field.events.world.actors.contains_key(&701));
+    assert!((702..=715).all(|id| field.events.world.actors.contains_key(&id)));
+    advance_until(&mut field, |field| {
         field.events.world.field_transition.is_some()
     })?;
     assert_eq!(

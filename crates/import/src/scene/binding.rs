@@ -265,9 +265,9 @@ impl<'a> Map<'a> {
     }
 
     pub(crate) fn script(&self) -> Result<Vec<u8>> {
-        let bytes = self.archive.section(6)?;
-        symphonia_script::Program::decode(bytes)?;
-        Ok(bytes.to_vec())
+        let bytes = crate::field_script::prepare(self.archive.section(6)?);
+        symphonia_script::Program::decode(&bytes)?;
+        Ok(bytes.into_owned())
     }
 
     pub(crate) fn messages(&self) -> Result<Vec<symphonia_script::message::Message>> {

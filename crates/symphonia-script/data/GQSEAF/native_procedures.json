@@ -32,7 +32,8 @@
       "name": "close_dialogue",
       "arguments": [
         "slot"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 11,
@@ -53,7 +54,8 @@
         "y",
         "primary_message",
         "secondary_message"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 13,
@@ -95,7 +97,8 @@
         "resource_id",
         "movement_kind",
         "speed_or_emote_duration"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 17,
@@ -122,7 +125,8 @@
       "name": "despawn_actor",
       "arguments": [
         "actor_id"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 19,
@@ -138,7 +142,8 @@
       "arguments": [
         "actor_id",
         "value"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 21,
@@ -157,7 +162,8 @@
         "y",
         "z",
         "speed_or_duration"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 23,
@@ -176,7 +182,8 @@
         "arg2",
         "arg3",
         "arg4"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 25,
@@ -186,7 +193,8 @@
         "x",
         "y",
         "z"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 26,
@@ -194,7 +202,8 @@
       "arguments": [
         "actor_id",
         "heading_degrees"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 27,
@@ -232,7 +241,8 @@
         "arg3",
         "arg4",
         "arg5"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 31,
@@ -254,7 +264,8 @@
         "arg13",
         "arg14",
         "arg15"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 32,
@@ -328,14 +339,16 @@
         "actor_id",
         "operation",
         "value"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 41,
       "name": "learn_title",
       "arguments": [
         "packed_title"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 42,
@@ -361,7 +374,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 45,
@@ -369,7 +383,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 46,
@@ -377,7 +392,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 47,
@@ -400,14 +416,16 @@
         "arg5",
         "arg6",
         "arg7"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 49,
       "name": "remove_automatic_event_triggers",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 50,
@@ -421,21 +439,24 @@
         "value_20",
         "value_22",
         "value_24"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 51,
       "name": "remove_touch_triggers",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 52,
       "name": "heal_party",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 53,
@@ -448,7 +469,8 @@
         "arg4",
         "arg5",
         "arg6"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 54,
@@ -465,7 +487,8 @@
         "arg0",
         "arg1",
         "arg2"
-      ]
+      ],
+      "returns_value": true
     },
     {
       "opcode": 56,
@@ -488,7 +511,8 @@
       "name": "release_resource_instance",
       "arguments": [
         "instance"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 59,
@@ -505,7 +529,8 @@
         "value_20",
         "value_22",
         "value_24"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 60,
@@ -525,7 +550,8 @@
         "y3",
         "z3",
         "height"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 61,
@@ -548,14 +574,16 @@
         "y4",
         "z4",
         "height"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 62,
       "name": "remove_confirmed_triggers",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 63,
@@ -563,7 +591,8 @@
       "arguments": [
         "event_handle",
         "command"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 64,
@@ -575,7 +604,8 @@
         "z",
         "yaw"
       ],
-      "yields": true
+      "yields": true,
+      "returns_value": false
     },
     {
       "opcode": 65,
@@ -593,7 +623,8 @@
         "arg3",
         "arg4",
         "arg5"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 67,
@@ -601,7 +632,8 @@
       "arguments": [
         "scenery",
         "channel"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 68,
@@ -627,7 +659,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 71,
@@ -639,7 +672,8 @@
       "name": "preload_field",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 73,
@@ -647,7 +681,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 74,
@@ -656,7 +691,8 @@
         "amplitude",
         "decay_ticks",
         "hold_ticks"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 75,
@@ -675,7 +711,8 @@
         "alpha",
         "fade_in_ticks",
         "depth_or_caption_hold"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 76,
@@ -687,7 +724,8 @@
         "y",
         "z",
         "heading_or_direction"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 77,
@@ -720,14 +758,16 @@
         "value0",
         "value1",
         "value2"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 80,
       "name": "audio_command",
       "arguments": [
         "command"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 81,
@@ -736,7 +776,8 @@
         "selector",
         "limit",
         "amount"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 82,
@@ -744,7 +785,8 @@
       "arguments": [
         "sound_id",
         "raw_velocity"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 83,
@@ -754,14 +796,16 @@
         "arg1",
         "arg2",
         "arg3"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 84,
       "name": "play_movie_blocking",
       "arguments": [
         "field_or_resource_id"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 85,
@@ -776,7 +820,8 @@
       "name": "play_movie",
       "arguments": [
         "media_id"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 87,
@@ -795,7 +840,8 @@
         "arg10",
         "arg11",
         "arg12"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 88,
@@ -810,7 +856,8 @@
       "name": "wait_media_position",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 90,
@@ -831,14 +878,16 @@
         "arg3",
         "arg4",
         "arg5"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 93,
       "name": "return_field_control",
       "arguments": [
         "action_id"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 94,
@@ -847,7 +896,8 @@
         "arg0",
         "arg1",
         "arg2"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 95,
@@ -866,12 +916,14 @@
     {
       "opcode": 96,
       "name": "disable_mapped_input",
-      "arguments": []
+      "arguments": [],
+      "returns_value": false
     },
     {
       "opcode": 97,
       "name": "enable_mapped_input",
-      "arguments": []
+      "arguments": [],
+      "returns_value": false
     },
     {
       "opcode": 98,
@@ -885,7 +937,8 @@
       "arguments": [
         "mode",
         "duration"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 100,
@@ -894,7 +947,8 @@
         "command",
         "value"
       ],
-      "yields": true
+      "yields": true,
+      "returns_value": false
     },
     {
       "opcode": 101,
@@ -931,14 +985,16 @@
       "name": "set_event_bit",
       "arguments": [
         "bit"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 105,
       "name": "clear_event_bit",
       "arguments": [
         "bit"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 106,
@@ -978,7 +1034,8 @@
         "controller_port",
         "duration_ticks",
         "brake_on_stop"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 111,
@@ -1014,7 +1071,8 @@
         "timer_id",
         "value0",
         "value1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 115,
@@ -1026,7 +1084,8 @@
         "z",
         "radius",
         "height"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 116,
@@ -1038,7 +1097,8 @@
         "z",
         "radius",
         "height"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 117,
@@ -1053,7 +1113,8 @@
         "z",
         "radius",
         "height"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 118,
@@ -1090,7 +1151,8 @@
         "unused_1",
         "unused_2",
         "unused_3"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 122,
@@ -1116,7 +1178,8 @@
         "y",
         "z",
         "unlock_flag"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 124,
@@ -1131,7 +1194,8 @@
       "name": "discard_value",
       "arguments": [
         "value"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 126,
@@ -1139,7 +1203,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 127,
@@ -1182,7 +1247,8 @@
         "slot",
         "operation",
         "enabled"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 131,
@@ -1192,7 +1258,8 @@
         "skippable",
         "repeat_if_seen"
       ],
-      "yields": true
+      "yields": true,
+      "returns_value": false
     },
     {
       "opcode": 132,
@@ -1231,14 +1298,16 @@
       "name": "forget_recipe",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 137,
       "name": "snapshot_party",
       "arguments": [
         "operation"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 138,
@@ -1354,7 +1423,8 @@
         "arg8",
         "arg9",
         "arg10"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 150,
@@ -1416,7 +1486,8 @@
         "resource_index",
         "duration_or_frame",
         "flags"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 156,
@@ -1424,7 +1495,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 157,
@@ -1496,7 +1568,8 @@
         "value1",
         "value2",
         "value3"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 165,
@@ -1512,7 +1585,8 @@
       "name": "select_actor",
       "arguments": [
         "actor_id"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 167,
@@ -1521,7 +1595,8 @@
         "x",
         "y",
         "z"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 168,
@@ -1535,7 +1610,8 @@
         "parameter5",
         "global_5c",
         "global_60"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 169,
@@ -1576,7 +1652,8 @@
         "red",
         "green",
         "blue"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 173,
@@ -1585,7 +1662,8 @@
         "arg0",
         "arg1",
         "arg2"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 174,
@@ -1599,7 +1677,8 @@
     {
       "opcode": 175,
       "name": "stop_camera_track",
-      "arguments": []
+      "arguments": [],
+      "returns_value": false
     },
     {
       "opcode": 176,
@@ -1617,7 +1696,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 178,
@@ -1625,7 +1705,8 @@
       "arguments": [
         "actor_id",
         "mode"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 179,
@@ -1633,7 +1714,8 @@
       "arguments": [
         "actor_id",
         "behavior"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 180,
@@ -1654,7 +1736,8 @@
         "arg3",
         "arg4",
         "arg5"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 182,
@@ -1666,7 +1749,8 @@
         "x",
         "y",
         "z"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 183,
@@ -1675,7 +1759,8 @@
         "actor_id",
         "owner_id",
         "member_index"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 184,
@@ -1698,7 +1783,8 @@
         "arg5",
         "arg6",
         "arg7"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 186,
@@ -1712,7 +1798,8 @@
         "resource",
         "behavior",
         "speed"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 187,
@@ -1726,7 +1813,8 @@
         "resource",
         "behavior",
         "speed"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 188,
@@ -1754,7 +1842,8 @@
         "heading_offset",
         "distance",
         "unused"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 191,
@@ -1778,7 +1867,8 @@
         "parameter7",
         "parameter8",
         "parameter9"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 192,
@@ -1800,7 +1890,8 @@
         "y",
         "z",
         "scale"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 194,
@@ -1813,7 +1904,8 @@
         "y",
         "z",
         "scale"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 195,
@@ -1826,7 +1918,8 @@
         "arg4",
         "arg5",
         "arg6"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 196,
@@ -1839,7 +1932,8 @@
         "scale_y_percent",
         "scale_z_percent",
         "duration"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 197,
@@ -1848,7 +1942,8 @@
         "actor_id",
         "animation_id",
         "loop_or_mode"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 198,
@@ -1875,7 +1970,8 @@
         "spawn_count",
         "unused_source_parameter_a",
         "unused_source_parameter_b"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 199,
@@ -1890,7 +1986,8 @@
       "name": "learn_recipe",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 201,
@@ -1906,7 +2003,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 203,
@@ -1918,7 +2016,8 @@
         "x",
         "y",
         "z"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 204,
@@ -1926,7 +2025,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 205,
@@ -2082,7 +2182,8 @@
         "arg5",
         "arg6",
         "arg7"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 215,
@@ -2094,7 +2195,8 @@
         "z_or_value",
         "speed_or_duration",
         "auxiliary"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 216,
@@ -2112,7 +2214,8 @@
       "name": "set_ring_timer",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 219,
@@ -2125,7 +2228,8 @@
       "name": "mark_treasure_opened",
       "arguments": [
         "treasure_flag"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 221,
@@ -2169,7 +2273,8 @@
         "raw_velocity",
         "channel",
         "note"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 225,
@@ -2178,7 +2283,8 @@
         "binding_index",
         "operation",
         "value"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 226,
@@ -2188,7 +2294,8 @@
         "arg1",
         "arg2",
         "arg3"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 227,
@@ -2206,7 +2313,8 @@
       "name": "set_field_countdown",
       "arguments": [
         "ticks"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 230,
@@ -2238,14 +2346,16 @@
       "name": "select_audio_bank",
       "arguments": [
         "resource_handle"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 234,
       "name": "set_sound_reverb",
       "arguments": [
         "arg0"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 235,
@@ -2279,7 +2389,8 @@
       "arguments": [
         "skit_id"
       ],
-      "yields": true
+      "yields": true,
+      "returns_value": false
     },
     {
       "opcode": 240,
@@ -2293,7 +2404,8 @@
       "arguments": [
         "arg0",
         "arg1"
-      ]
+      ],
+      "returns_value": false
     },
     {
       "opcode": 242,
@@ -2316,7 +2428,8 @@
         "arg0",
         "arg1",
         "arg2"
-      ]
+      ],
+      "returns_value": false
     }
   ]
 }

@@ -1197,7 +1197,10 @@ pub(crate) fn cook_script(bytes: &[u8], name: &str, output: &Path) -> Result<boo
     let Some(script) = decode_script(bytes)? else {
         return Ok(false);
     };
-    write_atomic(&output.join(name).join("script.ssb"), script.bytes)?;
+    write_atomic(
+        &output.join(name).join("script.ssb"),
+        &crate::field_script::prepare(script.bytes),
+    )?;
     write_atomic(
         &output.join(name).join("messages.json"),
         &serde_json::to_vec(&script.messages)?,
