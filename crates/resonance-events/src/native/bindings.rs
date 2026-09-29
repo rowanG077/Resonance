@@ -202,7 +202,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registered_signatures_agree_with_the_independent_abi_catalog() {
+    fn registered_signatures_match_the_script_analysis_catalog() {
         let catalog = symphonia_script::semantics::NativeRegistry::gqseaf();
         let bindings = NativeHost::NATIVES;
         for opcode in 0..=u8::MAX {
@@ -218,9 +218,11 @@ mod tests {
                 spec.arguments.len(),
                 "{opcode:#04x}"
             );
-            if let Some(returns) = spec.returns_value {
-                assert_eq!(binding.signature.returns_value, returns, "{opcode:#04x}");
-            }
+            assert_eq!(
+                Some(binding.signature.returns_value),
+                spec.returns_value,
+                "{opcode:#04x}"
+            );
         }
     }
 }
