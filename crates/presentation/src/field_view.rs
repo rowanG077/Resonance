@@ -1160,6 +1160,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         CaptureTarget::Sequence(sequence) => sequence.checkpoint.as_ref(),
         _ => None,
     };
+    let scene_entry = matches!(target, CaptureTarget::Sequence(sequence) if sequence.scene_entry);
     let (assets, mut session) = if setup_prompt {
         let entry = super::new_game::Session::load(&root)?;
         (entry.assets, entry.field)
@@ -1171,7 +1172,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
             || false,
         )?;
         let assets = package.assets.clone();
-        let entry = if let Some(checkpoint) = checkpoint {
+        let mut entry = if let Some(checkpoint) = checkpoint {
             let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
             checkpoint.clone().entry(
                 &assets,
@@ -1181,8 +1182,11 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         } else {
             Default::default()
         };
+        if scene_entry {
+            entry.kind = resonance_game::field::EntryKind::Arrival;
+        }
         let mut session = package.enter(entry)?;
-        if let Some(checkpoint) = checkpoint {
+        if let Some(checkpoint) = checkpoint.filter(|_| !scene_entry) {
             super::new_game::initialize_checkpoint(&mut session, checkpoint)?;
         }
         (assets, session)

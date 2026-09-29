@@ -21,6 +21,9 @@ pub struct FieldSequence {
     /// Compact field restart for paired oracle cases; no transient VM state.
     #[serde(default)]
     pub checkpoint: Option<resonance_game::field::FieldCheckpoint>,
+    /// Use copied progress for an arrival scene instead of loading a free-control save.
+    #[serde(default)]
+    pub scene_entry: bool,
     pub start_tick: Option<u32>,
     pub probe: Option<crate::ClassroomProbe>,
     pub updates: u32,
@@ -47,6 +50,10 @@ pub struct FieldMovement {
 }
 impl FieldSequence {
     pub(super) fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.scene_entry || (self.checkpoint.is_some() && self.start_tick.is_some()),
+            "scene entry requires copied progress and an explicit start tick"
+        );
         ensure!(
             (1..=MAX_SEQUENCE_UPDATES).contains(&self.updates)
                 && (1..=8).contains(&self.renders_per_update),

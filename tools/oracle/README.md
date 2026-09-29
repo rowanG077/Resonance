@@ -172,6 +172,11 @@ Other device-free tools:
 | `title_load_probe SLOTS OUTPUT` | Load in a new process, including cancel/reopen and subsequent exploration |
 | `new_game_capture OUTPUT COOKED_ROOT exploration REPLAY.json` | Continuous New Game through the supported exploration/save route |
 
+For a scripted arrival, `field_sequence` accepts `scene_entry: true` with a
+copied `checkpoint` and explicit `start_tick`. This starts normal arrival scripts
+without requiring free control before recording. Declare the copied progress as
+a scene fixture; this does not validate save restoration or natural progression.
+
 These are presentation examples under `target/debug/examples`. The event sweep
 fails on missing services, resources, audio or glyphs, and uses ordinary Cancel
 input to close shops/menus. It synthesizes every audio request and waits for real
