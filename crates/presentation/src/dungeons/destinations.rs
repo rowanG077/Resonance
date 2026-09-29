@@ -161,9 +161,20 @@ impl Destination {
                 }
             }
             Progress::IseliaInfiltration => {
+                let party = persistent.party.as_mut().unwrap();
+                party.formation = vec![1, 2, 3, 5, 4, 6, 7, 8];
+                party.travel.saved_formation = party.formation.clone();
+                // FAA_D02 L_2D42 backs up the party and field leader before
+                // the split. FAA_D01 restores both after the Forcystus battle.
+                for (slot, id) in party.formation.iter().copied().enumerate() {
+                    persistent
+                        .memory
+                        .write(0x150 + slot as u16, Width::S8, i32::from(id))?;
+                }
+                persistent.memory.write(0x158, Width::S8, 1)?;
                 // FAA_D03 reconstructs groups from three bits per character:
                 // reserve group followed by the two slot bits.
-                for (slot, id) in PARTY.into_iter().enumerate() {
+                for (slot, id) in party.formation.iter().copied().enumerate() {
                     let base = 150 + u16::from(id) * 3;
                     for (offset, set) in [slot >= 4, slot & 2 != 0, slot & 1 != 0]
                         .into_iter()
