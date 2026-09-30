@@ -298,6 +298,67 @@ fn movement_behavior_changes_resume_chasing_and_grab_queries_follow_live_blocks(
 }
 
 #[test]
+fn moving_effect_trail_finishes_with_a_burst_and_retains_its_afterimages() {
+    let resources = ResourceLibrary {
+        bindings: [(100, (ResourceKind::Model, 100))].into(),
+        models: [(100, model([], 1))].into(),
+        ..Default::default()
+    };
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &[
+            5501, 0, 0, 0, 100, 46, 0, 30, 52, 75, 25, -35, 105, 0, 0, 0, 0, 0,
+        ],
+    )]);
+    let query = script(&[
+        (Call::GetActorProperty, &[5501, 33]),
+        (Call::DespawnActor, &[5501]),
+    ]);
+    let mut world = GameWorld::default();
+    world.input_enabled = true;
+    let mut events = runtime(program(&setup, &query), resources, world);
+    events.step().unwrap();
+    assert!(!events.world.actors[&5501].visible);
+    assert_eq!(events.world.actors[&5501].position, [30., 0., 0.]);
+    assert_eq!(events.world.billboards.len(), 21);
+    assert_eq!(events.world.model_particles.len(), 1);
+    let image = events.world.model_particles.values().next().unwrap();
+    assert_eq!(image.position, [30., 0., 0.]);
+    assert_eq!(image.rotation, [0., -90., 0.]);
+    assert_eq!(image.scale, [0.5, 0.5, 1.5]);
+    assert_eq!(image.rgba, [16, 63, 63, 200]);
+    assert_eq!(
+        image.blend,
+        resonance_events::model_particle::Blend::Additive
+    );
+    for _ in 0..3 {
+        events.step().unwrap();
+    }
+    // Native integer countdown stops this 3.5-update journey at 90, then
+    // emits twenty arrival motes and one final model at that same endpoint.
+    assert_eq!(events.world.actors[&5501].position, [90., 0., 0.]);
+    assert_eq!(events.world.model_particles.len(), 2);
+    assert_eq!(
+        events
+            .world
+            .billboards
+            .values()
+            .filter(|p| p.born == events.world.tick)
+            .count(),
+        21
+    );
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 3);
+    assert!(!events.world.actors.contains_key(&5501));
+    let image = events.world.model_particles.values().next().unwrap();
+    assert!(image.scale[0] > 0.5 && image.rgba[3] < 200);
+    steps(&mut events, 65);
+    assert!(events.world.model_particles.is_empty());
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn quake_station_effect_shakes_once_then_reaches_its_finished_phase() {
     const EMITTER: i32 = 500;
     const QUAKE: i32 = 22;
@@ -539,9 +600,10 @@ fn model_particles_animate_and_expire_without_aliasing_actor_handles() {
         (Call::SetModelParticleProperty, &[1, SCALE_X, 150]),
         (
             Call::CreateModelParticle,
-            &[MODEL, 2, 0, 0, 0, 0, 0, 0, 100, 255, 0],
+            &[MODEL, 2, 0, 0, 0, 0, 0, 0, 100, 255, -10],
         ),
         (Call::SetModelParticleProperty, &[2, VELOCITY_X, 100]),
+        (Call::SetModelParticleProperty, &[2, 448, 2]), // Linear fade.
     ]);
     let mut world = GameWorld::default();
     world.insert_actor(1, Actor::new(MODEL as u32, [99.; 3]));
@@ -554,6 +616,7 @@ fn model_particles_animate_and_expire_without_aliasing_actor_handles() {
     assert_eq!(events.world.model_particles[&2].position, [1., 0., 0.]);
     events.step().unwrap();
     assert_eq!(events.world.model_particles[&2].position, [2., 0., 0.]);
+    assert_eq!(events.world.model_particles[&2].rgba[3], 255 - 2 * 10);
     events.step().unwrap();
     assert!(!events.world.model_particles.contains_key(&2));
     let permanent = &events.world.model_particles[&1];

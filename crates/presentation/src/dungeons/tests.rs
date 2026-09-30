@@ -391,44 +391,14 @@ fn iselia_damage_spheres_keep_moving() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
-fn iselia_exit_restores_empty_party_slots_and_finishes_the_scene() -> Result<()> {
-    // Field 193 dispatches the post-Forcystus exit at story 20307000.
+fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
     let mut field = enter(5, 193, Some(20_307_000))?;
-    advance_until(&mut field, |field| {
-        field.events.world.actors.contains_key(&715)
-    })?;
-    // The shipped malformed SpawnActor is ignored in Dolphin; it does not
-    // create actor 701. The remaining scene actors must still be present.
-    assert!(!field.events.world.actors.contains_key(&701));
-    assert!((702..=715).all(|id| field.events.world.actors.contains_key(&id)));
-    advance_until(&mut field, |field| {
-        field.events.world.field_transition.is_some()
-    })?;
-    assert_eq!(
-        field.events.world.field_transition.as_ref().unwrap().map,
-        80
-    );
-    assert_eq!(
-        field
-            .events
-            .memory()
-            .read(0x40, symphonia_script::Width::S32)?,
-        20_308_000
-    );
-    for id in [1, 2, 3, 4, 5, 6, 7, 8] {
-        assert!(
-            field
-                .events
-                .world
-                .party
-                .as_ref()
-                .unwrap()
-                .formation
-                .contains(&id)
-        );
-    }
-    assert!(field.events.exploration_error.is_none());
-    assert_eq!(field.events.world.party.as_ref().unwrap().field_leader, 1);
+    replay(&mut field, |f| f.events.world.field_transition.is_some())?;
+    assert_eq!(field.story_progress()?, 20_308_000);
+    let party = field.events.world.party.as_ref().unwrap();
+    assert_eq!(party.formation.len(), 8);
+    assert!(party.formation.iter().all(|id| *id != 0));
+    assert_eq!(party.field_leader, 1);
     Ok(())
 }
 

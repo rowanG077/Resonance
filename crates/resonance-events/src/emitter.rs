@@ -45,6 +45,7 @@ mod rising;
 mod scatter;
 mod smoke;
 mod splash;
+mod trail;
 mod veil;
 use crate::{
     GameWorld,
@@ -88,6 +89,7 @@ pub(crate) enum Emitter {
     Quake(quake::Quake),
     Orbit(orbit::Orbit),
     Splash(splash::Splash),
+    Trail(trail::Trail),
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +169,7 @@ impl Emitter {
             }
             31 => return Ok(Self::Contracting(contracting::Contracting::from_native(a)?)),
             33 => return Ok(Self::Orbit(orbit::Orbit::from_native(a)?)),
+            46 => return Ok(Self::Trail(trail::Trail::from_native(a)?)),
             54 => {
                 return Ok(Self::Rising(rising::Rising::from_native(
                     a,
@@ -218,6 +221,7 @@ impl Emitter {
             Self::Quake(quake) => return quake.property(property, value),
             Self::Orbit(orbit) => return orbit.property(property, value),
             Self::Splash(splash) => return splash.property(property, value),
+            Self::Trail(trail) => return trail.property(property, value),
             Self::LightColumn(column) => column,
         };
         if property == PHASE_PROPERTY {
@@ -453,6 +457,7 @@ impl Motes {
 impl GameWorld {
     pub(crate) fn step_emitters(&mut self, effect_tick: u32) -> Result<(), String> {
         let mut births = Vec::new();
+        let mut models = Vec::new();
         let mut ripples = Vec::new();
         let camera_direction = self.field_camera.as_ref().map_or([0., -1., 0.], |camera| {
             std::array::from_fn(|i| camera.position[i] - camera.target[i])
@@ -516,6 +521,17 @@ impl GameWorld {
                 continue;
             }
             let column = match emitter {
+                Emitter::Trail(trail) => {
+                    models.extend(trail.particles(
+                        &mut actor.position,
+                        actor.resource,
+                        actor.properties.get(&5).copied().unwrap_or(0) as f32,
+                        self.tick,
+                        &mut self.random_state,
+                        &mut births,
+                    )?);
+                    continue;
+                }
                 Emitter::Burst(burst) => {
                     burst.particles(
                         actor.position,
@@ -700,6 +716,9 @@ impl GameWorld {
         }
         for ripple in ripples {
             self.emit_refraction(ripple)?;
+        }
+        for model in models {
+            self.emit_model_particle(model)?;
         }
         Ok(())
     }
