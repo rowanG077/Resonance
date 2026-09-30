@@ -1,9 +1,7 @@
-//! Independent model particles (native 0xDD/0xDE), with no gameplay actor identity.
+//! Independent model particles, with no gameplay actor identity.
 const POOL_CAPACITY: usize = 512;
 const PERCENT: f32 = 100.;
-const ALPHA_FRACTION: i16 = 16;
-const MAX_ALPHA: i16 = 0x0fff;
-const FADE_TICKS: u16 = 32;
+const FADE_TICKS: u32 = 32;
 const FADE_STEP: u8 = 8;
 const GRAVITY: f32 = 0.98;
 
@@ -21,21 +19,6 @@ impl TryFrom<i32> for Blend {
             1 => Ok(Self::Additive),
             2 => Ok(Self::Subtractive),
             _ => Err("inherited model-particle blend is not implemented".into()),
-        }
-    }
-}
-#[derive(Debug, Clone, Copy)]
-enum Lifetime {
-    Frames(u16),
-    Indefinite,
-    Expired,
-}
-impl From<i16> for Lifetime {
-    fn from(value: i16) -> Self {
-        match value {
-            i16::MAX => Self::Indefinite,
-            0.. => Self::Frames(value as u16),
-            _ => Self::Expired,
         }
     }
 }
@@ -62,7 +45,7 @@ pub struct ModelParticle {
     pub rgba: [u8; 4],
     pub blend: Blend,
     pub field_lighting: bool,
-    lifetime: Lifetime,
+    remaining: Option<u32>,
     velocity: [f32; 3],
     angular_velocity: [f32; 3],
     scale_delta: [f32; 3],
@@ -70,22 +53,27 @@ pub struct ModelParticle {
     speed: f32,
     gravity: f32,
     fade: Fade,
-    alpha: i16,
-    alpha_delta: i16,
+    alpha: f32,
+    alpha_delta: f32,
 }
 impl ModelParticle {
-    pub(crate) fn scoped(resource: u32, operation: crate::Operation) -> Self {
+    fn new(resource: u32) -> Self {
         Self {
-            operation: Some(operation),
+            operation: None,
             resource,
             position: [0.; 3],
             rotation: [0.; 3],
             orientation: crate::effect::SpriteOrientation::World,
             scale: [1.; 3],
-            rgba: [super::effect::NEUTRAL_TINT; 4],
+            rgba: [
+                super::effect::NEUTRAL_TINT,
+                super::effect::NEUTRAL_TINT,
+                super::effect::NEUTRAL_TINT,
+                255,
+            ],
             blend: Blend::Alpha,
             field_lighting: false,
-            lifetime: Lifetime::Indefinite,
+            remaining: None,
             velocity: [0.; 3],
             angular_velocity: [0.; 3],
             scale_delta: [0.; 3],
@@ -93,40 +81,49 @@ impl ModelParticle {
             speed: 0.,
             gravity: 0.,
             fade: Fade::Tail,
-            alpha: 0,
-            alpha_delta: 0,
+            alpha: 255.,
+            alpha_delta: 0.,
+        }
+    }
+    pub(crate) fn afterimage(resource: u32, position: [f32; 3], heading: f32) -> Self {
+        Self {
+            position,
+            rotation: [0., -90., heading],
+            scale: [0.5, 0.5, 1.5],
+            rgba: [16, 63, 63, 200],
+            blend: Blend::Additive,
+            remaining: Some(30),
+            scale_delta: [0.01, 0.01, 0.],
+            alpha: 200.,
+            ..Self::new(resource)
+        }
+    }
+    pub(crate) fn scoped(resource: u32, operation: crate::Operation) -> Self {
+        Self {
+            operation: Some(operation),
+            ..Self::new(resource)
         }
     }
     pub(crate) fn from_native(resource: u32, a: &[i32]) -> Self {
+        let alpha = a[9].clamp(0, 255);
         Self {
-            operation: None,
-            resource,
             position: std::array::from_fn(|i| a[2 + i] as f32),
             rotation: std::array::from_fn(|i| a[5 + i] as f32),
-            orientation: crate::effect::SpriteOrientation::World,
             scale: [a[8] as f32 / PERCENT; 3],
             rgba: [
                 super::effect::NEUTRAL_TINT,
                 super::effect::NEUTRAL_TINT,
                 super::effect::NEUTRAL_TINT,
-                a[9] as u8,
+                alpha as u8,
             ],
-            blend: Blend::Alpha,
             field_lighting: true,
-            lifetime: (a[1] as i16).into(),
-            velocity: [0.; 3],
-            angular_velocity: [0.; 3],
-            scale_delta: [0.; 3],
-            motion: Motion::Velocity,
-            speed: 0.,
-            gravity: 0.,
-            fade: Fade::Tail,
-            alpha: (a[9] as i16).wrapping_mul(ALPHA_FRACTION),
-            alpha_delta: (a[10] as i16).wrapping_mul(ALPHA_FRACTION),
+            remaining: (a[1] != i32::from(i16::MAX)).then_some(a[1].max(0) as u32),
+            alpha: alpha as f32,
+            alpha_delta: a[10] as f32,
+            ..Self::new(resource)
         }
     }
     pub(crate) fn set_property(&mut self, property: i32, value: i32) -> Result<(), String> {
-        // Encodings stay at the legacy boundary; updates below use typed state.
         let scaled = value as f32 / PERCENT;
         match property {
             420..=422 => self.position[(property - 420) as usize] = value as f32,
@@ -135,7 +132,11 @@ impl ModelParticle {
             429..=431 => self.angular_velocity[(property - 429) as usize] = scaled,
             432..=434 => self.scale[(property - 432) as usize] = scaled,
             435..=437 => self.scale_delta[(property - 435) as usize] = scaled,
-            438..=441 => self.rgba[(property - 438) as usize] = value as u8,
+            438..=440 => self.rgba[(property - 438) as usize] = value.clamp(0, 255) as u8,
+            441 => {
+                self.alpha = value.clamp(0, 255) as f32;
+                self.rgba[3] = self.alpha as u8;
+            }
             442 => self.speed = scaled,
             443 => {
                 self.motion = if value & 1 == 0 {
@@ -165,42 +166,25 @@ impl ModelParticle {
         if let Some(operation) = &self.operation {
             return operation.is_pending();
         }
-        let remaining = match &mut self.lifetime {
-            Lifetime::Frames(0) | Lifetime::Expired => return false,
-            Lifetime::Frames(ticks) => {
-                let previous = *ticks;
-                *ticks -= 1;
-                Some(previous)
+        if self.remaining == Some(0) {
+            return false;
+        }
+        self.alpha = match self.fade {
+            Fade::Linear => (self.alpha + self.alpha_delta).min(255.),
+            Fade::Proportional => self.remaining.map_or(self.alpha, |ticks| {
+                self.alpha * (ticks - 1) as f32 / ticks as f32
+            }),
+            Fade::Tail if self.remaining.is_some_and(|ticks| ticks < FADE_TICKS) => {
+                (self.alpha - f32::from(FADE_STEP)).max(0.)
             }
-            Lifetime::Indefinite => None,
+            Fade::Tail => self.alpha,
         };
-        match self.fade {
-            Fade::Linear => {
-                self.alpha = self.alpha.wrapping_add(self.alpha_delta).min(MAX_ALPHA);
-                if self.alpha < 0 {
-                    return false;
-                }
-                self.rgba[3] = (self.alpha / ALPHA_FRACTION) as u8;
-            }
-            Fade::Proportional => {
-                if let Some(ticks) = remaining.filter(|ticks| *ticks < u16::from(self.rgba[3])) {
-                    let delta = if u16::from(self.rgba[3]) - ticks > 1 {
-                        u16::from(self.rgba[3]) / ticks
-                    } else {
-                        1
-                    };
-                    let next = u16::from(self.rgba[3]).saturating_sub(delta);
-                    if next > 0 {
-                        self.rgba[3] = next as u8;
-                    }
-                }
-            }
-            Fade::Tail if remaining.is_some_and(|ticks| ticks < FADE_TICKS) => {
-                if self.rgba[3] > FADE_STEP {
-                    self.rgba[3] -= FADE_STEP;
-                }
-            }
-            Fade::Tail => {}
+        if self.alpha < 0. {
+            return false;
+        }
+        self.rgba[3] = self.alpha as u8;
+        if let Some(ticks) = &mut self.remaining {
+            *ticks -= 1;
         }
         let factor = match self.motion {
             Motion::Velocity => 1.,
@@ -224,7 +208,7 @@ impl crate::GameWorld {
             return Ok(0);
         }
         let handle = self.allocate_effect()?;
-        if !matches!(particle.lifetime, Lifetime::Expired) {
+        if particle.remaining != Some(0) {
             self.model_particles.insert(handle, particle);
         }
         Ok(handle)
