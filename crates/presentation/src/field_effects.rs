@@ -193,6 +193,7 @@ impl Artwork {
                 blend: true,
                 additive: self.additive[index],
                 subtractive: self.subtractive[index],
+                clamp_color: index > STATUS,
                 // Head emotes ignore depth so hair cannot obscure them; dust tests depth.
                 depth_test: index > STATUS,
                 depth_write: false,
@@ -339,7 +340,7 @@ pub(super) fn render(
             continue;
         };
         let [x, y, z] = flutter.rotation.map(f32::to_radians);
-        let rgb = particle.rgba.map(|v| (v * 4. / 255.).min(1.) * brightness);
+        let rgb = particle.rgba.map(|v| v * 4. / 255. * brightness);
         batches[*layer].sprite(
             Vec3::from_array(particle.position),
             Quat::from_euler(EulerRot::ZYX, z, y, x),
@@ -401,7 +402,6 @@ pub(super) fn render(
                 }
             }
         }
-        // Authored sprite colors use a gain of four.
         let brightness = if effect.field_lighting {
             brightness
         } else {
@@ -409,7 +409,7 @@ pub(super) fn render(
         };
         let rgb = rgba[..3]
             .iter()
-            .map(|v| (f32::from(*v) * 4. / 255.).min(1.) * brightness)
+            .map(|v| f32::from(*v) * 4. / 255. * brightness)
             .collect::<Vec<_>>();
         let mode = effect
             .blend_mode
