@@ -192,6 +192,8 @@ pub(super) struct TitleSurface {
     pub field_fog: bool,
     pub vertex_color: bool,
     pub constant_color: bool,
+    /// Clamp the texture/color product before fog and framebuffer blending.
+    pub clamp_color: bool,
     pub blend: bool,
     pub additive: bool,
     pub subtractive: bool,
@@ -217,6 +219,7 @@ impl Default for TitleSurface {
             field_fog: false,
             vertex_color: true,
             constant_color: false,
+            clamp_color: false,
             blend: false,
             additive: false,
             subtractive: false,
@@ -268,6 +271,7 @@ pub(super) struct SurfaceKey {
     vertex_color: bool,
     field_lighting: bool,
     constant_color: bool,
+    clamp_color: bool,
     depth_test: bool,
     depth_write: bool,
     blend: bool,
@@ -282,6 +286,7 @@ impl From<&TitleSurface> for SurfaceKey {
             vertex_color: material.vertex_color,
             field_lighting: material.toon_ramp.is_some(),
             constant_color: material.constant_color,
+            clamp_color: material.clamp_color,
             depth_test: material.depth_test,
             depth_write: material.depth_write,
             blend: material.blend,
@@ -344,6 +349,9 @@ impl Material for TitleSurface {
             fragment.shader_defs.push("CONSTANT_COLOR".into());
         }
         if let Some(fragment) = &mut descriptor.fragment {
+            if key.bind_group_data.clamp_color {
+                fragment.shader_defs.push("CLAMP_COLOR".into());
+            }
             for target in fragment.targets.iter_mut().flatten() {
                 if key.bind_group_data.subtractive {
                     let component = BlendComponent {

@@ -54,6 +54,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
     color *= tint;
 #endif
+#ifdef CLAMP_COLOR
+    // GX clamps after texture modulation and gain, before fog and alpha blending.
+    color = vec4<f32>(clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), color.a);
+#endif
     if material.fog_range.y != material.fog_range.x {
         let depth = 1.0 / in.position.w;
         var fog = clamp((depth - material.fog_range.x)
