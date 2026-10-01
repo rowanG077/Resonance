@@ -520,8 +520,8 @@ impl Part {
                     &mut assets.images,
                     sampled,
                 ),
-                constant_color: scene.outline_color.is_some(),
-                tint: scene.outline_color.map_or(Vec4::ONE, |c| {
+                constant_color: scene.outline_color_for(spec).is_some(),
+                tint: scene.outline_color_for(spec).map_or(Vec4::ONE, |c| {
                     Vec4::from_array(c.map(|c| f32::from(c) / 255.))
                 }),
                 toon_ramp: (scene.outline_color.is_none() && spec.color.is_some())
@@ -662,7 +662,7 @@ fn animate(
         // Each ready part must be sampled before dynamics initialize, even while
         // another part is still loading.
         for part in viewer.parts.iter().filter(|part| part.ready) {
-            for handle in &part.materials {
+            for (index, handle) in part.materials.iter().enumerate() {
                 let surface = &mut surfaces
                     .get_mut(handle)
                     .context("prepared preview material is missing")?
@@ -672,7 +672,7 @@ fn animate(
                     * part
                         .spec
                         .scene
-                        .outline_color
+                        .outline_color_for(&part.spec.scene.materials[index])
                         .map_or(1., |c| f32::from(c[3]) / 255.);
             }
             if let Some(index) = part.clip {

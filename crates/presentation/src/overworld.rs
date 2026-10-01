@@ -983,11 +983,9 @@ fn pose(
                 });
                 offset = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
             }
-            let tint = part.spec.outline_color.map_or(Vec4::ONE, |c| {
+            let tint = part.spec.outline_color_for(binding).map_or(Vec4::ONE, |c| {
                 Vec4::from_array(c.map(|v| f32::from(v) / 255.))
             }) * Vec4::new(brightness, brightness, brightness, alpha);
-            // fn_2_D994 draws the sky before enabling distance fog for both
-            // ordinary travel and numbered world scenes.
             let background = instance.model == Model::Sky
                 || matches!(instance.model, Model::Cinematic(actor)
                     if cinematic::background(cinema.unwrap().id, actor));

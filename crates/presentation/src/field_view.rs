@@ -345,11 +345,11 @@ impl Part {
                 field_fog: true,
                 vertex_color: spec.vertex_color,
                 multiply: super::scene::sampled_image(material.multiply.clone(), images, sampled),
-                constant_color: self.spec.outline_color.is_some(),
+                constant_color: self.spec.outline_color_for(spec).is_some(),
                 blend: spec.blend,
                 depth_write: spec.depth_write,
                 cull: spec.cull,
-                tint: self.spec.outline_color.map_or(Vec4::ONE, |c| {
+                tint: self.spec.outline_color_for(spec).map_or(Vec4::ONE, |c| {
                     Vec4::from_array(c.map(|v| f32::from(v) / 255.))
                 }),
                 ..TitleSurface::textured(super::scene::sampled_image(
@@ -400,7 +400,7 @@ impl Art {
                         sampled,
                     ),
                     toon_ramp: self.toon_ramp_for(resource, index, spec, None),
-                    constant_color: part.spec.outline_color.is_some(),
+                    constant_color: part.spec.outline_color_for(spec).is_some(),
                     blend: spec.blend,
                     additive: resource == resonance_content::field::SAVE_POINT_RESOURCE,
                     depth_write: spec.depth_write,
@@ -1870,9 +1870,6 @@ fn pose(
             * Vec4::from_array([42, 43, 44, 8].map(|property| {
                 actor.properties.get(&property).copied().unwrap_or(255) as f32 / 255.
             }))
-            * part.spec.outline_color.map_or(Vec4::ONE, |color| {
-                Vec4::from_array(color.map(|c| f32::from(c) / 255.))
-            })
             * if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                 if sealed {
                     Vec4::new(255. / 64., 255. / 64., 255. / 64., 128. / 255.)
@@ -1909,6 +1906,13 @@ fn pose(
             .extend(1.)
         });
         for (index, material) in part.spec.materials.iter().enumerate() {
+            let tint = tint
+                * part
+                    .spec
+                    .outline_color_for(material)
+                    .map_or(Vec4::ONE, |color| {
+                        Vec4::from_array(color.map(|c| f32::from(c) / 255.))
+                    });
             let mut offset = [0.; 2];
             if let Some(channels) = &part.spec.appearance
                 && let Some(binding) = &material.color
