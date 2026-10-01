@@ -176,6 +176,10 @@ For a scripted arrival, `field_sequence` accepts `scene_entry: true` with a
 copied `checkpoint` and explicit `start_tick`. This starts normal arrival scripts
 without requiring free control before recording. Declare the copied progress as
 a scene fixture; this does not validate save restoration or natural progression.
+For post-battle scenes, `battle_victories` lists the expected formation IDs in
+order. The capture grants each victory through the field handoff and records the
+consumed count; unexpected battles or unused grants fail. Declare these grants
+in the case: they do not validate combat or its rewards.
 
 These are presentation examples under `target/debug/examples`. The event sweep
 fails on missing services, resources, audio or glyphs, and uses ordinary Cancel
