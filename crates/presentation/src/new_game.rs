@@ -34,26 +34,6 @@ fn transition_failed(world: &mut World, error: anyhow::Error) {
 #[derive(Resource)]
 pub(super) struct InitialPreferences(pub resonance_content::menu_data::CustomizeSettings);
 
-/// Bind gameplay rules once before any party or saved progress is validated.
-pub(super) fn admit_definitions(
-    read: impl Fn(&str) -> Result<Vec<u8>>,
-    diagnostics: &resonance_content::diagnostics::Diagnostics,
-) -> Result<(
-    Arc<resonance_content::session::SessionData>,
-    Arc<resonance_content::menu_data::MenuData>,
-)> {
-    let mut data: resonance_content::session::SessionData =
-        serde_json::from_slice(&read("game/session-data.json")?)?;
-    let menus = Arc::new(resonance_content::menu_data::MenuData::decode(
-        &read("game/menu-data.json")?,
-        diagnostics,
-    )?);
-    menus.validate_gameplay()?;
-    data.rules = Some(menus.clone());
-    data.validate()?;
-    Ok((Arc::new(data), menus))
-}
-
 /// Slot browsing needs three verified definitions, independently of any field.
 pub(super) fn save_context(
     root: &Path,
@@ -90,8 +70,8 @@ pub(super) fn save_context(
         || false,
     )?;
     let identity = resonance_persistence::Identity::load(&files)?;
-    let (data, _) = admit_definitions(|path| Ok(files.read(path)?.to_vec()), files.diagnostics())?;
-    Ok((identity, data))
+    let data = resonance_content::session::SessionData::load(&files)?;
+    Ok((identity, Arc::new(data)))
 }
 
 #[derive(Resource)]
@@ -101,7 +81,6 @@ pub(super) struct Session {
     world_package: Option<Arc<super::overworld::Package>>,
     /// Actual publication state, retained for load validation before normal updates.
     pub restored_checkpoint: Option<FieldCheckpoint>,
-    pub assets: FieldAssets,
     pub ready_for_field: bool,
     pub audio: Option<Arc<super::field_audio::Assets>>,
     pub identity: resonance_persistence::Identity,
@@ -109,9 +88,6 @@ pub(super) struct Session {
     pub(super) prepared_movie: Option<movie::Prepared>,
     pending_movie: Option<(u64, super::loading::Task<(MovieAsset, movie::Prepared)>)>,
     movie_started: bool,
-    pub(super) data: Arc<resonance_content::session::SessionData>,
-    skits: Arc<resonance_content::skit::SkitCatalog>,
-    fields: BTreeMap<u32, Arc<FieldPackage>>,
     available_fields: BTreeSet<u32>,
 }
 
@@ -140,7 +116,7 @@ impl Session {
         let mut cache = super::loading::Cache::default();
         let files = Arc::new(Files::load(
             root,
-            &[&manifest_path(5), &manifest_path(340)],
+            &[&manifest_path(5)],
             &mut cache.bytes,
             || false,
         )?);
@@ -177,13 +153,6 @@ impl Session {
         if let Some(preferences) = &initial_preferences {
             preferences.validate()?;
         }
-        let (data, menus) =
-            admit_definitions(|path| Ok(files.read(path)?.to_vec()), files.diagnostics())?;
-        let text: Arc<resonance_content::session::GameText> =
-            Arc::new(files.json("game/text.json")?);
-        let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
-        skits.validate()?;
-        let skits = Arc::new(skits);
         let identity = resonance_persistence::Identity::load(&files)?;
         let map = match &start {
             Start::NewGame => 5,
@@ -192,8 +161,9 @@ impl Session {
         };
         let new_game = matches!(start, Start::NewGame);
         let initial = Arc::new(FieldPackage::load(files.clone(), map, cache)?);
+        let data = &initial.data;
         let available_fields = available_fields(root)?;
-        let (field, restored_checkpoint) = if let Start::Saved(checkpoint) = &start {
+        let field = if let Start::Saved(checkpoint) = &start {
             initial.restore(checkpoint, available_fields.clone())?
         } else {
             let entry = if let Start::Dungeon(destination) = &start {
@@ -202,7 +172,7 @@ impl Session {
                 FieldEntry {
                     persistent: resonance_events::PersistentState {
                         party: Some(resonance_events::party::Party::new(
-                            &data,
+                            data,
                             resonance_events::party::Settings {
                                 preferences: initial_preferences.unwrap_or_default(),
                                 ..Default::default()
@@ -216,9 +186,6 @@ impl Session {
                     ..Default::default()
                 }
             };
-            entry.skits = Some(skits.clone());
-            entry.menu_data = Some(menus.clone());
-            entry.text = text.clone();
             let mut field = initial.enter(entry)?;
             initial.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
             (field, None)
@@ -242,11 +209,6 @@ impl Session {
         } else {
             None
         };
-        let mut fields = BTreeMap::new();
-        if map == 5 {
-            fields.insert(340, Arc::new(FieldPackage::load(files, 340, cache)?));
-        }
-        fields.insert(map, initial.clone());
         Ok(Self {
             allow_incomplete_scripts: field.allow_incomplete_scripts,
             scene: Scene::Field(Box::new(FieldScene {
@@ -255,7 +217,6 @@ impl Session {
             })),
             world_package: None,
             restored_checkpoint,
-            assets: initial.assets.clone(),
             ready_for_field: true,
             audio: Some(initial.audio.clone()),
             identity,
@@ -380,18 +341,6 @@ impl Session {
         )?;
         let audio = cache.audio.load("worlds/audio.json", &world.files)?;
         let scene = super::overworld::Scene::new(game, world.clone())?;
-        let identity = resonance_persistence::Identity::load(&files)?;
-        let package = Arc::new(FieldPackage::load(files, saved.anchor_field, cache)?);
-        // The scene owner retains a suspended field, just as it does on a live
-        // exit. It never executes this field's arrival script on a world load.
-        let mut field = package.enter(FieldEntry {
-            persistent,
-            data: Some(data.clone()),
-            skits: Some(skits.clone()),
-            available_fields: available_fields.clone(),
-            ..Default::default()
-        })?;
-        field.events.cancel();
         Ok(Self {
             scene: Scene::World(Box::new(scene)),
             allow_incomplete_scripts: false,
@@ -416,27 +365,7 @@ impl Session {
         *self = candidate;
     }
 
-    /// Validate and initialize a candidate before touching the current scene.
-    pub(super) fn restore(&mut self, checkpoint: FieldCheckpoint) -> Result<()> {
-        let package = self
-            .fields
-            .get(&checkpoint.map_id)
-            .context("saved field is not prepared")?
-            .clone();
-        let field = package.restore(
-            &checkpoint,
-            self.data.clone(),
-            self.skits.clone(),
-            self.available_fields.clone(),
-        )?;
-        let restored_checkpoint = field.checkpoint()?;
-        self.activate(field, &package, false);
-        self.restored_checkpoint = Some(restored_checkpoint);
-        self.prepared_movie = None;
-        Ok(())
-    }
-
-    pub(super) fn refresh_scripts(
+    pub(super) fn activate(
         &mut self,
         field: FieldSession,
         package: Arc<FieldPackage>,
@@ -444,13 +373,23 @@ impl Session {
     ) {
         self.pending_movie = None;
         self.events_mut().cancel();
-        self.overworld = None;
-        self.field = field;
         self.restored_checkpoint = None;
-        self.assets = package.assets.clone();
+        self.allow_incomplete_scripts = field.allow_incomplete_scripts;
         self.ready_for_field = true;
         self.movie_started = !starting_story;
         self.audio = Some(package.audio.clone());
+        self.scene = Scene::Field(Box::new(FieldScene {
+            session: field,
+            package,
+        }));
+    }
+
+    pub(super) fn data(&self) -> &Arc<resonance_content::session::SessionData> {
+        self.events()
+            .resources()
+            .session_data
+            .as_ref()
+            .expect("active scene has prepared session definitions")
     }
 
     pub(super) fn events(&self) -> &resonance_events::EventRuntime {
@@ -509,7 +448,7 @@ impl Session {
         };
         let scene = super::overworld::Scene::new(session, package.world.clone())?;
         self.events_mut().cancel();
-        self.overworld = Some(scene);
+        self.scene = Scene::World(Box::new(scene));
         self.audio = Some(package.audio.clone());
         self.world_package = Some(package);
         self.ready_for_field = false;
@@ -1041,10 +980,10 @@ pub(super) fn advance(
             .report("Field movie; skipping video", error)
             .is_err()
         {
-            session.field.events.cancel();
+            session.field_mut().events.cancel();
             exit.write(AppExit::error());
         } else {
-            if let Some(request) = &session.field.events.world.movie
+            if let Some(request) = &session.field().events.world.movie
                 && request.operation.is_pending()
                 && let Err(error) = request.operation.complete(None)
             {

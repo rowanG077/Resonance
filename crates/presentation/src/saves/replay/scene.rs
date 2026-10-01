@@ -6,6 +6,7 @@ use super::*;
 pub(super) enum Phase {
     Boot,
     Field,
+    World,
     Battle,
     GameOver,
     Load,
@@ -17,6 +18,7 @@ pub(super) enum Phase {
 #[derive(Default)]
 struct Owners {
     session: bool,
+    world: bool,
     battle: bool,
     game_over_loading: Option<bool>,
     load: bool,
@@ -49,7 +51,11 @@ impl Owners {
             return Ok(Phase::Battle);
         }
         if self.session {
-            return Ok(Phase::Field);
+            return Ok(if self.world {
+                Phase::World
+            } else {
+                Phase::Field
+            });
         }
         // The title UI owns this phase even when its optional scene script failed.
         ensure!(
@@ -75,6 +81,9 @@ pub(super) fn phase(world: &World) -> Result<Phase> {
     }
     Owners {
         session: world.contains_resource::<new_game::Session>(),
+        world: world
+            .get_resource::<new_game::Session>()
+            .is_some_and(|s| !s.is_field()),
         battle: world.contains_resource::<crate::battle::Owner>(),
         game_over_loading: world
             .get_resource::<crate::game_over::Active>()
@@ -84,7 +93,9 @@ pub(super) fn phase(world: &World) -> Result<Phase> {
             || world.contains_resource::<new_game::Request>()
             || world.contains_resource::<crate::game_over::Returning>()
             || super::super::menu::loading(world),
-        field_loading: world.contains_resource::<loading::FieldPending>(),
+        field_loading: world.contains_resource::<loading::FieldPending>()
+            || world.contains_resource::<loading::WorldPending>()
+            || world.contains_resource::<super::super::Quickload>(),
         title: world.contains_resource::<crate::TitleActive>(),
     }
     .phase()
@@ -103,8 +114,8 @@ pub(super) fn ready(world: &mut World, phase: Phase) -> bool {
                     .get_resource::<super::super::title::LoadMenu>()
                     .is_some_and(|menu| !menu.0.busy)
         }
-        Phase::Field | Phase::Battle | Phase::GameOver => {
-            field_view::ready(world)
+        Phase::Field | Phase::World | Phase::Battle | Phase::GameOver => {
+            new_game::scene_ready(world)
                 && world.get_resource::<crate::battle::Owner>().map_or_else(
                     || {
                         world
@@ -115,10 +126,10 @@ pub(super) fn ready(world: &mut World, phase: Phase) -> bool {
                     |battle| battle.capture_ready(),
                 )
                 && world.get_resource::<new_game::Session>().is_some_and(|s| {
-                    s.ready_for_field
+                    (!s.is_field() || s.ready_for_field)
                         && s.audio.is_none()
-                        && s.field.events.world.field_transition.is_none()
-                        && s.field.menu.as_ref().is_none_or(|m| !m.busy)
+                        && s.events().world.field_transition.is_none()
+                        && s.menu().is_none_or(|m| !m.busy)
                 })
         }
     }
@@ -128,8 +139,9 @@ pub(crate) fn diagnostic(world: &World) -> Result<serde_json::Value> {
     let phase = phase(world)?;
     let field = world
         .get_resource::<new_game::Session>()
+        .filter(|s| s.is_field())
         .map(|session| {
-            let field = &session.field;
+            let field = session.field();
             Ok::<_, anyhow::Error>(serde_json::json!({
                 "map_id":field.map_id, "story":field.story_progress()?,
                 "tick":field.events.tick(), "effect_tick":field.effect_clock.tick(),
@@ -139,7 +151,9 @@ pub(crate) fn diagnostic(world: &World) -> Result<serde_json::Value> {
         })
         .transpose()?;
     Ok(serde_json::json!({
-        "phase":phase, "session_retained":field.is_some(), "field":field,
+        "phase":phase, "session_retained":world.contains_resource::<new_game::Session>(), "field":field,
+        "world":world.get_resource::<new_game::Session>().and_then(|s|s.overworld())
+            .map(|scene|serde_json::json!({"tick":scene.session.events.tick(),"travel":scene.session.travel.state()})),
         "boot":world.get_resource::<crate::boot::Playback>().filter(|boot|boot.active()).map(|boot| &boot.logos),
         "movie":world.get_resource::<crate::movie::Playback>().filter(|movie| movie.active)
             .map(|movie| serde_json::json!({"resource":movie.resource,"frame":movie.presented_frame})),
@@ -174,6 +188,21 @@ mod tests {
     #[test]
     fn retired_field_requires_an_actual_destination_owner() {
         for (owners, expected) in [
+            (
+                Owners {
+                    session: true,
+                    ..Default::default()
+                },
+                Phase::Field,
+            ),
+            (
+                Owners {
+                    session: true,
+                    world: true,
+                    ..Default::default()
+                },
+                Phase::World,
+            ),
             (
                 Owners {
                     game_over_loading: Some(true),

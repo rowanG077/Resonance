@@ -429,7 +429,7 @@ impl Menu {
         let resources = self.resources.as_ref()?;
         let result = self.equipment.step_shared(
             input,
-            &mut self.checkpoint.as_mut()?.progress.party,
+            &mut self.checkpoint.as_mut()?.progress_mut().party,
             &resources.session,
             &resources.data,
             &mut self.character,

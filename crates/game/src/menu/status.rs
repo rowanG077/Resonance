@@ -95,7 +95,7 @@ impl Menu {
     pub(super) fn step_status(&mut self, input: Input) -> Option<i16> {
         use MenuAction::*;
         let [left, right, up, down] = [Left, Right, Up, Down].map(|action| input == Some(action));
-        let length = self.checkpoint.as_ref()?.progress.party.formation.len();
+        let length = self.checkpoint.as_ref()?.progress().party.formation.len();
         match self.page {
             Page::Status => {
                 if matches!(input, Some(NextTab | PageDown)) && !self.status.details

@@ -113,15 +113,6 @@ pub(crate) fn fixture() -> App {
         PathBuf::from,
     );
     let options = RunOptions {
-        script_root: None,
-        saves: Default::default(),
-        assets: root.clone(),
-        capture_at: None,
-        capture: None,
-        reveal: false,
-        selected: 0,
-        silent: true,
-        paranoid: true,
         skip_intro: false,
         record_title_ticks: 1000,
         ..crate::test_support::run_options(&root)
@@ -569,7 +560,7 @@ fn asynchronous_movie_failure_completes_field_handoff_only_in_tolerant_mode() {
             .unwrap();
         let session = app.world().resource::<crate::new_game::Session>();
         assert_eq!(session.ready_for_field, !paranoid);
-        assert!(!session.field.events.world.blocked_by_movie());
+        assert!(!session.field().events.world.blocked_by_movie());
     }
 }
 

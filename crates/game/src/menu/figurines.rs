@@ -26,7 +26,7 @@ impl Menu {
             return Vec::new();
         };
         checkpoint
-            .progress
+            .progress()
             .party
             .figurines
             .iter()

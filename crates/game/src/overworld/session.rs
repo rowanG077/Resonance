@@ -1117,20 +1117,5 @@ impl Session {
     }
 }
 
-impl Checkpoint {
-    /// Shared menu/slot display data; only the typed world checkpoint is loaded.
-    pub fn menu_snapshot(&self) -> crate::field::FieldCheckpoint {
-        crate::field::FieldCheckpoint {
-            allow_incomplete_scripts: false,
-            map_id: 3000,
-            position: self.state.position.plane(),
-            heading: self.state.heading.to_degrees(),
-            camera: None,
-            progress: self.progress.clone(),
-            played_ticks: self.played_ticks,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests;

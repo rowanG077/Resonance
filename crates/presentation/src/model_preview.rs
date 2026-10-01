@@ -151,11 +151,7 @@ pub(super) struct State<'w> {
 impl State<'_> {
     fn menu(&mut self) -> Option<&mut resonance_game::menu::Menu> {
         let session = &mut **self.live.as_mut()?;
-        if let Some(scene) = &mut session.overworld {
-            scene.session.menu.as_mut()
-        } else {
-            session.field.menu.as_mut()
-        }
+        session.menu_mut()
     }
 }
 #[derive(SystemParam)]

@@ -383,7 +383,7 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
         let mut menu = fixture.field_menu();
         menu.page = Page::Items;
         menu.inventory.category = healthy.items[usize::from(id)].inventory_category().unwrap();
-        let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
+        let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
         party.items = [(id, 1)].into();
         party.members[0].hp = 1;
         let before = serde_json::to_vec(party)?;
@@ -401,7 +401,7 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
         assert_eq!(menu.inventory.focus, Focus::List);
         assert!(menu.notice.is_some());
         assert_eq!(
-            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress.party)?,
+            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress().party)?,
             before
         );
         // Direct rendering is checked too, including callers that already held a target page.
@@ -440,7 +440,7 @@ fn serialized_item_prompts_fail_on_selection_and_recover_without_panicking() -> 
             .drawing(1)
             .items(&menu, animation.sample(menu.inventory.focus, 1))?;
         assert_eq!(
-            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress.party)?,
+            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress().party)?,
             before
         );
     }
@@ -472,7 +472,7 @@ fn cooking_commits_before_optional_popup_drawing() -> Result<()> {
         fixture.art = healthy_art.clone();
         let mut menu = fixture.field_menu();
         menu.page = Page::Cooking;
-        let mut expected = menu.checkpoint.as_ref().unwrap().progress.clone();
+        let mut expected = menu.checkpoint.as_ref().unwrap().progress().clone();
         expected
             .cook(&fixture.data)
             .map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -495,7 +495,7 @@ fn cooking_commits_before_optional_popup_drawing() -> Result<()> {
             Some(2)
         );
         assert_eq!(
-            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress)?,
+            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress())?,
             serde_json::to_vec(&expected)?
         );
         for tick in 0..3 {
@@ -511,7 +511,7 @@ fn cooking_commits_before_optional_popup_drawing() -> Result<()> {
                 ..Default::default()
             });
             assert_eq!(
-                serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress)?,
+                serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress())?,
                 serde_json::to_vec(&expected)?
             );
         }

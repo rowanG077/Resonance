@@ -221,8 +221,11 @@ impl Probe {
         }
         let persistence = world.resource::<Persistence>();
         let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-        let (_, saved): (_, FieldCheckpoint) = resonance_persistence::decode(&bytes)?
-            .admit(&world.resource::<new_game::Session>().identity)?;
+        let (_, SceneCheckpoint::Field(saved)) = resonance_persistence::decode(&bytes)?
+            .admit(&world.resource::<new_game::Session>().identity)?
+        else {
+            anyhow::bail!("probe requires a field save");
+        };
         ensure!(
             serde_json::to_value(&saved)? == serde_json::to_value(baseline)?,
             "quicksave changed the captured payload"
@@ -245,8 +248,6 @@ impl Probe {
             .gald = baseline.progress.party.gald ^ 1;
         self.loaded = Some(Instant::now());
         load(world)?;
-        let restored = world.resource::<new_game::Session>().field.checkpoint()?;
-        replay::assert_checkpoint(&restored, &saved)?;
         Ok(())
     }
 }

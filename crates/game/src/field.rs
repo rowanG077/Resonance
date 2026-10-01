@@ -962,7 +962,8 @@ impl FieldSession {
     }
 
     fn open_menu(&mut self, page: crate::menu::Page, checkpoint: FieldCheckpoint, at_circle: bool) {
-        let mut menu = crate::menu::Menu::new(page, Some(checkpoint), at_circle);
+        let mut menu =
+            crate::menu::Menu::new(page, Some(crate::Checkpoint::Field(checkpoint)), at_circle);
         // Unison keeps its character selection between menu visits.
         menu.unison.character = self.unison_character;
         menu.begin_opening();

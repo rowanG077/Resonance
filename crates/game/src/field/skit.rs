@@ -49,15 +49,6 @@ impl Skits {
         };
     }
 
-    #[cfg(test)]
-    pub fn next_field(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-            control_ticks: self.control_ticks,
-            ..Default::default()
-        }
-    }
-
     pub fn prompt(&self) -> Option<SkitPrompt<'_>> {
         let skit = &self.data.as_ref()?.skits[self.selected?];
         self.visible.then_some(SkitPrompt {
@@ -190,7 +181,7 @@ impl FieldSession {
     /// Decode scenarios while preparing the field. Z never reads the filesystem.
     pub fn prepare_skits(&mut self, files: &resonance_content::prepared::Files) -> Result<()> {
         if let Some(catalog) = self.skits.data.clone() {
-            self.skit_programs = Prepared::load_with(
+            self.skit_programs = Prepared::load(
                 catalog.clone(),
                 files,
                 self.events.resources(),
@@ -381,11 +372,15 @@ mod tests {
         let mut skits = Skits::new(Some(catalog(7, SkitCondition::Maps([10, 12]))));
         skits.step(&events, 9, true, None).unwrap();
         assert!(skits.prompt().is_none());
-        skits = skits.next_field();
+        let mut next = Skits::new(skits.data.clone());
+        next.continue_from(&skits);
+        skits = next;
         skits.step(&events, 10, true, None).unwrap();
         assert_eq!(skits.open(), Some(7));
         events.world.party.as_mut().unwrap().viewed_skits.insert(7);
-        skits = skits.next_field();
+        let mut next = Skits::new(skits.data.clone());
+        next.continue_from(&skits);
+        skits = next;
         skits.step(&events, 10, true, None).unwrap();
         assert!(skits.prompt().is_none());
 

@@ -418,7 +418,7 @@ fn field_unison_unlocks_prioritizes_inputs_and_shares_saved_shortcuts() {
     globals[16] = menu::unison::UNLOCK_STORY - 1;
     let mut field = Menu::new(
         menu::Page::Main,
-        Some(FieldCheckpoint {
+        Some(resonance_game::Checkpoint::Field(FieldCheckpoint {
             allow_incomplete_scripts: false,
             map_id: 330,
             position: [0.; 3],
@@ -435,7 +435,7 @@ fn field_unison_unlocks_prioritizes_inputs_and_shares_saved_shortcuts() {
                 gameplay_random: Default::default(),
                 tick: 17,
             },
-        }),
+        })),
         false,
     );
     field.resources = Some(Arc::new(Resources {
@@ -460,7 +460,12 @@ fn field_unison_unlocks_prioritizes_inputs_and_shares_saved_shortcuts() {
     field.selected = 1;
     assert_eq!(press(&mut field, accept), Some(4));
     assert_eq!(field.page, menu::Page::Main);
-    field.checkpoint.as_mut().unwrap().progress.script_globals[16] += 1;
+    field
+        .checkpoint
+        .as_mut()
+        .unwrap()
+        .progress_mut()
+        .script_globals[16] += 1;
     assert_eq!(press(&mut field, accept), Some(2));
     assert_eq!(field.page, menu::Page::Unison);
     for extra in [
@@ -503,11 +508,11 @@ fn field_unison_unlocks_prioritizes_inputs_and_shares_saved_shortcuts() {
     let chosen = field.unison_selection().unwrap().technique;
     press(&mut field, accept);
     assert_eq!(field.party().members[0].shortcuts[0], chosen);
-    let restored: FieldCheckpoint =
+    let restored: resonance_game::Checkpoint =
         serde_json::from_slice(&serde_json::to_vec(field.checkpoint.as_ref().unwrap()).unwrap())
             .unwrap();
     let restored = restored
-        .progress
+        .into_progress()
         .into_state(&field.resources.as_ref().unwrap().session)
         .unwrap();
     assert_eq!(restored.party.unwrap().members[0].shortcuts[0], chosen);
@@ -528,7 +533,7 @@ fn field_unison_unlocks_prioritizes_inputs_and_shares_saved_shortcuts() {
     );
     assert_eq!(field.page, menu::Page::Main);
     assert_eq!(field.character, 2);
-    assert_eq!(field.checkpoint.as_ref().unwrap().progress.tick, 17);
+    assert_eq!(field.checkpoint.as_ref().unwrap().progress().tick, 17);
     field.character = 0;
     field.selected = 0;
     press(&mut field, accept);

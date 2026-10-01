@@ -64,7 +64,7 @@ pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
         .collect();
     let Some(session) = world
         .get_resource::<crate::new_game::Session>()
-        .filter(|session| session.is_field())
+        .filter(|s| s.is_field())
     else {
         return serde_json::Value::Null;
     };
