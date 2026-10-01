@@ -7,8 +7,11 @@ pub fn run_title_load_probe(root: &Path, directory: &Path, output: &Path) -> Res
     let bytes = Store::new(directory).read(Kind::Save, &SlotId::new("a-001")?)?;
     let (identity, _) =
         new_game::save_context(root, resonance_content::diagnostics::Diagnostics::new(true))?;
-    let (_, expected): (_, FieldCheckpoint) =
-        resonance_persistence::decode(&bytes)?.admit(&identity)?;
+    let (_, SceneCheckpoint::Field(expected)) =
+        resonance_persistence::decode(&bytes)?.admit(&identity)?
+    else {
+        anyhow::bail!("probe requires a field save");
+    };
     let app = probe::app_with_saves(
         root,
         output,

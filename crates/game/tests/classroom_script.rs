@@ -266,8 +266,12 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     assert_eq!(restored.events.world.controlled_actor, 1);
 
     // Reserve members scroll independently of the battle's four active slots.
-    let mut menu = Menu::new(Page::Party, Some(checkpoint), false);
-    let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
+    let mut menu = Menu::new(
+        Page::Party,
+        Some(resonance_game::Checkpoint::Field(checkpoint)),
+        false,
+    );
+    let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
     party.formation = (1..=8).collect();
     party.validate(&data).unwrap();
     let press = |menu: &mut Menu, action: Action| {
@@ -284,19 +288,25 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     for key in [OpenMenu, Previous, OpenMenu] {
         press(&mut menu, key);
     }
-    let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
+    let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
     assert_eq!(party.formation, [1, 2, 3, 8, 5, 6, 7, 4]);
     assert_eq!(party.field_leader, 3);
     party.leader_locked = true;
     assert_eq!(press(&mut menu, Accept), Some(4));
-    let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
+    let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
     party.leader_locked = false;
     for (hp, petrified) in [(0, false), (1, true)] {
-        let member = &mut menu.checkpoint.as_mut().unwrap().progress.party.members[7];
+        let member = &mut menu
+            .checkpoint
+            .as_mut()
+            .unwrap()
+            .progress_mut()
+            .party
+            .members[7];
         member.hp = hp;
         member.ailments.petrified = petrified;
         assert_eq!(press(&mut menu, Accept), Some(4));
-        let party = &menu.checkpoint.as_ref().unwrap().progress.party;
+        let party = &menu.checkpoint.as_ref().unwrap().progress().party;
         assert_eq!(party.field_leader, 3);
     }
 }
@@ -648,7 +658,7 @@ fn cooking_menu_commits_party_and_rng_and_preserves_them_in_saves() {
     assert_eq!(session.menu.as_ref().unwrap().cooking.recipe, 1);
     press(&mut session, Cancel);
     let menu = session.menu.as_ref().unwrap();
-    let mut expected = menu.checkpoint.as_ref().unwrap().progress.clone();
+    let mut expected = menu.checkpoint.as_ref().unwrap().progress().clone();
     let meal = expected
         .cook(&menu.resources.as_ref().unwrap().data)
         .unwrap();
@@ -1031,7 +1041,11 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     party.members[1].hp = 0;
     party.members[3].equipment[3] = 0;
     party.members[3].tp = 56;
-    let mut menu = Menu::new(Page::Tech, Some(checkpoint), false);
+    let mut menu = Menu::new(
+        Page::Tech,
+        Some(resonance_game::Checkpoint::Field(checkpoint)),
+        false,
+    );
     menu.resources = Some(Arc::new(Resources {
         files: menu_files(),
         session: data,
@@ -1071,13 +1085,13 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     assert_eq!((menu.tech.focus, menu.tech.target), (Focus::Target, 1));
     assert_eq!(press_menu(&mut menu, accept), Some(132));
     assert_eq!(menu.tech.focus, Focus::List);
-    let party = &menu.checkpoint.as_ref().unwrap().progress.party;
+    let party = &menu.checkpoint.as_ref().unwrap().progress().party;
     assert!(party.members[1].hp > 0);
     assert!(party.members[1].ailments.is_empty());
     assert_eq!(party.members[3].tp, 0);
     assert_eq!(press_menu(&mut menu, accept), Some(4));
     assert_eq!(menu.tech.focus, Focus::List);
-    let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
+    let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
     party.formation.push(5);
     party.members[1].hp = 0;
     menu.page = Page::Main;
@@ -1126,9 +1140,9 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     assert_eq!(menu.tech.slot, 0);
     press_menu(&mut menu, accept);
     let choice = menu.selected_technique().unwrap().technique;
-    let before = menu.checkpoint.as_ref().unwrap().progress.party.members[2].clone();
+    let before = menu.checkpoint.as_ref().unwrap().progress().party.members[2].clone();
     press_menu(&mut menu, accept);
-    let after = &menu.checkpoint.as_ref().unwrap().progress.party.members[2];
+    let after = &menu.checkpoint.as_ref().unwrap().progress().party.members[2];
     assert_eq!(after.shortcuts[0], choice);
     assert_eq!((after.hp, after.tp), (before.hp, before.tp));
     assert_eq!(after.disabled_techniques, before.disabled_techniques);
@@ -1144,7 +1158,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
             menu.checkpoint
                 .as_ref()
                 .unwrap()
-                .progress
+                .progress()
                 .party
                 .settings
                 .battle_controls[2],
@@ -1154,7 +1168,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     }
     menu.tech.character = 0;
     learn(
-        &mut menu.checkpoint.as_mut().unwrap().progress.party,
+        &mut menu.checkpoint.as_mut().unwrap().progress_mut().party,
         0,
         &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
     );
@@ -1484,7 +1498,11 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         None,
         "the last gel returned after loading"
     );
-    let mut book = resonance_game::menu::Menu::new(Page::Items, Some(checkpoint), false);
+    let mut book = resonance_game::menu::Menu::new(
+        Page::Items,
+        Some(resonance_game::Checkpoint::Field(checkpoint)),
+        false,
+    );
     book.resources = Some(Arc::new(resonance_game::menu::Resources {
         files: menu_files(),
         session: data.clone(),
@@ -1506,7 +1524,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     book.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .change_item(&data, 121, 1)
         .unwrap();
@@ -1516,7 +1534,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     }
     assert!(book.inventory.notice.is_some());
     assert_eq!(
-        book.checkpoint.as_ref().unwrap().progress.party.items[&121],
+        book.checkpoint.as_ref().unwrap().progress().party.items[&121],
         1
     );
     assert_eq!(press_book(&mut book, cancel), Some(2));
@@ -1525,13 +1543,13 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
             .checkpoint
             .as_ref()
             .unwrap()
-            .progress
+            .progress()
             .party
             .items
             .contains_key(&121)
     );
     book.inventory.category = 8;
-    let party = &mut book.checkpoint.as_mut().unwrap().progress.party;
+    let party = &mut book.checkpoint.as_mut().unwrap().progress_mut().party;
     party.change_item(&data, 70, 1).unwrap();
     party.found_items.extend(
         menus
@@ -1551,7 +1569,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     book.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .figurines
         .insert(0);
@@ -1559,7 +1577,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     book.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .figurines
         .clear();
@@ -1609,7 +1627,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     book.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .found_items
         .clear();
@@ -1625,7 +1643,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         list.checkpoint
             .as_mut()
             .unwrap()
-            .progress
+            .progress_mut()
             .party
             .change_item(&data, id, 1)
             .unwrap();
@@ -1666,14 +1684,14 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
 
     let mut rune = key_item_menu(70);
     rune.inventory.category = 1;
-    let party = &mut rune.checkpoint.as_mut().unwrap().progress.party;
+    let party = &mut rune.checkpoint.as_mut().unwrap().progress_mut().party;
     party.items = [(1, 1), (2, data.items[2].stack_limit), (22, 2)].into();
     rune.inventory.row = 2;
     let before = rune
         .checkpoint
         .as_ref()
         .unwrap()
-        .progress
+        .progress()
         .party
         .items
         .clone();
@@ -1683,7 +1701,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     assert_eq!(rune.inventory.focus, Focus::List);
     assert_eq!(rune.inventory.row, 2);
     assert_eq!(
-        rune.checkpoint.as_ref().unwrap().progress.party.items,
+        rune.checkpoint.as_ref().unwrap().progress().party.items,
         before
     );
     press_book(&mut rune, confirm);
@@ -1695,13 +1713,13 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     assert_eq!(rune.inventory.transform.result, None);
     press_book(&mut rune, cancel);
     assert_eq!(
-        rune.checkpoint.as_ref().unwrap().progress.party.items,
+        rune.checkpoint.as_ref().unwrap().progress().party.items,
         before
     );
     rune.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .change_item(&data, 2, -1)
         .unwrap();
@@ -1709,14 +1727,14 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         .checkpoint
         .as_ref()
         .unwrap()
-        .progress
+        .progress()
         .party
         .items
         .clone();
     assert_eq!(press_book(&mut rune, confirm), Some(2));
     assert_eq!(rune.inventory.transform.result, Some(1));
     assert_eq!(
-        rune.checkpoint.as_ref().unwrap().progress.party.items,
+        rune.checkpoint.as_ref().unwrap().progress().party.items,
         before,
         "the transformation committed before its result was acknowledged"
     );
@@ -1724,7 +1742,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     assert_eq!(rune.inventory.focus, Focus::List);
     assert_eq!(rune.inventory.row, 1);
     assert_eq!(
-        rune.checkpoint.as_ref().unwrap().progress.party.items,
+        rune.checkpoint.as_ref().unwrap().progress().party.items,
         [(2, data.items[2].stack_limit), (22, 1)].into()
     );
     assert_eq!(press_book(&mut rune, confirm), Some(4));
@@ -1733,7 +1751,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         menus.label("transform_empty").unwrap()
     );
     press_book(&mut rune, confirm);
-    rune.checkpoint.as_mut().unwrap().progress.party.items = [(22, 1), (398, 1)].into();
+    rune.checkpoint.as_mut().unwrap().progress_mut().party.items = [(22, 1), (398, 1)].into();
     rune.inventory.row = 0;
     press_book(&mut rune, confirm);
     assert_eq!(rune.inventory_items(), [398]);
@@ -1743,7 +1761,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     assert!(rune.inventory_items().is_empty());
     assert_eq!(rune.step(confirm), None);
     assert_eq!(
-        rune.checkpoint.as_ref().unwrap().progress.party.items,
+        rune.checkpoint.as_ref().unwrap().progress().party.items,
         [(399, 1)].into()
     );
 
@@ -1752,7 +1770,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         .checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .change_item(&data, 155, 1)
         .unwrap();
@@ -1806,7 +1824,7 @@ fn rename_gem_preserves_names_through_cancel_save_and_dialogue() {
     menu.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .change_item(&data, RENAME_GEM, 1)
         .unwrap();
@@ -1866,7 +1884,9 @@ fn rename_gem_preserves_names_through_cancel_save_and_dialogue() {
     }
     settle(&mut menu);
     assert_eq!(menu.page, Page::Items);
-    let restored: FieldCheckpoint = serde_json::from_value(saved).unwrap();
+    let resonance_game::Checkpoint::Field(restored) = serde_json::from_value(saved).unwrap() else {
+        panic!("field menu must retain its field checkpoint");
+    };
     restored.progress.party.validate(&data).unwrap();
     assert_eq!(restored.progress.party.items[&RENAME_GEM], 1);
     let mut code = Vec::new();
@@ -1933,11 +1953,15 @@ fn key_item_menu(item: u16) -> resonance_game::menu::Menu {
     ));
     advance_to(&mut session, FieldSession::player_has_control, |_, _| false);
     let checkpoint = roundtrip(&session.checkpoint().unwrap());
-    let mut menu = Menu::new(Page::Items, Some(checkpoint), false);
+    let mut menu = Menu::new(
+        Page::Items,
+        Some(resonance_game::Checkpoint::Field(checkpoint)),
+        false,
+    );
     menu.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .change_item(&data, item, 1)
         .unwrap();
@@ -1974,8 +1998,12 @@ fn figurine_book_filters_saved_ownership_and_preserves_the_checkpoint() {
     let previous = PageUp.input();
     assert_eq!(press(&mut menu, confirm), Some(4));
     assert_eq!(menu.page, Page::Items);
-    menu.checkpoint.as_mut().unwrap().progress.party.figurines =
-        (0..13).chain([53, 108, 118, 125, 172, 287]).collect();
+    menu.checkpoint
+        .as_mut()
+        .unwrap()
+        .progress_mut()
+        .party
+        .figurines = (0..13).chain([53, 108, 118, 125, 172, 287]).collect();
     let before = serde_json::to_value(&menu.checkpoint).unwrap();
     press(&mut menu, confirm);
     assert_eq!(menu.figurine().unwrap().name, "Lloyd Irving");
@@ -1995,7 +2023,8 @@ fn figurine_book_filters_saved_ownership_and_preserves_the_checkpoint() {
     press(&mut menu, cancel);
     assert_eq!(menu.page, Page::Items);
     assert_eq!(serde_json::to_value(&menu.checkpoint).unwrap(), before);
-    let restored: Option<FieldCheckpoint> = serde_json::from_value(before.clone()).unwrap();
+    let restored: Option<resonance_game::Checkpoint> =
+        serde_json::from_value(before.clone()).unwrap();
     assert_eq!(serde_json::to_value(restored).unwrap(), before);
 }
 
@@ -2035,7 +2064,7 @@ fn training_manual_filters_learned_topics_and_bounds_each_reading_page() {
     menu.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .event_flags
         .extend([104, 108, 114]);
     assert_eq!(
@@ -2098,7 +2127,7 @@ fn world_map_directory_uses_saved_visits_and_preserves_inventory() {
     use resonance_game::menu::{Menu, Page, world_map::Focus};
     let mut menu = key_item_menu(69);
     let menus = menu.resources.as_ref().unwrap().data.clone();
-    let party = &menu.checkpoint.as_ref().unwrap().progress.party;
+    let party = &menu.checkpoint.as_ref().unwrap().progress().party;
     assert_eq!(party.travel.current_location, Some(2));
     assert_eq!(party.travel.visited_locations, [2].into());
     let press = |menu: &mut Menu, input| {
@@ -2145,7 +2174,7 @@ fn world_map_directory_uses_saved_visits_and_preserves_inventory() {
     menu.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .travel
         .visited_shops
@@ -2190,7 +2219,7 @@ fn monster_list_browsing_preserves_discoveries_and_pages_like_the_oracle() {
     use resonance_events::party::MonsterKnowledge;
     use resonance_game::menu::{Menu, Page};
     let mut menu = key_item_menu(71);
-    let party = &mut menu.checkpoint.as_mut().unwrap().progress.party;
+    let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
     party.monsters = (0..16)
         .map(|id| (id, MonsterKnowledge::default()))
         .collect();
@@ -2234,7 +2263,7 @@ fn monster_list_browsing_preserves_discoveries_and_pages_like_the_oracle() {
     menu.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .monsters
         .get_mut(&3)
@@ -2282,7 +2311,7 @@ fn monster_list_browsing_preserves_discoveries_and_pages_like_the_oracle() {
     menu.checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .monsters
         .clear();
@@ -2834,7 +2863,17 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
     {
         files.insert(path.to_owned(), fs::read(root.join(path)).unwrap().into());
     }
-    let prepared = resonance_game::skit::Prepared::load(catalog.clone(), &files).unwrap();
+    let prepared = resonance_game::skit::Prepared::load(
+        catalog.clone(),
+        &files,
+        &ResourceLibrary {
+            text: text.clone(),
+            session_data: Some(data.clone()),
+            ..Default::default()
+        },
+        files.diagnostics(),
+    )
+    .unwrap();
     for (&id, paths) in &catalog.resources {
         let result = (|| -> anyhow::Result<()> {
             let resources = Arc::new(ResourceLibrary {

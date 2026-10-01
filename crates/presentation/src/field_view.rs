@@ -104,7 +104,8 @@ fn recover(world: &mut World) {
 }
 
 fn has_session(state: State, recovery: Option<Res<RecoverField>>) -> bool {
-    recovery.is_none() && (state.live.is_some() || state.checkpoint.is_some())
+    recovery.is_none()
+        && (state.live.as_ref().is_some_and(|s| s.is_field()) || state.checkpoint.is_some())
 }
 #[derive(SystemParam)]
 pub(super) struct State<'w> {
@@ -116,11 +117,10 @@ impl State<'_> {
         if let Some(session) = &self.checkpoint {
             return &session.0;
         }
-        &self
-            .live
+        self.live
             .as_ref()
             .expect("field renderer needs a session")
-            .field
+            .field()
     }
 }
 
@@ -281,7 +281,6 @@ pub(super) struct Art {
     pub(super) map: u32,
     pub(super) models: BTreeMap<u32, Vec<Part>>,
     texture_animations: Vec<resonance_content::field::FieldTextureAnimation>,
-    pub(super) behavior_sources: BTreeMap<String, String>,
     instances: BTreeMap<i32, Vec<Entity>>,
     pub(super) ready: bool,
     loads: super::loading::LoadTasks,
@@ -584,7 +583,7 @@ pub(super) fn save_point_diagnostic(world: &World) -> serde_json::Value {
     };
     let art = world.get_resource::<Art>();
     let surfaces = world.get_resource::<Assets<TitleSurface>>();
-    serde_json::json!(session.field.events.world.save_points.iter().map(|point| {
+    serde_json::json!(session.events().world.save_points.iter().map(|point| {
         let passes: Vec<_> = art.and_then(|art| art.instances.get(&point.actor)).into_iter().flatten().filter_map(|&entity| {
             let part = world.get::<ActorPart>(entity)?;
             Some(serde_json::json!({
@@ -597,7 +596,7 @@ pub(super) fn save_point_diagnostic(world: &World) -> serde_json::Value {
             }))
         }).collect();
         serde_json::json!({"actor":point.actor,"resource":point.resource,"active":point.active,
-            "born":point.born,"age":session.field.events.tick().saturating_sub(point.born),
+            "born":point.born,"age":session.events().tick().saturating_sub(point.born),
             "glow_scale":point.glow_scale,"drawn":save_point_drawn(world, point.actor),"passes":passes})
     }).collect::<Vec<_>>())
 }
@@ -628,23 +627,31 @@ pub(super) fn ready(world: &mut World) -> bool {
     let Some(session) = world.get_resource::<super::new_game::Session>() else {
         return false;
     };
+    if !session.is_field() {
+        return false;
+    }
     let Some(art) = world.get_resource::<Art>() else {
         return false;
     };
     let particle_parts = session
-        .field
+        .field()
         .events
         .world
         .model_particles
         .values()
         .map(|p| art.models.get(&p.resource).map_or(1, Vec::len))
         .sum::<usize>();
-    session.overworld.is_none()
-        && art.ready
-        && art.map == session.assets.map_id
-        && session.field.events.world.actors.iter().all(|(id, actor)| {
-            !art.models.contains_key(&actor.model_resource()) || art.instances.contains_key(id)
-        })
+    art.ready
+        && art.map == session.map_id()
+        && session
+            .field()
+            .events
+            .world
+            .actors
+            .iter()
+            .all(|(id, actor)| {
+                !art.models.contains_key(&actor.model_resource()) || art.instances.contains_key(id)
+            })
         && world
             .query::<&ActorPart>()
             .iter(world)
@@ -659,10 +666,10 @@ pub(super) fn ready(world: &mut World) -> bool {
 
 pub(super) fn retire_live(world: &mut World) {
     if let Some(session) = world.get_resource::<super::new_game::Session>()
-        && session.overworld.is_none()
+        && session.is_field()
         && world
             .get_resource::<Art>()
-            .is_none_or(|art| art.map == session.assets.map_id)
+            .is_none_or(|art| art.map == session.map_id())
     {
         return;
     }
@@ -677,10 +684,17 @@ pub(super) fn retire_live(world: &mut World) {
         super::field_model_particles::retire(world);
         ui.despawn(world);
         effects.despawn(world);
-        world
-            .resource_mut::<RetainedFields>()
-            .0
-            .insert(art.map, (art, ui, effects));
+        if world.contains_resource::<super::new_game::Session>() {
+            world
+                .resource_mut::<RetainedFields>()
+                .0
+                .insert(art.map, (art, ui, effects));
+        }
+    }
+    if !world.contains_resource::<super::new_game::Session>()
+        && let Some(mut retained) = world.get_resource_mut::<RetainedFields>()
+    {
+        retained.0.clear();
     }
 }
 
@@ -694,7 +708,6 @@ fn load_live(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
-    resident: Res<super::loading::Resident>,
     mut controls: ResMut<Controls>,
     mut retained: ResMut<RetainedFields>,
     mut failures: Failures,
@@ -702,10 +715,10 @@ fn load_live(
     let Some(session) = session else {
         return;
     };
-    if art.is_some() || session.overworld.is_some() {
+    if art.is_some() || session.overworld().is_some() {
         return;
     }
-    if let Some((art, mut ui, effects)) = retained.0.remove(&session.assets.map_id) {
+    if let Some((art, mut ui, effects)) = retained.0.remove(&session.map_id()) {
         ui.prepare(&mut commands, &mut meshes, &mut materials);
         commands.insert_resource(art);
         commands.insert_resource(ui);
@@ -713,23 +726,10 @@ fn load_live(
         controls.input = Default::default();
         return;
     }
-    let Some(files) = resident.files.read().unwrap().clone() else {
-        failures.fatal(
-            "field model behavior preparation",
-            anyhow::anyhow!("missing verified field files"),
-        );
-        return;
-    };
-    let behavior_sources = match files.script_sources() {
-        Ok(sources) => sources,
-        Err(error) => {
-            failures.fatal("field model behavior preparation", error);
-            return;
-        }
-    };
+    let files = session.files();
     let mut ui = match super::field_ui::Artwork::load_with(
-        &session.assets,
-        session.data.clone(),
+        session.field_assets(),
+        session.data().clone(),
         &server,
         &mut materials,
         &mut images,
@@ -744,7 +744,7 @@ fn load_live(
     ui.prepare(&mut commands, &mut meshes, &mut materials);
     let effects = match super::field_effects::Artwork::load_with(
         &std::path::PathBuf::new(),
-        &session.assets,
+        session.field_assets(),
         &server,
         &mut meshes,
         &mut surfaces,
@@ -758,7 +758,7 @@ fn load_live(
     };
     commands.insert_resource(effects);
     commands.insert_resource(ui);
-    commands.insert_resource(load_art(&session.assets, &server, behavior_sources));
+    commands.insert_resource(load_art(session.field_assets(), &server));
     controls.clear_actions();
 }
 
@@ -920,6 +920,7 @@ pub(super) fn advance_live(
     resident: Res<super::loading::Resident>,
     scenario: Option<ResMut<super::saves::ScenarioInput>>,
     testing: Option<Res<super::testing::Controls>>,
+    quickload: Option<Res<super::saves::Quickload>>,
 ) {
     if testing.is_some_and(|c| c.skipping) {
         return;
@@ -928,17 +929,18 @@ pub(super) fn advance_live(
         controls.clear_actions();
         return;
     };
-    if !resident.active.load(std::sync::atomic::Ordering::Acquire)
-        || session.overworld.is_some()
+    if quickload.is_some()
+        || !resident.active.load(std::sync::atomic::Ordering::Acquire)
+        || session.overworld().is_some()
         || !session.ready_for_field
         || session.audio.is_some()
-        || session.field.events.world.field_transition.is_some()
-        || session.field.events.battle_pending()
+        || session.field().events.world.field_transition.is_some()
+        || session.field().events.battle_pending()
     {
         controls.clear_actions();
         return;
     }
-    let Some(art) = art.filter(|a| a.ready && a.map == session.assets.map_id) else {
+    let Some(art) = art.filter(|a| a.ready && a.map == session.map_id()) else {
         return;
     };
     let Some(ui) = &mut ui else {
@@ -954,7 +956,7 @@ pub(super) fn advance_live(
             return;
         }
     }
-    match ui.skit_ready(&session.field, &images, &server) {
+    match ui.skit_ready(session.field(), &images, &server) {
         Ok(true) => {}
         Ok(false) => {
             controls.clear_actions();
@@ -964,41 +966,49 @@ pub(super) fn advance_live(
             ui.clear_skit(&mut failures.commands);
             controls.clear_actions();
             if failures.skip("field skit artwork", error)
-                && let Err(error) = session.field.cancel_skit()
+                && let Err(error) = session.field_mut().cancel_skit()
             {
                 failures.fatal("field skit recovery", error);
             }
             return;
         }
     }
-    if !ui.menu_published(&session.field)
+    if !ui.menu_published(session.field())
         || parts.iter().any(|part| !part.prepared)
-        || session.field.events.world.actors.iter().any(|(id, actor)| {
-            art.models.contains_key(&actor.model_resource()) && !art.instances.contains_key(id)
-        })
+        || session
+            .field()
+            .events
+            .world
+            .actors
+            .iter()
+            .any(|(id, actor)| {
+                art.models.contains_key(&actor.model_resource()) && !art.instances.contains_key(id)
+            })
     {
         controls.clear_actions();
         return;
     }
     let input = controls.consume();
-    if let Some(camera) = &mut session.field.events.world.field_camera {
+    if let Some(camera) = &mut session.field_mut().events.world.field_camera {
         camera.view_aspect_ratio = display.0.aspect();
     }
     if let Some(mut scenario) = scenario {
         scenario.acknowledge_input();
     }
     if let Some(memory) = &menu_memory {
-        session.field.set_unison_character(memory.unison_character);
+        session
+            .field_mut()
+            .set_unison_character(memory.unison_character);
     }
-    if let Err(error) = session.field.step(input) {
+    if let Err(error) = session.field_mut().step(input) {
         // The VM may already have changed state. Cancel this lifetime and
         // return to title; never retry a partially applied field update.
-        session.field.events.cancel();
+        session.field_mut().events.cancel();
         session.ready_for_field = false;
         failures.fatal("field update", error);
     } else if let Some(memory) = &mut menu_memory {
-        memory.unison_character = session.field.unison_character();
-        if let Some(menu) = &session.field.menu {
+        memory.unison_character = session.field().unison_character();
+        if let Some(menu) = &session.field().menu {
             memory.character = menu.character;
         }
     }
@@ -1115,7 +1125,7 @@ fn ui(
     let field = checkpoint
         .as_mut()
         .map(|session| &mut session.0)
-        .or_else(|| live.as_mut().map(|session| &mut session.field))
+        .or_else(|| live.as_mut().map(|session| session.field_mut()))
         .expect("field UI session");
     if !art.ready(&images) {
         if field
@@ -1258,11 +1268,7 @@ fn ui(
     }
 }
 
-fn load_art(
-    manifest: &FieldAssets,
-    server: &AssetServer,
-    behavior_sources: BTreeMap<String, String>,
-) -> Art {
+fn load_art(manifest: &FieldAssets, server: &AssetServer) -> Art {
     let loads = super::loading::LoadTasks::default();
     let mut models = BTreeMap::new();
     for (resource, parts) in manifest
@@ -1290,7 +1296,6 @@ fn load_art(
         map: manifest.map_id,
         texture_animations: manifest.texture_animations.clone(),
         models,
-        behavior_sources,
         instances: BTreeMap::new(),
         ready: false,
         loading_since: Instant::now(),
@@ -1314,7 +1319,7 @@ pub(super) fn prepared_test_art(manifest: &FieldAssets, server: &AssetServer) ->
     let mut manifest = manifest.clone();
     manifest.actors.clear();
     manifest.parts.clear();
-    let mut art = load_art(&manifest, server, Default::default());
+    let mut art = load_art(&manifest, server);
     art.ready = true;
     art
 }
@@ -2133,7 +2138,12 @@ fn capture_field_cached(
     let scene_entry = matches!(target.scene, FieldScene::Arrival { .. });
     let (assets, mut session) = if setup_prompt {
         let entry = super::new_game::Session::load(&root)?;
-        (entry.assets, entry.field)
+        {
+            let super::new_game::Scene::Field(field) = entry.scene else {
+                unreachable!()
+            };
+            (field.package.assets.clone(), field.session)
+        }
     } else {
         let map = checkpoint.map_or(340, |c| c.map_id);
         if let std::collections::btree_map::Entry::Vacant(entry) = packages.entry(map) {
@@ -2154,10 +2164,7 @@ fn capture_field_cached(
         }
         let assets = package.assets.clone();
         let entry = if let Some(checkpoint) = checkpoint {
-            let (data, _) = super::new_game::admit_definitions(
-                |path| Ok(package.files.read(path)?.to_vec()),
-                package.files.diagnostics(),
-            )?;
+            let data = package.data.clone();
             let available_fields = super::new_game::available_fields(&root)?;
             if scene_entry {
                 ensure!(
@@ -2282,13 +2289,6 @@ fn capture_field_cached(
             )?);
         party.settings.preferences = preferences.clone();
     }
-    let behavior_sources = resonance_content::prepared::Files::load(
-        &root,
-        &[&resonance_content::field::preload_path(assets.map_id)],
-        &mut Default::default(),
-        || false,
-    )?
-    .script_sources()?;
     let mut app = App::new();
     super::model_preview::register(&mut app, &root);
     app.add_plugins(
@@ -2323,10 +2323,7 @@ fn capture_field_cached(
     .init_resource::<super::scene::SampledImages>()
     .insert_resource(Session(session))
     .insert_resource(Manifest(assets))
-    .insert_resource(Root {
-        assets: root,
-        behavior_sources,
-    })
+    .insert_resource(Root { assets: root })
     .insert_resource(super::display::OutputStage::Framebuffer)
     .insert_resource(super::display::Display(resolution))
     .insert_resource(Checkpoint {
@@ -2522,11 +2519,7 @@ fn setup(
             ..default()
         })),
     ));
-    commands.insert_resource(load_art(
-        &manifest.0,
-        &server,
-        root.behavior_sources.clone(),
-    ));
+    commands.insert_resource(load_art(&manifest.0, &server));
 }
 
 #[allow(clippy::too_many_arguments)] // Snapshot readiness, actor evidence, and GPU readback.
@@ -2630,5 +2623,4 @@ struct Manifest(FieldAssets);
 #[derive(Resource)]
 struct Root {
     assets: PathBuf,
-    behavior_sources: BTreeMap<String, String>,
 }

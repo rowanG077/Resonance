@@ -102,6 +102,16 @@ pub struct StatGrowth {
 }
 
 impl SessionData {
+    /// Bind and admit the shared rules before constructing a party or loading a save.
+    pub fn load(files: &crate::prepared::Files) -> Result<Self> {
+        let rules = crate::menu_data::MenuData::load(files)?;
+        rules.validate_gameplay()?;
+        let mut data: Self = files.json("game/session-data.json")?;
+        data.rules = Some(std::sync::Arc::new(rules));
+        data.validate()?;
+        Ok(data)
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.version == 1 && self.characters.len() == 9,

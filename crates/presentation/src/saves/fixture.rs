@@ -12,7 +12,7 @@ pub fn prepare_checkpoint_fixture(
     let package = new_game::FieldPackage::prepare(root, checkpoint.map_id, &mut cache, || false)?;
     let session =
         new_game::Session::load_prepared(root, package.files, Some(checkpoint), None, &mut cache)?;
-    let state = session.field.checkpoint()?;
+    let state = session.field().checkpoint()?;
     let header = Header {
         identity: session.identity,
         label: "Oracle checkpoint".into(),
@@ -20,7 +20,7 @@ pub fn prepare_checkpoint_fixture(
         played_ticks: state.played_ticks,
         saved_unix_seconds: 0,
     };
-    let bytes = resonance_persistence::encode(&header, &state)?;
+    let bytes = resonance_persistence::encode(&header, &SceneCheckpoint::Field(state))?;
     fs::OpenOptions::new()
         .write(true)
         .create_new(true)

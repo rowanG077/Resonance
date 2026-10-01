@@ -124,7 +124,7 @@ impl Cooking {
 }
 impl Menu {
     pub(super) fn open_cooking(&mut self) {
-        let party = &mut self.checkpoint.as_mut().unwrap().progress.party;
+        let party = &mut self.checkpoint.as_mut().unwrap().progress_mut().party;
         if !party.formation.contains(&(party.cooking.chef + 1)) {
             party.cooking.chef = party.formation[0] - 1;
             self.party_changed = true;
@@ -187,7 +187,7 @@ impl Menu {
             return None;
         }
         if input == Some(Alternate) && self.cooking.focus == Focus::Header {
-            let progress = &mut self.checkpoint.as_mut().unwrap().progress;
+            let progress = self.checkpoint.as_mut().unwrap().progress_mut();
             let data = &self.resources.as_ref().unwrap().data;
             let (content, cue) = match progress.cook(data) {
                 Ok(meal) => {
@@ -209,7 +209,7 @@ impl Menu {
             return Some(cue);
         }
         let state = &mut self.cooking;
-        let progress = &mut self.checkpoint.as_mut().unwrap().progress;
+        let progress = self.checkpoint.as_mut().unwrap().progress_mut();
         let party = &mut progress.party;
         if input == Some(Cancel) {
             if state.focus == Focus::Header {

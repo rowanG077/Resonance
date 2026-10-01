@@ -13,14 +13,14 @@ pub(super) fn page_shift(input: Input, length: usize, first: usize) -> isize {
 
 impl Menu {
     pub fn party(&self) -> &resonance_events::party::Party {
-        &self.checkpoint.as_ref().unwrap().progress.party
+        &self.checkpoint.as_ref().unwrap().progress().party
     }
 
     pub(super) fn clamp_party_view(&mut self) {
         if let Some(checkpoint) = &self.checkpoint {
             self.character = self
                 .character
-                .min(checkpoint.progress.party.formation.len() - 1);
+                .min(checkpoint.progress().party.formation.len() - 1);
             if matches!(
                 self.page,
                 Page::Main | Page::Party | Page::Character(_) | Page::System
@@ -34,7 +34,7 @@ impl Menu {
     }
 
     pub(super) fn page_party(&mut self, input: Input) -> Option<i16> {
-        let length = self.checkpoint.as_ref()?.progress.party.formation.len();
+        let length = self.checkpoint.as_ref()?.progress().party.formation.len();
         let shift = page_shift(input, length, self.first_character);
         self.first_character = self.first_character.saturating_add_signed(shift);
         self.character = self.character.saturating_add_signed(shift);
@@ -43,7 +43,7 @@ impl Menu {
 
     pub(super) fn move_party_cursor(&mut self, input: Input) -> Option<i16> {
         use MenuAction::*;
-        let length = self.checkpoint.as_ref()?.progress.party.formation.len();
+        let length = self.checkpoint.as_ref()?.progress().party.formation.len();
         let previous = self.character;
         if input == Some(Up) {
             self.character = self.character.saturating_sub(1);
@@ -64,7 +64,7 @@ impl Menu {
             return Some(3);
         }
         if matches!(input, Some(Confirm | Menu)) {
-            let party = &mut self.checkpoint.as_mut()?.progress.party;
+            let party = &mut self.checkpoint.as_mut()?.progress_mut().party;
             if let Some(origin) = self.swap_character.take() {
                 party.formation.swap(origin, self.character);
             } else if input == Some(Menu) {

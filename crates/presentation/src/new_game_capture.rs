@@ -22,8 +22,10 @@ pub(super) fn screenshot_held(
     let fixed_tick = app
         .world()
         .get_resource::<new_game::Session>()
-        .filter(|s| s.ready_for_field && !app.world().resource::<movie::Playback>().active)
-        .map(|s| s.field.events.tick());
+        .filter(|s| {
+            s.is_field() && s.ready_for_field && !app.world().resource::<movie::Playback>().active
+        })
+        .map(|s| s.field().events.tick());
     {
         // Readback happens on a later render submission. Keep the gameplay
         // snapshot fixed so an effect/opening image cannot depict tick N+1
@@ -44,8 +46,8 @@ pub(super) fn screenshot_held(
     let framebuffer = app.world().resource::<Framebuffer>().0.clone();
     let secondary = super::secondary_motion::diagnostic(app.world_mut());
     let shadows = field_view::shadow_diagnostic(app.world_mut());
-    let mut metadata = app.world().get_resource::<new_game::Session>().map(|session| {
-        let field = &session.field;
+    let mut metadata = app.world().get_resource::<new_game::Session>().filter(|s| s.is_field()).map(|session| {
+        let field = session.field();
         let (dialogue, retained_dialogue) =
             diagnostic_dialogue(&field.dialogue, &field.events.world.dialogue);
         serde_json::json!({"tick":field.events.tick(),"input_enabled":field.events.world.input_enabled,
@@ -97,7 +99,7 @@ pub(super) fn screenshot_held(
                 fixed_tick.is_none_or(|tick| app
                     .world()
                     .get_resource::<new_game::Session>()
-                    .is_some_and(|session| session.field.events.tick() == tick)),
+                    .is_some_and(|session| session.is_field() && session.events().tick() == tick)),
                 "field checkpoint advanced gameplay during readback"
             );
             anyhow::ensure!(

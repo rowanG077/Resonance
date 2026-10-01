@@ -103,7 +103,7 @@ fn retire(
     retained: Option<Res<PreparedMaterials>>,
     shared: Res<Shared>,
 ) {
-    if session.as_ref().is_some_and(|s| s.overworld.is_none()) || pending.is_some() {
+    if session.as_ref().is_some_and(|s| s.is_field()) || pending.is_some() {
         return;
     }
     if session.is_none() {
@@ -145,8 +145,8 @@ fn begin(
         return;
     };
     if session.is_none_or(|s| {
-        s.overworld.is_some()
-            || s.assets.map_id != art.map
+        s.overworld().is_some()
+            || s.map_id() != art.map
             || s.events().world.field_transition.is_some()
             || s.events().world.world_transition.is_some()
     }) {

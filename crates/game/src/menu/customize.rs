@@ -63,7 +63,7 @@ impl Menu {
         } else {
             self.checkpoint
                 .as_ref()
-                .map(|c| &c.progress.party.settings.preferences)
+                .map(|c| &c.progress().party.settings.preferences)
         }
     }
     pub(super) fn open_customize(&mut self) {
@@ -138,7 +138,7 @@ impl Menu {
                 self.checkpoint
                     .as_mut()
                     .unwrap()
-                    .progress
+                    .progress_mut()
                     .party
                     .settings
                     .preferences = state.draft.clone();
@@ -204,7 +204,7 @@ impl Menu {
                             self.checkpoint
                                 .as_ref()
                                 .unwrap()
-                                .progress
+                                .progress()
                                 .party
                                 .settings
                                 .preferences

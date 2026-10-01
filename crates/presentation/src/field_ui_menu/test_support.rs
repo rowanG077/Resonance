@@ -94,28 +94,31 @@ impl Fixture {
     pub(super) fn field_menu(&self) -> Menu {
         let mut menu = Menu::new(
             resonance_game::menu::Page::Main,
-            Some(resonance_game::field::FieldCheckpoint {
-                map_id: 330,
-                position: [0.; 3],
-                heading: 0.,
-                camera: {
-                    let mut rig = resonance_events::camera::CameraRig::default();
-                    *rig.current_mut() = resonance_events::camera::EntryCamera::following(1).camera;
-                    Some(rig.settings(1).unwrap())
+            Some(resonance_game::Checkpoint::Field(
+                resonance_game::field::FieldCheckpoint {
+                    map_id: 330,
+                    position: [0.; 3],
+                    heading: 0.,
+                    camera: {
+                        let mut rig = resonance_events::camera::CameraRig::default();
+                        *rig.current_mut() =
+                            resonance_events::camera::EntryCamera::following(1).camera;
+                        Some(rig.settings(1).unwrap())
+                    },
+                    played_ticks: 17,
+                    allow_incomplete_scripts: false,
+                    progress: resonance_events::SavedProgress {
+                        script_globals: vec![0; 256],
+                        script_state: Default::default(),
+                        party: self.party.clone(),
+                        event_flags: Default::default(),
+                        event_records: Default::default(),
+                        random_state: 0,
+                        gameplay_random: Default::default(),
+                        tick: 17,
+                    },
                 },
-                played_ticks: 17,
-                allow_incomplete_scripts: false,
-                progress: resonance_events::SavedProgress {
-                    script_globals: vec![0; 256],
-                    script_state: Default::default(),
-                    party: self.party.clone(),
-                    event_flags: Default::default(),
-                    event_records: Default::default(),
-                    random_state: 0,
-                    gameplay_random: Default::default(),
-                    tick: 17,
-                },
-            }),
+            )),
             false,
         );
         menu.main_fade = 0;

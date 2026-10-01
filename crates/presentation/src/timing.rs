@@ -219,6 +219,7 @@ pub(super) fn advance_clock(
     movie: Res<movie::Playback>,
     boot: Res<boot::Playback>,
     loading: Option<Res<super::loading::Pending>>,
+    quickload: Option<Res<super::saves::Quickload>>,
     resident: Option<Res<super::loading::Resident>>,
     mut session: Option<ResMut<super::new_game::Session>>,
     battle: Option<Res<super::battle::Owner>>,
@@ -227,6 +228,7 @@ pub(super) fn advance_clock(
     // Presentation age continues across movies and title entries;
     // pure loading waits do not advance it.
     if loading.is_none()
+        && quickload.is_none()
         && (battle.as_ref().is_some_and(|battle| battle.presenting())
             || session.is_none()
             || resident
@@ -247,7 +249,7 @@ pub(super) fn advance_clock(
         if movie.active
             && let Some(session) = &mut session
         {
-            session.field.play_time.advance();
+            session.advance_play_time();
         }
     }
 }

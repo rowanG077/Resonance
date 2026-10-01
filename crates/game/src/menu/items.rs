@@ -257,7 +257,7 @@ impl Menu {
                         .checkpoint
                         .as_mut()
                         .unwrap()
-                        .progress
+                        .progress_mut()
                         .party
                         .change_item(&resources.session, id, -1)
                         .map(|changed| changed.then_some(2));
@@ -307,7 +307,7 @@ impl Menu {
             }
             Focus::Target => {
                 let old = self.inventory.target;
-                let party = &mut self.checkpoint.as_mut().unwrap().progress.party;
+                let party = &mut self.checkpoint.as_mut().unwrap().progress_mut().party;
                 if up && !self.inventory.target_all {
                     self.inventory.target = old.saturating_sub(1);
                 }
@@ -479,12 +479,13 @@ impl Menu {
                                 }
                             };
                             let target = self.member_index();
-                            let result = self.checkpoint.as_mut().unwrap().progress.party.use_item(
-                                &resources.session,
-                                &resources.data,
-                                id,
-                                target,
-                            );
+                            let result = self
+                                .checkpoint
+                                .as_mut()
+                                .unwrap()
+                                .progress_mut()
+                                .party
+                                .use_item(&resources.session, &resources.data, id, target);
                             if matches!(result, Ok(Some(_))) {
                                 self.inventory.notice = Some(notice);
                             }

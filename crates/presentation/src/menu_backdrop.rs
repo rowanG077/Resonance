@@ -248,7 +248,11 @@ fn sync(
             field: None,
         }
     });
-    let field = state.live.as_ref().map(|s| &s.field);
+    let field = state
+        .live
+        .as_ref()
+        .filter(|s| s.is_field())
+        .map(|s| s.field());
     let identity = field.map(|f| (f.map_id, f.events.tick()));
     // Closing has one fully transparent pose before field simulation resumes.
     let held = field.is_some_and(|f| f.menu_is_open())

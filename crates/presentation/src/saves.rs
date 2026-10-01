@@ -34,66 +34,10 @@ use std::{
 };
 pub use title_probe::run_title_load_probe;
 
-/// Field saves retain their existing JSON shape. World saves carry a separate
-/// scene checkpoint and the suspended field package needed by the scene owner.
-#[derive(Clone, serde::Serialize)]
-#[serde(untagged)]
-pub(super) enum SceneCheckpoint {
-    Field(FieldCheckpoint),
-    World(WorldCheckpoint),
-}
-impl<'de> serde::Deserialize<'de> for SceneCheckpoint {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // Serde's untagged buffer loses JSON's numeric map-key conversion.
-        // Inventory, bestiary and event records all use integer keys. Select
-        // the existing wire shape explicitly, then use the JSON deserializer.
-        let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
-        if value.get("overworld").is_some() {
-            serde_json::from_value(value).map(Self::World)
-        } else {
-            serde_json::from_value(value).map(Self::Field)
-        }
-        .map_err(serde::de::Error::custom)
-    }
-}
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct WorldCheckpoint {
-    pub overworld: resonance_game::overworld::Checkpoint,
-    pub anchor_field: u32,
-}
-impl SceneCheckpoint {
-    fn menu_snapshot(&self) -> FieldCheckpoint {
-        match self {
-            Self::Field(checkpoint) => checkpoint.clone(),
-            Self::World(checkpoint) => checkpoint.overworld.menu_snapshot(),
-        }
-    }
-    pub fn map(&self) -> u32 {
-        match self {
-            Self::Field(c) => c.map_id,
-            Self::World(c) => c.anchor_field,
-        }
-    }
-    fn played_ticks(&self) -> u64 {
-        match self {
-            Self::Field(c) => c.played_ticks,
-            Self::World(c) => c.overworld.played_ticks,
-        }
-    }
-    fn location(&self) -> String {
-        match self {
-            Self::Field(c) if c.starts_new_game_plus() => "Game cleared".into(),
-            Self::Field(c) => format!("Field {}", c.map_id),
-            Self::World(c) => match c.overworld.state.world {
-                resonance_game::overworld::World::Sylvarant => "Sylvarant".into(),
-                resonance_game::overworld::World::TetheAlla => "Tethe'alla".into(),
-            },
-        }
-    }
-}
+pub(super) use resonance_game::Checkpoint as SceneCheckpoint;
+
 #[derive(Resource)]
-pub(super) struct WorldLoad(loading::Pending);
+pub(super) struct Quickload(loading::Pending);
 
 #[derive(Default)]
 pub struct SaveOptions {
@@ -153,16 +97,22 @@ pub(super) fn install(app: &mut App, options: &SaveOptions) -> Result<()> {
     Ok(())
 }
 
-/// Only the live, prepared field can supply a checkpoint. Other modes have no
-/// free-control session, or explicitly hold it while presenting their UI.
+/// Field diagnostics use the same admission as a normal scene save.
 pub(super) fn checkpoint(world: &mut World) -> Result<FieldCheckpoint> {
+    match scene_checkpoint(world)? {
+        SceneCheckpoint::Field(checkpoint) => Ok(checkpoint),
+        SceneCheckpoint::World(_) => anyhow::bail!("checkpoint requires an active field"),
+    }
+}
+
+fn scene_checkpoint(world: &mut World) -> Result<SceneCheckpoint> {
     ensure!(
         !world.resource::<Time<Virtual>>().is_paused(),
         "quicksave unavailable while the game is paused"
     );
     ensure!(
-        field_prepared(world),
-        "quicksave unavailable while preparing the field"
+        scene_prepared(world),
+        "quicksave unavailable while preparing the scene"
     );
     ensure!(
         !world.resource::<super::movie::Playback>().active,
@@ -170,57 +120,33 @@ pub(super) fn checkpoint(world: &mut World) -> Result<FieldCheckpoint> {
     );
     let session = world
         .get_resource::<new_game::Session>()
-        .context("quicksave requires free field control")?;
-    ensure!(
-        session.overworld.is_none() && session.ready_for_field && session.audio.is_none(),
-        "quicksave unavailable during a scene presentation"
-    );
-    session.field.checkpoint()
-}
-
-fn scene_checkpoint(world: &mut World) -> Result<SceneCheckpoint> {
-    if world
-        .get_resource::<new_game::Session>()
-        .is_none_or(|s| s.overworld.is_none())
-    {
-        return checkpoint(world).map(SceneCheckpoint::Field);
-    }
-    ensure!(
-        !world.resource::<Time<Virtual>>().is_paused(),
-        "cannot save while paused"
-    );
-    ensure!(
-        field_prepared(world),
-        "cannot save while preparing the scene"
-    );
-    let session = world.resource::<new_game::Session>();
+        .context("quicksave requires an active scene")?;
     ensure!(
         session.audio.is_none(),
-        "cannot save during audio preparation"
+        "quicksave unavailable during audio preparation"
     );
-    Ok(SceneCheckpoint::World(WorldCheckpoint {
-        overworld: session.overworld.as_ref().unwrap().session.checkpoint()?,
-        anchor_field: session.assets.map_id,
-    }))
+    match &session.scene {
+        new_game::Scene::Field(field) => {
+            ensure!(
+                session.ready_for_field,
+                "quicksave unavailable during a scene presentation"
+            );
+            field.session.checkpoint().map(SceneCheckpoint::Field)
+        }
+        new_game::Scene::World(scene) => scene.session.checkpoint().map(SceneCheckpoint::World),
+    }
 }
 
-fn field_prepared(world: &mut World) -> bool {
+fn scene_prepared(world: &mut World) -> bool {
     !world.contains_resource::<loading::Pending>()
         && !world.contains_resource::<loading::FieldPending>()
         && !world.contains_resource::<loading::WorldPending>()
-        && !world.contains_resource::<WorldLoad>()
+        && !world.contains_resource::<Quickload>()
         && world
             .resource::<loading::Resident>()
             .active
             .load(std::sync::atomic::Ordering::Acquire)
-        && if world
-            .get_resource::<new_game::Session>()
-            .is_some_and(|s| s.overworld.is_some())
-        {
-            super::overworld::ready(world)
-        } else {
-            field_view::ready(world)
-        }
+        && new_game::scene_ready(world)
 }
 
 fn save(world: &mut World) -> Result<String> {
@@ -261,44 +187,15 @@ fn load(world: &mut World) -> Result<String> {
         "quicksave is still being written"
     );
     let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-    let (_, checkpoint): (_, SceneCheckpoint) = resonance_persistence::decode(&bytes)?
-        .admit(&world.resource::<new_game::Session>().identity)?;
-    if matches!(checkpoint, SceneCheckpoint::World(_))
-        || world.resource::<new_game::Session>().overworld.is_some()
-        || recovering
-    {
-        let pending = loading::Pending::start(
-            world.resource::<super::RunOptions>().assets.clone(),
-            world.resource::<super::RunOptions>().script_root.clone(),
-            Some(bytes),
-            None,
-            world.resource::<loading::Resident>(),
-        )?;
-        world.insert_resource(WorldLoad(pending));
-        return Ok("Loading quicksave".into());
-    }
-    let SceneCheckpoint::Field(checkpoint) = checkpoint else {
-        unreachable!()
-    };
-    let changing_field = checkpoint.map_id != world.resource::<new_game::Session>().assets.map_id;
-    let started = Instant::now();
-    let scripts = world.resource::<super::RunOptions>().script_root.clone();
-    if scripts.is_some() {
-        let resident = world.resource::<loading::Resident>().clone();
-        world.resource_mut::<new_game::Session>().refresh_scripts(
-            checkpoint.map_id,
-            scripts,
-            &resident,
-        )?;
-    }
-    world
-        .resource_mut::<new_game::Session>()
-        .restore(checkpoint)?;
-    restored(world, changing_field);
-    Ok(format!(
-        "Quicksave loaded (field initialization {:.2} ms)",
-        started.elapsed().as_secs_f64() * 1000.
-    ))
+    let pending = loading::Pending::start(
+        world.resource::<super::RunOptions>().assets.clone(),
+        world.resource::<super::RunOptions>().script_root.clone(),
+        Some(bytes),
+        None,
+        world.resource::<loading::Resident>(),
+    )?;
+    world.insert_resource(Quickload(pending));
+    Ok("Loading quicksave".into())
 }
 
 pub(super) fn reset_scene(world: &mut World, changing_field: bool) {
@@ -335,11 +232,11 @@ fn restored(world: &mut World, changing_field: bool) {
 
 pub(super) fn release_frame(world: &mut World) {
     if !world.contains_resource::<RetainedFrame>()
-        || !field_prepared(world)
+        || !scene_prepared(world)
         || world
             .get_resource::<new_game::Session>()
             .is_none_or(|session| {
-                (session.overworld.is_none() && !session.ready_for_field) || session.audio.is_some()
+                (session.is_field() && !session.ready_for_field) || session.audio.is_some()
             })
     {
         return;
@@ -359,13 +256,13 @@ pub(super) fn release_retained_frame(world: &mut World) {
 }
 
 pub(super) fn update(world: &mut World) {
-    if let Some(pending) = world.get_resource::<WorldLoad>() {
+    if let Some(pending) = world.get_resource::<Quickload>() {
         let result = match pending.0.poll() {
             Ok(None) => return,
             Ok(Some(result)) => result,
             Err(error) => Err(error),
         };
-        world.remove_resource::<WorldLoad>();
+        world.remove_resource::<Quickload>();
         match result {
             Ok(candidate) => {
                 world
@@ -419,51 +316,6 @@ fn report(world: &mut World, result: Result<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn field_and_world_save_shapes_preserve_numeric_inventory_and_event_keys() -> Result<()> {
-        let field: FieldCheckpoint = serde_json::from_value(serde_json::json!({
-            "map_id": 330, "position": [0, 0, 0], "heading": 0, "played_ticks": 100,
-            "progress": {
-                "script_globals": [], "event_flags": [22], "random_state": 0, "tick": 100,
-                "gameplay_random": resonance_events::GameplayRandom::default(),
-                "event_records": {"12": {"value": 1, "extra": 0, "tick": 50}},
-                "party": {
-                    "battles": resonance_events::party::BattleStatistics::default(),
-                    "members": [], "formation": [], "items": {"58": 1},
-                    "found_items": [58], "recent_items": [58], "gald": 0, "spent_gald": 0,
-                    "settings": resonance_events::party::Settings::default()
-                }
-            }
-        }))?;
-        let state = resonance_content::overworld::TravelState {
-            world: resonance_content::overworld::World::Sylvarant,
-            position: resonance_content::overworld::Position::from_map([9770., 23500., 0.])?,
-            heading: 0.,
-            camera_yaw: 0.,
-            alternate_perspective: false,
-            map_display: Default::default(),
-            mount: resonance_content::overworld::Mount::Rheairds,
-            altitude: 600.,
-        };
-        let world = WorldCheckpoint {
-            overworld: resonance_game::overworld::Checkpoint {
-                state,
-                progress: field.progress.clone(),
-                played_ticks: 0,
-            },
-            anchor_field: 330,
-        };
-        for checkpoint in [SceneCheckpoint::Field(field), SceneCheckpoint::World(world)] {
-            let bytes = serde_json::to_vec(&checkpoint)?;
-            let decoded: SceneCheckpoint = serde_json::from_slice(&bytes)?;
-            assert_eq!(
-                serde_json::to_value(&checkpoint)?,
-                serde_json::to_value(decoded)?
-            );
-        }
-        Ok(())
-    }
 
     #[test]
     fn unavailable_quicksave_does_not_queue_a_write() {
@@ -527,8 +379,10 @@ mod tests {
                 slot: SlotId::new("unused").unwrap(),
                 writing: Mutex::default(),
             });
-        let art =
-            field_view::prepared_test_art(&session.assets, app.world().resource::<AssetServer>());
+        let art = field_view::prepared_test_art(
+            session.field_assets(),
+            app.world().resource::<AssetServer>(),
+        );
         app.insert_resource(art).insert_resource(session);
         let world = app.world_mut();
         let visible = world
@@ -567,7 +421,7 @@ mod tests {
             .restored_checkpoint
             .clone()
             .unwrap();
-        let tick = world.resource::<new_game::Session>().field.events.tick();
+        let tick = world.resource::<new_game::Session>().field().events.tick();
         let mut timed_out = false;
         replay::wait_ready(&mut app, &mut timed_out).unwrap();
         assert!(
@@ -576,7 +430,7 @@ mod tests {
         );
         let world = app.world_mut();
         assert_eq!(
-            world.resource::<new_game::Session>().field.events.tick(),
+            world.resource::<new_game::Session>().field().events.tick(),
             tick
         );
         assert_checkpoint(
@@ -591,13 +445,13 @@ mod tests {
 
         world
             .resource_mut::<new_game::Session>()
-            .field
+            .field_mut()
             .step(default())
             .unwrap();
         assert!(
             !world
                 .resource::<new_game::Session>()
-                .field
+                .field()
                 .events
                 .world
                 .dialogue

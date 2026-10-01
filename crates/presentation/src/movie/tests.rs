@@ -44,20 +44,9 @@ pub(crate) fn fixture() -> App {
         PathBuf::from,
     );
     let options = RunOptions {
-        script_root: None,
-        saves: Default::default(),
-        assets: root.clone(),
-        capture_at: None,
-        capture: None,
-        reveal: false,
-        selected: 0,
-        silent: true,
-        paranoid: true,
         skip_intro: false,
-        skip_battles: false,
-        allow_incomplete_scripts: false,
-        record_playthrough: None,
         record_title_ticks: 1000,
+        ..crate::test_support::run_options(&root)
     };
     let mut movie = Playback::load(&root, &options).expect("cook-all first");
     let asset = movie.asset.as_ref().unwrap();
@@ -144,7 +133,7 @@ fn movie_play_time_excludes_preparation_and_pause() {
     let started = app
         .world()
         .resource::<crate::new_game::Session>()
-        .field
+        .field()
         .events
         .tick();
     for (resident, active, presenting, paused, expected) in [
@@ -167,7 +156,7 @@ fn movie_play_time_excludes_preparation_and_pause() {
                 .run_system_once(crate::timing::advance_clock)
                 .unwrap();
         }
-        let field = &app.world().resource::<crate::new_game::Session>().field;
+        let field = &app.world().resource::<crate::new_game::Session>().field();
         assert_eq!(field.play_time.total(), expected);
         assert_eq!(field.events.tick(), started);
     }
@@ -289,12 +278,12 @@ fn script_movie_fixture() -> (App, resonance_events::Operation) {
         );
         thread::sleep(Duration::from_millis(1));
     }
-    assert_eq!(app.world().resource::<new_game::Session>().assets.map_id, 5);
+    assert_eq!(app.world().resource::<new_game::Session>().map_id(), 5);
     for _ in 0..1000 {
         {
             let mut session = app.world_mut().resource_mut::<new_game::Session>();
             let choose = session
-                .field
+                .field()
                 .events
                 .world
                 .choices
@@ -302,20 +291,20 @@ fn script_movie_fixture() -> (App, resonance_events::Operation) {
                 .is_some_and(|choice| {
                     choice.operation.is_pending()
                         && session
-                            .field
+                            .field()
                             .dialogue
                             .get(&1)
                             .is_some_and(|d| d.fully_revealed())
                 });
             let selected = session
-                .field
+                .field()
                 .events
                 .world
                 .choices
                 .get(&1)
                 .map(|c| c.selection.lines().unwrap().selected_line);
             session
-                .field
+                .field_mut()
                 .step(resonance_game::field::FieldInput {
                     direction: if choose && selected == Some(0) {
                         [0., -1.]
@@ -331,17 +320,28 @@ fn script_movie_fixture() -> (App, resonance_events::Operation) {
         app.world_mut()
             .run_system_once(new_game::transition)
             .unwrap();
+        let began = Instant::now();
+        while app
+            .world()
+            .contains_resource::<crate::loading::FieldPending>()
+        {
+            assert!(began.elapsed().as_secs() < 30, "field preparation stalled");
+            app.world_mut()
+                .run_system_once(new_game::transition)
+                .unwrap();
+            thread::sleep(Duration::from_millis(1));
+        }
         app.world_mut().run_system_once(new_game::advance).unwrap();
         if app.world().resource::<Playback>().active {
             break;
         }
     }
     let session = app.world().resource::<new_game::Session>();
-    assert_eq!(session.assets.map_id, 340);
+    assert_eq!(session.map_id(), 340);
     assert!(!session.ready_for_field);
-    assert!(session.field.events.world.blocked_by_movie());
+    assert!(session.field().events.world.blocked_by_movie());
     let completion = session
-        .field
+        .field()
         .events
         .world
         .movie
@@ -468,7 +468,7 @@ fn asynchronous_movie_failure_completes_field_handoff_only_in_tolerant_mode() {
             .unwrap();
         let session = app.world().resource::<crate::new_game::Session>();
         assert_eq!(session.ready_for_field, !paranoid);
-        assert!(!session.field.events.world.blocked_by_movie());
+        assert!(!session.field().events.world.blocked_by_movie());
     }
 }
 

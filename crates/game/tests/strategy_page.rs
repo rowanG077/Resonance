@@ -29,7 +29,7 @@ fn fixture() -> (Arc<SessionData>, Arc<MenuData>, Party) {
 fn field_menu(session: Arc<SessionData>, data: Arc<MenuData>, party: Party) -> Menu {
     let mut menu = Menu::new(
         menu::Page::Main,
-        Some(FieldCheckpoint {
+        Some(resonance_game::Checkpoint::Field(FieldCheckpoint {
             allow_incomplete_scripts: false,
             map_id: 330,
             position: [0.; 3],
@@ -46,7 +46,7 @@ fn field_menu(session: Arc<SessionData>, data: Arc<MenuData>, party: Party) -> M
                 gameplay_random: Default::default(),
                 tick: 17,
             },
-        }),
+        })),
         false,
     );
     menu.resources = Some(Arc::new(Resources {

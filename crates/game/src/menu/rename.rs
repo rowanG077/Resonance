@@ -58,7 +58,7 @@ impl Menu {
     pub fn can_rename(&self) -> bool {
         self.checkpoint
             .as_ref()
-            .is_some_and(|c| c.progress.party.items.contains_key(&RENAME_GEM))
+            .is_some_and(|c| c.progress().party.items.contains_key(&RENAME_GEM))
     }
     pub(super) fn open_rename(&mut self, origin: Origin, character: usize) -> bool {
         if !self.admit_page(Page::Rename) {
@@ -206,8 +206,9 @@ impl Menu {
                             if state.value.is_empty() {
                                 return Some(4);
                             }
-                            let member = &mut self.checkpoint.as_mut()?.progress.party.members
-                                [state.character];
+                            let member =
+                                &mut self.checkpoint.as_mut()?.progress_mut().party.members
+                                    [state.character];
                             self.party_changed |= state.value != original;
                             member.name = (state.value != names[state.character])
                                 .then(|| state.value.clone());

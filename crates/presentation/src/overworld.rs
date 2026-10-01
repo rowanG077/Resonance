@@ -30,7 +30,7 @@ impl State<'_> {
     fn get(&self) -> Option<&Scene> {
         self.live
             .as_ref()
-            .and_then(|s| s.overworld.as_ref())
+            .and_then(|s| s.overworld())
             .or_else(|| self.capture.as_ref().map(|s| &s.0))
     }
 }
@@ -288,13 +288,13 @@ fn advance(
     mut owner: Option<ResMut<super::new_game::Session>>,
     art: Option<Res<Art>>,
     resident: Res<super::loading::Resident>,
-    loading_save: Option<Res<super::saves::WorldLoad>>,
+    loading_save: Option<Res<super::saves::Quickload>>,
     mut controls: ResMut<Controls>,
     mut menu_controls: ResMut<super::field_view::Controls>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let mut input = controls.0;
-    if owner.as_ref().is_some_and(|s| s.overworld.is_some()) {
+    if owner.as_ref().is_some_and(|s| s.overworld().is_some()) {
         input.menu = menu_controls.consume();
     }
     controls.0.confirm = false;
@@ -308,7 +308,7 @@ fn advance(
     if loading_save.is_some() || owner.as_ref().is_some_and(|s| s.audio.is_some()) {
         return;
     }
-    let Some(scene) = owner.as_mut().and_then(|s| s.overworld.as_mut()) else {
+    let Some(scene) = owner.as_mut().and_then(|s| s.overworld_mut()) else {
         return;
     };
     if art.is_none_or(|a| !a.ready) || !resident.active.load(Ordering::Acquire) {
@@ -356,7 +356,7 @@ struct TerrainDraw {
 fn retire(world: &mut World) {
     let current = world
         .get_resource::<super::new_game::Session>()
-        .and_then(|s| s.overworld.as_ref())
+        .and_then(|s| s.overworld())
         .or_else(|| world.get_resource::<capture::Scene>().map(|s| &s.0));
     let Some(art) = world.get_resource::<Art>() else {
         return;

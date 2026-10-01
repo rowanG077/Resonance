@@ -41,7 +41,7 @@ impl Menu {
         let Some(checkpoint) = &self.checkpoint else {
             return Vec::new();
         };
-        let flags = &checkpoint.progress.event_flags;
+        let flags = &checkpoint.progress().event_flags;
         data.chapters
             .iter()
             .filter_map(|chapter| {

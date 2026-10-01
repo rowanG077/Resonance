@@ -13,24 +13,7 @@ pub struct Prepared {
     resources: Arc<ResourceLibrary>,
 }
 impl Prepared {
-    pub fn load(catalog: Arc<SkitCatalog>, files: &Files) -> Result<BTreeMap<u16, Self>> {
-        let text: Arc<resonance_content::session::GameText> =
-            Arc::new(files.json("game/text.json")?);
-        let data: Arc<resonance_content::session::SessionData> =
-            Arc::new(files.json("game/session-data.json")?);
-        Self::load_with(
-            catalog,
-            files,
-            &ResourceLibrary {
-                text,
-                session_data: Some(data),
-                ..Default::default()
-            },
-            files.diagnostics(),
-        )
-    }
-
-    pub(crate) fn load_with(
+    pub fn load(
         catalog: Arc<SkitCatalog>,
         files: &Files,
         resources: &ResourceLibrary,

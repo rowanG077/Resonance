@@ -28,7 +28,7 @@ impl Menu {
             .as_ref()
             .map_or_else(Vec::new, |checkpoint| {
                 checkpoint
-                    .progress
+                    .progress()
                     .event_records
                     .iter()
                     .filter_map(|(&id, record)| {
@@ -56,7 +56,7 @@ impl Menu {
         let record = self
             .checkpoint
             .as_ref()
-            .and_then(|checkpoint| checkpoint.progress.event_records.get(&id))
+            .and_then(|checkpoint| checkpoint.progress().event_records.get(&id))
             .context("missing synopsis event record")?;
         Ok((entry, record))
     }

@@ -79,7 +79,7 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
         && state
             .live
             .as_ref()
-            .is_none_or(|s| s.ready_for_field && s.assets.map_id == art.map);
+            .is_none_or(|s| s.ready_for_field && s.map_id() == art.map);
     applied.expected = expected(&state.get().events.world, |resource| {
         art.models.get(&resource).map_or(1, Vec::len)
     });

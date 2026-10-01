@@ -398,26 +398,6 @@ impl Session {
             played_ticks: self.play_time.total(),
         })
     }
-    /// The shared menu edits a progress snapshot. Its field-shaped view model
-    /// is never persisted as a field save: world saves retain their typed pose.
-    pub fn menu_checkpoint(&self) -> Result<Checkpoint> {
-        let snapshot = self
-            .menu
-            .as_ref()
-            .and_then(|menu| menu.checkpoint.as_ref())
-            .context("world menu is closed")?;
-        let state = self.travel.checkpoint()?;
-        ensure!(
-            snapshot.progress.party.travel.overworld.as_ref() == Some(&state),
-            "world menu lost its travel pose"
-        );
-        Ok(Checkpoint {
-            state,
-            progress: snapshot.progress.clone(),
-            played_ticks: self.play_time.total(),
-        })
-    }
-
     fn open_menu(&mut self) -> Result<()> {
         let checkpoint = self.checkpoint()?;
         let resources = Arc::new(crate::menu::Resources {
@@ -435,13 +415,14 @@ impl Session {
                 .clone()
                 .context("world menu data missing")?,
         });
+        let world = checkpoint.state.world;
         let mut menu = crate::menu::Menu::new(
             crate::menu::Page::Main,
-            Some(checkpoint.menu_snapshot()),
+            Some(crate::Checkpoint::World(checkpoint)),
             true,
         );
         menu.resources = Some(resources);
-        menu.world_map.world = checkpoint.state.world.index() as u8;
+        menu.world_map.world = world.index() as u8;
         menu.set_play_time(self.play_time);
         menu.begin_opening();
         self.menu = Some(menu);
@@ -986,21 +967,6 @@ impl Session {
                 .insert(contact.id);
         }
         Ok(())
-    }
-}
-
-impl Checkpoint {
-    /// Shared menu/slot display data; only the typed world checkpoint is loaded.
-    pub fn menu_snapshot(&self) -> crate::field::FieldCheckpoint {
-        crate::field::FieldCheckpoint {
-            allow_incomplete_scripts: false,
-            map_id: 3000,
-            position: self.state.position.plane(),
-            heading: self.state.heading.to_degrees(),
-            camera: None,
-            progress: self.progress.clone(),
-            played_ticks: self.played_ticks,
-        }
     }
 }
 

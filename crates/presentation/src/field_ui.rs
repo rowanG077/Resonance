@@ -1106,7 +1106,7 @@ pub(super) fn subtitles(
     let story = movie.resource == Some(1);
     let enabled = session
         .as_ref()
-        .and_then(|s| s.field.events.world.party.as_ref())
+        .and_then(|s| s.field().events.world.party.as_ref())
         .is_none_or(|p| p.settings.preferences.movie_subtitles);
     let ready = art.ready(&images);
     let Artwork {
@@ -1711,30 +1711,35 @@ mod tests {
                 .take()
                 .context("preview did not request skit")?;
             let completion = request.operation.clone();
-            session.field.events.world.skit_request = Some(request);
+            session.field_mut().events.world.skit_request = Some(request);
             for _ in 0..300 {
-                session.field.step(Default::default())?;
-                if session.field.active_skit.as_ref().is_some_and(|playback| {
-                    playback
-                        .events
-                        .world
-                        .skit
-                        .as_ref()
-                        .is_some_and(|scene| !scene.portraits.is_empty())
-                }) {
+                session.field_mut().step(Default::default())?;
+                if session
+                    .field()
+                    .active_skit
+                    .as_ref()
+                    .is_some_and(|playback| {
+                        playback
+                            .events
+                            .world
+                            .skit
+                            .as_ref()
+                            .is_some_and(|scene| !scene.portraits.is_empty())
+                    })
+                {
                     break;
                 }
             }
             let portrait = session
-                .field
+                .field()
                 .active_skit
                 .as_ref()
                 .and_then(|playback| playback.events.world.skit.as_ref())
                 .and_then(|scene| scene.portraits.values().next())
                 .context("skit did not publish a portrait")?
                 .resource;
-            let mut active_skit = session.field.active_skit.take();
-            session.restore(checkpoint)?;
+            let mut active_skit = session.field_mut().active_skit.take();
+            session.reload(&root, checkpoint)?;
             session.audio = None;
             skit_catalog.portraits.get_mut(&portrait).unwrap().images[0].texture =
                 "missing-active-skit.ktx2".into();
@@ -1785,7 +1790,7 @@ mod tests {
             app.insert_resource(resident);
             app.world_mut().spawn(crate::menu_backdrop::Quad);
             let server = app.world().resource::<AssetServer>().clone();
-            let field_art = crate::field_view::prepared_test_art(&session.assets, &server);
+            let field_art = crate::field_view::prepared_test_art(session.field_assets(), &server);
             let mut images = app.world_mut().remove_resource::<Assets<Image>>().unwrap();
             let mut materials = app
                 .world_mut()
@@ -1793,8 +1798,8 @@ mod tests {
                 .unwrap();
             let mut meshes = app.world_mut().remove_resource::<Assets<Mesh>>().unwrap();
             let mut art = Artwork::load_with(
-                &session.assets,
-                session.data.clone(),
+                session.field_assets(),
+                session.data().clone(),
                 &server,
                 &mut materials,
                 &mut images,
@@ -1919,20 +1924,19 @@ mod tests {
                     .active
                     .load(Ordering::Acquire)
             );
-            let before = world.resource::<Session>().field.events.tick();
+            let before = world.resource::<Session>().field().events.tick();
             world.run_system_once(advance_live).unwrap();
-            assert!(world.resource::<Session>().field.events.tick() > before);
+            assert!(world.resource::<Session>().field().events.tick() > before);
             assert!(
                 diagnostics.entries().is_empty(),
                 "unused optional image was diagnosed"
             );
-            world
-                .resource_mut::<Session>()
-                .field
-                .step(resonance_game::field::FieldInput {
+            world.resource_mut::<Session>().field_mut().step(
+                resonance_game::field::FieldInput {
                     pressed_buttons: [resonance_events::input::Button::Menu].into(),
                     ..Default::default()
-                })?;
+                },
+            )?;
             let draw = |mut commands: Commands,
                         mut art: ResMut<Artwork>,
                         mut live: ResMut<Session>,
@@ -1941,14 +1945,14 @@ mod tests {
                         server: Res<AssetServer>,
                         mut failures: crate::field_view::Failures| {
                 if let Err(error) = art.render_menu(
-                    &live.field,
+                    live.field(),
                     100,
                     &mut commands,
                     &mut meshes,
                     &images,
                     &server,
                 ) {
-                    failures.menu_page(&mut live.field, error);
+                    failures.menu_page(live.field_mut(), error);
                 }
             };
             world.run_system_once(draw).unwrap();
@@ -1991,7 +1995,7 @@ mod tests {
             let retained = serde_json::to_value(
                 world
                     .resource::<Session>()
-                    .field
+                    .field()
                     .menu
                     .as_ref()
                     .unwrap()
@@ -1999,7 +2003,7 @@ mod tests {
             )?;
             world
                 .resource_mut::<Session>()
-                .field
+                .field_mut()
                 .menu
                 .as_mut()
                 .unwrap()
@@ -2017,7 +2021,7 @@ mod tests {
                         && world.get::<Visibility>(layer.entity) == Some(&Visibility::Hidden))
             );
             assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
-            let menu = world.resource::<Session>().field.menu.as_ref().unwrap();
+            let menu = world.resource::<Session>().field().menu.as_ref().unwrap();
             assert_eq!(
                 menu.page,
                 if paranoid { Page::WorldMap } else { Page::Main }
@@ -2034,22 +2038,22 @@ mod tests {
                 world.flush();
                 world
                     .resource_mut::<Session>()
-                    .field
+                    .field_mut()
                     .menu
                     .as_mut()
                     .unwrap()
                     .closed = true;
                 world.run_system_once(advance_live).unwrap();
-                assert!(world.resource::<Session>().field.menu.is_none());
+                assert!(world.resource::<Session>().field().menu.is_none());
                 world.run_system_once(draw).unwrap();
                 world.run_system_once(advance_live).unwrap();
-                assert!(world.resource::<Session>().field.events.tick() > before + 1);
+                assert!(world.resource::<Session>().field().events.tick() > before + 1);
             }
             world.resource_mut::<Messages<AppExit>>().clear();
             {
                 let mut live = world.resource_mut::<Session>();
-                live.field.menu = None;
-                live.field.active_skit = active_skit.take();
+                live.field_mut().menu = None;
+                live.field_mut().active_skit = active_skit.take();
             }
             let stale = {
                 let mut art = world.resource_mut::<Artwork>();
@@ -2057,14 +2061,14 @@ mod tests {
                 art.skits.layers[0].entity
             };
             world.entity_mut(stale).insert(Visibility::Visible);
-            let before_skit = world.resource::<Session>().field.events.tick();
+            let before_skit = world.resource::<Session>().field().events.tick();
             world.run_system_once(advance_live).unwrap();
             world.flush();
             assert_eq!(world.resource::<Messages<AppExit>>().is_empty(), !paranoid);
             assert_eq!(completion.is_pending(), paranoid);
             assert_eq!(world.get::<Visibility>(stale), Some(&Visibility::Hidden));
             assert_eq!(
-                world.resource::<Session>().field.active_skit.is_some(),
+                world.resource::<Session>().field().active_skit.is_some(),
                 paranoid
             );
             assert!(
@@ -2083,7 +2087,7 @@ mod tests {
                 );
                 world.run_system_once(draw).unwrap();
                 world.run_system_once(advance_live).unwrap();
-                assert!(world.resource::<Session>().field.events.tick() > before_skit);
+                assert!(world.resource::<Session>().field().events.tick() > before_skit);
             }
         }
         Ok(())

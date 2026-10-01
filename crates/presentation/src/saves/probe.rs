@@ -169,6 +169,14 @@ impl Probe {
         }
         let baseline = self.baseline.as_ref().unwrap();
         if let Some(started) = self.loaded.take() {
+            replay::assert_checkpoint(
+                world
+                    .resource::<new_game::Session>()
+                    .restored_checkpoint
+                    .as_ref()
+                    .context("loaded field has no publication snapshot")?,
+                baseline,
+            )?;
             ensure!(
                 !world.contains_resource::<RetainedFrame>(),
                 "restored field image was not released"
@@ -213,23 +221,33 @@ impl Probe {
         }
         let persistence = world.resource::<Persistence>();
         let bytes = persistence.store.read(Kind::Quicksave, &persistence.slot)?;
-        let (_, saved): (_, FieldCheckpoint) = resonance_persistence::decode(&bytes)?
-            .admit(&world.resource::<new_game::Session>().identity)?;
+        let (_, SceneCheckpoint::Field(saved)) = resonance_persistence::decode(&bytes)?
+            .admit(&world.resource::<new_game::Session>().identity)?
+        else {
+            anyhow::bail!("probe requires a field save");
+        };
         ensure!(
             serde_json::to_value(&saved)? == serde_json::to_value(baseline)?,
             "quicksave changed the captured payload"
         );
         // Change live state so a no-op restore cannot pass this probe.
         let mut session = world.resource_mut::<new_game::Session>();
-        session.field.step(resonance_game::field::FieldInput {
-            direction: [1., 0.],
-            ..Default::default()
-        })?;
-        session.field.events.world.party.as_mut().unwrap().gald = baseline.progress.party.gald ^ 1;
+        session
+            .field_mut()
+            .step(resonance_game::field::FieldInput {
+                direction: [1., 0.],
+                ..Default::default()
+            })?;
+        session
+            .field_mut()
+            .events
+            .world
+            .party
+            .as_mut()
+            .unwrap()
+            .gald = baseline.progress.party.gald ^ 1;
         self.loaded = Some(Instant::now());
         load(world)?;
-        let restored = world.resource::<new_game::Session>().field.checkpoint()?;
-        replay::assert_checkpoint(&restored, &saved)?;
         Ok(())
     }
 }

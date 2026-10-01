@@ -36,7 +36,7 @@ impl Menu {
             }
             if input == Some(MenuAction::Confirm) {
                 if *yes {
-                    let party = &mut self.checkpoint.as_mut()?.progress.party;
+                    let party = &mut self.checkpoint.as_mut()?.progress_mut().party;
                     if party
                         .buy_new_game_plus(shop, self.grade_shop.selected.clone())
                         .is_err()

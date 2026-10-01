@@ -516,7 +516,7 @@ impl super::Menu {
     pub(super) fn step_strategy(&mut self, input: Input) -> Option<i16> {
         let result = self.strategy.step(
             input,
-            &mut self.checkpoint.as_mut()?.progress.party,
+            &mut self.checkpoint.as_mut()?.progress_mut().party,
             &self.resources.as_ref()?.data,
         );
         match result {

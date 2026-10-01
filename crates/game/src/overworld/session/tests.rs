@@ -814,16 +814,13 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
             .into(),
     );
     files.insert("messages.json".into(), b"[]".to_vec().into());
-    files.insert(
-        "game/text.json".into(),
-        serde_json::to_vec(&resonance_content::session::GameText::default())?.into(),
-    );
-    files.insert(
-        "game/session-data.json".into(),
-        serde_json::to_vec(data().as_ref())?.into(),
-    );
-    Arc::get_mut(&mut session.assets).unwrap().skits =
-        Arc::new(crate::skit::Prepared::load(catalog, &files)?);
+    let prepared = crate::skit::Prepared::load(
+        catalog,
+        &files,
+        session.events.resources(),
+        files.diagnostics(),
+    )?;
+    Arc::get_mut(&mut session.assets).unwrap().skits = Arc::new(prepared);
     session.start_skit(450, true, false, None)?;
     assert_eq!(session.active_skit.as_ref().unwrap().title, "Event scene");
     assert!(session.checkpoint().is_err());

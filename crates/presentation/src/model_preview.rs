@@ -68,11 +68,7 @@ pub(super) fn install(app: &mut App) {
 pub(super) fn synchronize_capture(app: &mut App) -> Result<()> {
     let snapshot = |world: &World| {
         let session = world.get_resource::<crate::new_game::Session>()?;
-        let menu = if let Some(scene) = &session.overworld {
-            scene.session.menu.as_ref()?
-        } else {
-            session.field.menu.as_ref()?
-        };
+        let menu = session.menu()?;
         let preview = menu.preview()?;
         Some((
             session.events().tick(),
@@ -155,11 +151,7 @@ pub(super) struct State<'w> {
 impl State<'_> {
     fn menu(&mut self) -> Option<&mut resonance_game::menu::Menu> {
         let session = &mut **self.live.as_mut()?;
-        if let Some(scene) = &mut session.overworld {
-            scene.session.menu.as_mut()
-        } else {
-            session.field.menu.as_mut()
-        }
+        session.menu_mut()
     }
 }
 #[derive(SystemParam)]
@@ -174,7 +166,6 @@ struct AssetsForPreview<'w> {
 struct PreviewContext<'w> {
     source: Res<'w, source::Source>,
     server: Res<'w, AssetServer>,
-    art: Option<Res<'w, crate::field_view::Art>>,
     resident: Option<Res<'w, crate::loading::Resident>>,
     shared: Res<'w, gpu::Shared>,
 }
@@ -309,20 +300,16 @@ fn prepare(
                 .behavior
                 .as_ref()
                 .map(|binding| {
-                    let sources = if let Some(art) = &context.art {
-                        art.behavior_sources.clone()
-                    } else {
-                        context
-                            .resident
-                            .as_ref()
-                            .context("missing scene inventory")?
-                            .files
-                            .read()
-                            .unwrap()
-                            .as_ref()
-                            .context("missing scene script sources")?
-                            .script_sources()?
-                    };
+                    let sources = context
+                        .resident
+                        .as_ref()
+                        .context("missing scene inventory")?
+                        .files
+                        .read()
+                        .unwrap()
+                        .as_ref()
+                        .context("missing scene script sources")?
+                        .script_sources()?;
                     PreparedBehavior::prepare(
                         &mut viewer.behaviors,
                         &sources,
@@ -849,7 +836,7 @@ fn evaluate_behavior(
         .checkpoint
         .as_ref()
         .context("preview behavior has no checkpoint flags")?;
-    behavior.evaluate(|flag| checkpoint.progress.event_flags.contains(&flag))
+    behavior.evaluate(|flag| checkpoint.progress().event_flags.contains(&flag))
 }
 
 fn preview_translation(pose: &PoseOverrides, elevation: f32) -> Vec3 {

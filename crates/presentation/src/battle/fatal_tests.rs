@@ -100,10 +100,10 @@ impl Fixture {
         )?)?;
         let audio = validation::Playback::new(
             session.audio.take().context("missing field audio")?,
-            &mut session.field,
+            session.field_mut(),
         );
         session
-            .field
+            .field_mut()
             .events
             .world
             .request_battle(resonance_events::battle::Setup {
@@ -114,9 +114,15 @@ impl Fixture {
                 music: None,
             })
             .map_err(anyhow::Error::msg)?;
-        let request = session.field.events.world.battle_request.take().unwrap();
-        let field_tick = session.field.events.tick();
-        let party = serde_json::to_value(&session.field.events.world.party)?;
+        let request = session
+            .field_mut()
+            .events
+            .world
+            .battle_request
+            .take()
+            .unwrap();
+        let field_tick = session.field().events.tick();
+        let party = serde_json::to_value(&session.field().events.world.party)?;
         let entry = Entry::capture(&session, request.setup)?;
         let mut package = finish(loading::BattlePending::battle(
             root.clone(),
@@ -421,7 +427,7 @@ impl Fixture {
             .music(Some(96), 0)?;
         let gameplay_random = world
             .resource::<new_game::Session>()
-            .field
+            .field()
             .events
             .world
             .gameplay_random;
@@ -444,9 +450,9 @@ impl Fixture {
             "fatal transfer did not finish"
         );
         let session = self.app.world().resource::<new_game::Session>();
-        assert_eq!(session.field.events.tick(), self.field_tick);
+        assert_eq!(session.field().events.tick(), self.field_tick);
         assert_eq!(
-            serde_json::to_value(&session.field.events.world.party)?,
+            serde_json::to_value(&session.field().events.world.party)?,
             self.party
         );
         assert!(self.request.is_pending());
@@ -473,7 +479,7 @@ impl Fixture {
             .app
             .world()
             .resource::<new_game::Session>()
-            .field
+            .field()
             .play_time
             .session();
         for _ in 0..40 {
@@ -484,7 +490,7 @@ impl Fixture {
             self.app
                 .world()
                 .resource::<new_game::Session>()
-                .field
+                .field()
                 .events
                 .tick(),
             self.field_tick
@@ -493,7 +499,7 @@ impl Fixture {
             self.app
                 .world()
                 .resource::<new_game::Session>()
-                .field
+                .field()
                 .play_time
                 .session(),
             played
@@ -944,13 +950,13 @@ fn fatal_completion_keeps_request_and_music_then_loads_a_new_field_once() -> Res
             .load(Ordering::Acquire)
     );
     let session = world.resource::<new_game::Session>();
-    assert_eq!(session.assets.map_id, fixture.saved.map_id);
+    assert_eq!(session.map_id(), fixture.saved.map_id);
     ensure!(
-        serde_json::to_value(&session.field.events.world.party)?
+        serde_json::to_value(&session.field().events.world.party)?
             == serde_json::to_value(Some(&fixture.saved.progress.party))?,
         "loaded party differs from saved party"
     );
-    let tick = session.field.events.tick();
+    let tick = session.field().events.tick();
     for _ in 0..5 {
         fixture.step(None)?;
     }
@@ -959,7 +965,7 @@ fn fatal_completion_keeps_request_and_music_then_loads_a_new_field_once() -> Res
             .app
             .world()
             .resource::<new_game::Session>()
-            .field
+            .field()
             .events
             .tick(),
         tick
@@ -1043,7 +1049,7 @@ fn invalid_battle_music_keeps_field_audio_and_state() -> Result<()> {
         .app
         .world()
         .resource::<new_game::Session>()
-        .field
+        .field()
         .events
         .world
         .gameplay_random;
@@ -1076,10 +1082,10 @@ fn invalid_battle_music_keeps_field_audio_and_state() -> Result<()> {
     );
     assert_eq!(fixture.sample_battle(1)?, field_music);
     let session = fixture.app.world().resource::<new_game::Session>();
-    assert_eq!(session.field.events.tick(), fixture.field_tick);
-    assert_eq!(session.field.events.world.gameplay_random, random_before);
+    assert_eq!(session.field().events.tick(), fixture.field_tick);
+    assert_eq!(session.field().events.world.gameplay_random, random_before);
     assert_eq!(
-        serde_json::to_value(&session.field.events.world.party)?,
+        serde_json::to_value(&session.field().events.world.party)?,
         fixture.party
     );
     assert!(fixture.request.is_pending());

@@ -322,7 +322,7 @@ impl super::Menu {
     pub fn has_unison(&self) -> bool {
         self.resources.is_some()
             && self.checkpoint.as_ref().is_some_and(|c| {
-                c.progress
+                c.progress()
                     .script_globals
                     .get(16)
                     .is_some_and(|&story| story >= UNLOCK_STORY)
@@ -361,7 +361,7 @@ impl super::Menu {
         let resources = self.resources.as_ref()?;
         let visit = self.unison.step(
             input,
-            &mut self.checkpoint.as_mut()?.progress.party,
+            &mut self.checkpoint.as_mut()?.progress_mut().party,
             &resources.session,
             &resources.data,
         );

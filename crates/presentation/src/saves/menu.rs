@@ -55,9 +55,9 @@ pub(super) fn update(world: &mut World) {
             Ok(candidate) => {
                 crate::game_over::loaded(world);
                 if let Some(mut session) = world.get_resource_mut::<new_game::Session>() {
-                    let changing = session.assets.map_id != candidate.assets.map_id
-                        || session.overworld.is_some()
-                        || candidate.overworld.is_some();
+                    let changing = session.map_id() != candidate.map_id()
+                        || session.overworld().is_some()
+                        || candidate.overworld().is_some();
                     session.replace_loaded(candidate);
                     restored(world, changing);
                 } else {
@@ -84,13 +84,7 @@ fn current(world: &mut World) -> Option<Mut<'_, Menu>> {
     }
     world
         .get_resource_mut::<new_game::Session>()?
-        .filter_map_unchanged(|session| {
-            if let Some(scene) = &mut session.overworld {
-                scene.session.menu.as_mut()
-            } else {
-                session.field.menu.as_mut()
-            }
-        })
+        .filter_map_unchanged(|session| session.menu_mut())
 }
 fn failed(world: &mut World, error: anyhow::Error) {
     warn!("Save menu operation failed: {error:#}");
@@ -111,7 +105,7 @@ fn start(world: &mut World, command: Command) -> Result<()> {
         Command::ReadSlots => {
             let context = world
                 .get_resource::<new_game::Session>()
-                .map(|session| (session.identity.clone(), session.data.clone()));
+                .map(|session| (session.identity.clone(), session.data().clone()));
             let root = world.resource::<crate::RunOptions>().assets.clone();
             let diagnostics = crate::diagnostics::policy(world);
             world.insert_resource(Pending(loading::Task::spawn(move |_| {
@@ -123,26 +117,12 @@ fn start(world: &mut World, command: Command) -> Result<()> {
         Command::Save(index) => {
             let session = world.resource::<new_game::Session>();
             let identity = session.identity.clone();
-            let menu = session
-                .overworld
-                .as_ref()
-                .map_or(session.field.menu.as_ref(), |scene| {
-                    scene.session.menu.as_ref()
-                })
-                .context("save menu is closed")?;
+            let menu = session.menu().context("save menu is closed")?;
             ensure!(menu.at_save_point, "saving is unavailable here");
-            let checkpoint = if let Some(scene) = &session.overworld {
-                SceneCheckpoint::World(WorldCheckpoint {
-                    overworld: scene.session.menu_checkpoint()?,
-                    anchor_field: session.assets.map_id,
-                })
-            } else {
-                SceneCheckpoint::Field(
-                    menu.checkpoint
-                        .clone()
-                        .context("save menu has no checkpoint")?,
-                )
-            };
+            let checkpoint = menu
+                .checkpoint
+                .clone()
+                .context("save menu has no checkpoint")?;
             let location = checkpoint.location();
             let played_ticks = checkpoint.played_ticks();
             let header = Header {
@@ -161,7 +141,7 @@ fn start(world: &mut World, command: Command) -> Result<()> {
                     Slot::Saved {
                         location,
                         played_ticks,
-                        checkpoint: Box::new(checkpoint.menu_snapshot()),
+                        party: Box::new(checkpoint.into_progress().party),
                     },
                 ))
             })?));
@@ -213,9 +193,9 @@ fn read_slots(
                     resonance_persistence::decode::<SceneCheckpoint>(&bytes)?.admit(identity)
                 })
                 .and_then(|(header, checkpoint)| {
-                    let mut checkpoint = checkpoint.menu_snapshot();
-                    checkpoint.progress.party.bind_rules(data);
-                    checkpoint.progress.party.validate(data)?;
+                    let mut party = checkpoint.into_progress().party;
+                    party.bind_rules(data);
+                    party.validate(data)?;
                     ensure!(
                         header
                             .location
@@ -223,13 +203,13 @@ fn read_slots(
                             .all(|c| c.is_ascii_graphic() || c == ' '),
                         "invalid slot location label"
                     );
-                    Ok((header, checkpoint))
+                    Ok((header, party))
                 });
             Ok(match result {
-                Ok((header, checkpoint)) => Slot::Saved {
+                Ok((header, party)) => Slot::Saved {
                     location: header.location,
                     played_ticks: header.played_ticks,
-                    checkpoint: Box::new(checkpoint),
+                    party: Box::new(party),
                 },
                 Err(error) => {
                     warn!("Cannot read save slot {}: {error:#}", id.as_str());
@@ -249,21 +229,21 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "requires current opening field/menu assets; no output devices"]
+    #[ignore = "requires cooked session/menu definitions and save identity; no output devices"]
     fn save_slots_bind_admitted_ex_rules_before_validation() -> Result<()> {
         let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
             || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
             PathBuf::from,
         );
-        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
-        let (data, _) =
-            new_game::admit_definitions(|path| Ok(std::fs::read(root.join(path))?), &diagnostics)?;
-        let files = resonance_content::prepared::Files::load(
-            &root,
-            &["fields/map-332.preload.json"],
-            &mut Default::default(),
-            || false,
-        )?;
+        let mut files = resonance_content::prepared::Files::default();
+        for path in [
+            "game/session-data.json",
+            "game/menu-data.json",
+            resonance_content::save_identity::PATH,
+        ] {
+            files.insert(path.into(), std::fs::read(root.join(path))?.into());
+        }
+        let data = resonance_content::session::SessionData::load(&files)?;
         let mut checkpoint = field_checkpoint(&files)?;
         let rules = &data
             .rules
@@ -298,22 +278,19 @@ mod tests {
         store.write(
             Kind::Save,
             &slot_id(0)?,
-            &resonance_persistence::encode(&header, &checkpoint)?,
+            &resonance_persistence::encode(&header, &SceneCheckpoint::Field(checkpoint.clone()))?,
         )?;
         let slots = read_slots(&store, &identity, &data)?;
-        let Slot::Saved {
-            checkpoint: saved, ..
-        } = &slots[0]
-        else {
+        let Slot::Saved { party: saved, .. } = &slots[0] else {
             anyhow::bail!("EX-bearing save slot was rejected");
         };
-        assert_eq!(saved.progress.party.members[0].ex_skills[0], skill);
-        saved.progress.party.validate(&data)?;
+        assert_eq!(saved.members[0].ex_skills[0], skill);
+        saved.validate(&data)?;
         checkpoint.progress.party.members[0].ex_skills[0] = 255;
         store.write(
             Kind::Save,
             &slot_id(0)?,
-            &resonance_persistence::encode(&header, &checkpoint)?,
+            &resonance_persistence::encode(&header, &SceneCheckpoint::Field(checkpoint.clone()))?,
         )?;
         assert!(matches!(
             read_slots(&store, &identity, &data)?[0],

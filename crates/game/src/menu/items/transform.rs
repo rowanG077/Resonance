@@ -84,7 +84,7 @@ impl Menu {
             unreachable!("transformation result outside its picker")
         };
         let resources = self.resources.as_ref().unwrap();
-        let party = &mut self.checkpoint.as_mut().unwrap().progress.party;
+        let party = &mut self.checkpoint.as_mut().unwrap().progress_mut().party;
         let result = party
             .transform_item(&resources.session, &resources.data, bottle, id)
             .map(|changed| changed.then_some(2));

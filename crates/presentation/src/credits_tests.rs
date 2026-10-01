@@ -46,8 +46,8 @@ fn credits_finish_the_music_and_hold_before_resuming_and_cancel_cleanly() -> Res
     // Exercise cancellation first, then reuse the session and decoded music.
     for cancel in [true, false] {
         let mut state = GameWorld::default();
-        state.party = session.field.events.world.party.take();
-        session.field.events =
+        state.party = session.field_mut().events.world.party.take();
+        session.field_mut().events =
             EventRuntime::with_state(program.clone(), resources.clone(), state, default())?;
         let operation = session
             .events()
@@ -97,7 +97,7 @@ fn credits_finish_the_music_and_hold_before_resuming_and_cancel_cleanly() -> Res
                 assert!(operation.is_pending());
                 world
                     .resource_mut::<crate::new_game::Session>()
-                    .field
+                    .field_mut()
                     .step(default())?;
                 assert_eq!(
                     world.resource::<crate::new_game::Session>().events().tick(),

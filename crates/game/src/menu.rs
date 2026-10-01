@@ -1,5 +1,5 @@
-//! Player menus own input while the field remains at a controllable checkpoint.
-use crate::{DirectionRepeat, field::FieldCheckpoint};
+//! Player menus own input while the active scene remains at its checkpoint.
+use crate::{Checkpoint, DirectionRepeat};
 use anyhow::Context;
 use resonance_content::{menu_data, prepared::Files};
 use std::sync::Arc;
@@ -243,7 +243,7 @@ pub enum Slot {
     Saved {
         location: String,
         played_ticks: u64,
-        checkpoint: Box<FieldCheckpoint>,
+        party: Box<resonance_events::party::Party>,
     },
     Invalid(String),
 }
@@ -326,7 +326,7 @@ pub struct Menu {
     entering: Option<Page>,
     returning: bool,
     pub tick: u32,
-    pub checkpoint: Option<FieldCheckpoint>,
+    pub checkpoint: Option<Checkpoint>,
     pub at_save_point: bool,
     command: Option<Command>,
     direct: bool,
@@ -416,7 +416,7 @@ impl Menu {
         }
     }
 
-    pub fn new(page: Page, checkpoint: Option<FieldCheckpoint>, at_save_point: bool) -> Self {
+    pub fn new(page: Page, checkpoint: Option<Checkpoint>, at_save_point: bool) -> Self {
         let direct = matches!(page, Page::Slots(_));
         Self {
             grade_shop: Default::default(),
@@ -449,7 +449,7 @@ impl Menu {
             cooking: Default::default(),
             customize: Default::default(),
             party_changed: false,
-            initial_field_leader: checkpoint.as_ref().map(|c| c.progress.party.field_leader),
+            initial_field_leader: checkpoint.as_ref().map(|c| c.progress().party.field_leader),
             play_time: Default::default(),
             page,
             selected: 0,
@@ -560,20 +560,20 @@ impl Menu {
         resonance_events::GameplayRandom,
     )> {
         std::mem::take(&mut self.party_changed).then(|| {
-            let progress = &self.checkpoint.as_ref().unwrap().progress;
+            let progress = &self.checkpoint.as_ref().unwrap().progress();
             (progress.party.clone(), progress.gameplay_random)
         })
     }
     pub(crate) fn field_leader_changed(&self) -> bool {
         self.checkpoint
             .as_ref()
-            .map(|c| c.progress.party.field_leader)
+            .map(|c| c.progress().party.field_leader)
             != self.initial_field_leader
     }
     pub(crate) fn set_play_time(&mut self, time: crate::clock::PlayTime) {
         self.play_time = time;
         if let Some(checkpoint) = &mut self.checkpoint {
-            checkpoint.played_ticks = time.total();
+            checkpoint.set_played_ticks(time.total());
         }
     }
     pub fn take_command(&mut self) -> Option<Command> {

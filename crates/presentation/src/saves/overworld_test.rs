@@ -7,6 +7,7 @@ pub fn prepare_overworld_test_fixture(root: &Path, output: &Path) -> Result<()> 
     ensure!(!output.exists(), "overworld test fixture already exists");
     let package = Arc::new(resonance_game::overworld::Prepared::load(
         root,
+        resonance_content::prepared::Files::load(root, &[], &mut Default::default(), || false)?,
         &mut Default::default(),
         new_game::available_fields(root)?,
         || false,
@@ -49,10 +50,7 @@ pub fn prepare_overworld_test_fixture(root: &Path, output: &Path) -> Result<()> 
         persistent,
         Default::default(),
     )?;
-    let checkpoint = SceneCheckpoint::World(WorldCheckpoint {
-        overworld: session.checkpoint()?,
-        anchor_field: 330,
-    });
+    let checkpoint = SceneCheckpoint::World(session.checkpoint()?);
     let header = Header {
         identity: new_game::save_context(
             root,
@@ -96,19 +94,21 @@ mod tests {
         let SceneCheckpoint::World(checkpoint) = checkpoint else {
             anyhow::bail!("playground did not produce a world checkpoint");
         };
-        let party = &checkpoint.overworld.progress.party;
+        let party = &checkpoint.progress.party;
         assert_eq!(party.gald, 100_000);
         assert_eq!(party.formation, [1, 2, 3, 4, 9]);
         assert_eq!(party.items.get(&58), Some(&1));
-        assert_eq!(checkpoint.overworld.state.mount, Mount::Rheairds);
+        assert_eq!(checkpoint.state.mount, Mount::Rheairds);
         let package = resonance_game::overworld::Prepared::load(
             &root,
+            resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || {
+                false
+            })?,
             &mut Default::default(),
             new_game::available_fields(&root)?,
             || false,
         )?;
         let persistent = checkpoint
-            .overworld
             .progress
             .clone()
             .into_state(package.resources.session_data.as_ref().unwrap())?;
@@ -121,7 +121,7 @@ mod tests {
         assert!((start..=end).contains(&14_000_000));
         let mut session = resonance_game::overworld::Session::restore(
             package.assets(World::Sylvarant, &persistent)?,
-            checkpoint.overworld,
+            checkpoint,
         )?;
         // No camp is scheduled between the base rescue and the early voyage.
         // In particular the later Linkite-tree camp must not remain in the world.
@@ -227,7 +227,7 @@ fn drive_field_probe(world: &mut bevy::prelude::World) {
                 return Ok(());
             }
             let mut session = world.resource_mut::<new_game::Session>();
-            let scene = session.overworld.as_mut().context("world missing")?;
+            let scene = session.overworld_mut().context("world missing")?;
             ensure!(
                 scene
                     .session
@@ -258,10 +258,10 @@ fn drive_field_probe(world: &mut bevy::prelude::World) {
             return Ok(());
         }
         let owner = world.resource::<new_game::Session>();
-        let in_world = owner.overworld.is_some();
+        let in_world = owner.overworld().is_some();
         probe.saw_field |= !in_world;
-        let dialogue = !in_world && owner.field.dialogue.values().any(|d| !d.closed);
-        let controlled = !in_world && owner.field.player_has_control();
+        let dialogue = !in_world && owner.field().dialogue.values().any(|d| !d.closed);
+        let controlled = !in_world && owner.field().player_has_control();
         let mut keys = world.resource_mut::<ButtonInput<KeyCode>>();
         if dialogue && probe.updates.is_multiple_of(4) {
             keys.press(KeyCode::Enter);
@@ -279,7 +279,7 @@ fn drive_field_probe(world: &mut bevy::prelude::World) {
                         ensure!(
                             world
                                 .resource_mut::<new_game::Session>()
-                                .field
+                                .field_mut()
                                 .events
                                 .trigger(trigger, true)?,
                             "exit trigger missing"
@@ -304,14 +304,14 @@ fn drive_field_probe(world: &mut bevy::prelude::World) {
                 if crate::field_view::ready(world)
                     && world
                         .resource::<new_game::Session>()
-                        .field
+                        .field()
                         .player_has_control()
                 {
                     let owner = world.resource::<new_game::Session>();
                     serde_json::json!({
-                        "map_id": owner.assets.map_id,
-                        "camera": format!("{:?}", owner.field.events.world.field_camera),
-                        "player_position": owner.field.events.world.actors.get(&owner.field.events.world.controlled_actor).map(|a| a.position),
+                        "map_id": owner.map_id(),
+                        "camera": format!("{:?}", owner.field().events.world.field_camera),
+                        "player_position": owner.field().events.world.actors.get(&owner.field().events.world.controlled_actor).map(|a| a.position),
                         "checkpoint_error": format!("{error:#}"),
                     })
                 } else {
@@ -319,7 +319,7 @@ fn drive_field_probe(world: &mut bevy::prelude::World) {
                         info!("Waiting for field control: {error:#}");
                     }
                     let dialogue = world.get_resource::<new_game::Session>().is_some_and(|s| {
-                        s.overworld.is_none() && s.field.dialogue.values().any(|d| !d.closed)
+                        s.is_field() && s.field().dialogue.values().any(|d| !d.closed)
                     });
                     let mut keys = world.resource_mut::<ButtonInput<KeyCode>>();
                     if dialogue && probe.updates.is_multiple_of(4) {

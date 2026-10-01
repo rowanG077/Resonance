@@ -102,7 +102,7 @@ impl Menu {
         self.map_locations()
             .get(self.world_map.location)
             .map_or(&[], |(_, location)| {
-                location.shops(&self.checkpoint.as_ref().unwrap().progress.script_globals)
+                location.shops(&self.checkpoint.as_ref().unwrap().progress().script_globals)
             })
     }
 

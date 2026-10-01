@@ -73,7 +73,7 @@ impl Drawing<'_> {
             .take(SYNOPSIS_LIST_ROWS + usize::from(state.list_scroll != 0))
             .enumerate()
         {
-            let record = &menu.checkpoint.as_ref().unwrap().progress.event_records[&id];
+            let record = &menu.checkpoint.as_ref().unwrap().progress().event_records[&id];
             self.text(
                 &catalog.entries[usize::from(id)].title,
                 [32., 84. + row as f32 * 28. - offset as f32],

@@ -2,6 +2,8 @@
 pub mod authored;
 pub mod battle;
 pub mod boot;
+mod checkpoint;
+pub use checkpoint::Checkpoint;
 pub mod choice;
 pub mod clock;
 pub mod dialogue;

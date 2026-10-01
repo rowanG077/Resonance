@@ -98,7 +98,7 @@ impl Menu {
             return false;
         };
         self.checkpoint.as_ref().is_some_and(|c| {
-            let party = &c.progress.party;
+            let party = &c.progress().party;
             resources.data.ex_skills.gem_items[..4]
                 .iter()
                 .any(|id| party.items.contains_key(id))
@@ -374,7 +374,7 @@ impl Menu {
                             .checkpoint
                             .as_mut()
                             .unwrap()
-                            .progress
+                            .progress_mut()
                             .party
                             .set_ex_skill(session, member, self.ex_skills.slot, skill)
                             .expect("validated EX skill selection");
@@ -442,7 +442,7 @@ impl Menu {
                         .checkpoint
                         .as_mut()
                         .unwrap()
-                        .progress
+                        .progress_mut()
                         .party
                         .set_ex_gem(session, member, self.ex_skills.slot, level)
                         .expect("validated EX gem selection");

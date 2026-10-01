@@ -68,6 +68,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
     let root = root.canonicalize()?;
     let package = Arc::new(game::Prepared::load(
         &root,
+        resonance_content::prepared::Files::load(&root, &[], &mut Default::default(), || false)?,
         &mut Default::default(),
         (0..547).collect(),
         || false,
@@ -139,6 +140,8 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
         let skits = resonance_game::skit::Prepared::load(
             package.resources.skits.as_ref().unwrap().clone(),
             &package.files,
+            &package.resources,
+            package.files.diagnostics(),
         )?;
         session.active_skit = Some(resonance_game::skit::Playback::start(
             &skits[&id],

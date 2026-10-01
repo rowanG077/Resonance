@@ -2023,10 +2023,10 @@ impl Drawing<'_> {
                 }
                 Slot::Saved {
                     played_ticks,
-                    checkpoint,
+                    party,
                     ..
                 } => {
-                    self.party(checkpoint, true, 0, None)?;
+                    self.party(party, true, 0, None)?;
                     for (key, position) in [
                         ("gald", [32., 380.]),
                         ("play_time", [32., 406.]),
@@ -2035,7 +2035,7 @@ impl Drawing<'_> {
                     ] {
                         self.text(menu_label(&self.spec.labels, key)?, position, 20., GOLD)?;
                     }
-                    self.currency(checkpoint.progress.party.gald, [268., 380.], [16., 24.])?;
+                    self.currency(party.gald, [268., 380.], [16., 24.])?;
                     self.time(*played_ticks, [172., 406.], [16., 24.], WHITE, true)?;
                     for y in [380., 406.] {
                         self.number(0, [544., y], [16., 24.], WHITE)?;
@@ -2095,12 +2095,17 @@ impl Drawing<'_> {
                 .as_ref()
                 .filter(|_| menu.party_statistics)
                 .map(|r| r.data.as_ref());
-            self.party(checkpoint, false, menu.first_character, statistics)?;
+            self.party(
+                &checkpoint.progress().party,
+                false,
+                menu.first_character,
+                statistics,
+            )?;
             if menu.first_character > 0 {
                 self.scroll_arrow(SCROLL_UP, [226., 77.])?;
             }
             if menu.first_character + resonance_game::menu::VISIBLE_PARTY
-                < checkpoint.progress.party.formation.len()
+                < checkpoint.progress().party.formation.len()
             {
                 self.scroll_arrow(SCROLL_DOWN, [226., 413.])?;
             }
@@ -2112,7 +2117,7 @@ impl Drawing<'_> {
                 20.,
                 GOLD,
             )?;
-            self.currency(checkpoint.progress.party.gald, [604., 113.], [14., 24.])?;
+            self.currency(checkpoint.progress().party.gald, [604., 113.], [14., 24.])?;
             self.text(
                 menu_label(&self.spec.labels, "time")?,
                 [478., 171.],
@@ -2181,12 +2186,11 @@ impl Drawing<'_> {
     }
     fn party(
         &mut self,
-        checkpoint: &resonance_game::field::FieldCheckpoint,
+        party: &resonance_events::party::Party,
         compact: bool,
         first: usize,
         statistics: Option<&resonance_content::menu_data::MenuData>,
     ) -> Result<()> {
-        let party = &checkpoint.progress.party;
         for (index, &id) in party
             .formation
             .iter()
@@ -2365,7 +2369,7 @@ impl Drawing<'_> {
             .checkpoint
             .as_ref()
             .context("party menu has no checkpoint")?
-            .progress
+            .progress()
             .party;
         let labels = &menu
             .resources

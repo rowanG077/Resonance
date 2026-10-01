@@ -223,11 +223,12 @@ fn measure_field(world: &mut World) {
         .then(|| world.get_resource::<crate::new_game::Session>())
         .flatten()
         .filter(|session| {
-            session.ready_for_field
-                && session.field.map_id == 340
-                && session.field.player_has_control()
+            session.is_field()
+                && session.ready_for_field
+                && session.map_id() == 340
+                && session.field().player_has_control()
         })
-        .map(|session| session.field.events.tick());
+        .map(|session| session.field().events.tick());
     world.resource_mut::<Probe>().field.observe(tick);
 }
 

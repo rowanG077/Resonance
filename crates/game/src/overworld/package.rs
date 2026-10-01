@@ -24,35 +24,22 @@ pub struct Prepared {
 impl Prepared {
     pub fn load(
         root: &Path,
+        shared: Files,
         cache: &mut Cache,
         mut available_fields: BTreeSet<u32>,
         cancelled: impl Fn() -> bool,
     ) -> Result<Self> {
         let definition: Package = serde_json::from_slice(&std::fs::read(root.join(PACKAGE_PATH))?)?;
         definition.validate()?;
-        let files = Arc::new(
-            Files::load(root, &[], cache, &cancelled)?.with_dependencies(
-                root,
-                definition.files.clone(),
-                cache,
-                cancelled,
-            )?,
-        );
-        let mut data: resonance_content::session::SessionData =
-            files.json("game/session-data.json")?;
-        let menu = Arc::new(resonance_content::menu_data::MenuData::decode(
-            &files.read("game/menu-data.json")?,
-            files.diagnostics(),
-        )?);
-        menu.validate_gameplay()?;
-        data.rules = Some(menu.clone());
-        data.validate()?;
+        let files =
+            Arc::new(shared.with_dependencies(root, definition.files.clone(), cache, cancelled)?);
+        let data = Arc::new(resonance_content::session::SessionData::load(&files)?);
         let skits: resonance_content::skit::SkitCatalog = files.json("game/skits.json")?;
         skits.validate()?;
         available_fields.insert(3000);
         let resources = Arc::new(ResourceLibrary {
-            session_data: Some(Arc::new(data)),
-            menu_data: Some(menu),
+            menu_data: data.rules.clone(),
+            session_data: Some(data),
             text: Arc::new(files.json("game/text.json")?),
             skits: Some(Arc::new(skits)),
             messages: files.json(&definition.messages)?,
@@ -61,7 +48,7 @@ impl Prepared {
             ..Default::default()
         });
         let program = Arc::new(Program::decode(&files.read(&definition.script.path)?)?);
-        let skits = Arc::new(crate::skit::Prepared::load_with(
+        let skits = Arc::new(crate::skit::Prepared::load(
             resources.skits.clone().unwrap(),
             &files,
             &resources,
