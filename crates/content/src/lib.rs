@@ -198,7 +198,7 @@ pub struct ScenePart {
     /// A node toggle affects its attached geometry, not its skeletal children.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub material_nodes: Vec<Vec<u16>>,
-    /// Constant-color inverted hull, when this layer supplies actor outlines.
+    /// Color for untextured draws in this layer's inverted outline hull.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline_color: Option<[u8; 4]>,
     #[serde(
@@ -206,6 +206,13 @@ pub struct ScenePart {
         skip_serializing_if = "secondary_motion::Definition::is_empty"
     )]
     pub secondary_motion: secondary_motion::Definition,
+}
+
+impl ScenePart {
+    pub fn outline_color_for(&self, material: &SceneMaterial) -> Option<[u8; 4]> {
+        self.outline_color
+            .filter(|_| material.color.is_none() && material.multiply.is_none())
+    }
 }
 
 /// Optional vertical atlas channels supplied by character model metadata.
