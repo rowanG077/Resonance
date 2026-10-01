@@ -24,6 +24,9 @@ pub struct FieldSequence {
     /// Use copied progress for an arrival scene instead of loading a free-control save.
     #[serde(default)]
     pub scene_entry: bool,
+    /// Ordered formation IDs granted victory for controlled post-battle captures.
+    #[serde(default)]
+    pub battle_victories: Vec<u16>,
     pub start_tick: Option<u32>,
     pub probe: Option<crate::ClassroomProbe>,
     pub updates: u32,
@@ -88,6 +91,7 @@ pub(super) struct Recording {
     settled: u32,
     frame: u32,
     captured: u32,
+    battle_victories: usize,
     since: Instant,
 }
 pub(super) fn install(app: &mut App, output: &Path, spec: &FieldSequence) -> Result<()> {
@@ -103,6 +107,7 @@ pub(super) fn install(app: &mut App, output: &Path, spec: &FieldSequence) -> Res
         settled: 0,
         frame: 0,
         captured: 0,
+        battle_victories: 0,
         since: Instant::now(),
     })
     .add_systems(PreUpdate, advance)
@@ -153,6 +158,36 @@ fn advance(
             return;
         }
         session.0.events.world.audio_commands.clear();
+        if !recording.spec.battle_victories.is_empty() {
+            let result = (|| -> Result<()> {
+                let world = &mut session.0.events.world;
+                if let Some(request) = &world.battle_request {
+                    let expected = recording
+                        .spec
+                        .battle_victories
+                        .get(recording.battle_victories);
+                    ensure!(
+                        expected.is_some_and(|id| request.setup.encounter
+                            == resonance_events::battle::Encounter::Formation(*id)),
+                        "unexpected battle in field capture: {:?}",
+                        request.setup
+                    );
+                    world.skip_battle_as_victory().map_err(anyhow::Error::msg)?;
+                    recording.battle_victories += 1;
+                }
+                ensure!(
+                    update + 1 != recording.spec.updates
+                        || recording.battle_victories == recording.spec.battle_victories.len(),
+                    "unused battle victory grants"
+                );
+                Ok(())
+            })();
+            if let Err(error) = result {
+                error!("field sequence battle grant failed: {error:#}");
+                exit.write(AppExit::error());
+                return;
+            }
+        }
     }
     recording.frame += 1;
 }
@@ -196,6 +231,7 @@ fn capture(
     let state = serde_json::json!({
         "frame":frame, "tick":world.tick, "audio_device":false,
         "input_enabled":world.input_enabled,
+        "battle_victories":recording.battle_victories,
         "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"resource":a.resource,"hidden_nodes":a.appearance.hidden_nodes,"position":a.position,"visual_position":a.visual_position(),"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
         "model_particles":world.model_particles.iter().map(|(id,p)|serde_json::json!({"id":id,"resource":p.resource,"position":p.position,"rotation":p.rotation,"scale":p.scale,"rgba":p.rgba})).collect::<Vec<_>>(),
         "poses":roots.iter().filter(|(_,p)|p.actor==world.controlled_actor && p.part==0).flat_map(|(root,_)|children.iter_descendants(root)).filter_map(|e|bones.get(e).ok()).map(|(name,t,g)|serde_json::json!({"name":name.as_str(),"translation":t.translation.to_array(),"rotation":t.rotation.to_array(),"world":g.to_matrix().to_cols_array()})).collect::<Vec<_>>(),
