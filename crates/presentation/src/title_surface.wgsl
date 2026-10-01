@@ -52,6 +52,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     color = vec4<f32>(lit / 255.0, color.a);
 #endif
 #endif
+#ifndef FIELD_LIGHTING
+    if material.ambient_color.w != 0.0 {
+        color = vec4<f32>(min(color.rgb * material.ambient_color.rgb / 64.0,
+            vec3<f32>(1.0)), color.a);
+    }
+#endif
     color *= tint;
 #endif
 #ifdef CLAMP_COLOR

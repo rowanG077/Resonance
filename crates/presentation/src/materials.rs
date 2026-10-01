@@ -179,6 +179,8 @@ pub(super) struct TitleSurface {
     pub uv_offsets: Vec4,
     pub uv_scales: Vec4,
     pub tint: Vec4,
+    /// Native RGB ambient bytes (64 is neutral); W enables unlit actor modulation.
+    pub ambient_color: Vec4,
     #[texture(6)]
     #[sampler(7)]
     pub toon_ramp: Option<Handle<Image>>,
@@ -212,6 +214,7 @@ impl Default for TitleSurface {
             uv_offsets: Vec4::ZERO,
             uv_scales: Vec4::ONE,
             tint: Vec4::ONE,
+            ambient_color: Vec4::new(64., 64., 64., 0.),
             field_light: Vec4::ZERO,
             shade_colors: [Vec4::ONE; 2],
             fog_color: Vec4::ZERO,
@@ -247,6 +250,7 @@ pub(super) struct SurfaceUniform {
     uv_offsets: Vec4,
     uv_scales: Vec4,
     tint: Vec4,
+    ambient_color: Vec4,
     field_light: Vec4,
     shade_colors: [Vec4; 2],
     fog_color: Vec4,
@@ -258,6 +262,7 @@ impl From<&TitleSurface> for SurfaceUniform {
             uv_offsets: value.uv_offsets,
             uv_scales: value.uv_scales,
             tint: value.tint,
+            ambient_color: value.ambient_color,
             field_light: value.field_light,
             shade_colors: value.shade_colors,
             fog_color: value.fog_color,

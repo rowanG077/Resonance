@@ -2967,6 +2967,28 @@ fn unknown_native_stops_with_event_and_pc_context() {
 }
 
 #[test]
+fn actor_color_channels_start_at_native_neutral_and_retain_byte_values() {
+    for channel in 42..=44 {
+        let mut world = GameWorld::default();
+        world.insert_actor(77, Actor::new(131077, [0.; 3]));
+        let mut code = Vec::new();
+        native(&mut code, Call::GetActorProperty, &[77, channel]);
+        code.extend([0x3000, 0x1200, 0x100, 0x1200, 0x20, 0x3010, 0x3000]);
+        native(&mut code, Call::SetActorProperty, &[77, channel, 192]);
+        code.extend([0x3000, 0x1200, 0x104, 0x1200, 0x20, 0x3010, 0x3000]);
+        native(&mut code, Call::SetActorProperty, &[77, channel, 256]);
+        code.extend([0x3000, 0x1200, 0x108, 0x1200, 0x20, 0x3010, 0x3000]);
+        native(&mut code, Call::GetActorProperty, &[77, channel]);
+        code.push(0x20ff);
+        let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), 64);
+        assert_eq!(events.memory().read(0x104, Width::S32).unwrap(), 64);
+        assert_eq!(events.memory().read(0x108, Width::S32).unwrap(), 192);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    }
+}
+
+#[test]
 fn depth_property_returns_the_previous_bit_and_changes_presentation_state() {
     let mut code = Vec::new();
     native(
