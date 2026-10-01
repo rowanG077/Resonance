@@ -626,55 +626,36 @@ fn model_particles_animate_and_expire_without_aliasing_actor_handles() {
 }
 
 #[test]
-fn despawning_teleport_emitter_retires_its_owned_motes() {
-    const EMITTER: i32 = 500;
-    const RISING_MOTES: i32 = 15;
-    let setup = script(&[(
-        Call::CreateEffectEmitter,
-        &[
-            EMITTER,
-            0,
-            0,
-            0,
-            0,
-            RISING_MOTES,
-            0,
-            120,
-            48,
-            58,
-            8,
-            16,
-            0,
-            560,
-            128,
-            64,
-            5,
-            0,
-        ],
-    )]);
-    let remove = script(&[(Call::DespawnActor, &[EMITTER])]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
-    let mut events = runtime(program(&setup, &remove), Default::default(), world);
-    for _ in 0..4 {
+fn rising_motes_use_the_current_despawn_cleanup_flag() {
+    for (initial, changed, survives) in [(0, 1, false), (1, 0, true)] {
+        let setup = script(&[(
+            Call::CreateEffectEmitter,
+            &[
+                500, 0, 0, 0, 0, 15, 0, 120, 48, 58, 8, 16, 0, 560, 128, 64, 5, initial,
+            ],
+        )]);
+        let remove = script(&[
+            (Call::SetActorProperty, &[500, 122, changed]),
+            (Call::DespawnActor, &[500]),
+        ]);
+        let mut events = interactive_effect(&setup, &remove);
+        steps(&mut events, 6);
+        assert!(!events.world.billboards.is_empty());
+        assert!(events.trigger(42, true).unwrap());
         events.step().unwrap();
+        assert!(!events.world.actors.contains_key(&500));
+        assert_eq!(!events.world.billboards.is_empty(), survives);
+        if survives {
+            let (handle, mote) = events.world.billboards.iter().next().unwrap();
+            let (handle, height, alpha) = (*handle, mote.position[2], mote.alpha(events.tick()));
+            steps(&mut events, 30);
+            let mote = &events.world.billboards[&handle];
+            assert!(mote.position[2] > height);
+            assert!(mote.alpha(events.tick()) < alpha);
+            steps(&mut events, 300);
+            assert!(events.world.billboards.is_empty());
+        }
     }
-    assert!(events.world.billboards.is_empty());
-    events.step().unwrap();
-    let mote = events.world.billboards.values().next().unwrap();
-    let height = mote.position[2];
-    assert!((mote.position[0].hypot(mote.position[1]) - 58.).abs() < 0.001);
-    events.step().unwrap();
-    assert!(
-        events
-            .world
-            .billboards
-            .values()
-            .all(|mote| mote.position[2] > height)
-    );
-    assert!(events.trigger(42, true).unwrap());
-    events.step().unwrap();
-    assert!(events.world.billboards.is_empty());
 }
 
 #[test]

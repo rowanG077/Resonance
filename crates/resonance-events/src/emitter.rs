@@ -130,6 +130,10 @@ impl TryFrom<i32> for Phase {
     }
 }
 impl Emitter {
+    pub(crate) fn preserves_particles_on_despawn(&self) -> bool {
+        matches!(self, Self::RisingMotes(motes) if motes.clear_on_despawn != 1.)
+    }
+
     pub fn from_native(a: &[i32]) -> Result<Self, String> {
         let release = match a[5] {
             0 => return Ok(Self::Plume(Plume::new(PlumeKind::Flame, a[8] as i16)?)),
@@ -386,7 +390,7 @@ pub(crate) struct Motes {
     lighting_mode: i32,
     speed_spread: f32,
     interval: f32,
-    persistent: f32,
+    clear_on_despawn: f32,
     speed: f32,
     phase: u16,
 }
@@ -400,7 +404,7 @@ impl Motes {
             lighting_mode: a[12],
             speed_spread: a[13] as f32,
             interval: a[16] as f32,
-            persistent: a[17] as f32,
+            clear_on_despawn: a[17] as f32,
             speed: a[7] as f32,
             phase: 0,
         };
@@ -420,7 +424,7 @@ impl Motes {
     fn property(&mut self, property: i32, value: Option<i32>) -> Result<i32, String> {
         let previous = properties!(self, property, value;
             PHASE_PROPERTY => phase, 113 => palette, 114 => radius, 115 => size, 116 => size_spread,
-            117 => lighting_mode, 118 => speed_spread, 121 => interval, 122 => persistent)?;
+            117 => lighting_mode, 118 => speed_spread, 121 => interval, 122 => clear_on_despawn)?;
         self.validate()?;
         Ok(previous)
     }
@@ -440,7 +444,7 @@ impl Motes {
         position[0] += sin * self.radius as f32;
         position[1] -= cos * self.radius as f32;
         BillboardEffect {
-            owner: (self.persistent == 0.).then_some(owner),
+            owner: Some(owner),
             field_lighting: self.lighting_mode & 1 != 0,
             recipe: MOTE_SPRITE,
             palette: Some(self.palette as u16),

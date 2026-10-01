@@ -441,6 +441,66 @@ fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn seal_motes_keep_rising_and_fading_after_the_emitter_is_removed() -> Result<()> {
+    for (destination, map, emitter) in [(1, 221, 2000), (3, 510, 1023)] {
+        let mut field = enter(destination, map, None)?;
+        advance_until(&mut field, |field| {
+            field
+                .events
+                .world
+                .billboards
+                .values()
+                .any(|p| p.owner == Some(emitter))
+        })?;
+        let mut survivors = Vec::new();
+        for tick in 0..7200 {
+            let previous: Vec<_> = field
+                .events
+                .world
+                .billboards
+                .iter()
+                .filter_map(|(&id, p)| (p.owner == Some(emitter)).then_some(id))
+                .collect();
+            field.step(FieldInput {
+                interact: tick % 2 == 0,
+                accelerate_dialogue: true,
+                ..Default::default()
+            })?;
+            if !field.events.world.actors.contains_key(&emitter) {
+                survivors = previous
+                    .into_iter()
+                    .filter(|id| field.events.world.billboards.contains_key(id))
+                    .collect();
+                break;
+            }
+        }
+        assert!(
+            !survivors.is_empty(),
+            "map {map}: seal motes disappeared with their emitter"
+        );
+        let world = &field.events.world;
+        let id = *survivors
+            .iter()
+            .max_by_key(|id| world.billboards[id].born)
+            .unwrap();
+        let mote = &world.billboards[&id];
+        let (height, alpha) = (mote.position[2], mote.alpha(world.tick));
+        for _ in 0..30 {
+            field.step(FieldInput::default())?;
+        }
+        let world = &field.events.world;
+        let mote = world
+            .billboards
+            .get(&id)
+            .context("recent seal mote vanished")?;
+        assert!(mote.position[2] > height);
+        assert!(mote.alpha(world.tick) < alpha);
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn triet_seal_scripted_wings_animate_and_emit_sparks() -> Result<()> {
     let mut field = enter(10, DESTINATIONS[10].map, None)?;
     let mut saw_wings = false;

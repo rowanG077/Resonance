@@ -978,8 +978,18 @@ impl GameWorld {
             }
         });
         for id in ids {
-            self.actors.remove(&id);
-            self.billboards.retain(|_, p| p.owner != Some(id));
+            let preserve = self
+                .actors
+                .remove(&id)
+                .and_then(|actor| actor.emitter)
+                .is_some_and(|emitter| emitter.preserves_particles_on_despawn());
+            self.billboards.retain(|_, particle| {
+                if particle.owner != Some(id) {
+                    return true;
+                }
+                particle.owner = None;
+                preserve
+            });
             self.overlays.remove(&id);
             self.emotes.remove(&id);
         }
