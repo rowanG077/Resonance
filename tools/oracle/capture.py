@@ -186,6 +186,8 @@ def main():
             parser.error("initial-state requires its recorded .dtm companion for prefix validation")
         from state import inspect
         observation = inspect(initial_state)
+        if "battle" in observation and (args.watch_actor or args.watch_particle):
+            parser.error("field actor/particle watches require a field checkpoint")
         if args.watch_state:
             actor_locations["8035A73C"] = "field_save_point_word"
             for controller in range(4):
@@ -392,7 +394,9 @@ def main():
             parser.error("DTM input before the initial checkpoint differs from its recorded history")
         # Addresses are discovered from this recorded state. The id word makes
         # a reused actor slot detectable; these observations span one field.
-        actors = [observation["controlled_actor"], *observation.get("actors", [])]
+        actors = observation.get("actors", [])
+        if controlled := observation.get("controlled_actor"):
+            actors = [controlled, *actors]
         for actor_id in set(args.watch_actor):
             matches = [a for a in actors if a["id"] == actor_id]
             if len(matches) != 1:

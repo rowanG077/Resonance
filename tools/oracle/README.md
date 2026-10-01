@@ -134,6 +134,8 @@ Poll `stick`/`c_stick` values are byte pairs, neutral at `[128,128]`.
 
 `--watch-state` records frame-end memory; `--watch-vis N` can record a timeline
 without PNGs. Actor, particle and volume-group watchers extend observations.
+Battle checkpoints retain movie/result metadata for replay; field actor and
+particle watches require a field checkpoint because combat replaces that storage.
 `--trace-startup` and bounded `--trace-random N` use a read-only debugger that
 pauses execution; confirm timing against an ordinary replay afterward.
 
@@ -180,6 +182,7 @@ For post-battle scenes, `battle_victories` lists the expected formation IDs in
 order. The capture grants each victory through the field handoff and records the
 consumed count; unexpected battles or unused grants fail. Declare these grants
 in the case: they do not validate combat or its rewards.
+Sequences can cover up to five minutes at 60 Hz, including seal dialogue.
 
 These are presentation examples under `target/debug/examples`. The event sweep
 fails on missing services, resources, audio or glyphs, and uses ordinary Cancel
