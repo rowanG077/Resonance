@@ -76,6 +76,15 @@ def inspect(path, library=None):
     result["field_presentation"] = {
         "scene_flags": u32(0x35a760), "control_flags": u32(0x35a73c),
     }
+    if result["title"]["state_flags"] & 0x7f == 9:
+        # Combat replaces the field's model/actor storage. Preserve the movie
+        # cursor for replay, but do not interpret that storage as field data.
+        result["battle"] = {
+            "flags": ram[0x2cb554], "formation": u32(0x2cb558),
+            "arena": u32(0x2cb55c), "result": u32(0x2cb574),
+            "return_mode": ram[0x2cb56c],
+        }
+        return result
     result["random_state"] = u32(0x35a340)
     # Gameplay MT19937 is independent of field animation and particle effects.
     next_word = u32(0x35a7e0)

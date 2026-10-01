@@ -12,8 +12,8 @@ use std::{
     time::Instant,
 };
 
-/// Two minutes at 60 Hz includes the Remote Ranch platform's complete ascent.
-const MAX_SEQUENCE_UPDATES: u32 = 7200;
+/// Five minutes at 60 Hz includes the seal scenes and their post-battle dialogue.
+const MAX_SEQUENCE_UPDATES: u32 = 18_000;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
