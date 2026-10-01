@@ -578,7 +578,11 @@ impl NativeHost<'_> {
                         .as_ref()
                         .map_or(0, |enemy| i32::from(enemy.pause_effect_mode)),
                     41 | 48 | 50 => actor.properties.get(&a[1]).copied().unwrap_or(0),
-                    42..=44 => actor.properties.get(&a[1]).copied().unwrap_or(255),
+                    42..=44 => actor
+                        .properties
+                        .get(&a[1])
+                        .copied()
+                        .unwrap_or(i32::from(crate::effect::NEUTRAL_TINT)),
                     46 => i32::from(!actor.depth_write),
                     45 => actor.blend.map_or(0, |blend| blend as i32),
                     _ => unreachable!(),

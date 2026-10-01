@@ -108,7 +108,8 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
 #else
     let slot = 0u;
 #endif
-    let field_light = surface_data(slot).field_light;
+    let material = surface_data(slot);
+    let field_light = material.field_light;
     let direction = normalize(field_light.xyz - out.world_position.xyz);
     let diffuse = dot(out.world_normal, direction);
     // Signed diffuse light plus constant ambient select a texel in the
@@ -116,7 +117,8 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     let illumination = clamp(field_light.w + round(field_light.w * diffuse), 0.0, 255.0);
     let coordinate = floor(field_light.w * (illumination + floor(illumination / 128.0)) / 256.0) / 255.0;
 #ifdef VERTEX_COLORS
-    out.color = vec4<f32>(floor(round(vertex.color.rgb * 255.0) * 0.25) / 255.0, vertex.color.a);
+    out.color = vec4<f32>(floor(round(vertex.color.rgb * 255.0)
+        * material.ambient_color.rgb / 256.0) / 255.0, vertex.color.a);
 #endif
     // This unlit material has no later use for the normal varying. Reusing it
     // keeps the vertex layout identical for skinned and ordinary scene meshes.

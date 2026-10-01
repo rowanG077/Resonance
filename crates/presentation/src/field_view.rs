@@ -1867,9 +1867,12 @@ fn pose(
             });
         let tint = reaction_tint
             * Vec4::new(brightness, brightness, brightness, 1.)
-            * Vec4::from_array([42, 43, 44, 8].map(|property| {
-                actor.properties.get(&property).copied().unwrap_or(255) as f32 / 255.
-            }))
+            * Vec4::new(
+                1.,
+                1.,
+                1.,
+                actor.properties.get(&8).copied().unwrap_or(255) as f32 / 255.,
+            )
             * if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                 if sealed {
                     Vec4::new(255. / 64., 255. / 64., 255. / 64., 128. / 255.)
@@ -1889,6 +1892,17 @@ fn pose(
                 Vec4::ONE
             };
         let light = session.character_light(instance.actor);
+        // fn_80055140 writes these bytes to the model's ambient channel.
+        // fn_8006C978 resets ambient modulation before drawing its outline.
+        let ambient_color = if instance.part == 0 {
+            Vec3::from_array(
+                [42, 43, 44]
+                    .map(|property| actor.properties.get(&property).copied().unwrap_or(64) as f32),
+            )
+            .extend(1.)
+        } else {
+            Vec4::new(64., 64., 64., 0.)
+        };
         let light_position = match light.position {
             LightPosition::Relative(p) => Vec3::from_array(p) + Vec3::from_array(actor.position),
             LightPosition::World(p) => Vec3::from_array(p),
@@ -2013,6 +2027,7 @@ fn pose(
                 s.uv_offsets != offsets
                     || s.uv_scales != uv_scales
                     || s.tint != tint
+                    || s.ambient_color != ambient_color
                     || s.depth_write != depth_write
                     || s.blend != blend
                     || s.additive != additive
@@ -2025,6 +2040,7 @@ fn pose(
                 surface.uv_offsets = offsets;
                 surface.uv_scales = uv_scales;
                 surface.tint = tint;
+                surface.ambient_color = ambient_color;
                 surface.depth_write = depth_write;
                 surface.blend = blend;
                 surface.additive = additive;
