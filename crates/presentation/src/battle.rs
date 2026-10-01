@@ -49,11 +49,7 @@ impl Entry {
         let mut gameplay_random = events.world.gameplay_random;
         let options = encounter::PrepareOptions {
             random_seed: gameplay_random.next_u64(),
-            map: if session.overworld.is_some() {
-                3000
-            } else {
-                u16::try_from(session.assets.map_id)?
-            },
+            map: u16::try_from(session.map_id())?,
             world_music: events.memory().read(0x50, symphonia_script::Width::S32)?,
             story: events.memory().read(0x40, symphonia_script::Width::S32)?,
             story3: events.world.event_flags.contains(&3),
@@ -70,7 +66,7 @@ impl Entry {
             party,
             setup,
             options,
-            data: session.data.clone(),
+            data: session.data().clone(),
             menus: events
                 .resources()
                 .menu_data
@@ -1010,10 +1006,7 @@ fn advance(
         let session = session
             .as_mut()
             .context("battle lost its retained session")?;
-        match &mut session.overworld {
-            Some(world) => world.session.play_time.advance(),
-            None => session.field.play_time.advance(),
-        }
+        session.advance_play_time();
         if scene.entry_remaining > 0 {
             scene.entry_remaining -= 1;
             return Ok(());

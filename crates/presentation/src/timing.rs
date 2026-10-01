@@ -228,6 +228,7 @@ pub(super) fn advance_clock(
     // Presentation age continues across movies and title entries;
     // pure loading waits do not advance it.
     if loading.is_none()
+        && quickload.is_none()
         && (battle.as_ref().is_some_and(|battle| battle.presenting())
             || session.is_none()
             || resident

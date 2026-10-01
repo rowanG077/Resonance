@@ -1,6 +1,25 @@
 //! Helpers shared by presentation tests.
 use resonance_battle::{Actor, Side};
 
+pub(crate) fn run_options(assets: impl Into<std::path::PathBuf>) -> crate::RunOptions {
+    crate::RunOptions {
+        assets: assets.into(),
+        script_root: None,
+        saves: Default::default(),
+        capture_at: None,
+        capture: None,
+        reveal: false,
+        selected: 0,
+        silent: true,
+        paranoid: true,
+        skip_intro: true,
+        skip_battles: false,
+        allow_incomplete_scripts: false,
+        record_playthrough: None,
+        record_title_ticks: 0,
+    }
+}
+
 /// A save beside Iselia's save point, after the classroom sequence.
 /// Host tests restore it directly; the game integration test owns story playback.
 pub(crate) fn field_checkpoint(
@@ -11,10 +30,7 @@ pub(crate) fn field_checkpoint(
         camera::{CameraRig, EntryCamera},
         party::Party,
     };
-    let (data, _) = crate::new_game::admit_definitions(
-        |path| Ok(files.read(path)?.to_vec()),
-        files.diagnostics(),
-    )?;
+    let data = resonance_content::session::SessionData::load(files)?;
     let mut party = Party::new(&data, Default::default())?;
     party.formation = vec![1, 2, 3];
     let leader = i32::from(party.field_leader);

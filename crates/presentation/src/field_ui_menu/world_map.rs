@@ -52,26 +52,25 @@ impl Drawing<'_> {
         let locations = menu.map_locations();
         let phase = self.tick % 60 * 512 / 60;
         let alpha = if phase < 256 { phase } else { 511 - phase } as f32 / 255.;
-        let current = if menu
-            .checkpoint
-            .as_ref()
-            .is_some_and(|checkpoint| checkpoint.map_id == 3000)
-        {
-            travel
-                .overworld
-                .as_ref()
-                .filter(|world| world.world.index() == usize::from(state.world))
-                .map(|world| {
-                    let [x, z, _] = world.position.map();
-                    [(x / 200.).trunc() as i16, (z / 200.).trunc() as i16]
-                })
-        } else {
-            travel
-                .current_location
-                .filter(|id| id / 256 == u16::from(state.world))
-                .and_then(|id| map_text.locations.get(&id))
-                .map(|location| location.point)
-        };
+        let current =
+            if menu.checkpoint.as_ref().is_some_and(|checkpoint| {
+                matches!(checkpoint, resonance_game::Checkpoint::World(_))
+            }) {
+                travel
+                    .overworld
+                    .as_ref()
+                    .filter(|world| world.world.index() == usize::from(state.world))
+                    .map(|world| {
+                        let [x, z, _] = world.position.map();
+                        [(x / 200.).trunc() as i16, (z / 200.).trunc() as i16]
+                    })
+            } else {
+                travel
+                    .current_location
+                    .filter(|id| id / 256 == u16::from(state.world))
+                    .and_then(|id| map_text.locations.get(&id))
+                    .map(|location| location.point)
+            };
         if let Some(point) = current {
             self.map_crosshair(point, [1., 128. / 255., 128. / 255., 1. - alpha])?;
         }

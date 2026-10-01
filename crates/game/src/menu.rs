@@ -1,5 +1,5 @@
-//! Player menus own input while the field remains at a controllable checkpoint.
-use crate::{DirectionRepeat, field::FieldCheckpoint};
+//! Player menus own input while the active scene remains at its checkpoint.
+use crate::{Checkpoint, DirectionRepeat};
 use anyhow::Context;
 use resonance_content::{menu_data, prepared::Files};
 use std::sync::Arc;
@@ -564,7 +564,7 @@ impl Menu {
         resonance_events::GameplayRandom,
     )> {
         std::mem::take(&mut self.party_changed).then(|| {
-            let progress = &self.checkpoint.as_ref().unwrap().progress;
+            let progress = &self.checkpoint.as_ref().unwrap().progress();
             (progress.party.clone(), progress.gameplay_random)
         })
     }
@@ -577,7 +577,7 @@ impl Menu {
     pub(crate) fn set_play_time(&mut self, time: crate::clock::PlayTime) {
         self.play_time = time;
         if let Some(checkpoint) = &mut self.checkpoint {
-            checkpoint.played_ticks = time.total();
+            checkpoint.set_played_ticks(time.total());
         }
     }
     pub fn take_command(&mut self) -> Option<Command> {

@@ -334,7 +334,13 @@ fn party_order_and_field_leader_survive_menu_close_and_field_restart() {
     let party = &mut menu.checkpoint.as_mut().unwrap().progress_mut().party;
     party.leader_locked = false;
     for (hp, petrified) in [(0, false), (1, true)] {
-        let member = &mut menu.checkpoint.as_mut().unwrap().progress.party.members[7];
+        let member = &mut menu
+            .checkpoint
+            .as_mut()
+            .unwrap()
+            .progress_mut()
+            .party
+            .members[7];
         member.hp = hp;
         member.ailments.petrified = petrified;
         assert_eq!(press(&mut menu, Accept), Some(4));
@@ -1397,7 +1403,7 @@ fn technique_actions_shortcuts_and_ai_settings_survive_reload() {
     }
     menu.tech.character = 0;
     learn(
-        &mut menu.checkpoint.as_mut().unwrap().progress.party,
+        &mut menu.checkpoint.as_mut().unwrap().progress_mut().party,
         0,
         &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
     );
@@ -2010,7 +2016,7 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
         .checkpoint
         .as_mut()
         .unwrap()
-        .progress
+        .progress_mut()
         .party
         .change_item(&data, 155, 1)
         .unwrap();
@@ -3175,6 +3181,7 @@ fn cooked_skit_scenarios_have_complete_native_and_portrait_resources() {
             session_data: Some(data.clone()),
             ..Default::default()
         },
+        files.diagnostics(),
     )
     .unwrap();
     for (&id, paths) in &catalog.resources {

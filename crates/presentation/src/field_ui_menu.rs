@@ -2128,7 +2128,7 @@ impl Drawing<'_> {
                 20.,
                 GOLD,
             )?;
-            self.currency(checkpoint.progress.party.gald, [604., 113.], [14., 24.])?;
+            self.currency(checkpoint.progress().party.gald, [604., 113.], [14., 24.])?;
             self.text(
                 menu_label(&self.spec.labels, "time")?,
                 [478., 171.],
@@ -2202,12 +2202,13 @@ impl Drawing<'_> {
         first: usize,
         statistics: Option<&resonance_content::menu_data::MenuData>,
     ) -> Result<()> {
-        let visible = if compact {
-            party.formation.len()
-        } else {
-            resonance_game::menu::VISIBLE_PARTY
-        };
-        for (index, &id) in party.formation.iter().enumerate().skip(first).take(visible) {
+        for (index, &id) in party
+            .formation
+            .iter()
+            .enumerate()
+            .skip(first)
+            .take(resonance_game::menu::VISIBLE_PARTY)
+        {
             let member = &party.members[usize::from(id - 1)];
             let [max_hp, max_tp] = member.maximum_vitals();
             let name = member

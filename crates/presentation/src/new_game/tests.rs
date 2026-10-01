@@ -6,15 +6,29 @@ use std::collections::BTreeMap;
 
 use crate::test_support::field_checkpoint;
 
+impl Session {
+    pub(crate) fn reload(&mut self, root: &Path, checkpoint: FieldCheckpoint) -> Result<()> {
+        let candidate = Self::load_prepared(
+            root,
+            self.files(),
+            Some(checkpoint),
+            None,
+            &mut Default::default(),
+        )?;
+        self.replace_loaded(candidate);
+        Ok(())
+    }
+}
+
 fn assert_shared_definitions(session: &Session) {
-    let resources = session.field.events.resources();
+    let resources = session.field().events.resources();
     assert!(Arc::ptr_eq(
-        &session.data,
+        &session.field_package().data,
         resources.session_data.as_ref().unwrap()
     ));
     assert!(Arc::ptr_eq(
-        session.data.rules.as_ref().unwrap(),
-        session.field.menu_data().unwrap()
+        session.data().rules.as_ref().unwrap(),
+        session.field().menu_data().unwrap()
     ));
 }
 
@@ -99,7 +113,7 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
         assert_shared_definitions(&session);
         assert!(
             session
-                .field
+                .field()
                 .menu_data()
                 .unwrap()
                 .label("holy_aura")
@@ -107,26 +121,40 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
         );
         assert!(
             session
-                .field
+                .field()
                 .menu_data()
                 .unwrap()
                 .presentation
                 .world_map
                 .is_none()
         );
-        assert!(session.field.menu_data().unwrap().world_map_text().is_err());
-        assert!(session.field.menu_data().unwrap().title_text(1, 1).is_err());
+        assert!(
+            session
+                .field()
+                .menu_data()
+                .unwrap()
+                .world_map_text()
+                .is_err()
+        );
+        assert!(
+            session
+                .field()
+                .menu_data()
+                .unwrap()
+                .title_text(1, 1)
+                .is_err()
+        );
         assert_eq!(
-            session.field.menu_data().unwrap().title_text(1, 2)?.name,
+            session.field().menu_data().unwrap().title_text(1, 2)?.name,
             original.title_text(1, 2)?.name
         );
         assert_eq!(
-            session.field.menu_data().unwrap().shop_text(0)?,
+            session.field().menu_data().unwrap().shop_text(0)?,
             original.shop_text(0)?
         );
         assert!(
             session
-                .field
+                .field()
                 .menu_data()
                 .unwrap()
                 .strategy_text()?
@@ -134,14 +162,21 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
                 .is_err()
         );
         assert_eq!(
-            session.field.menu_data().unwrap().strategy_presets()?,
+            session.field().menu_data().unwrap().strategy_presets()?,
             original.strategy_presets()?
         );
-        assert!(session.field.menu_data().unwrap().ex_skill_text().is_err());
-        assert!(session.field.menu_data().unwrap().status_text().is_err());
         assert!(
             session
-                .field
+                .field()
+                .menu_data()
+                .unwrap()
+                .ex_skill_text()
+                .is_err()
+        );
+        assert!(session.field().menu_data().unwrap().status_text().is_err());
+        assert!(
+            session
+                .field()
                 .menu_data()
                 .unwrap()
                 .cooking_text()?
@@ -150,7 +185,7 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
         );
         assert_eq!(
             session
-                .field
+                .field()
                 .menu_data()
                 .unwrap()
                 .cooking_text()?
@@ -159,20 +194,24 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
             original.cooking_text()?.recipe(1)?.name
         );
         assert_eq!(
-            session.field.menu_data().unwrap().items_text()?.items[item]
+            session.field().menu_data().unwrap().items_text()?.items[item]
                 .as_ref()
                 .unwrap()
                 .name,
             original.items_text()?.items[item].as_ref().unwrap().name
         );
-        let mut menu = Menu::new(Page::Items, Some(checkpoint.clone()), false);
+        let mut menu = Menu::new(
+            Page::Items,
+            Some(resonance_game::Checkpoint::Field(checkpoint.clone())),
+            false,
+        );
         menu.resources = Some(Arc::new(Resources {
-            session: session.data.clone(),
-            data: session.field.menu_data().unwrap().clone(),
+            session: session.data().clone(),
+            data: session.field().menu_data().unwrap().clone(),
             files: session.files(),
         }));
         menu.inventory.category = original.items[item].inventory_category().unwrap();
-        let before = serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress.party)?;
+        let before = serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress().party)?;
         assert_eq!(menu.inventory_items(), [u16::try_from(item)?]);
         assert_eq!(
             menu.step(FieldInput {
@@ -188,7 +227,7 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
         );
         assert!(menu.take_failure().is_none());
         assert_eq!(
-            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress.party)?,
+            serde_json::to_vec(&menu.checkpoint.as_ref().unwrap().progress().party)?,
             before
         );
         assert_eq!(menu.page, Page::Items);
@@ -227,8 +266,8 @@ fn malformed_optional_label_is_admitted_before_startup_and_rejected_on_use() -> 
 
 #[test]
 #[ignore = "requires current cooked fields; no window or audio device"]
-fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
-    use super::super::loading::{FieldPending, Pending, Resident, Task};
+fn authored_entries_prepare_on_loading_and_refresh_the_active_field() {
+    use super::super::loading::{Pending, Resident, Task};
     use std::{
         fs, thread,
         time::{Duration, Instant},
@@ -282,7 +321,7 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
         Pending::start(
             root.clone(),
             Some(source_root.path().to_path_buf()),
-            Some(bytes),
+            Some(bytes.clone()),
             None,
             &resident,
         )
@@ -290,9 +329,9 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
     )
     .unwrap();
     assert_shared_definitions(&session);
-    assert!(!session.field.player_has_control());
-    assert!(session.field.checkpoint().is_err());
-    assert!(!session.field.events.world.event_flags.contains(&2000));
+    assert!(!session.field().player_has_control());
+    assert!(session.field().checkpoint().is_err());
+    assert!(!session.field().events.world.event_flags.contains(&2000));
     for _ in 0..3 {
         session.field_mut().step(Default::default()).unwrap();
     }
@@ -315,8 +354,7 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
         .unwrap(),
     )
     .unwrap();
-    session.fields.insert(332, Arc::new(refreshed));
-    session.restore(saved).unwrap();
+    session.replace_loaded(candidate);
     assert_shared_definitions(&session);
     for _ in 0..3 {
         session.field_mut().step(Default::default()).unwrap();
@@ -487,36 +525,26 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
     }
     let assert_restored = |loaded: &Session| {
         assert_shared_definitions(loaded);
-        assert_checkpoint(&loaded.field.checkpoint().unwrap(), &checkpoint).unwrap();
-        assert_eq!(loaded.field.play_time.session(), 0);
+        assert_checkpoint(&loaded.field().checkpoint().unwrap(), &checkpoint).unwrap();
+        assert_eq!(loaded.field().play_time.session(), 0);
         assert!(!loaded.movie_owns_audio());
         assert!(loaded.prepared_movie.is_none());
     };
-    // A cold load constructs its field package independently; a warm restore
-    // reuses the live session's prepared field. Both publish the same save state.
+    // Load and publish a replacement through the production candidate constructor.
     let mut cold_cache = super::super::loading::Cache::default();
     let package =
         FieldPackage::prepare(&root, checkpoint.map_id, &mut cold_cache, || false).unwrap();
-    let (_, saved) = resonance_persistence::decode(&bytes)
+    let (_, crate::saves::SceneCheckpoint::Field(saved)) = resonance_persistence::decode(&bytes)
         .unwrap()
         .admit(&session.identity)
-        .unwrap();
+        .unwrap()
+    else {
+        panic!("expected field save")
+    };
     let cold =
         Session::load_prepared(&root, package.files, Some(saved), None, &mut cold_cache).unwrap();
     assert_restored(&cold);
-    let (_, saved) = resonance_persistence::decode(&bytes)
-        .unwrap()
-        .admit(&session.identity)
-        .unwrap();
-    session.restore(saved).unwrap();
-    assert_restored(&session);
-    let loaded_fields = cold.fields.keys().copied().collect::<Vec<_>>();
-    assert!(session.fields.len() > loaded_fields.len());
     session.replace_loaded(cold);
-    assert_eq!(
-        session.fields.keys().copied().collect::<Vec<_>>(),
-        loaded_fields
-    );
     assert_restored(&session);
     // Both aisle crossings have empty source handlers. A neutral pose update
     // can queue one, but it must not turn a valid exploration save into an error.
@@ -533,8 +561,8 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
             checkpoint.progress.script_globals
         );
         assert_eq!(restored.played_ticks, checkpoint.played_ticks);
-        session.field.step(Default::default()).unwrap();
-        assert!(session.field.checkpoint().is_ok());
+        session.field_mut().step(Default::default()).unwrap();
+        assert!(session.field().checkpoint().is_ok());
     }
     session.reload(&root, checkpoint.clone()).unwrap();
     session
@@ -563,8 +591,8 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
     assert!(session.reload(&root, invalid).is_err());
     let mut invalid = checkpoint.clone();
     invalid.camera.as_mut().unwrap().fov_degrees = f32::NAN;
-    assert!(session.restore(invalid).is_err());
-    assert_checkpoint(&session.field.checkpoint().unwrap(), &checkpoint).unwrap();
+    assert!(session.reload(&root, invalid).is_err());
+    assert_checkpoint(&session.field().checkpoint().unwrap(), &checkpoint).unwrap();
     let mut foreground = checkpoint.clone();
     foreground.position = [-540., -320., 0.];
     let error = session.reload(&root, foreground).unwrap_err();
@@ -694,16 +722,16 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
             }
             let at_circle = session.field().checkpoint().unwrap();
             assert!(at_circle.progress.event_flags.contains(&0x208));
-            session.restore(at_circle.clone()).unwrap();
+            session.reload(&root, at_circle.clone()).unwrap();
             let mut cold = Session::load_prepared(
                 &root,
-                session.fields[&map].files.clone(),
+                session.files(),
                 Some(at_circle.clone()),
                 None,
                 &mut cache,
             )
             .unwrap();
-            for field in [&mut session.field, &mut cold.field] {
+            for field in [session.field_mut(), cold.field_mut()] {
                 let published = field.checkpoint().unwrap();
                 assert_checkpoint(&published, &at_circle).unwrap();
                 assert!(
@@ -769,27 +797,22 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     fn settle(root: &Path, cache: &mut Cache, session: &mut Session, choice: u8) -> Observed {
         let mut observed = Observed::default();
         for tick in 0..20_000 {
-            if let Some(request) = &session.field.events.world.field_transition {
-                let neighborhood_entry = session.assets.map_id == 332 && request.map == 331;
-                let package = session
-                    .fields
-                    .get(&request.map)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        Arc::new(FieldPackage::prepare(root, request.map, cache, || false).unwrap())
-                    });
+            if let Some(request) = &session.field().events.world.field_transition {
+                let neighborhood_entry = session.map_id() == 332 && request.map == 331;
+                let package =
+                    Arc::new(FieldPackage::prepare(root, request.map, cache, || false).unwrap());
                 session.change_field(package).unwrap();
                 assert_shared_definitions(session);
                 if neighborhood_entry {
                     // The first view already resolves the authored entrance
                     // orbit (336, 0, 346), distance 1661, and its X bounds.
                     assert_camera(
-                        &session.field,
+                        session.field(),
                         [-511., 1550.6742, 762.5896, -146., 3023., 87.],
                     );
                 }
             }
-            let field = &mut session.field;
+            let field = session.field_mut();
             for page in field.dialogue.values().filter(|page| !page.closed) {
                 observed.pages.insert(page.current().text());
             }
@@ -847,21 +870,17 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
         }
         panic!(
             "field {} stalled: {:?}",
-            session.assets.map_id,
-            session.field.events.pending_operations()
+            session.map_id(),
+            session.field().events.pending_operations()
         );
     }
 
     let root = asset_root();
     let mut cache = Cache::default();
     let package = FieldPackage::prepare(&root, 340, &mut cache, || false).unwrap();
-    let (data, menus) = admit_definitions(
-        |path| Ok(package.files.read(path)?.to_vec()),
-        package.files.diagnostics(),
-    )
-    .unwrap();
+    let data = &package.data;
     let mut persistent = PersistentState {
-        party: Some(Party::new(&data, Default::default()).unwrap()),
+        party: Some(Party::new(data, Default::default()).unwrap()),
         ..Default::default()
     };
     persistent
@@ -871,9 +890,6 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     let mut field = package
         .enter(FieldEntry {
             persistent,
-            data: Some(data),
-            menu_data: Some(menus),
-            text: Arc::new(package.files.json("game/text.json").unwrap()),
             position: [-52., -619., 0.],
             available_fields: available_fields(&root).unwrap(),
             ..Default::default()
@@ -897,9 +913,15 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     let mut visited = BTreeSet::from([340]);
     macro_rules! hop {
         ($key:expr, $confirmed:expr, $map:expr, $choice:expr) => {{
-            assert!(session.field.events.trigger($key, $confirmed).unwrap());
+            assert!(
+                session
+                    .field_mut()
+                    .events
+                    .trigger($key, $confirmed)
+                    .unwrap()
+            );
             let observed = settle(&root, &mut cache, &mut session, $choice);
-            assert_eq!(session.assets.map_id, $map, "trigger {}", $key);
+            assert_eq!(session.map_id(), $map, "trigger {}", $key);
             visited.insert($map);
             observed
         }};
@@ -909,12 +931,12 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     }
     // Exact source registry transitions, not a claim of natural walking coverage.
     hop!(3001, false, 340);
-    assert_eq!(session.field.story_progress().unwrap(), 2000);
+    assert_eq!(session.field().story_progress().unwrap(), 2000);
     hop!(1000, true, 332);
     hop!(1005, false, 331);
     hop!(1002, false, 332);
     hop!(1001, false, 330);
-    assert_eq!(session.field.story_progress().unwrap(), 2500);
+    assert_eq!(session.field().story_progress().unwrap(), 2500);
     assert!(
         hop!(2002, true, 330)
             .pages
@@ -924,18 +946,18 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     hop!(2001, true, 333);
     // The shop entrance supplies no camera template. Its script relies on the
     // standard shoulder-height target before locking the view to the counter.
-    let camera = session.field.events.world.field_camera.as_ref().unwrap();
+    let camera = session.field().events.world.field_camera.as_ref().unwrap();
     assert_eq!(camera.current().offset, [0., 0., 87.]);
     assert_camera(
-        &session.field,
+        session.field(),
         [-152., -845., 136.5519, -152., 551., 38.892956],
     );
-    assert!(session.field.events.interact(501).unwrap());
+    assert!(session.field_mut().events.interact(501).unwrap());
     assert_eq!(settle(&root, &mut cache, &mut session, 0).shops, [1].into());
-    assert!(session.field.player_has_control());
+    assert!(session.field().player_has_control());
     hop!(1000, true, 330);
     hop!(2003, true, 338);
-    assert!(session.field.events.interact(202).unwrap());
+    assert!(session.field_mut().events.interact(202).unwrap());
     assert!(
         settle(&root, &mut cache, &mut session, 0)
             .pages
@@ -965,9 +987,9 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     hop!(1000, true, 332);
     hop!(1001, false, 330);
 
-    let mut later = session.field.checkpoint().unwrap();
+    let mut later = session.field().checkpoint().unwrap();
     later.progress.script_globals[0x40 / 4] = 112000;
-    session.restore(later).unwrap();
+    session.reload(&root, later).unwrap();
     hop!(2002, true, 334);
     hop!(1000, true, 330);
     hop!(1001, false, 331);
@@ -979,11 +1001,11 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     hop!(1001, false, 330);
     assert_eq!(visited, (330..=340).collect());
 
-    let mut tutorial = session.field.checkpoint().unwrap();
+    let mut tutorial = session.field().checkpoint().unwrap();
     tutorial.progress.script_globals[0x40 / 4] = 202000;
     tutorial.progress.event_flags.remove(&275);
     for choice in [0, 1] {
-        session.restore(tutorial.clone()).unwrap();
+        session.reload(&root, tutorial.clone()).unwrap();
         let before = &tutorial.progress.party.items;
         let expected: BTreeMap<_, _> = [121, 100, 86]
             .into_iter()
@@ -991,15 +1013,15 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
             .collect();
         let observed = hop!(2003, true, 338, choice);
         assert_eq!(observed.choices.into_values().collect::<Vec<_>>(), [choice]);
-        assert!(session.field.events.world.event_flags.contains(&275));
+        assert!(session.field().events.world.event_flags.contains(&275));
         for (&id, &count) in &expected {
             assert_eq!(
-                session.field.events.world.party.as_ref().unwrap().items[&id],
+                session.field().events.world.party.as_ref().unwrap().items[&id],
                 count
             );
         }
-        let saved = session.field.checkpoint().unwrap();
-        session.restore(saved).unwrap();
+        let saved = session.field().checkpoint().unwrap();
+        session.reload(&root, saved).unwrap();
         hop!(1000, true, 330);
         assert!(
             hop!(2003, true, 338).choices.is_empty(),
@@ -1007,7 +1029,7 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
         );
         for (&id, &count) in &expected {
             assert_eq!(
-                session.field.events.world.party.as_ref().unwrap().items[&id],
+                session.field().events.world.party.as_ref().unwrap().items[&id],
                 count
             );
         }
@@ -1573,6 +1595,7 @@ fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result
         prepared.resources.skits.as_ref().unwrap().clone(),
         &prepared.files,
         &prepared.resources,
+        prepared.files.diagnostics(),
     )?;
     const STATE: &str = "test::skit::visits";
     parent.world.script_state.insert(STATE.into(), 0);
@@ -1701,15 +1724,18 @@ fn clear_save_runs_grade_shop_and_starts_a_fresh_story() -> Result<()> {
     progress.party.game_clears = 1;
     progress.party.grade_hundredths = 100_000;
     progress.party.gald = 9876;
-    session.restore(FieldCheckpoint {
-        allow_incomplete_scripts: false,
-        map_id: 5,
-        position: [0.; 3],
-        heading: 0.,
-        camera: None,
-        progress,
-        played_ticks: 9000,
-    })?;
+    session.reload(
+        &root,
+        FieldCheckpoint {
+            allow_incomplete_scripts: false,
+            map_id: 5,
+            position: [0.; 3],
+            heading: 0.,
+            camera: None,
+            progress,
+            played_ticks: 9000,
+        },
+    )?;
     let accept = FieldInput {
         pressed_buttons: [Button::Accept].into(),
         skip_dialogue: true,
@@ -1805,24 +1831,23 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
     let mut app = super::super::movie::tests::fixture();
     let root = app.world().resource::<RunOptions>().assets.clone();
     app.world_mut().resource_mut::<movie::Playback>().active = false;
-    let mut session = Session::load(&root)?;
+    let session = Session::load(&root)?;
     let package = Arc::new(FieldPackage::prepare(
         &root,
         80,
         &mut Default::default(),
         || false,
     )?);
-    session.fields.insert(80, package.clone());
     app.insert_resource(session);
     for playback in 0..2 {
         {
             let mut session = app.world_mut().resource_mut::<Session>();
             let mut entry = FieldEntry {
-                data: Some(session.data.clone()),
+                data: Some(session.data().clone()),
                 available_fields: session.available_fields.clone(),
                 persistent: resonance_events::PersistentState {
                     party: Some(resonance_events::party::Party::new(
-                        &session.data,
+                        session.data(),
                         Default::default(),
                     )?),
                     ..Default::default()
@@ -1835,15 +1860,22 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
                 .persistent
                 .memory
                 .write(0x40, symphonia_script::Width::S32, 20_308_000)?;
-            session.activate(package.enter(entry)?, &package, false);
+            session.activate(package.enter(entry)?, package.clone(), false);
             for _ in 0..120 {
-                session.field.step(Default::default())?;
-                if session.field.events.world.movie.is_some() {
+                session.field_mut().step(Default::default())?;
+                if session.field().events.world.movie.is_some() {
                     break;
                 }
             }
             assert_eq!(
-                session.field.events.world.movie.as_ref().unwrap().resource,
+                session
+                    .field()
+                    .events
+                    .world
+                    .movie
+                    .as_ref()
+                    .unwrap()
+                    .resource,
                 4
             );
         }
@@ -1860,7 +1892,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
         let operation = app
             .world()
             .resource::<Session>()
-            .field
+            .field()
             .events
             .world
             .movie
@@ -1912,7 +1944,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
         assert!(app.world().resource::<Session>().ready_for_field);
         app.world_mut()
             .resource_mut::<Session>()
-            .field
+            .field_mut()
             .step(Default::default())?;
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -1924,7 +1956,7 @@ fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
 #[test]
 #[ignore = "requires RESONANCE_WORLD_ASSETS with current field inventories; no window or audio device"]
 fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -> Result<()> {
-    use super::super::saves::{SceneCheckpoint, WorldCheckpoint};
+    use super::super::saves::SceneCheckpoint;
     use resonance_content::overworld::{Mount, Position, TravelState, World};
     let root = std::path::PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
@@ -1937,6 +1969,7 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
     let mut cache = super::super::loading::Cache::default();
     let prepared = resonance_game::overworld::Prepared::load(
         &root,
+        resonance_content::prepared::Files::load(&root, &[], &mut cache.bytes, || false)?,
         &mut cache.bytes,
         available_fields(&root)?,
         || false,
@@ -1977,28 +2010,24 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
             resonance_game::clock::PlayTime::resume(12345),
         )?;
         let state = session.travel.state().clone();
-        let saved = SceneCheckpoint::World(WorldCheckpoint {
-            overworld: session.checkpoint()?,
-            anchor_field: 330,
-        });
+        let saved = SceneCheckpoint::World(session.checkpoint()?);
         let bytes = resonance_persistence::encode(&header, &saved)?;
         let (_, decoded): (_, SceneCheckpoint) =
             resonance_persistence::decode(&bytes)?.admit(&header.identity)?;
         let SceneCheckpoint::World(saved) = decoded else {
             panic!("world save decoded as a field")
         };
-        let field = FieldPackage::prepare(&root, saved.anchor_field, &mut cache, || false)?;
-        let mut restored =
-            Session::load_world_prepared(&root, field.files, saved, &mut cache, || false)?;
-        let scene = restored.overworld.as_ref().unwrap();
+        let files = Arc::new(Files::load(&root, &[], &mut cache.bytes, || false)?);
+        let mut restored = Session::load_world_prepared(&root, files, saved, &mut cache, || false)?;
+        let scene = restored.overworld().unwrap();
         assert_eq!(scene.session.travel.state(), &state);
         assert_eq!(scene.session.play_time.total(), 12345);
         assert_eq!(scene.session.events.tick(), session.events.tick());
-        assert!(!restored.field.player_has_control());
+        assert!(matches!(restored.scene, Scene::World(_)));
         assert!(!restored.ready_for_field);
         assert!(restored.story_movie.is_none());
         assert!(restored.audio.is_some());
-        let world = &mut restored.overworld.as_mut().unwrap().session;
+        let world = &mut restored.overworld_mut().unwrap().session;
         let tick = world.events.tick();
         world.step(resonance_game::overworld::Input {
             menu: FieldInput {
@@ -2023,21 +2052,15 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
         assert_eq!(world.travel.state(), &state);
         assert_eq!(world.events.tick(), tick);
         assert_eq!(world.travel.state(), &state);
-        let menu_save = SceneCheckpoint::World(WorldCheckpoint {
-            overworld: world.menu_checkpoint()?,
-            anchor_field: 330,
-        });
+        let menu_save = world.menu.as_ref().unwrap().checkpoint.clone().unwrap();
         let menu_bytes = resonance_persistence::encode(&header, &menu_save)?;
         let (_, saved): (_, SceneCheckpoint) =
             resonance_persistence::decode(&menu_bytes)?.admit(&header.identity)?;
         let SceneCheckpoint::World(saved) = saved else {
             panic!("world menu wrote a field save")
         };
-        assert_eq!(saved.overworld.state, state);
-        assert_eq!(
-            saved.overworld.progress.party.travel.overworld.as_ref(),
-            Some(&state)
-        );
+        assert_eq!(saved.state, state);
+        assert_eq!(saved.progress.party.travel.overworld.as_ref(), Some(&state));
         world.step(resonance_game::overworld::Input {
             menu: FieldInput {
                 pressed_buttons: [Button::Cancel].into(),
@@ -2055,7 +2078,7 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
         assert!(world.menu.is_none());
         assert!(world.player_has_control());
         if mount == Mount::Foot {
-            let scene = restored.overworld.as_mut().unwrap();
+            let scene = restored.overworld_mut().unwrap();
             scene.session.events.set_global(16, 900_000)?;
             // The original world script selects ISA_T00 from the south;
             // octants 6/7 instead enter the northern ISA_T02 map (332).
@@ -2085,7 +2108,7 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
             }
             assert!(owner.contains_resource::<TransitionFailure>());
             assert!(request.operation.is_pending());
-            assert!(owner.resource::<Session>().overworld.is_some());
+            assert!(owner.resource::<Session>().overworld().is_some());
             restored = owner.remove_resource::<Session>().unwrap();
             let package = Arc::new(FieldPackage::prepare(
                 &root,
@@ -2095,10 +2118,10 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
             )?);
             restored.change_field(package)?;
             assert!(!request.operation.is_pending());
-            assert!(restored.overworld.is_none());
+            assert!(restored.is_field());
             assert_eq!(
                 restored
-                    .field
+                    .field()
                     .events
                     .world
                     .party
@@ -2110,19 +2133,19 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
                 Some(&state)
             );
             for _ in 0..120 {
-                restored.field.step(Default::default())?;
-                if restored.field.player_has_control() {
+                restored.field_mut().step(Default::default())?;
+                if restored.field().player_has_control() {
                     break;
                 }
             }
             assert!(
-                restored.field.player_has_control(),
+                restored.field().player_has_control(),
                 "Iselia arrival did not release control"
             );
             // Original ISA_T00's confirmed south exit is registry (2,1000).
-            assert!(restored.field.events.trigger(1000, true)?);
+            assert!(restored.field_mut().events.trigger(1000, true)?);
             for _ in 0..120 {
-                restored.field.step(Default::default())?;
+                restored.field_mut().step(Default::default())?;
                 if restored.events().world.world_transition.is_some() {
                     break;
                 }
@@ -2136,7 +2159,7 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
             let package = restored.world_package.clone().unwrap();
             restored.change_world(package)?;
             assert!(!request.operation.is_pending());
-            assert!(restored.overworld.is_some());
+            assert!(restored.overworld().is_some());
         }
     }
     Ok(())

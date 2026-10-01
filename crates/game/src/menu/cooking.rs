@@ -187,7 +187,7 @@ impl Menu {
             return None;
         }
         if input == Some(Alternate) && self.cooking.focus == Focus::Header {
-            let progress = &mut self.checkpoint.as_mut().unwrap().progress;
+            let progress = self.checkpoint.as_mut().unwrap().progress_mut();
             let data = &self.resources.as_ref().unwrap().data;
             let (content, cue) = match progress.cook(data) {
                 Ok(meal) => {

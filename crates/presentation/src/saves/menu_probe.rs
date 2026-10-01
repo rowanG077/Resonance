@@ -6,8 +6,11 @@ use std::{fs, path::Path};
 pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
     let (identity, _) =
         new_game::save_context(root, resonance_content::diagnostics::Diagnostics::new(true))?;
-    let (_, expected): (_, FieldCheckpoint) =
-        resonance_persistence::decode(&fs::read(save)?)?.admit(&identity)?;
+    let (_, SceneCheckpoint::Field(expected)) =
+        resonance_persistence::decode(&fs::read(save)?)?.admit(&identity)?
+    else {
+        anyhow::bail!("probe requires a field save");
+    };
     let app = probe::app(root, save, output, crate::Resolution::default())?;
     let mut steps = vec![
         title_probe::field(expected.map_id),
@@ -87,12 +90,15 @@ pub fn run_menu_probe(root: &Path, save: &Path, output: &Path) -> Result<()> {
         "save/load menu lost its saved slot"
     );
     let store = Store::new(output.join("slots"));
-    let (_, persisted): (_, FieldCheckpoint) =
+    let (_, SceneCheckpoint::Field(persisted)) =
         resonance_persistence::decode(&store.read(Kind::Save, &SlotId::new("a-001")?)?)?
-            .admit(&identity)?;
+            .admit(&identity)?
+    else {
+        anyhow::bail!("probe requires a field save");
+    };
     ensure!(
         serde_json::to_value(&persisted)?
-            == capture_from(&report, "save-confirm")?["menu"]["checkpoint"],
+            == capture_from(&report, "save-confirm")?["menu"]["checkpoint"]["field"],
         "save menu changed the submitted checkpoint"
     );
     let loaded = capture_from(&report, "loaded-field")?;

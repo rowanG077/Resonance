@@ -105,7 +105,7 @@ fn start(world: &mut World, command: Command) -> Result<()> {
         Command::ReadSlots => {
             let context = world
                 .get_resource::<new_game::Session>()
-                .map(|session| (session.identity.clone(), session.data.clone()));
+                .map(|session| (session.identity.clone(), session.data().clone()));
             let root = world.resource::<crate::RunOptions>().assets.clone();
             let diagnostics = crate::diagnostics::policy(world);
             world.insert_resource(Pending(loading::Task::spawn(move |_| {
@@ -193,9 +193,9 @@ fn read_slots(
                     resonance_persistence::decode::<SceneCheckpoint>(&bytes)?.admit(identity)
                 })
                 .and_then(|(header, checkpoint)| {
-                    let mut checkpoint = checkpoint.menu_snapshot();
-                    checkpoint.progress.party.bind_rules(data);
-                    checkpoint.progress.party.validate(data)?;
+                    let mut party = checkpoint.into_progress().party;
+                    party.bind_rules(data);
+                    party.validate(data)?;
                     ensure!(
                         header
                             .location
@@ -229,21 +229,21 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "requires current opening field/menu assets; no output devices"]
+    #[ignore = "requires cooked session/menu definitions and save identity; no output devices"]
     fn save_slots_bind_admitted_ex_rules_before_validation() -> Result<()> {
         let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
             || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
             PathBuf::from,
         );
-        let diagnostics = resonance_content::diagnostics::Diagnostics::new(true);
-        let (data, _) =
-            new_game::admit_definitions(|path| Ok(std::fs::read(root.join(path))?), &diagnostics)?;
-        let files = resonance_content::prepared::Files::load(
-            &root,
-            &["fields/map-332.preload.json"],
-            &mut Default::default(),
-            || false,
-        )?;
+        let mut files = resonance_content::prepared::Files::default();
+        for path in [
+            "game/session-data.json",
+            "game/menu-data.json",
+            resonance_content::save_identity::PATH,
+        ] {
+            files.insert(path.into(), std::fs::read(root.join(path))?.into());
+        }
+        let data = resonance_content::session::SessionData::load(&files)?;
         let mut checkpoint = field_checkpoint(&files)?;
         let rules = &data
             .rules
@@ -281,19 +281,16 @@ mod tests {
             &resonance_persistence::encode(&header, &SceneCheckpoint::Field(checkpoint.clone()))?,
         )?;
         let slots = read_slots(&store, &identity, &data)?;
-        let Slot::Saved {
-            checkpoint: saved, ..
-        } = &slots[0]
-        else {
+        let Slot::Saved { party: saved, .. } = &slots[0] else {
             anyhow::bail!("EX-bearing save slot was rejected");
         };
-        assert_eq!(saved.progress.party.members[0].ex_skills[0], skill);
-        saved.progress.party.validate(&data)?;
+        assert_eq!(saved.members[0].ex_skills[0], skill);
+        saved.validate(&data)?;
         checkpoint.progress.party.members[0].ex_skills[0] = 255;
         store.write(
             Kind::Save,
             &slot_id(0)?,
-            &resonance_persistence::encode(&header, &checkpoint)?,
+            &resonance_persistence::encode(&header, &SceneCheckpoint::Field(checkpoint.clone()))?,
         )?;
         assert!(matches!(
             read_slots(&store, &identity, &data)?[0],

@@ -218,11 +218,14 @@ impl Pending {
             let checkpoint = checkpoint
                 .map(|bytes| resonance_persistence::decode::<super::saves::SceneCheckpoint>(&bytes))
                 .transpose()?;
-            let map = checkpoint.as_ref().map_or(5, |save| save.state.map());
-            let mut paths = vec![super::new_game::manifest_path(map)];
-            if map == 5 {
-                paths.push(super::new_game::manifest_path(340));
-            }
+            let paths = match checkpoint.as_ref().map(|save| &save.state) {
+                None => vec![super::new_game::manifest_path(5)],
+                Some(super::saves::SceneCheckpoint::Field(saved)) => {
+                    vec![super::new_game::manifest_path(saved.map_id)]
+                }
+                Some(super::saves::SceneCheckpoint::World(_)) => Vec::new(),
+            };
+            let new_game = checkpoint.is_none();
             let mut cache = cache.lock().unwrap();
             cache.configure_scripts(script_root);
             let files = Arc::new(Files::load_with_diagnostics(
@@ -258,15 +261,12 @@ impl Pending {
                 None => super::new_game::Session::load_prepared(
                     &root,
                     files,
-                    checkpoint.map(|c| match c {
-                        super::saves::SceneCheckpoint::Field(c) => c,
-                        _ => unreachable!(),
-                    }),
+                    None,
                     initial_preferences,
                     &mut cache,
                 )?,
             };
-            if map == 5 {
+            if new_game {
                 session.prepare_movie(&root, || stop.load(Ordering::Relaxed))?;
             }
             Ok(session)
