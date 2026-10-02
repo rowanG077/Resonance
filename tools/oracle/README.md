@@ -183,6 +183,10 @@ order. The capture grants each victory through the field handoff and records the
 consumed count; unexpected battles or unused grants fail. Declare these grants
 in the case: they do not validate combat or its rewards.
 Sequences can cover up to five minutes at 60 Hz, including seal dialogue.
+An optional `resolution: {"width":1920,"height":1080}` uses the live display
+layout for aspect checks. `capture_frames` selects sorted, unique zero-based
+render frames while still running the entire sequence; omit it to save every
+frame. Paired Dolphin comparisons continue to require 640×480.
 
 These are presentation examples under `target/debug/examples`. The event sweep
 fails on missing services, resources, audio or glyphs, and uses ordinary Cancel

@@ -18,6 +18,11 @@ const MAX_SEQUENCE_UPDATES: u32 = 18_000;
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldSequence {
+    #[serde(default)]
+    pub resolution: crate::Resolution,
+    /// Selected zero-based render frames; empty records every frame.
+    #[serde(default)]
+    pub capture_frames: Vec<u32>,
     /// Compact field restart for paired oracle cases; no transient VM state.
     #[serde(default)]
     pub checkpoint: Option<resonance_game::field::FieldCheckpoint>,
@@ -61,6 +66,14 @@ impl FieldSequence {
             (1..=MAX_SEQUENCE_UPDATES).contains(&self.updates)
                 && (1..=8).contains(&self.renders_per_update),
             "invalid sequence length/cadence"
+        );
+        ensure!(
+            self.capture_frames.windows(2).all(|w| w[0] < w[1])
+                && self
+                    .capture_frames
+                    .iter()
+                    .all(|f| *f < self.updates * self.renders_per_update),
+            "invalid capture frames"
         );
         ensure!(
             self.direction
@@ -125,6 +138,15 @@ fn advance(
     mut exit: MessageWriter<AppExit>,
 ) {
     let frame_count = recording.spec.updates * recording.spec.renders_per_update;
+    let capture_count = if recording.spec.capture_frames.is_empty() {
+        frame_count
+    } else {
+        recording.spec.capture_frames.len() as u32
+    };
+    if recording.frame > frame_count && recording.captured == capture_count {
+        exit.write(AppExit::Success);
+        return;
+    }
     if recording.since.elapsed().as_secs() > 60 + u64::from(frame_count) / 20 {
         error!("field sequence timed out");
         exit.write(AppExit::error());
@@ -146,6 +168,9 @@ fn advance(
             .iter()
             .rev()
             .find(|m| m.update <= update);
+        if let Some(camera) = &mut session.0.events.world.field_camera {
+            camera.view_aspect_ratio = recording.spec.resolution.aspect();
+        }
         if let Err(error) = session.0.step(resonance_game::field::FieldInput {
             direction: movement.map_or(recording.spec.direction, |m| m.direction),
             run: movement.map_or(recording.spec.run, |m| m.run),
@@ -226,10 +251,20 @@ fn capture(
         return;
     }
     let frame = recording.frame - 1;
+    if recording.frame == recording.spec.updates * recording.spec.renders_per_update {
+        recording.frame += 1;
+    }
+    if !recording.spec.capture_frames.is_empty()
+        && recording.spec.capture_frames.binary_search(&frame).is_err()
+    {
+        return;
+    }
     let path = recording.output.join(format!("frame-{frame:04}.png"));
     let world = &session.0.events.world;
     let state = serde_json::json!({
         "frame":frame, "tick":world.tick, "audio_device":false,
+        "resolution":recording.spec.resolution,
+        "output_stage":"framebuffer",
         "input_enabled":world.input_enabled,
         "battle_victories":recording.battle_victories,
         "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"resource":a.resource,"hidden_nodes":a.appearance.hidden_nodes,"position":a.position,"visual_position":a.visual_position(),"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
@@ -259,12 +294,6 @@ fn capture(
                 return;
             }
             recording.captured += 1;
-            if recording.captured == recording.spec.updates * recording.spec.renders_per_update {
-                exit.write(AppExit::Success);
-            }
         },
     );
-    if recording.frame == recording.spec.updates * recording.spec.renders_per_update {
-        recording.frame += 1;
-    }
 }
