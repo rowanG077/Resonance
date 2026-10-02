@@ -25,7 +25,7 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 use resonance_content::{
-    HEIGHT, SCENE_HEIGHT, ScenePart, TextureBinding, WIDTH,
+    HEIGHT, ScenePart, TextureBinding, WIDTH,
     field::{DrawStage, FieldAssets, MODEL_DRAW_SPAN, SCENERY_RESOURCE_BASE},
 };
 use resonance_events::{Face, effect::LightPosition};
@@ -1145,6 +1145,10 @@ enum CaptureTarget<'a> {
     ),
 }
 fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Result<()> {
+    let resolution = match target {
+        CaptureTarget::Sequence(sequence) => sequence.resolution,
+        _ => Default::default(),
+    };
     let setup_prompt = matches!(target, CaptureTarget::Setup(..));
     let (dialogue_prefix, dialogue_hold_ticks) = match target {
         CaptureTarget::Dialogue(prefix, hold, _) => (Some(prefix), hold),
@@ -1259,6 +1263,9 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
                     .or_insert(update);
                 update - *since >= 120
             });
+        if let Some(camera) = &mut session.events.world.field_camera {
+            camera.view_aspect_ratio = resolution.aspect();
+        }
         session.events.world.audio_commands.clear();
         session.step(FieldInput {
             interact,
@@ -1337,6 +1344,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         behavior_sources,
     })
     .insert_resource(super::display::OutputStage::Framebuffer)
+    .insert_resource(super::display::Display(resolution))
     .insert_resource(Checkpoint {
         output: output.into(),
         since: Instant::now(),
@@ -1350,7 +1358,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         dialogue_hold_ticks,
     })
     .insert_resource(ClearColor(Color::BLACK))
-    .add_systems(Startup, setup)
+    .add_systems(Startup, (setup, super::display::initialize).chain())
     .add_systems(
         Update,
         (
@@ -1395,7 +1403,18 @@ fn setup(
     root: Res<Root>,
     mut ui_materials: ResMut<Assets<super::field_ui::Surface>>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
+    display: Res<super::display::Display>,
+    device: Res<bevy::render::renderer::RenderDevice>,
+    mut exit: MessageWriter<AppExit>,
 ) {
+    let size = match display.0.validate(device.limits().max_texture_dimension_2d) {
+        Ok(()) => display.0,
+        Err(error) => {
+            error!("{error:#}");
+            exit.write(AppExit::error());
+            super::Resolution::default()
+        }
+    };
     let mut effects = super::field_effects::Artwork::load(&root.assets, &manifest.0, &server)
         .expect("validated cooked field effects");
     effects.prepare(&mut commands, &mut meshes, &mut surfaces);
@@ -1411,14 +1430,18 @@ fn setup(
     ui.prepare(&mut commands, &mut meshes, &mut ui_materials);
     commands.insert_resource(ui);
     let mut final_image =
-        Image::new_target_texture(WIDTH, HEIGHT, TextureFormat::Bgra8UnormSrgb, None);
+        Image::new_target_texture(size.width, size.height, TextureFormat::Bgra8UnormSrgb, None);
     final_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let final_image = images.add(final_image);
     commands.insert_resource(super::Framebuffer(RenderTarget::Image(
         final_image.clone().into(),
     )));
-    let mut source =
-        Image::new_target_texture(WIDTH, SCENE_HEIGHT, TextureFormat::Bgra8Unorm, None);
+    let mut source = Image::new_target_texture(
+        size.width,
+        size.scene_height(),
+        TextureFormat::Bgra8Unorm,
+        None,
+    );
     source.sampler = ImageSampler::linear();
     source.texture_descriptor.usage |= TextureUsages::COPY_SRC;
     let source = images.add(source);
@@ -1449,6 +1472,8 @@ fn setup(
             screen_offset: Vec2::ZERO,
         })),
         RenderLayers::layer(2),
+        super::display::OutputQuad,
+        Transform::default(),
     ));
     commands.spawn((
         Camera2d,
