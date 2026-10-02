@@ -162,7 +162,9 @@ impl Destination {
             }
             Progress::IseliaInfiltration => {
                 let party = persistent.party.as_mut().unwrap();
-                party.formation = vec![1, 2, 3, 5, 4, 6, 7, 8];
+                // Sheena handles the escape route; FAA_D05 excludes her when
+                // rebuilding the four-person party that confronts Forcystus.
+                party.formation = vec![1, 2, 3, 4, 5, 6, 7, 8];
                 party.travel.saved_formation = party.formation.clone();
                 // FAA_D02 L_2D42 backs up the party and field leader before
                 // the split. FAA_D01 restores both after the Forcystus battle.

@@ -391,6 +391,22 @@ fn iselia_damage_spheres_keep_moving() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn iselia_forcystus_scene_has_four_valid_reactor_party_members() -> Result<()> {
+    let mut field = enter(5, 197, Some(20_305_000))?;
+    advance_until(&mut field, |f| f.events.world.battle_request.is_some())?;
+    for id in [1, 2, 3, 4] {
+        assert!(field.events.world.actors.contains_key(&id));
+    }
+    assert_eq!(
+        replay(&mut field, |f| f.player_has_control()
+            && f.story_progress().unwrap() == 20_307_000)?,
+        1
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
     let mut field = enter(5, 193, Some(20_307_000))?;
     replay(&mut field, |f| f.events.world.field_transition.is_some())?;
