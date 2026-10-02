@@ -905,6 +905,17 @@ impl EventRuntime {
             self.world
                 .emit_stun_effect(*id, &self.resources)
                 .map_err(anyhow::Error::msg)?;
+            let attached_position = self.world.actors[id]
+                .attachment
+                .as_ref()
+                .filter(|_| {
+                    let actor = &self.world.actors[id];
+                    actor.cull_outside_view
+                        && !actor.appearance.model_hidden
+                        && self.world.field_camera.is_some()
+                })
+                .map(|_| self.world.attached_model_position(&self.resources, *id))
+                .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
             let ambient = actor.step_autonomy(
@@ -1023,11 +1034,9 @@ impl EventRuntime {
             }
             actor.animation_culled = actor.cull_outside_view
                 && !actor.appearance.model_hidden
-                && self
-                    .world
-                    .field_camera
-                    .as_ref()
-                    .is_some_and(|camera| !camera.animates(actor.position));
+                && self.world.field_camera.as_ref().is_some_and(|camera| {
+                    !camera.animates(attached_position.unwrap_or(actor.position))
+                });
             if let Some(animation) = &mut actor.animation {
                 animation.set_paused(ambient.paused || actor.animation_culled, self.world.tick);
             }
