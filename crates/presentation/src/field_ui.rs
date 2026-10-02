@@ -103,6 +103,7 @@ impl Material2d for Surface {
 #[derive(Resource)]
 pub(super) struct Artwork {
     pub(super) resolution: super::Resolution,
+    pub(super) attached_positions: BTreeMap<i32, Vec3>,
     pub font: BitmapFont,
     spec: DialogueArt,
     images: Vec<Handle<Image>>,
@@ -258,6 +259,7 @@ impl Artwork {
             world.despawn(layer.entity);
         }
         self.head_heights.clear();
+        self.attached_positions.clear();
         self.choice_trail = Default::default();
     }
     pub fn load(
@@ -346,6 +348,7 @@ impl Artwork {
         Ok(Self {
             skits,
             resolution: Default::default(),
+            attached_positions: BTreeMap::new(),
             font,
             spec,
             images,
@@ -466,6 +469,7 @@ impl Artwork {
                         request,
                         p,
                         &session.events.world,
+                        &self.attached_positions,
                         height.unwrap_or(170.),
                         self.resolution,
                     )
@@ -578,6 +582,7 @@ impl Artwork {
                 request,
                 player,
                 camera_world,
+                &self.attached_positions,
                 self.head_heights
                     .get(&request.operation.id())
                     .copied()
@@ -993,6 +998,7 @@ fn layout(
     request: &Dialogue,
     player: &DialoguePlayer,
     camera_world: &resonance_events::GameWorld,
+    attached_positions: &BTreeMap<i32, Vec3>,
     head_height: f32,
     resolution: super::Resolution,
 ) -> Result<([f32; 4], Option<[f32; 2]>)> {
@@ -1037,15 +1043,20 @@ fn layout(
                 project_dialogue_point(&transform, camera.fov_degrees(), point, resolution)
             })
     };
-    let actor = request
-        .speaker_actor
-        .and_then(|id| camera_world.actors.get(&id).map(|a| (id, a)));
+    let actor = request.speaker_actor.and_then(|id| {
+        camera_world.actors.get(&id).map(|actor| {
+            attached_positions
+                .get(&id)
+                .copied()
+                .unwrap_or_else(|| Vec3::from_array(actor.position))
+        })
+    });
     let mut pointer = actor
         .filter(|_| {
             request.flags & flags::POINTER != 0
                 || matches!(request.anchor, DialogueAnchor::Actor(_))
         })
-        .map(|(_, actor)| project(Vec3::from_array(actor.position) + Vec3::Z * 80.));
+        .map(|position| project(position + Vec3::Z * 80.));
     // Center integer pixel dimensions without introducing half-pixel offsets.
     // Truncating only after subtraction shifts odd-sized boxes by one pixel.
     let half_width = (width / 2.).trunc();
@@ -1066,9 +1077,9 @@ fn layout(
         }
         DialogueAnchor::Actor(_) => {
             let above = box_above_speaker(request.flags, pointer);
-            let [x, y] = actor.map_or([320., 240.], |(_, actor)| {
+            let [x, y] = actor.map_or([320., 240.], |position| {
                 project(
-                    Vec3::from_array(actor.position)
+                    position
                         + Vec3::Z
                             * if above {
                                 head_height + f32::from(request.height_offset)
