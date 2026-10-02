@@ -1,4 +1,4 @@
-//! Collision uses the attached bone's rigid frame, without changing script origins.
+//! Attached models use the bone's rigid frame without changing script origins.
 use crate::{GameWorld, ResourceLibrary, world::Attachment};
 use anyhow::{Context, Result, ensure};
 use resonance_content::animation::{Matrix, Transform, matrix_rotation, multiply};
@@ -38,8 +38,6 @@ impl Frames<'_> {
             self.resources
                 .bone_matrix(actor, &attachment.bone, self.world.tick)?,
         );
-        // fn_8002E5F4 and fn_8006CEB0 both convert the complete bone basis
-        // through C_QUATMtx / PSMTXQuat before composing the child's local TRS.
         Ok(Transform {
             translation: bone[3][..3].try_into().unwrap(),
             rotation: matrix_rotation(bone)?,
@@ -50,6 +48,26 @@ impl Frames<'_> {
 }
 
 impl GameWorld {
+    pub(crate) fn attached_model_position(
+        &self,
+        resources: &ResourceLibrary,
+        id: i32,
+    ) -> Result<[f32; 3]> {
+        let actor = &self.actors[&id];
+        let name = resources
+            .model(actor.resource)
+            .and_then(|model| model.names.first())
+            .context("attached model root is missing")?;
+        let root = Frames {
+            world: self,
+            resources,
+            roots: BTreeMap::new(),
+        }
+        .root(id, 0)?;
+        let model = multiply(root, resources.bone_matrix(actor, name, self.tick)?);
+        Ok(model[3][..3].try_into().unwrap())
+    }
+
     pub(crate) fn attachment_parent(
         &self,
         resources: &ResourceLibrary,

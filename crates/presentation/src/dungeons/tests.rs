@@ -235,6 +235,41 @@ fn asgard_kvar_preparation_can_restore_a_party_with_empty_slots() -> Result<()> 
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn rheaird_rider_finishes_his_seated_pose_blend_while_attached() -> Result<()> {
+    let mut field = enter(9, 278, Some(2_404_000))?;
+    field.events.world.event_flags.insert(190); // The generator is ready.
+    advance_until(&mut field, |field| {
+        field.events.world.actors.get(&1).is_some_and(|actor| {
+            actor
+                .animation
+                .as_ref()
+                .is_some_and(|a| a.resource == 65582)
+        })
+    })?;
+    ticks(&mut field, 60, FieldInput::default())?;
+    let lloyd = &field.events.world.actors[&1];
+    assert_eq!(lloyd.position, [0.; 3]); // Local to the Rheaird's seat.
+    assert_eq!(lloyd.attachment.as_ref().unwrap().actor, 210);
+    assert!(
+        !lloyd.animation_culled,
+        "the visible rider was culled at his local origin"
+    );
+    assert_eq!(
+        lloyd
+            .animation
+            .as_ref()
+            .unwrap()
+            .blend_weight(field.events.tick()),
+        1.
+    );
+    field.events.world.actors.get_mut(&210).unwrap().position = [0., -1_000_000., 0.];
+    field.step(FieldInput::default())?;
+    assert!(field.events.world.actors[&1].animation_culled);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn rheaird_crash_runs_the_debris_effect_and_restores_control() -> Result<()> {
     // Field 416's arrival branch compares story against 0x24B288.
     let mut field = enter(9, 416, Some(2_405_000))?;
