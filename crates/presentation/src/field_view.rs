@@ -975,6 +975,25 @@ fn ui(
         }
         return;
     }
+    art.attached_positions = roots
+        .iter()
+        .filter(|(_, part, _, _)| {
+            part.part == 0
+                && state
+                    .get()
+                    .events
+                    .world
+                    .actors
+                    .get(&part.actor)
+                    .is_some_and(|actor| actor.attachment.is_some())
+        })
+        .filter_map(|(root, part, _, _)| {
+            transforms
+                .compute_global_transform(root)
+                .ok()
+                .map(|transform| (part.actor, transform.translation()))
+        })
+        .collect();
     let heads = roots
         .iter()
         // A streamed actor's bind pose is not the dialogue attachment pose.
