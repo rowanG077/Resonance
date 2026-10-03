@@ -247,7 +247,7 @@ impl Rig {
                     plane_normal(
                         authored[&p.anchor].world,
                         Vec3::from_array(p.normal),
-                        authored[&p.anchor].affine,
+                        authored[&p.anchor].affine || nonuniform_scale(actor_scale),
                     ),
                     p.offset,
                     p.strength,
@@ -267,6 +267,10 @@ impl Rig {
                 );
             }
             simulation.advance(chain, &targets, plane, attraction, forces);
+            // The terminal guide participates in simulation, but native model
+            // drawing retains its world matrix from before the chain update.
+            let tip = chain.joints.last().unwrap().node;
+            output.entry(tip).or_insert(authored[&tip].world);
             for (index, joint) in chain.joints.iter().enumerate().take(chain.joints.len() - 1) {
                 let mut pose = driven_pose(
                     authored[&joint.node].world,
@@ -303,6 +307,9 @@ impl Rig {
         pose: &BTreeMap<u16, GlobalTransform>,
     ) -> Vec<(Entity, Deformation)> {
         let mut locals = Vec::new();
+        let Ok(Pose::Trs(actor)) = helper.local(self.root) else {
+            panic!("secondary-motion actor root must expose its native scale")
+        };
         let entities: BTreeMap<_, _> = self
             .bones
             .iter()
@@ -318,15 +325,26 @@ impl Rig {
                 .copied()
                 .or_else(|| helper.compute_global_transform(bone.parent).ok());
             if let Some(parent) = parent {
+                let terminal = self
+                    .chains
+                    .iter()
+                    .any(|(chain, _)| chain.joints.last().is_some_and(|tip| tip.node == node));
                 // fn_80069088 writes the model's world matrices directly.
                 // A collapsed actor/ancestor cannot be inverted to recover a
                 // local pose, and a singular TRS cannot be decomposed either.
-                let pose = if parent.affine().matrix3.determinant() == 0.
+                // A terminal override also leaves its authored local unchanged.
+                let pose = if terminal
+                    || parent.affine().matrix3.determinant() == 0.
                     || world.affine().matrix3.determinant() == 0.
                 {
                     Deformation::World(*world)
                 } else {
-                    Deformation::Local(local_pose(*world, parent, helper.has_affine(bone.entity)))
+                    Deformation::Local(local_pose(
+                        *world,
+                        parent,
+                        helper.has_affine(bone.entity),
+                        actor.scale,
+                    ))
                 };
                 locals.push((bone.entity, pose));
             }
@@ -336,8 +354,12 @@ impl Rig {
     }
 }
 
+fn nonuniform_scale(scale: Vec3) -> bool {
+    scale.x != scale.y || scale.y != scale.z
+}
+
 fn driven_pose(world: GlobalTransform, actor_scale: Vec3, affine: bool) -> Transform {
-    if affine || world.affine().matrix3.determinant() == 0. {
+    if affine || nonuniform_scale(actor_scale) || world.affine().matrix3.determinant() == 0. {
         // Dynamics build a fresh world TRS from actor scale and the quaternion
         // extracted from the complete authored world matrix.
         Transform::from_translation(world.translation())
@@ -348,8 +370,15 @@ fn driven_pose(world: GlobalTransform, actor_scale: Vec3, affine: bool) -> Trans
     }
 }
 
-fn local_pose(world: GlobalTransform, parent: GlobalTransform, affine: bool) -> Pose {
-    if affine {
+fn local_pose(
+    world: GlobalTransform,
+    parent: GlobalTransform,
+    affine: bool,
+    actor_scale: Vec3,
+) -> Pose {
+    if affine || nonuniform_scale(actor_scale) {
+        // Unequal actor scaling and a rotated bone produce local shear even
+        // when every authored animation key uses TRS.
         let local = parent.affine().inverse() * world.affine();
         assert!(
             local.is_finite(),
@@ -717,6 +746,13 @@ mod tests {
                 let mut rig = rigs.get_mut(root).unwrap();
                 rig.advance(&helper, 0., 0, false, &[], None).unwrap();
                 let drawn = rig.advance(&helper, 0., 1, false, &[], None).unwrap();
+                assert_eq!(
+                    drawn.get(&2),
+                    Some(&helper.compute_global_transform(tip).unwrap())
+                );
+                assert!(rig.locals(&helper, &drawn).iter().any(|(entity, pose)| {
+                    *entity == tip && matches!(pose, Deformation::World(_))
+                }));
                 let binding = rig.authored(&helper, &hidden).unwrap();
                 let targets: Vec<_> = binding
                     .values()
@@ -809,6 +845,31 @@ mod tests {
     }
 
     #[test]
+    fn stretched_actor_keeps_secondary_bone_scale_and_world_pose() {
+        let actor_scale = Vec3::new(0.4, 0.4, 2.2);
+        let parent = GlobalTransform::from(
+            Transform::from_xyz(-2120., -150., 305.)
+                .with_rotation(Quat::from_rotation_z(std::f32::consts::PI))
+                .with_scale(actor_scale),
+        );
+        let authored = parent.mul_transform(
+            Transform::from_xyz(4., 5., 120.).with_rotation(Quat::from_rotation_x(0.6)),
+        );
+        let mut driven = driven_pose(authored, actor_scale, false);
+        // fn_80069088 copies the actor scale, not the lengths of the rotated
+        // world axes. Its simulated rotation must survive the parent inverse.
+        assert_eq!(driven.scale, actor_scale);
+        driven.translation += Vec3::new(1., -2., 3.);
+        driven.rotation *= Quat::from_rotation_y(0.2);
+        let local = local_pose(driven.into(), parent, false, actor_scale);
+        assert!(
+            (parent * local.global())
+                .affine()
+                .abs_diff_eq(driven.compute_affine(), 0.0001)
+        );
+    }
+
+    #[test]
     fn affine_dynamics_rebuild_world_trs_and_keep_exact_parent_inverse() {
         let parent = GlobalTransform::from(Affine3A::from_cols(
             Vec3::new(2., 0., 1.).into(),
@@ -823,7 +884,7 @@ mod tests {
         assert_eq!(driven.translation, authored.translation());
         driven.translation += Vec3::new(1., -2., 3.);
         driven.rotation *= Quat::from_rotation_x(0.4);
-        let local = local_pose(driven.into(), parent, true);
+        let local = local_pose(driven.into(), parent, true, actor_scale);
         assert!(matches!(local, Pose::Affine(_)));
         let restored = parent * local.global();
         assert!(
