@@ -34,6 +34,7 @@ struct Occupant {
 
 pub(super) struct Pool {
     slots: [Option<Occupant>; VOICES],
+    generations: [u64; VOICES],
     available: VecDeque<usize>,
     lfo: [u32; VOICES],
     order: u64,
@@ -46,6 +47,7 @@ impl Default for Pool {
     fn default() -> Self {
         Self {
             slots: std::array::from_fn(|_| None),
+            generations: [0; VOICES],
             available: (0..VOICES).collect(),
             lfo: [0; VOICES],
             order: 0,
@@ -57,6 +59,10 @@ impl Default for Pool {
 }
 
 impl Pool {
+    pub fn current(&self, lease: Lease) -> bool {
+        self.generations[lease.slot] == lease.generation
+    }
+
     pub fn owns(&self, lease: Lease) -> bool {
         self.slots[lease.slot]
             .as_ref()
@@ -199,6 +205,7 @@ impl Pool {
             slot: candidate,
             generation: self.order,
         };
+        self.generations[candidate] = lease.generation;
         while self.next_handle == u32::MAX || self.handles.contains_key(&self.next_handle) {
             self.next_handle = self.next_handle.wrapping_add(1);
         }
@@ -224,6 +231,11 @@ impl Pool {
     }
 
     pub fn update(&mut self, lease: Lease, priority: (u8, u32, u64), lfo: u32, initialized: bool) {
+        if !self.current(lease) {
+            return;
+        }
+        // A freed macro's DSP control jobs still advance its retained LFO.
+        self.lfo[lease.slot] = lfo;
         let Some(voice) = &mut self.slots[lease.slot] else {
             return;
         };
@@ -259,6 +271,24 @@ mod tests {
         drums: false,
     };
     const SOUND: VoiceSource = VoiceSource::SoundEffect { id: 7 };
+
+    #[test]
+    fn freed_slot_control_updates_survive_until_the_next_owner() {
+        let mut pool = Pool::default();
+        let (old, _) = pool.allocate(SOUND, 8, 255).unwrap();
+        pool.free(old, 12);
+        pool.update(old, (0, 0, 0), 34, false);
+        for _ in 0..63 {
+            let (lease, _) = pool.allocate(SOUND, 8, 255).unwrap();
+            pool.free(lease, 0);
+        }
+        let (new, lfo) = pool.allocate(SOUND, 8, 255).unwrap();
+        assert_eq!(new.slot, old.slot);
+        assert_eq!(lfo, 34);
+        assert!(!pool.current(old) && pool.current(new));
+        pool.update(old, (0, 0, 0), 99, false);
+        assert_eq!(pool.lfo[new.slot], 34, "stale tail updated the new owner");
+    }
 
     #[test]
     fn handles_survive_root_retirement_but_not_child_retirement_or_slot_reuse() {

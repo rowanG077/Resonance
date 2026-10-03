@@ -555,6 +555,7 @@ impl<'a> Voice<'a> {
         Ok(())
     }
 
+    /// Macro completion releases its slot; the DSP sample can still be audible.
     pub fn is_done(&self) -> bool {
         self.done
     }
@@ -709,12 +710,11 @@ impl<'a> Voice<'a> {
     }
 
     pub(crate) fn source_active(&self) -> bool {
-        self.source.is_some() && !self.sample_finished && !self.done
+        self.source.is_some() && !self.sample_finished
     }
 
     pub(crate) fn studio_active(&self) -> bool {
-        !self.done
-            && (self.source_active() || self.stopped_subframe.is_some_and(|phase| phase != 0))
+        self.source_active() || self.stopped_subframe.is_some_and(|phase| phase != 0)
     }
 
     pub(crate) fn waits_for_sample_end(&self) -> bool {
@@ -740,7 +740,7 @@ impl<'a> Voice<'a> {
     /// change later in a block while pitch and envelope retain their control phase.
     pub fn prepare_frame(&mut self, mut controls: Controls) -> Result<()> {
         controls.validate()?;
-        if self.done {
+        if self.done && !self.source_active() {
             return Ok(());
         }
         let phase = ((self.frame + self.block_phase) % 160) as usize;
@@ -753,11 +753,11 @@ impl<'a> Voice<'a> {
             let woke = if let Some(woke) = self.prepared_woke.take() {
                 woke
             } else {
-                let woke = self.ready();
+                let woke = !self.done && self.ready();
                 self.commands(&mut controls)?;
                 woke
             };
-            if self.done {
+            if self.done && !self.source_active() {
                 return Ok(());
             }
             let now = self.frame / 32;
