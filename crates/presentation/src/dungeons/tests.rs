@@ -353,6 +353,42 @@ fn mana_reunion_restores_both_groups_with_empty_slots() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn palmacosta_teleport_lands_before_the_arrival_fade_reveals_the_player() -> Result<()> {
+    let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
+    let package = new_game::FieldPackage::prepare(&root, 206, &mut Default::default(), || false)?;
+    let data = Arc::new(package.files.json("game/session-data.json")?);
+    let mut entry = DESTINATIONS[6].entry(data, new_game::available_fields(&root)?)?;
+    // The original south teleporter places Lloyd 82 units above the room floor.
+    entry.position = [0., -722., 82.];
+    entry.heading = 180.;
+    entry
+        .persistent
+        .memory
+        .write(0x12c, symphonia_script::Width::S32, 1)?;
+    let mut field = package.enter(entry)?;
+    let mut visible = false;
+    for _ in 0..300 {
+        field.step(FieldInput::default())?;
+        let world = &field.events.world;
+        if world
+            .fade
+            .as_ref()
+            .is_some_and(|fade| fade.alpha(world.tick) < 255.)
+        {
+            visible = true;
+            assert!(
+                world.actors[&world.controlled_actor].position[2].abs() < 0.01,
+                "teleport arrival is still airborne when visible: {:?}",
+                world.actors[&world.controlled_actor].position
+            );
+        }
+    }
+    assert!(visible && field.player_has_control());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn palmacosta_post_boss_exit_runs_the_ranch_destruction() -> Result<()> {
     let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
     let package = new_game::FieldPackage::prepare(&root, 198, &mut Default::default(), || false)?;

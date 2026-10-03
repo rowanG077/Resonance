@@ -722,7 +722,9 @@ impl FieldSession {
                             }
                         }
                     }
-                    let position = if id == controlled_actor && !scripted_control && !event_paused {
+                    // fn_8001D5F4 resolves the player during scripted arrivals too.
+                    // Only the mapped-input pause suspends an unsupported fall.
+                    let position = if id == controlled_actor {
                         walkmesh.resolve_player(previous, actor.position, player_fall, event_paused)
                     } else if actor.enemy.is_some() {
                         walkmesh.resolve_enemy(previous, actor.position)
