@@ -153,6 +153,45 @@ fn scripted_enemy_reaction_returns_the_previous_mode_and_reads_its_current_value
 }
 
 #[test]
+fn patrol_properties_update_enemy_movement() {
+    for (property, value, previous, stored) in [(23, 3, 2, 3), (26, 3, 1, 3), (27, 1, 2, 1)] {
+        let main = script(&[
+            (
+                Call::SpawnEnemyActor,
+                &[90, 0, 0, 50, 0, 0, 0, 2, 4, 42, 1, 1, 2, 0, 600, 0],
+            ),
+            (Call::SetActorProperty, &[90, property, value]),
+        ]);
+        let resources = enemy_resources();
+        let query = script(&[(Call::GetActorProperty, &[90, property])]);
+        let mut events = runtime(program(&main, &query), resources, GameWorld::default());
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), previous);
+        let actor = events.world.actors.get_mut(&90).unwrap();
+        match property {
+            23 => assert_eq!(actor.enemy.as_ref().unwrap().normal_speed, 3.),
+            26 => {
+                assert_eq!(
+                    actor.autonomy.as_ref().unwrap().behavior,
+                    Behavior::FollowPath
+                );
+                actor.path.count = 1;
+                actor.path.points[0] = [100., 0., 0.];
+            }
+            27 => assert!(actor.enemy.as_ref().unwrap().random_turns),
+            _ => unreachable!(),
+        }
+        events.world.input_enabled = true;
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), stored);
+        if property == 26 {
+            steps(&mut events, 10);
+            assert!(events.world.actors[&90].position[0] >= 70.);
+        }
+    }
+}
+
+#[test]
 fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values() {
     for (value, expected) in [(-1, -1), (2, 2)] {
         let main = script(&[

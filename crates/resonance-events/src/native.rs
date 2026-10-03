@@ -410,7 +410,7 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(Some(previous)));
                 }
                 require(
-                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=22 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53..=54 | 56 | 66 | CONDITIONS | 101 | 102 | 104 | 112)
+                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=23 | 26..=27 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53..=54 | 56 | 66 | CONDITIONS | 101 | 102 | 104 | 112)
                         && (a[1] != 112 || op == NativeCall::GetActorProperty),
                     "actor property shim is not implemented",
                 )?;
@@ -549,6 +549,21 @@ impl NativeHost<'_> {
                     21..=22 => actor.enemy.as_ref().map_or(0, |enemy| {
                         i32::from(enemy.event_parameters[(a[1] - 21) as usize] as u16)
                     }),
+                    23 => actor
+                        .enemy
+                        .as_ref()
+                        .map_or(0, |enemy| enemy.normal_speed as i32),
+                    26 => actor
+                        .enemy
+                        .as_ref()
+                        .map_or(0, |enemy| i32::from(enemy.behavior)),
+                    27 => actor.enemy.as_ref().map_or(0, |enemy| {
+                        actor
+                            .properties
+                            .get(&27)
+                            .copied()
+                            .unwrap_or(i32::from(enemy.random_turns))
+                    }),
                     30..=32 => actor.properties.get(&a[1]).copied().unwrap_or(100),
                     34 => actor.autonomy.as_ref().map_or(0, |ai| ai.behavior as i32),
                     35 | 36 => actor.properties.get(&a[1]).copied().unwrap_or(0),
@@ -645,6 +660,33 @@ impl NativeHost<'_> {
                         21..=22 => {
                             if let Some(enemy) = &mut actor.enemy {
                                 enemy.event_parameters[(a[1] - 21) as usize] = a[2] as i16;
+                            }
+                        }
+                        23 => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                enemy.normal_speed = a[2] as f32;
+                            }
+                        }
+                        26 => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                enemy.behavior = a[2] as u8;
+                                let behavior = crate::Behavior::enemy(enemy.behavior);
+                                actor
+                                    .autonomy
+                                    .get_or_insert_with(|| {
+                                        crate::Autonomy::new(
+                                            behavior,
+                                            enemy.normal_speed,
+                                            actor.position,
+                                        )
+                                    })
+                                    .set_behavior(behavior);
+                            }
+                        }
+                        27 => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                enemy.random_turns = a[2] as u8 != 0;
+                                actor.properties.insert(27, i32::from(a[2] as u8));
                             }
                         }
                         20 => actor.contact_event = a[2] & 1 != 0,
