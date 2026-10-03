@@ -224,6 +224,9 @@ disables alignment search. `voice_content.py --help` compares cooked speech with
 recordings. Both tools read files without playback. `record_field_music` and
 `record_field_voice` render the ordinary field mixer without a device; Customize
 music/mono/voice manifests define the corresponding volume comparisons.
+The music recorder accepts a final map ID after volume, fade ticks and stereo
+mode to load another field's bank (default: 340), for example:
+`record_field_music local/all-assets local/native/ranch.wav 34 120 127 6 stereo 196`.
 
 ```sh
 python3 -m unittest discover -s tools/oracle -p 'test_*.py'
