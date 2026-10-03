@@ -1296,7 +1296,17 @@ impl EventRuntime {
                     event_actor: instance.event_actor,
                     registers: &mut instance.registers,
                     events: &mut commands,
-                    next_handle: &mut self.next_handle,
+                    free_slots: self
+                        .instances
+                        .iter()
+                        .enumerate()
+                        .fold(0, |free, (i, entry)| {
+                            free | if i != slot && entry.is_none() {
+                                1 << i
+                            } else {
+                                0
+                            }
+                        }),
                     wait: &mut wait,
                     resource_waits: self.resource_waits.as_ref(),
                     resource_wait: &mut resource_wait,
@@ -1412,24 +1422,21 @@ impl EventRuntime {
                 });
             }
             for EventCommand { handle, action } in commands {
+                let Some(entry) = handle
+                    .checked_sub(1)
+                    .and_then(|slot| usize::try_from(slot).ok())
+                    .and_then(|slot| self.instances.get_mut(slot))
+                else {
+                    continue;
+                };
                 if matches!(action, EventAction::Release) {
-                    if let Some(slot) = self.instances.iter_mut().find(|slot| {
-                        slot.as_ref().is_some_and(|instance| {
-                            instance.handle == handle && instance.background.is_some()
-                        })
-                    }) {
-                        *slot = None;
+                    if entry.as_ref().is_some_and(|i| i.background.is_some()) {
+                        *entry = None;
                     }
                     continue;
                 }
                 let EventAction::Spawn(key) = action else {
-                    if let Some(background) = self
-                        .instances
-                        .iter_mut()
-                        .flatten()
-                        .find(|i| i.handle == handle)
-                        .and_then(|i| i.background.as_mut())
-                    {
+                    if let Some(background) = entry.as_mut().and_then(|i| i.background.as_mut()) {
                         match action {
                             EventAction::Pause(paused) => background.paused = paused,
                             EventAction::ControlGate(enabled) => {
@@ -1444,11 +1451,9 @@ impl EventRuntime {
                     .program
                     .event(2, key)
                     .context("spawned event has no entry")?;
-                let entry = self
-                    .instances
-                    .iter_mut()
-                    .find(|i| i.is_none())
-                    .context("event pool exhausted (32 instances)")?;
+                ensure!(entry.is_none(), "reserved event slot is occupied");
+                let handle = self.next_handle;
+                self.next_handle = handle.checked_add(1).context("event handle overflow")?;
                 let mut spawned = Instance::new(&self.program, pc, handle, Some(key))?;
                 spawned.background = Some(Background::default());
                 *entry = Some(spawned);

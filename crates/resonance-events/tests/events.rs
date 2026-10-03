@@ -2288,6 +2288,29 @@ fn observed_resource_waits_only_suspend_the_requesting_script() {
 }
 
 #[test]
+fn background_event_handles_refer_to_reused_pool_slots() {
+    let main = script(&[
+        (Call::SpawnEvent, &[42]),
+        (Call::YieldCommand, &[0, 1]),
+        (Call::ReleaseResourceInstance, &[2]),
+        (Call::YieldCommand, &[0, 1]),
+        (Call::SpawnEvent, &[42]),
+        (Call::YieldCommand, &[0, 1]),
+        (Call::ReleaseResourceInstance, &[2]),
+        (Call::YieldCommand, &[0, 5]),
+    ]);
+    let child = script(&[(Call::YieldCommand, &[0, 4]), (Call::SetEventBit, &[42])]);
+    let mut events = runtime(
+        program(&main, &child),
+        Default::default(),
+        Default::default(),
+    );
+    steps(&mut events, 8);
+    assert!(!events.world.event_flags.contains(&42));
+    assert_eq!(events.active_instances(), 0);
+}
+
+#[test]
 fn background_event_controls_suspend_its_wait_without_stopping_the_foreground() {
     for (pause, resume) in [(1, 0), (51, 50)] {
         let main = script(&[
