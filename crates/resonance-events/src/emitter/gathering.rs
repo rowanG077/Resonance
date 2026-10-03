@@ -143,7 +143,7 @@ fn spin(random: &mut u32) -> f32 {
         -3.
     }
 }
-/// The native recipe rotates (1,1,1) by three independently sampled Euler angles.
+/// Scatter directions are sampled independently around each axis.
 fn direction(random: &mut u32) -> [f32; 3] {
     let mut v = [1.; 3];
     for (a, b) in [(1, 2), (2, 0), (0, 1)] {

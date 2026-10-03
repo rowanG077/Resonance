@@ -89,9 +89,9 @@ impl Splash {
             255 => self.alpha as i32 as u8,
             alpha => alpha,
         };
-        let (sin, cos) = self.angle.to_radians().sin_cos();
-        let mut direction = [1., 0.];
-        for _ in 0..(TURN / self.angle).ceil() as usize {
+        for spoke in 1..=(TURN / self.angle).ceil() as usize {
+            let (sin, cos) = (spoke as f32 * self.angle).to_radians().sin_cos();
+            let direction = [cos, sin];
             let (size, radius) = match self.distribution {
                 Distribution::Ring => (self.size, f32::from(self.radius)),
                 Distribution::Spray => (
@@ -99,11 +99,6 @@ impl Splash {
                     (crate::world::random(random) % self.radius as u32) as f32,
                 ),
             };
-            // Rotate the previous vector, as the original matrix loop does.
-            direction = [
-                cos * direction[0] - sin * direction[1],
-                sin * direction[0] + cos * direction[1],
-            ];
             let horizontal = if self.radius == 0 {
                 std::array::from_fn(|_| {
                     self.spread

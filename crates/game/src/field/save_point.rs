@@ -53,7 +53,6 @@ impl SavePoints {
 
     pub fn sealed_target(world: &GameWorld) -> Option<usize> {
         let player = world.actors.get(&world.controlled_actor)?.position;
-        // fn_8000E618 uses a strict three-dimensional distance of 30.
         world.save_points.iter().position(|p| {
             !p.is_open(&world.event_flags)
                 && player
@@ -142,7 +141,6 @@ impl SavePoints {
             if point.unlock_flag.take().is_some()
                 && let Some(actor) = world.actors.get_mut(&point.actor)
             {
-                // fn_8000E39C replaces the sealed model before its live glow starts.
                 if let Some(hidden_nodes) = hidden_nodes {
                     actor.appearance.hidden_nodes = hidden_nodes;
                 }
@@ -194,6 +192,7 @@ impl SavePoints {
                 world
                     .emit_refraction(RefractionPulse {
                         operation: None,
+                        owner: None,
                         image: resonance_events::effect::RefractionImage::Ripple,
                         palette: NEUTRAL_PALETTE,
                         orientation: resonance_events::effect::SpriteOrientation::World,

@@ -286,6 +286,7 @@ mod tests {
         let pulse = world
             .emit_refraction(resonance_events::effect::RefractionPulse {
                 operation: None,
+                owner: None,
                 image: resonance_events::effect::RefractionImage::Ripple,
                 palette: resonance_events::effect::NEUTRAL_PALETTE,
                 orientation: resonance_events::effect::SpriteOrientation::World,

@@ -1,9 +1,8 @@
-//! Native emitter 22: descending rings and a ground ripple for station scenes.
+//! Descending rings and a ground ripple for station scenes.
 use crate::effect::{
     BillboardEffect, Fade, NEUTRAL_PALETTE, NEUTRAL_TINT, RefractionImage, RefractionPulse,
     SpriteOrientation,
 };
-use resonance_content::effect::VerticalAnchor;
 
 const RING: u16 = 41;
 const PALETTE: u16 = 30;
@@ -58,29 +57,17 @@ impl Quake {
         }
         if matches!(self.phase, Phase::Column) {
             out.push(BillboardEffect {
-                operation: None,
-                owner: None,
                 field_lighting: true,
-                field_fog: true,
                 recipe: RING,
                 orientation: SpriteOrientation::World,
-                anchor: VerticalAnchor::Center,
                 palette: Some(PALETTE),
-                born,
                 lifetime: RING_LIFETIME,
                 position: [
                     position[0],
                     position[1],
                     position[2] + f32::from(self.remaining * RING_SPACING),
                 ],
-                velocity: [0.; 3],
-                controller: None,
-                acceleration: None,
-                gravity: 0.,
-                rotation: [0.; 3],
-                angular_velocity: [0.; 3],
                 size: [RING_SIZE; 2],
-                size_delta: 0.,
                 rgba: [
                     NEUTRAL_TINT,
                     NEUTRAL_TINT,
@@ -88,7 +75,7 @@ impl Quake {
                     (255 - self.remaining * RING_SPACING) as u8,
                 ],
                 fade: Fade::tail(RING_LIFETIME),
-                blend_mode: None,
+                ..super::particle([0.; 3], born, 0, 1)
             });
             self.remaining = self.remaining.saturating_sub(1);
             if self.remaining == 0 {
@@ -101,6 +88,7 @@ impl Quake {
         }
         let ripple = (self.remaining == PULSE_UPDATES).then_some(RefractionPulse {
             operation: None,
+            owner: None,
             image: RefractionImage::Ripple,
             palette: NEUTRAL_PALETTE,
             orientation: SpriteOrientation::World,

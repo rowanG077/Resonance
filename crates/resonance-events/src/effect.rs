@@ -49,6 +49,7 @@ impl StunEffect {
 #[derive(Debug, Clone)]
 pub struct RefractionPulse {
     pub operation: Option<crate::Operation>,
+    pub owner: Option<i32>,
     pub image: RefractionImage,
     pub palette: u8,
     pub orientation: SpriteOrientation,
@@ -518,6 +519,8 @@ pub enum SpriteOrientation {
 
 #[derive(Debug, Clone)]
 pub(crate) enum BillboardController {
+    Cardinal(crate::emitter::cardinal::CardinalMotion),
+    Inward(crate::emitter::inward::Motion),
     Flutter(Flutter),
     RisingWander {
         direction: [f32; 3],
@@ -627,6 +630,8 @@ impl BillboardEffect {
         if let Some(controller) = &mut self.controller {
             let wandering = matches!(controller, BillboardController::Wander { .. });
             match controller {
+                BillboardController::Cardinal(motion) => motion.advance(&mut self.position),
+                BillboardController::Inward(_) => return,
                 BillboardController::Flutter(flutter) => {
                     flutter.step(&mut self.position, tick, &mut || {
                         crate::world::random(random)

@@ -990,6 +990,13 @@ impl GameWorld {
                 particle.owner = None;
                 preserve
             });
+            self.refractions.retain(|_, particle| {
+                if particle.owner != Some(id) {
+                    return true;
+                }
+                particle.owner = None;
+                preserve
+            });
             self.overlays.remove(&id);
             self.emotes.remove(&id);
         }
