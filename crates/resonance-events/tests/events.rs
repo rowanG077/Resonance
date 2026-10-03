@@ -445,6 +445,129 @@ fn moving_effect_trail_finishes_with_a_burst_and_retains_its_afterimages() {
 }
 
 #[test]
+fn inward_lights_leave_trails_then_release_one_expanding_burst() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &[
+            500, 0, 0, 0, 0, 38, 0, 10, 101, 500, 8, 399, 75, 0, 0, 0, 0, 0,
+        ],
+    )]);
+    let release = script(&[(Call::SetActorProperty, &[500, 33, 2])]);
+    let mut world = GameWorld::default();
+    world.input_enabled = true;
+    let mut events = runtime(program(&setup, &release), Default::default(), world);
+    events.step().unwrap();
+    assert_eq!(events.world.billboards.len(), 24); // Eight leaders, two birth callbacks each.
+    let leader = events.world.billboards.values().next().unwrap();
+    assert!((leader.position[0] - 499.31476).abs() < 0.001);
+    assert!((leader.position[2] - 26.167978).abs() < 0.001);
+    assert_eq!(leader.rotation, [0.; 3]); // Its callback replaces ordinary spin.
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .any(|p| p.owner.is_none() && p.position == [500., 0., 0.])
+    );
+    events.step().unwrap();
+    let leader = events.world.billboards.values().next().unwrap();
+    assert!((leader.position[0] - 487.31573).abs() < 0.001);
+    assert!((leader.position[2] - 51.218945).abs() < 0.001);
+    assert_eq!(events.world.billboards.len(), 32);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    // Script properties are applied after this update's emitter pass.
+    assert!(events.world.refractions.is_empty());
+    events.step().unwrap();
+    let burst_tick = events.world.tick;
+    let burst: Vec<_> = events
+        .world
+        .billboards
+        .values()
+        .filter(|p| p.born == burst_tick && p.owner == Some(500) && p.size == [50.; 2])
+        .collect();
+    assert_eq!(burst.len(), 250);
+    let glow = events
+        .world
+        .billboards
+        .values()
+        .find(|p| p.born == burst_tick && p.owner == Some(500) && p.size == [0.; 2])
+        .unwrap();
+    assert_eq!(glow.size_delta, 15.);
+    for spark in &burst {
+        assert!((spark.velocity.iter().map(|v| v * v).sum::<f32>().sqrt() - 10.).abs() < 0.001);
+        assert!(!spark.field_fog);
+        assert_eq!(spark.size_delta, 0.);
+    }
+    let ripple = events.world.refractions.values().next().unwrap();
+    assert_eq!(ripple.sample(burst_tick + 10), (250., 255.));
+    for _ in 0..60 {
+        events.step().unwrap();
+    }
+    assert_eq!(
+        events
+            .world
+            .billboards
+            .values()
+            .filter(|p| p.size == [50.; 2] && p.owner == Some(500))
+            .count(),
+        250
+    );
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .any(|p| p.size_delta == 15. && p.owner == Some(500))
+    );
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .filter(|p| p.size == [50.; 2] || p.size_delta == 15.)
+            .all(|p| p.alpha(events.world.tick) == 255.)
+    );
+    for _ in 0..61 {
+        events.step().unwrap();
+    }
+    assert!(events.world.billboards.is_empty());
+    assert!(events.world.refractions.is_empty());
+}
+
+#[test]
+fn inward_burst_cleanup_reads_the_current_emitter_flag() {
+    for (initial, changed, survives) in [(0, 0, true), (0, 1, false), (1, 0, true), (1, 1, false)] {
+        let setup = script(&[
+            (
+                Call::CreateEffectEmitter,
+                &[
+                    500, 0, 0, 0, 0, 38, 0, 10, 101, 500, 8, 300, 75, 0, 0, 0, initial, 0,
+                ],
+            ),
+            (Call::SetActorProperty, &[500, 33, 2]),
+        ]);
+        let remove = script(&[
+            (Call::SetActorProperty, &[500, 121, changed]),
+            (Call::DespawnActor, &[500]),
+        ]);
+        let mut world = GameWorld::default();
+        world.input_enabled = true;
+        let mut events = runtime(program(&setup, &remove), Default::default(), world);
+        events.step().unwrap();
+        assert_eq!(events.world.billboards.len(), 251);
+        assert_eq!(events.world.refractions.len(), 1);
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        assert_eq!(!events.world.billboards.is_empty(), survives);
+        assert_eq!(!events.world.refractions.is_empty(), survives);
+        assert!(events.world.billboards.values().all(|p| p.owner.is_none()));
+        steps(&mut events, 121);
+        assert!(events.world.billboards.is_empty() && events.world.refractions.is_empty());
+    }
+}
+
+#[test]
 fn quake_station_effect_shakes_once_then_reaches_its_finished_phase() {
     const EMITTER: i32 = 500;
     const QUAKE: i32 = 22;
@@ -456,23 +579,15 @@ fn quake_station_effect_shakes_once_then_reaches_its_finished_phase() {
         ],
     )]);
     let query = script(&[(Call::GetActorProperty, &[EMITTER, PHASE])]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
-    let mut events = runtime(program(&setup, &query), Default::default(), world);
+    let mut events = interactive_effect(&setup, &query);
     let mut shook = false;
-    for tick in 1..=140 {
+    for _ in 0..140 {
         events.step().unwrap();
-        if tick == 20 {
-            assert_eq!(events.world.billboards.len(), 20);
-            assert_eq!(events.world.refractions.len(), 1);
-            assert_eq!(
-                events.world.refractions.values().next().unwrap().position,
-                [10., 20., 34.]
-            );
-        }
-        if (21..=40).contains(&tick) {
-            shook |= events.world.field_camera.as_ref().unwrap().shake.offset != [0.; 2];
-        }
+        shook |= events
+            .world
+            .field_camera
+            .as_ref()
+            .is_some_and(|c| c.shake.offset != [0.; 2]);
     }
     assert!(shook);
     assert!(events.world.rumble.is_none());

@@ -361,6 +361,7 @@ pub(super) const fn register(
                 };
                 let effect = RefractionPulse {
                     operation: Some(shot.operation.clone()),
+                    owner: None,
                     image,
                     palette: NEUTRAL_PALETTE,
                     orientation: facing(orientation)?,

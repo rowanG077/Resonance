@@ -36,9 +36,12 @@ macro_rules! properties {
 mod beams;
 mod bloom;
 mod burst;
+pub(crate) mod cardinal;
 mod contracting;
 mod converging;
+mod directed;
 mod gathering;
+pub(crate) mod inward;
 mod orbit;
 mod quake;
 mod rising;
@@ -90,6 +93,9 @@ pub(crate) enum Emitter {
     Orbit(orbit::Orbit),
     Splash(splash::Splash),
     Trail(trail::Trail),
+    Inward(inward::Inward),
+    Directed(directed::Directed),
+    Cardinal(cardinal::Cardinal),
 }
 
 #[derive(Debug, Clone)]
@@ -131,7 +137,11 @@ impl TryFrom<i32> for Phase {
 }
 impl Emitter {
     pub(crate) fn preserves_particles_on_despawn(&self) -> bool {
-        matches!(self, Self::RisingMotes(motes) if motes.clear_on_despawn != 1.)
+        match self {
+            Self::RisingMotes(motes) => motes.clear_on_despawn != 1.,
+            Self::Inward(inward) => inward.preserves_particles(),
+            _ => false,
+        }
     }
 
     pub fn from_native(a: &[i32]) -> Result<Self, String> {
@@ -173,6 +183,9 @@ impl Emitter {
             }
             31 => return Ok(Self::Contracting(contracting::Contracting::from_native(a)?)),
             33 => return Ok(Self::Orbit(orbit::Orbit::from_native(a)?)),
+            36 => return Ok(Self::Directed(directed::Directed::from_native(a)?)),
+            60 => return Ok(Self::Cardinal(cardinal::Cardinal::from_native(a)?)),
+            38 => return Ok(Self::Inward(inward::Inward::from_native(a)?)),
             46 => return Ok(Self::Trail(trail::Trail::from_native(a)?)),
             54 => {
                 return Ok(Self::Rising(rising::Rising::from_native(
@@ -226,6 +239,9 @@ impl Emitter {
             Self::Orbit(orbit) => return orbit.property(property, value),
             Self::Splash(splash) => return splash.property(property, value),
             Self::Trail(trail) => return trail.property(property, value),
+            Self::Inward(inward) => return inward.property(property, value),
+            Self::Directed(directed) => return directed.property(property, value),
+            Self::Cardinal(cardinal) => return cardinal.property(property, value),
             Self::LightColumn(column) => column,
         };
         if property == PHASE_PROPERTY {
@@ -525,6 +541,42 @@ impl GameWorld {
                 continue;
             }
             let column = match emitter {
+                Emitter::Cardinal(cardinal) => {
+                    if effect_tick % 2 == 0 {
+                        cardinal.particles(
+                            id,
+                            actor.position,
+                            actor.heading,
+                            self.tick,
+                            &mut self.random_state,
+                            &mut births,
+                        );
+                    }
+                    continue;
+                }
+                Emitter::Directed(directed) => {
+                    if effect_tick.is_multiple_of(3) {
+                        births.push(directed.particle(
+                            actor.position,
+                            actor.properties.get(&5).copied().unwrap_or(0) as f32,
+                            self.tick,
+                            &mut self.random_state,
+                        ));
+                    }
+                    continue;
+                }
+                Emitter::Inward(inward) => {
+                    ripples.extend(inward.particles(
+                        id,
+                        actor.position,
+                        camera_direction,
+                        actor.properties.get(&5).copied().unwrap_or(0),
+                        self.tick,
+                        &mut self.random_state,
+                        &mut births,
+                    )?);
+                    continue;
+                }
                 Emitter::Trail(trail) => {
                     models.extend(trail.particles(
                         &mut actor.position,
@@ -709,7 +761,14 @@ impl GameWorld {
             let length = delta[0].hypot(delta[1]);
             delta.map(|v| if length == 0. { 0. } else { v / length })
         });
+        let mut trails = Vec::new();
         for mut effect in births {
+            effect.advance_inward_trail(
+                camera_direction,
+                self.tick,
+                &mut self.random_state,
+                &mut trails,
+            );
             if let Some(crate::effect::BillboardController::CameraOffset {
                 center, distance, ..
             }) = effect.controller
@@ -717,6 +776,9 @@ impl GameWorld {
                 effect.position = std::array::from_fn(|i| center[i] + direction[i] * distance);
             }
             self.emit_billboard(effect)?;
+        }
+        for trail in trails {
+            self.emit_billboard(trail)?;
         }
         for ripple in ripples {
             self.emit_refraction(ripple)?;

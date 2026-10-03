@@ -870,7 +870,21 @@ impl EventRuntime {
             let length = delta[0].hypot(delta[1]);
             delta.map(|v| if length == 0. { 0. } else { v / length })
         });
+        let camera_direction = self
+            .world
+            .field_camera
+            .as_ref()
+            .map_or([0., -1., 0.], |camera| {
+                std::array::from_fn(|i| camera.position[i] - camera.target[i])
+            });
+        let mut trails = Vec::new();
         for effect in self.world.billboards.values_mut() {
+            effect.advance_inward_trail(
+                camera_direction,
+                self.world.tick,
+                &mut self.world.random_state,
+                &mut trails,
+            );
             if let Some(crate::effect::BillboardController::CameraOffset {
                 emitter,
                 center,
@@ -888,6 +902,11 @@ impl EventRuntime {
                 effect.position = std::array::from_fn(|i| center[i] + direction[i] * *distance);
             }
             effect.advance(effect_tick, &mut self.world.random_state);
+        }
+        for trail in trails {
+            self.world
+                .emit_billboard(trail)
+                .map_err(anyhow::Error::msg)?;
         }
         let player_position = self
             .world

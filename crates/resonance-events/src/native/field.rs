@@ -717,6 +717,7 @@ impl NativeHost<'_> {
                     )?;
                     let handle = self.world.emit_refraction(crate::effect::RefractionPulse {
                         operation: None,
+                        owner: None,
                         image: crate::effect::RefractionImage::Ripple,
                         palette: palette as u8,
                         orientation: if a[0] == WORLD_RIPPLE {
