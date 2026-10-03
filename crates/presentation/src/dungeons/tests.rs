@@ -683,6 +683,13 @@ fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
     assert_eq!(party.formation.len(), 8);
     assert!(party.formation.iter().all(|id| *id != 0));
     assert_eq!(party.field_leader, 1);
+    let mut outside = follow_transition(&field)?;
+    let mut saw_movie = false;
+    replay(&mut outside, |f| {
+        saw_movie |= f.events.world.movie.is_some();
+        saw_movie && (f.player_has_control() || f.events.world.field_transition.is_some())
+    })?;
+    assert!(saw_movie);
     Ok(())
 }
 
