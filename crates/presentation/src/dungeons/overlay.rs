@@ -9,9 +9,10 @@ use bevy::{
 };
 
 const WIDTH: u32 = 584;
-const HEIGHT: u32 = 440;
 const ROW_TOP: u32 = 90;
 const ROW_HEIGHT: u32 = 25;
+const FOOTER_TOP: u32 = ROW_TOP + ROW_HEIGHT * DESTINATIONS.len() as u32 + 10;
+const HEIGHT: u32 = FOOTER_TOP + 90;
 const LAYER: usize = 28;
 
 #[derive(Component)]
@@ -100,7 +101,7 @@ fn pixels(menu: &Menu) -> Vec<u8> {
     let white = [226, 235, 246, 255];
     let muted = [154, 174, 194, 255];
     let accent = [104, 223, 200, 255];
-    text(&mut rgba, 24, 20, "DUNGEON ENTRANCES", accent);
+    text(&mut rgba, 24, 20, "DUNGEONS AND SCENES", accent);
     text(
         &mut rgba,
         24,
@@ -131,7 +132,11 @@ fn pixels(menu: &Menu) -> Vec<u8> {
             &format!(
                 "{} {}  {}",
                 if index == menu.selected { ">" } else { " " },
-                (index + 1) % 10,
+                if index < 10 {
+                    ((index + 1) % 10).to_string()
+                } else {
+                    " ".into()
+                },
                 destination.name
             ),
             white,
@@ -141,32 +146,38 @@ fn pixels(menu: &Menu) -> Vec<u8> {
         text(
             &mut rgba,
             24,
-            350,
+            FOOTER_TOP,
             "LOAD FAILED - CHOOSE AGAIN OR CLOSE",
             [255, 151, 136, 255],
         );
         text(
             &mut rgba,
             24,
-            371,
+            FOOTER_TOP + 21,
             &error.to_uppercase().chars().take(44).collect::<String>(),
             muted,
         );
     } else if matches!(menu.state, State::Loading(_)) {
-        text(&mut rgba, 24, 350, "LOADING ENTRANCE...", accent);
-        text(&mut rgba, 24, 371, "SHIFT TAB OR ESC CANCELS", muted);
+        text(&mut rgba, 24, FOOTER_TOP, "LOADING...", accent);
+        text(
+            &mut rgba,
+            24,
+            FOOTER_TOP + 21,
+            "SHIFT TAB OR ESC CANCELS",
+            muted,
+        );
     } else {
         text(
             &mut rgba,
             24,
-            350,
-            &format!("ENTRANCE MAP {}", DESTINATIONS[menu.selected].map),
+            FOOTER_TOP,
+            &format!("MAP {}", DESTINATIONS[menu.selected].map),
             accent,
         );
         text(
             &mut rgba,
             24,
-            371,
+            FOOTER_TOP + 21,
             "ARROWS CHOOSE - ENTER GO - OR CLICK A ROW",
             white,
         );
@@ -174,7 +185,7 @@ fn pixels(menu: &Menu) -> Vec<u8> {
     text(
         &mut rgba,
         24,
-        406,
+        FOOTER_TOP + 56,
         "1-0 JUMP   SHIFT TAB OR ESC CLOSE",
         muted,
     );
