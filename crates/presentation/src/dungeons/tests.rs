@@ -513,6 +513,91 @@ fn iselia_damage_spheres_keep_moving() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
+    let mut field = enter(5, 194, None)?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    let player = field.events.world.controlled_actor;
+    // Controlled approaches isolate the native choice and treasure service without
+    // claiming the intervening route through this multi-level room.
+    let actor = field.events.world.actors.get_mut(&player).unwrap();
+    actor.position = [1600., -500., 300.];
+    actor.face(0.);
+    actor.motion = None;
+    assert!(field.events.trigger(6100, false)?);
+    advance_until(&mut field, |field| {
+        field
+            .events
+            .world
+            .choices
+            .get(&0)
+            .is_some_and(|c| c.operation.is_pending())
+    })?;
+    ticks(&mut field, 180, FieldInput::default())?;
+    assert!(field.events.world.choices[&0].operation.is_pending());
+    field.step(FieldInput {
+        direction: [0., -1.],
+        ..Default::default()
+    })?;
+    field.step(FieldInput::default())?;
+    field.step(FieldInput {
+        interact: true,
+        ..Default::default()
+    })?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    assert_eq!(field.events.world.choices[&0].selected_line, 1);
+    assert!(!field.events.world.choices[&0].operation.is_pending());
+
+    const REWARD: u16 = 390;
+    let count = field
+        .events
+        .world
+        .party
+        .as_ref()
+        .unwrap()
+        .items
+        .get(&REWARD)
+        .copied()
+        .unwrap_or(0);
+    let actor = field.events.world.actors.get_mut(&player).unwrap();
+    actor.position = [364., -852., 0.];
+    actor.face(180.);
+    actor.motion = None;
+    field.step(FieldInput {
+        interact: true,
+        ..Default::default()
+    })?;
+    ticks(&mut field, 180, FieldInput::default())?;
+    assert!(field.events.world.dialogue[&0].operation.is_pending());
+    assert!(
+        field.events.world.choices.is_empty(),
+        "choice cursor leaked into the chest notice"
+    );
+    assert_eq!(
+        field.events.world.party.as_ref().unwrap().items[&REWARD],
+        count + 1
+    );
+    field.step(FieldInput {
+        interact: true,
+        ..Default::default()
+    })?;
+    ticks(&mut field, 30, FieldInput::default())?;
+    assert!(field.player_has_control());
+    assert!(
+        field
+            .events
+            .world
+            .party
+            .as_ref()
+            .unwrap()
+            .travel
+            .opened_treasures
+            .contains(&157)
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn iselia_forcystus_scene_has_four_valid_reactor_party_members() -> Result<()> {
     let mut field = enter(5, 197, Some(20_305_000))?;
     advance_until(&mut field, |f| f.events.world.battle_request.is_some())?;
