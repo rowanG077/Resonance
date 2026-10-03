@@ -656,6 +656,27 @@ fn rheaird_crash_debris_moves_without_spinning_and_expires() {
 }
 
 #[test]
+fn direct_sprite_fourteen_effect_is_supported() {
+    let setup = script(&[(
+        Call::CreateEffectObject,
+        &[14, 1, -14, 2870, 686, 0, 0, 0, 0, 299, 0, 0, 0, 0],
+    )]);
+    let mut events = runtime(
+        program(&setup, &[0x20ff]),
+        Default::default(),
+        Default::default(),
+    );
+    let effect = events.world.billboards.get(&1).unwrap();
+    assert_eq!(effect.recipe, 14);
+    assert_eq!(effect.position, [-14., 2870., 686.]);
+    assert_eq!(effect.size, [299.; 2]);
+    assert_eq!(effect.lifetime, 2);
+    events.step().unwrap();
+    events.step().unwrap();
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn particle_fade_decreases_to_zero_at_expiry() {
     let setup = script(&[
         (
