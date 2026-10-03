@@ -639,6 +639,28 @@ fn seal_motes_keep_rising_and_fading_after_the_emitter_is_removed() -> Result<()
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn balacruf_light_column_stops_before_remiel_descends() -> Result<()> {
+    let mut field = enter(3, 510, None)?;
+    let (mut saw_column, mut saw_remiel) = (false, false);
+    replay(&mut field, |field| {
+        let world = &field.events.world;
+        let column = world.model_particles.values().any(|p| p.resource == 68604);
+        saw_column |= column;
+        saw_remiel |= world
+            .actors
+            .get(&1000)
+            .is_some_and(|actor| actor.visible && actor.position[2] < 1300.);
+        if saw_remiel {
+            assert!(!column, "Balacruf light column outlived its event");
+        }
+        saw_remiel && field.player_has_control()
+    })?;
+    assert!(saw_column);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn triet_seal_scripted_wings_animate_and_emit_sparks() -> Result<()> {
     let mut field = enter(10, DESTINATIONS[10].map, None)?;
     let mut saw_wings = false;

@@ -19,6 +19,7 @@ mod skit;
 mod wait;
 
 pub(crate) struct EventCommand {
+    /// One-based pool slot, matching the original reusable VM pointers.
     pub handle: i32,
     pub action: EventAction,
 }
@@ -39,7 +40,7 @@ pub(crate) struct NativeHost<'a> {
     pub event_actor: i16,
     pub registers: &'a mut [i32; 6],
     pub events: &'a mut Vec<EventCommand>,
-    pub next_handle: &'a mut i32,
+    pub free_slots: u32,
     pub wait: &'a mut Option<Wait>,
     pub resource_waits: Option<&'a std::collections::VecDeque<crate::ResourceWaitObservation>>,
     pub resource_wait: &'a mut Option<crate::ResourceWaitObservation>,
@@ -719,15 +720,15 @@ impl NativeHost<'_> {
                     self.program.event(2, key).is_some(),
                     "missing event resource",
                 )?;
-                value = Some(*self.next_handle);
+                let slot = self.free_slots.trailing_zeros();
+                require(slot < 32, "event pool exhausted (32 instances)")?;
+                self.free_slots &= !(1 << slot);
+                let handle = slot as i32 + 1;
+                value = Some(handle);
                 self.events.push(EventCommand {
-                    handle: *self.next_handle,
+                    handle,
                     action: EventAction::Spawn(key),
                 });
-                *self.next_handle = self
-                    .next_handle
-                    .checked_add(1)
-                    .ok_or("event handle overflow")?;
             }
             NativeCall::ControlEvent => {
                 require(self.events.len() < 32, "event command limit exceeded")?;
