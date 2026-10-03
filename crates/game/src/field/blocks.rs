@@ -452,6 +452,28 @@ mod tests {
         assert!(!floor(1000.).can_move_block(&events.world, 2, [0., -150.], false));
         assert!(floor(1000.).can_move_block(&events.world, 2, [0., 150.], true));
     }
+
+    #[test]
+    fn blocks_cannot_be_pushed_into_each_other() {
+        let (mut events, mesh, mut blocks) = room();
+        let mut obstacle = Actor::new(3, [0., -150., 0.]);
+        obstacle.role = ActorRole::Pushable;
+        obstacle.radius = 50.;
+        events.world.insert_actor(3, obstacle);
+        step(
+            &mut events,
+            &mesh,
+            &mut blocks,
+            FieldInput {
+                interact: true,
+                ..Default::default()
+            },
+        );
+        for _ in 0..50 {
+            step(&mut events, &mesh, &mut blocks, held([0., -1.]));
+        }
+        assert_eq!(events.world.actors[&2].position, [0., 0., 0.]);
+    }
     #[test]
     fn pause_or_replaced_block_releases_the_grip() {
         for replace in [false, true] {
