@@ -34,7 +34,7 @@ enum Mission {
 
 const PARTY: [u8; 5] = [1, 2, 3, 4, 9];
 
-pub(super) const DESTINATIONS: [Destination; 10] = [
+pub(super) const DESTINATIONS: [Destination; 11] = [
     Destination {
         name: "TEMPLE OF MARTEL",
         map: 307,
@@ -104,6 +104,13 @@ pub(super) const DESTINATIONS: [Destination; 10] = [
         position: [-1084., 1472., 0.],
         heading: 90.,
         progress: Progress::AfterSalvation(2_403_000),
+    },
+    Destination {
+        name: "COLETTE'S FIRST WINGS",
+        map: 221,
+        position: [0., 0., 0.],
+        heading: 0.,
+        progress: Progress::Story(1_302_000),
     },
 ];
 
