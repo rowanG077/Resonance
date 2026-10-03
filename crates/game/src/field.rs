@@ -48,6 +48,8 @@ pub struct FieldEntry {
     pub skits: Option<Arc<resonance_content::skit::SkitCatalog>>,
     pub text: Arc<resonance_content::session::GameText>,
     pub available_fields: std::collections::BTreeSet<u32>,
+    /// Movie IDs from this field's verified preparation inventory.
+    pub available_movies: std::collections::BTreeSet<u32>,
     pub position: [f32; 3],
     pub heading: f32,
     pub idle_animation: Option<u16>,
@@ -1257,10 +1259,10 @@ fn start_with_entry(
         messages,
         session_data: entry.data,
         fields: entry.available_fields,
+        movies: entry.available_movies,
         actor_names: ResourceLibrary::character_names(),
         ..Default::default()
     };
-    resources.movies.insert(1);
     for &id in assets.camera_tracks.keys() {
         resources
             .bindings

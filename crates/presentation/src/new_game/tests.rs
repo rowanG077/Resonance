@@ -5,6 +5,129 @@ use resonance_game::field::FieldInput;
 mod exploration;
 
 #[test]
+#[ignore = "requires cooked Iselia escape movies; no window or audio device"]
+fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = super::super::movie::tests::fixture();
+    let root = app.world().resource::<RunOptions>().assets.clone();
+    app.world_mut().resource_mut::<movie::Playback>().active = false;
+    let mut session = Session::load(&root)?;
+    let package = Arc::new(FieldPackage::prepare(
+        &root,
+        80,
+        &mut Default::default(),
+        || false,
+    )?);
+    session.fields.insert(80, package.clone());
+    app.insert_resource(session);
+    for playback in 0..2 {
+        {
+            let mut session = app.world_mut().resource_mut::<Session>();
+            let mut entry = FieldEntry {
+                data: Some(session.data.clone()),
+                available_fields: session.available_fields.clone(),
+                persistent: resonance_events::PersistentState {
+                    party: Some(resonance_events::party::Party::new(
+                        &session.data,
+                        Default::default(),
+                    )?),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            // Declared scene-entry fixture: the ranch exit writes this story
+            // stage before the original field-80 script requests movie 4.
+            entry
+                .persistent
+                .memory
+                .write(0x40, symphonia_script::Width::S32, 20_308_000)?;
+            session.activate(package.enter(entry)?, &package, false);
+            for _ in 0..120 {
+                session.field.step(Default::default())?;
+                if session.field.events.world.movie.is_some() {
+                    break;
+                }
+            }
+            assert_eq!(
+                session.field.events.world.movie.as_ref().unwrap().resource,
+                4
+            );
+        }
+        let start = std::time::Instant::now();
+        let (mixer, mut output) = resonance_playback::Offline::new();
+        while !app.world().resource::<movie::Playback>().active {
+            app.world_mut().run_system_once(super::advance).unwrap();
+            ensure!(
+                start.elapsed() < std::time::Duration::from_secs(30),
+                "field movie did not start"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let operation = app
+            .world()
+            .resource::<Session>()
+            .field
+            .events
+            .world
+            .movie
+            .as_ref()
+            .unwrap()
+            .operation
+            .clone();
+        assert!(!app.world().resource::<Session>().ready_for_field);
+        assert_eq!(app.world().resource::<movie::Playback>().resource, Some(4));
+        while app.world().resource::<movie::Playback>().active {
+            app.world_mut().run_system_once(movie::update).unwrap();
+            super::super::playthrough::attach::<movie::MovieAudio>(app.world_mut(), &mixer)?;
+            let movie = app.world().resource::<movie::Playback>();
+            if movie.is_presenting() {
+                movie.wait_for_audio(534)?;
+                for _ in 0..534 * 2 {
+                    output.next().context("offline movie output stopped")?;
+                }
+            }
+            if playback == 1 && movie.presented_frame.is_some() {
+                break;
+            }
+            ensure!(
+                start.elapsed() < std::time::Duration::from_secs(60),
+                "field movie playback stalled"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        if playback == 0 {
+            let movie = app.world().resource::<movie::Playback>();
+            assert!(movie.completed_naturally);
+            assert_eq!(
+                movie.presented_frame,
+                Some(movie.asset.as_ref().unwrap().frames - 1)
+            );
+        } else {
+            assert!(operation.is_pending());
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::Enter);
+            app.world_mut().run_system_once(movie::update).unwrap();
+        }
+        assert!(!app.world().resource::<movie::Playback>().active);
+        assert_eq!(
+            operation.progress().outcome,
+            Some(resonance_events::Outcome::Completed(None))
+        );
+        app.world_mut().run_system_once(movie_handoff).unwrap();
+        assert!(app.world().resource::<Session>().ready_for_field);
+        app.world_mut()
+            .resource_mut::<Session>()
+            .field
+            .step(Default::default())?;
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires RESONANCE_WORLD_ASSETS with current field inventories; no window or audio device"]
 fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -> Result<()> {
     use super::super::saves::{SceneCheckpoint, WorldCheckpoint};

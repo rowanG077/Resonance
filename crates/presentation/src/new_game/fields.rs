@@ -35,6 +35,7 @@ pub(crate) struct FieldPackage {
     authored: Option<resonance_game::authored::FieldEvent>,
     services: Arc<resonance_game::authored::FieldServices>,
     attachments: resonance_game::field::attachments::Attachments,
+    movies: BTreeSet<u32>,
 }
 impl FieldPackage {
     pub fn load(root: &Path, files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
@@ -64,6 +65,20 @@ impl FieldPackage {
         let (authored, services) = Self::prepare_scripts(map, &files, cache)?;
         let attachments =
             resonance_game::field::attachments::prepare(&assets, |path| files.read(path))?;
+        let movies = manifest
+            .inputs
+            .movies
+            .iter()
+            .map(|path| {
+                let id = path
+                    .strip_prefix("movies/")
+                    .and_then(|name| name.strip_suffix(".json"))
+                    .and_then(|id| id.parse().ok())
+                    .with_context(|| format!("invalid field movie binding {path}"))?;
+                files.json::<MovieAsset>(path)?.validate()?;
+                Ok(id)
+            })
+            .collect::<Result<_>>()?;
         Ok(Self {
             script: files.read(&assets.script.path)?,
             messages: files.read(&assets.messages)?,
@@ -73,6 +88,7 @@ impl FieldPackage {
             authored,
             services,
             attachments,
+            movies,
         })
     }
 
@@ -138,6 +154,7 @@ impl FieldPackage {
         entry.text = Arc::new(self.files.json("game/text.json")?);
         entry.services = Some(self.services.clone());
         entry.attachments = self.attachments.clone();
+        entry.available_movies = self.movies.clone();
         let mut field = FieldSession::enter(
             &self.script,
             serde_json::from_slice(&self.messages)?,

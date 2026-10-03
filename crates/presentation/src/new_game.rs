@@ -46,6 +46,7 @@ pub(super) struct Session {
     pub identity: resonance_persistence::Identity,
     story_movie: Option<MovieAsset>,
     pub(super) prepared_movie: Option<movie::Prepared>,
+    pending_movie: Option<(u64, super::loading::Task<(MovieAsset, movie::Prepared)>)>,
     movie_started: bool,
     data: Arc<resonance_content::session::SessionData>,
     skits: Arc<resonance_content::skit::SkitCatalog>,
@@ -173,6 +174,7 @@ impl Session {
                 skits: None,
                 text: Default::default(),
                 available_fields: available_fields.clone(),
+                available_movies: Default::default(),
                 position: [-719., -371., 0.],
                 heading: 0.,
                 idle_animation: Some(116),
@@ -218,6 +220,7 @@ impl Session {
             identity,
             story_movie,
             prepared_movie: None,
+            pending_movie: None,
             movie_started: !new_game,
             data,
             skits,
@@ -288,6 +291,7 @@ impl Session {
             identity: Self::identity(root)?,
             story_movie: None,
             prepared_movie: None,
+            pending_movie: None,
             movie_started: true,
             data,
             skits,
@@ -341,6 +345,7 @@ impl Session {
     }
 
     fn activate(&mut self, field: FieldSession, package: &FieldPackage, starting_story: bool) {
+        self.pending_movie = None;
         self.events_mut().cancel();
         self.overworld = None;
         self.field = field;
@@ -787,6 +792,7 @@ fn transition_world(world: &mut World) {
 /// input stay in one update path, including the scene before the story movie.
 pub(super) fn advance(
     mut session: Option<ResMut<Session>>,
+    options: Res<RunOptions>,
     mut movie: ResMut<movie::Playback>,
     mut images: ResMut<Assets<Image>>,
     mut exit: MessageWriter<AppExit>,
@@ -797,22 +803,63 @@ pub(super) fn advance(
     if session.overworld.is_some() {
         return;
     }
-    if session.movie_started {
+    if movie.active {
         return;
     }
     let result = (|| -> Result<()> {
-        if let Some(request) = session.field.events.world.movie.clone() {
-            ensure!(request.resource == 1, "New Game movie binding is missing");
+        if let Some(request) = session
+            .field
+            .events
+            .world
+            .movie
+            .clone()
+            .filter(|request| request.operation.is_pending())
+        {
+            let prepared = if request.resource == 1 && session.prepared_movie.is_some() {
+                Some((
+                    session
+                        .story_movie
+                        .clone()
+                        .context("startup movie is missing")?,
+                    session.prepared_movie.take().unwrap(),
+                ))
+            } else {
+                if session
+                    .pending_movie
+                    .as_ref()
+                    .is_some_and(|(id, _)| *id != request.operation.id())
+                {
+                    session.pending_movie = None;
+                }
+                if let Some((_, pending)) = &session.pending_movie {
+                    let Some(prepared) = pending.poll()? else {
+                        return Ok(());
+                    };
+                    session.pending_movie = None;
+                    Some(prepared?)
+                } else {
+                    let asset: MovieAsset = session
+                        .files()
+                        .json(&format!("movies/{}.json", request.resource))?;
+                    asset.validate()?;
+                    let root = options.assets.clone();
+                    let pending = super::loading::Task::spawn(move |stop| {
+                        let prepared = movie::Prepared::load(&root, &asset, || {
+                            stop.load(std::sync::atomic::Ordering::Relaxed)
+                        })?;
+                        Ok((asset, prepared))
+                    })?;
+                    session.pending_movie = Some((request.operation.id(), pending));
+                    None
+                }
+            };
+            let Some((asset, prepared)) = prepared else {
+                return Ok(());
+            };
             movie.start_script_movie(
                 request.resource,
-                session
-                    .prepared_movie
-                    .take()
-                    .context("script requested an unprepared movie")?,
-                session
-                    .story_movie
-                    .clone()
-                    .context("script movie is unavailable in this session")?,
+                prepared,
+                asset,
                 request.operation.clone(),
                 &mut images,
             )?;
@@ -825,11 +872,13 @@ pub(super) fn advance(
                 .as_ref()
                 .is_some_and(|party| !party.settings.preferences.stereo);
             session.ready_for_field = false;
+        } else {
+            session.pending_movie = None;
         }
         Ok(())
     })();
     if let Err(error) = result {
-        error!("New Game entry failed: {error:#}");
+        error!("Field movie failed: {error:#}");
         session.field.events.cancel();
         exit.write(AppExit::error());
     }
@@ -856,7 +905,7 @@ pub(super) fn movie_handoff(mut session: Option<ResMut<Session>>, movie: Res<mov
     {
         session.ready_for_field = true;
         info!(
-            "New Game script session is ready for field {} presentation",
+            "Movie returned to field {} presentation",
             session.assets.map_id
         );
     }
