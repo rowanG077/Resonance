@@ -1195,19 +1195,44 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
             || false,
         )?;
         let assets = package.assets.clone();
-        let mut entry = if let Some(checkpoint) = checkpoint {
-            let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
-            checkpoint.clone().entry(
-                &assets,
-                std::sync::Arc::new(data),
-                super::new_game::available_fields(&root)?,
-            )?
+        let entry = if let Some(checkpoint) = checkpoint {
+            let data = std::sync::Arc::new(serde_json::from_slice(&fs::read(
+                root.join("game/session-data.json"),
+            )?)?);
+            let available_fields = super::new_game::available_fields(&root)?;
+            if scene_entry {
+                ensure!(
+                    checkpoint.position.iter().all(|v| v.is_finite())
+                        && checkpoint.heading.is_finite()
+                        && (0.0..360.0).contains(&checkpoint.heading),
+                    "invalid scene entry location"
+                );
+                // Scripted arrivals can start above the floor; they are not saves.
+                resonance_game::field::FieldEntry {
+                    allow_incomplete_scripts: checkpoint.allow_incomplete_scripts,
+                    play_time: resonance_game::clock::PlayTime::resume(checkpoint.played_ticks()),
+                    persistent: checkpoint.progress.clone().into_state(&data)?,
+                    data: Some(data),
+                    available_fields,
+                    position: checkpoint.position,
+                    heading: checkpoint.heading,
+                    camera: checkpoint
+                        .camera
+                        .clone()
+                        .map(|camera| {
+                            camera
+                                .entry(i32::from(checkpoint.progress.party.field_leader))
+                                .map_err(anyhow::Error::msg)
+                        })
+                        .transpose()?,
+                    ..Default::default()
+                }
+            } else {
+                checkpoint.clone().entry(&assets, data, available_fields)?
+            }
         } else {
             Default::default()
         };
-        if scene_entry {
-            entry.kind = resonance_game::field::EntryKind::Arrival;
-        }
         let mut session = package.enter(entry)?;
         if let Some(checkpoint) = checkpoint.filter(|_| !scene_entry) {
             super::new_game::initialize_checkpoint(&mut session, checkpoint)?;
