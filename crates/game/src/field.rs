@@ -439,6 +439,11 @@ impl FieldSession {
                     self.menu_operation = Some(request.operation);
                     return Ok(());
                 }
+                resonance_events::menu::Target::Customize => {
+                    self.open_menu(crate::menu::Page::Customize, self.menu_checkpoint()?, false);
+                    self.menu_operation = Some(request.operation);
+                    return Ok(());
+                }
             }
         }
         if let Some(menu) = &mut self.menu {
