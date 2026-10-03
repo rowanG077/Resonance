@@ -315,7 +315,9 @@ impl NativeHost<'_> {
                     .names
                     .iter()
                     .enumerate()
-                    .filter(|(_, name)| name.starts_with("HID_"))
+                    // The sealed controller hides LIVE_; unlocking recreates
+                    // the model with HID_ hidden instead (fn_8000DF24/E720).
+                    .filter(|(_, name)| name.starts_with(if sealed { "LIVE_" } else { "HID_" }))
                     .map(|(i, _)| i as u16)
                     .collect();
                 let mut animation =
