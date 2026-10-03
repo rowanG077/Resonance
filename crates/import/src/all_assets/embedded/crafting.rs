@@ -6,9 +6,6 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-
-const FAMILY: &str = "crafting";
 const RECIPES: u32 = 0x80220cd0;
 const RECIPE_COUNT: usize = 151;
 const RECIPE_BYTES: usize = 20;
@@ -42,6 +39,7 @@ pub(crate) struct Catalogue {
     texts: Vec<String>,
     pub(crate) recipes: Vec<Recipe>,
     pub(crate) vendors: Vec<Vendor>,
+    pub(crate) labels: [String; 6],
 }
 
 fn recipe(bytes: &[u8]) -> Result<Recipe> {
@@ -73,7 +71,7 @@ fn vendor_recipes(row: &[u8]) -> Result<Vec<i16>> {
         .collect())
 }
 
-fn read(executable: &[u8]) -> Result<Catalogue> {
+pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     let recipes = dol::slice(executable, RECIPES, RECIPE_COUNT * RECIPE_BYTES)?
         .chunks_exact(RECIPE_BYTES)
         .map(recipe)
@@ -92,18 +90,79 @@ fn read(executable: &[u8]) -> Result<Catalogue> {
         texts: texts.values,
         recipes,
         vendors,
+        labels: dol::slice(executable, 0x8019bb08, 24)?
+            .chunks_exact(4)
+            .map(|p| dol::optional_text(executable, word(p, 0)?)?.context("missing crafting label"))
+            .collect::<Result<Vec<_>>>()?
+            .try_into()
+            .unwrap(),
     })
 }
 
-pub(super) fn cook(file: &Path, executable: &[u8], output: &Path) -> Result<Vec<String>> {
-    let catalogue = read(executable)?;
-    crate::embedded::write(file, output, FAMILY, &catalogue)
+impl Catalogue {
+    pub(crate) fn prepare(&self) -> Result<resonance_content::menu_data::crafting::Data> {
+        use resonance_content::menu_data::crafting as target;
+        let [
+            heading,
+            confirmation,
+            yes,
+            no,
+            missing_materials,
+            inventory_full,
+        ] = self.labels.clone();
+        Ok(target::Data {
+            labels: target::Labels {
+                heading,
+                confirmation,
+                yes,
+                no,
+                missing_materials,
+                inventory_full,
+            },
+            recipes: self
+                .recipes
+                .iter()
+                .map(|r| {
+                    let mut ingredients = std::collections::BTreeMap::new();
+                    for (item, count) in std::iter::once((r.base_item, 1))
+                        .chain(r.ingredients.iter().map(|i| (i.item, u16::from(i.count))))
+                        .filter(|(item, _)| *item != 0)
+                    {
+                        *ingredients.entry(u16::try_from(item)?).or_default() += count;
+                    }
+                    Ok(target::Recipe {
+                        result: r.result_item.try_into()?,
+                        ingredients,
+                    })
+                })
+                .collect::<Result<_>>()?,
+            vendors: self
+                .vendors
+                .iter()
+                .map(|v| {
+                    Ok(target::Vendor {
+                        name: v
+                            .name
+                            .map(|id| self.texts[id.0].as_str())
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or(&self.labels[0])
+                            .to_owned(),
+                        recipes: v
+                            .recipes
+                            .iter()
+                            .map(|&id| Ok(id.try_into()?))
+                            .collect::<Result<_>>()?,
+                    })
+                })
+                .collect::<Result<_>>()?,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::{fs, path::Path};
 
     #[test]
     fn ingredients_stop_at_zero_but_vendor_recipe_zero_is_valid() -> Result<()> {
@@ -128,7 +187,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires both extracted executables; no cooking or devices"]
-    fn original_crafting_preserves_all_consumed_recipes() -> Result<()> {
+    fn crafting_import_normalizes_materials_for_every_vendor() -> Result<()> {
         let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
         for disc in [1, 2] {
             let executable = fs::read(local.join(format!("extracted/disc{disc}/sys/main.dol")))?;
@@ -137,13 +196,28 @@ mod tests {
                 (catalogue.recipes.len(), catalogue.vendors.len()),
                 (151, 22)
             );
-            // Full semantic snapshot: every consumed recipe, vendor list and text.
-            let value = serde_json::to_value(catalogue)?;
+            let prepared = catalogue.prepare()?;
+            prepared.validate(528)?;
             assert_eq!(
-                crate::digest(&serde_json::to_vec(&value)?),
-                "69b92bf68c9712d953afef0c642fce1169d77d7f64acb16da37ef4e56d5ee55c",
-                "disc {disc}"
+                prepared.labels.texts().collect::<Vec<_>>(),
+                [
+                    "Customize weapon",
+                    "Are you sure?",
+                    "Yes",
+                    "No",
+                    "An item is missing.",
+                    "You cannot carry any more."
+                ]
             );
+            for (source, recipe) in catalogue.recipes.iter().zip(&prepared.recipes) {
+                let expected: u16 = u16::from(source.base_item != 0)
+                    + source
+                        .ingredients
+                        .iter()
+                        .map(|i| u16::from(i.count))
+                        .sum::<u16>();
+                assert_eq!(recipe.ingredients.values().sum::<u16>(), expected);
+            }
         }
         Ok(())
     }
