@@ -242,6 +242,26 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn asgard_guard_alarm_starts_battle_and_resumes_the_room() -> Result<()> {
+    let mut field = configured(7, 210, |entry| {
+        entry
+            .persistent
+            .memory
+            .write(0xe0, symphonia_script::Width::S32, 3110)?;
+        Ok(())
+    })?;
+    assert_eq!(
+        replay(&mut field, |f| f.player_has_control()
+            && mission(f, 0xe0) == 3200)?,
+        1
+    );
+    assert!(!field.events.world.actors.contains_key(&300));
+    assert!(!field.events.world.actors.contains_key(&200));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn asgard_kvar_preparation_can_restore_a_party_with_empty_slots() -> Result<()> {
     let mut field = enter(7, 213, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;

@@ -171,6 +171,7 @@ impl Host for NativeHost<'_> {
         ReadCoordinateRegister(1) -> i32 = dispatch;
         ReadActorOffset(5) -> () = dispatch;
         StartBattle(12) -> i32 = request_battle;
+        Unknown37(3) -> i32 = request_battle;
         StartEnemyBattle(2) -> i32 = request_enemy_battle;
         GetCurrentField(0) -> i32 = field;
         ReadMappedInput(2) -> i32 = field;

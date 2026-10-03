@@ -94,6 +94,53 @@ fn ordinary_locomotion_replaces_same_slot_from_a_block_animation_bank() {
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
+fn short_battle_command_waits_for_and_returns_the_real_outcome() {
+    let data = cooked::<resonance_content::session::SessionData>("session-data.json");
+    for (flags, outcome, defeat) in [
+        (0, battle::Outcome::Victory, battle::DefeatPolicy::GameOver),
+        (
+            1,
+            battle::Outcome::Defeat,
+            battle::DefeatPolicy::ResumeEvent,
+        ),
+    ] {
+        let mut world = GameWorld::default();
+        world.party = Some(party::Party::new(&data, Default::default()).unwrap());
+        let code = script(&[
+            (Call::Unknown37, &[30, 79, flags]),
+            (Call::SetEventBit, &[123]),
+        ]);
+        let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        let request = events.world.battle_request.clone().unwrap();
+        assert_eq!(
+            request.setup,
+            battle::Setup {
+                encounter: battle::Encounter::Formation(30),
+                arena: 79,
+                defeat,
+                music: None,
+                route: [0; 5],
+            }
+        );
+        steps(&mut events, 3);
+        assert!(!events.world.event_flags.contains(&123));
+        request.complete(outcome).unwrap();
+        events.world.battle_request = None;
+        events.step().unwrap();
+        assert_eq!(
+            events.memory().read(0x20, Width::S32).unwrap(),
+            outcome as i32
+        );
+        assert_eq!(
+            events.memory().read(0x24, Width::S32).unwrap(),
+            outcome as i32
+        );
+        assert!(events.world.event_flags.contains(&123));
+    }
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
 fn empty_slots_in_party_reunion_do_not_abort_the_event() {
     let session = Arc::new(cooked::<resonance_content::session::SessionData>(
         "session-data.json",
