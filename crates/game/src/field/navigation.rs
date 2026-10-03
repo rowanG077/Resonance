@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 const BLOCK_FALL_STEP: f32 = 9.;
 const NO_BLOCK_SUPPORT: u32 = 1 << 22;
+const BLOCK_CELL: f32 = 150.;
 
 /// Lines and circles touch the player's radius; polygons test the player's center.
 /// Both include the authored vertical span and the player's vertical radius.
@@ -170,10 +171,19 @@ impl WalkMesh {
                 .filter_map(|(&other, a)| (other != id).then_some(a)),
         );
         let blocked = |point: [f32; 3], mask| {
-            world
-                .actors
-                .iter()
-                .any(|(&other, actor)| other != id && actor.contains_solid(point, mask))
+            world.actors.iter().any(|(&other, actor)| {
+                other != id
+                    && (actor.contains_solid(point, mask)
+                        || (matches!(mask, CollisionQuery::Block)
+                            && actor.pushable()
+                            && actor
+                                .model_collision
+                                .as_ref()
+                                .is_none_or(|model| model.solids.is_empty())
+                            && (point[0] - actor.position[0]).abs() <= BLOCK_CELL / 2.
+                            && (point[1] - actor.position[1]).abs() <= BLOCK_CELL / 2.
+                            && (point[2] - actor.position[2]).abs() <= BLOCK_CELL))
+            })
         };
         let target = [
             position[0] + delta[0],
