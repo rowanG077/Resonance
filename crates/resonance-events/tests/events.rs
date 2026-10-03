@@ -677,6 +677,31 @@ fn direct_sprite_fourteen_effect_is_supported() {
 }
 
 #[test]
+fn seal_emitter_recipe_creates_and_releases_its_staged_burst() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &[
+            500, 0, 475, 100, 0, 49, 0, 0, 73, 50, 5, 50, 25, 0, 0, 0, 0, 0,
+        ],
+    )]);
+    let release = script(&[(Call::SetActorProperty, &[500, 33, 1])]);
+    let mut events = interactive_effect(&setup, &release);
+    events.step().unwrap();
+    assert!(events.world.billboards.len() >= 2);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    events.step().unwrap();
+    assert!(events.world.billboards.len() >= 250);
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .all(|p| p.owner == Some(500))
+    );
+}
+
+#[test]
 fn particle_fade_decreases_to_zero_at_expiry() {
     let setup = script(&[
         (

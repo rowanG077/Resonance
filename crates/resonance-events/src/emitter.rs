@@ -46,6 +46,7 @@ mod orbit;
 mod quake;
 mod rising;
 mod scatter;
+mod seal;
 mod smoke;
 mod splash;
 mod trail;
@@ -96,6 +97,7 @@ pub(crate) enum Emitter {
     Inward(inward::Inward),
     Directed(directed::Directed),
     Cardinal(cardinal::Cardinal),
+    Seal(seal::Seal),
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +188,7 @@ impl Emitter {
             36 => return Ok(Self::Directed(directed::Directed::from_native(a)?)),
             60 => return Ok(Self::Cardinal(cardinal::Cardinal::from_native(a)?)),
             38 => return Ok(Self::Inward(inward::Inward::from_native(a)?)),
+            49 => return Ok(Self::Seal(seal::Seal::from_native(a)?)),
             46 => return Ok(Self::Trail(trail::Trail::from_native(a)?)),
             54 => {
                 return Ok(Self::Rising(rising::Rising::from_native(
@@ -242,6 +245,7 @@ impl Emitter {
             Self::Inward(inward) => return inward.property(property, value),
             Self::Directed(directed) => return directed.property(property, value),
             Self::Cardinal(cardinal) => return cardinal.property(property, value),
+            Self::Seal(seal) => return seal.property(property, value),
             Self::LightColumn(column) => column,
         };
         if property == PHASE_PROPERTY {
@@ -575,6 +579,17 @@ impl GameWorld {
                         &mut self.random_state,
                         &mut births,
                     )?);
+                    continue;
+                }
+                Emitter::Seal(seal) => {
+                    seal.particles(
+                        id,
+                        actor.position,
+                        self.tick,
+                        effect_tick,
+                        &mut self.random_state,
+                        &mut births,
+                    );
                     continue;
                 }
                 Emitter::Trail(trail) => {
