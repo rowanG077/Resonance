@@ -1,7 +1,7 @@
 //! Decode embedded artwork and data without publishing native executable bytes.
 mod cabinets;
 pub(crate) mod cooking_ui;
-mod crafting;
+pub(crate) mod crafting;
 pub(crate) mod defeat_ui;
 pub(crate) mod ex_skills;
 pub(crate) mod figurine_catalogue;
@@ -185,6 +185,7 @@ pub(crate) fn cook_tables(
         "status-ui" => &menu.status,
         "strategy-ui" => &menu.strategy,
         "cooking-ui" => &menu.cooking,
+        "crafting" => &menu.crafting,
         "options-ui" => &menu.options,
         "ex-skills" => &menu.ex_skills,
         "rename-ui" => &menu.rename,
@@ -203,7 +204,6 @@ pub(crate) fn cook_tables(
         ("overworld-landmarks", super::overworld_landmarks::cook),
         ("sound-test", sound_test::cook),
         ("grade-shop", grade_shop::cook),
-        ("crafting", crafting::cook),
         ("record-screen", record_screen::cook),
         ("credits-resources", super::credits::cook_resources),
     ];

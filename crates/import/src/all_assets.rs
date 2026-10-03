@@ -10,9 +10,9 @@ mod embedded;
 #[cfg(test)]
 pub(crate) use embedded::cook_tables;
 pub(crate) use embedded::{
-    Catalogues, cooking_ui, ex_skills, figurine_catalogue, inventory_ui, monster_catalogue,
-    options_ui, rename_ui, save_menu, shop_ui, status_ui, strategy_ui, synopsis, technique_ui,
-    title_catalogue, ui_style, world_map,
+    Catalogues, cooking_ui, crafting, ex_skills, figurine_catalogue, inventory_ui,
+    monster_catalogue, options_ui, rename_ui, save_menu, shop_ui, status_ui, strategy_ui, synopsis,
+    technique_ui, title_catalogue, ui_style, world_map,
 };
 mod exclusions;
 mod field;

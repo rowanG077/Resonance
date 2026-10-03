@@ -142,6 +142,7 @@ fn fixture() -> Fixture {
         (
             "game/menu-data.json",
             json!({"version":resonance_content::menu_data::MenuData::VERSION,"world_map":{"names":["A","A"],"locations":{},"field_locations":{},"shops":[]},"item_categories":vec!["A";48],"inventory_categories":vec!["A";9],"items":vec![json!({"name":"A","description":"","details":"","category":0,"price":0,"transforms_to":0,"field_use":null,"equipment_stats":vec![0;7]});528],
+                "crafting":{"recipes":[],"vendors":[],"labels":{"heading":"A","confirmation":"A","yes":"A","no":"A","missing_materials":"A","inventory_full":"A"}},
                 "item_group_prompt":{"lines":[[{"kind":"button","sprite":6},{"kind":"text","text":"A","color":9}]]},
                 "item_bottle_count":{"lines":[[{"kind":"text","text":"A","color":8}]]},
                 "ex_skills":{"skills":(1..=17).map(|id|(id.to_string(),json!({"name":"A","description":{"lines":[[]]},"stat_bonuses":[],"tendency":(id<17).then_some("strike"),"activation":"constant"}))).collect::<BTreeMap<_,_>>(),
