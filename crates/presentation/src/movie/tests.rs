@@ -37,7 +37,7 @@ fn subtitles_follow_media_time_when_video_is_held() {
     assert_eq!(movie.timeline_frame(Some(Duration::ZERO)), None);
 }
 
-fn fixture() -> App {
+pub(crate) fn fixture() -> App {
     let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
         PathBuf::from,

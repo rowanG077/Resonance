@@ -141,6 +141,7 @@ impl FieldCheckpoint {
             skits: None,
             text: Default::default(),
             available_fields,
+            available_movies: Default::default(),
             position: self.position,
             heading: self.heading,
             idle_animation: None,

@@ -22,7 +22,7 @@ use std::{
 
 pub(super) mod pacing;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 type AudioBuffer = resonance_playback::Pcm;
 
