@@ -168,7 +168,25 @@ fn martel_golem_battle_creates_a_pushable_block() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
-    let mut field = enter(8, 268, Some(1_105_000))?;
+    let mut field = enter(8, 267, Some(1_105_000))?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    // Controlled approach to the exit, then ordinary movement through its
+    // opening door and transition. This does not replay the cell escape.
+    let player = field.events.world.controlled_actor;
+    let actor = field.events.world.actors.get_mut(&player).unwrap();
+    actor.position = [2252., 1000., 0.];
+    actor.face(180.);
+    for _ in 0..300 {
+        field.step(FieldInput {
+            direction: [0., 1.],
+            ..Default::default()
+        })?;
+        if field.events.world.field_transition.is_some() {
+            break;
+        }
+    }
+    let mut field = follow_transition(&field)?;
+    assert_eq!(field.map_id, 268);
     advance_until(&mut field, |field| {
         field
             .events
@@ -176,7 +194,7 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
             .actors
             .get(&3004)
             .and_then(|actor| actor.enemy.as_ref())
-            .is_some_and(|enemy| enemy.contact_cooldown == -1)
+            .is_some_and(|enemy| enemy.pause_ticks == -1)
             && field
                 .events
                 .world
@@ -195,6 +213,29 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
     advance_until(&mut field, |field| {
         field.player_has_control() && mission(field, 0x40) == 1_105_100
     })?;
+    let player = field.events.world.controlled_actor;
+    let before = field.events.world.actors[&player].position;
+    for _ in 0..10 {
+        field.step(FieldInput {
+            direction: [0., -1.],
+            ..Default::default()
+        })?;
+    }
+    let after = field.events.world.actors[&player].position;
+    assert!(
+        (after[0] - before[0]).hypot(after[1] - before[1]) > 20.,
+        "player must be able to walk after the guards' scene"
+    );
+    for _ in 0..1800 {
+        field.step(FieldInput::default())?;
+        if field.events.world.battle_request.is_some() {
+            break;
+        }
+    }
+    // The resumed patrol can reach Lloyd. The dungeon selector grants this
+    // encounter as a victory, after which exploration must remain usable.
+    assert!(skip_battle(&mut field)?);
+    advance_until(&mut field, FieldSession::player_has_control)?;
     assert!(field.events.exploration_error.is_none());
     Ok(())
 }

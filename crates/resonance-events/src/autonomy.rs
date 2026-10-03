@@ -17,6 +17,19 @@ pub enum Behavior {
     Player = 10,
     ChasePlayer = 12,
 }
+impl Behavior {
+    /// Enemy mode selection shared by creation and property 26 (fn_80012588).
+    pub(crate) fn enemy(mode: u8) -> Self {
+        match mode {
+            0 => Self::WanderNearHome,
+            1 | 2 => Self::Wander,
+            3 => Self::FollowPath,
+            4 | 5 => Self::ApproachPlayer,
+            6 => Self::RandomPath,
+            _ => Self::Wander,
+        }
+    }
+}
 impl TryFrom<i32> for Behavior {
     type Error = anyhow::Error;
     fn try_from(value: i32) -> Result<Self> {
@@ -268,7 +281,18 @@ impl Actor {
                         self.target_heading += if ai.remaining & 1 != 0 { 90. } else { -90. };
                         ai.remaining = (random() & 31) as i32 + 8;
                     } else {
-                        self.target_heading += (random() & 63) as f32 - 32.;
+                        // fn_80013AE4 uses property 27 to select narrow or
+                        // wide random turns for enemy wandering mode 1.
+                        let mask = if self
+                            .enemy
+                            .as_ref()
+                            .is_some_and(|enemy| enemy.behavior == 1 && !enemy.random_turns)
+                        {
+                            127
+                        } else {
+                            63
+                        };
+                        self.target_heading += (random() & mask) as f32 - (mask / 2 + 1) as f32;
                         match ai.behavior {
                             Behavior::WanderNearHome
                                 if ai.radius < 0.

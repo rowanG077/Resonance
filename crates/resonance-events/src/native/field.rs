@@ -1839,20 +1839,14 @@ impl NativeHost<'_> {
         actor.turn_speed = 10.;
         // Native B6=6 selects enemy contact; B4 (property 17) is the action
         // label and remains zero. Enemies are not ordinary action targets.
-        let behavior = match a[11] as u8 {
-            0 => crate::Behavior::WanderNearHome,
-            1 | 2 => crate::Behavior::Wander,
-            3 => crate::Behavior::FollowPath,
-            4 | 5 => crate::Behavior::ApproachPlayer,
-            6 => crate::Behavior::RandomPath,
-            _ => crate::Behavior::Wander,
-        };
+        let behavior = crate::Behavior::enemy(a[11] as u8);
         actor.autonomy = Some(crate::Autonomy::new(
             behavior,
             a[7].max(0) as f32,
             actor.position,
         ));
         actor.autonomy.as_mut().unwrap().radius = a[14] as f32;
+        actor.properties.insert(27, i32::from(a[12] as u8));
         actor.enemy = Some(crate::world::Enemy {
             event: a[9] as u16,
             behavior: a[11] as u8,
