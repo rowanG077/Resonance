@@ -690,6 +690,7 @@ impl NativeHost<'_> {
                 const DEBRIS_LAST: i32 = 54;
                 const STAR_ROTATION: f32 = 45.;
                 const ELECTRIC_SPARK: i32 = crate::effect::ELECTRIC_SPARK_SPRITE as i32;
+                const SPRITE_14: i32 = 14;
                 const STREAK_ASPECT: f32 = 6.;
                 let directed = op == NativeCall::CreateEffectObject;
                 let offset = usize::from(directed);
@@ -753,6 +754,7 @@ impl NativeHost<'_> {
                                 | FALLING_SPARK
                                 | SPINNING_STAR
                                 | ELECTRIC_SPARK
+                                | SPRITE_14
                                 | DEBRIS_FIRST..=DEBRIS_LAST
                         )
                     } else {
@@ -767,6 +769,7 @@ impl NativeHost<'_> {
                                 | STAR
                                 | SPINNING_STAR
                                 | ELECTRIC_SPARK
+                                | SPRITE_14
                                 | DEBRIS_FIRST..=DEBRIS_LAST
                         )
                     }) && (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32)
