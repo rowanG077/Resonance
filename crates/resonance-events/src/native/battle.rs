@@ -8,9 +8,6 @@ impl NativeHost<'_> {
         args: &[i32],
         _: &mut Memory,
     ) -> Result<NativeResult, String> {
-        // fn_80050820 takes the encounter pool and arena from SpawnEnemyActor's
-        // payload. The battle owner resolves that pool when combat is enabled;
-        // the temporary test can complete the same operation without combat.
         let enemy = self
             .world
             .actors
@@ -35,12 +32,23 @@ impl NativeHost<'_> {
 
     pub(super) fn request_battle(
         &mut self,
-        _: NativeCall,
+        op: NativeCall,
         args: &[i32],
         _: &mut Memory,
     ) -> Result<NativeResult, String> {
         require(self.world.battle_request.is_none(), "nested battle request")?;
         require(self.world.party.is_some(), "battle requires a party")?;
+        let (music, route) = if op == NativeCall::Unknown37 {
+            (None, [0; 5])
+        } else {
+            (
+                match args[3] {
+                    -1 | 0 => None,
+                    id => Some(u16::try_from(id).map_err(|_| "invalid battle music ID")?),
+                },
+                args[4..9].try_into().unwrap(),
+            )
+        };
         let setup = Setup {
             encounter: Encounter::Formation(
                 u16::try_from(args[0]).map_err(|_| "invalid encounter ID")?,
@@ -51,11 +59,8 @@ impl NativeHost<'_> {
             } else {
                 DefeatPolicy::ResumeEvent
             },
-            route: args[4..9].try_into().unwrap(),
-            music: match args[3] {
-                -1 | 0 => None,
-                id => Some(u16::try_from(id).map_err(|_| "invalid battle music ID")?),
-            },
+            route,
+            music,
         };
         let request = self.world.request_battle(setup)?;
         *self.wait = Some(Wait::Battle(request.operation));
