@@ -95,11 +95,7 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
         for _ in 0..1000 {
             check_effects(&field, &package.assets, &effects, &files)?;
             audio.step(&mut field)?;
-            if field.player_has_control()
-                || !field.dialogue.is_empty()
-                || field.menu.is_some()
-                || field.shop.is_some()
-            {
+            if field.player_has_control() || !field.dialogue.is_empty() || field.menu_is_open() {
                 return Ok((field, audio));
             }
             field.step(FieldInput::default())?;
@@ -205,7 +201,7 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
                     if let Some(shop) = &field.shop {
                         shops.insert(shop.id);
                     }
-                    let in_menu = field.menu.is_some() || field.shop.is_some();
+                    let in_menu = field.menu_is_open();
                     let dialogue_ready = field.dialogue.values().any(|page| {
                         !page.closed
                             && !page.persistent

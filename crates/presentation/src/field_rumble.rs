@@ -28,7 +28,7 @@ pub(super) fn update(
             .map(|s| &s.field)
     });
     let desired = field
-        .filter(|f| f.menu.is_none() && f.shop.is_none() && f.active_skit.is_none())
+        .filter(|f| !f.menu_is_open() && f.active_skit.is_none())
         .and_then(|f| {
             let world = &f.events.world;
             let effect = world.rumble?;

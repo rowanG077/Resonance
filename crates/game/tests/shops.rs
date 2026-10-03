@@ -321,3 +321,108 @@ fn basket_limits_personal_discount_equipment_return_and_cancel_are_transactional
     events.cancel();
     assert!(events.world.menu_request.is_none());
 }
+
+fn open_crafting(
+    resources: &Arc<Resources>,
+    vendor: u8,
+) -> (EventRuntime, resonance_game::field::crafting::Crafting) {
+    use resonance_game::field::crafting::Crafting;
+    let party = Party::new(&resources.session, Default::default()).unwrap();
+    let mut events = request(resources, 9999 + u16::from(vendor), party);
+    let request = events.world.menu_request.take().unwrap();
+    assert_eq!(
+        request.target,
+        resonance_events::menu::Target::Crafting(vendor)
+    );
+    let mut crafting = Crafting::open(vendor, resources.clone(), request.operation).unwrap();
+    for _ in 0..10 {
+        crafting
+            .step(Default::default(), events.world.party.as_mut().unwrap())
+            .unwrap();
+    }
+    (events, crafting)
+}
+
+#[test]
+#[ignore = "requires locally cooked crafting and session definitions; no devices"]
+fn every_recipe_consumes_its_materials_without_charging_gald() {
+    let resources = resources();
+    let mut party = Party::new(&resources.session, Default::default()).unwrap();
+    party.gald = 123;
+    for recipe in resources
+        .data
+        .crafting
+        .recipes
+        .iter()
+        .filter(|r| r.result != 0)
+    {
+        party.items.clear();
+        for (&item, &count) in &recipe.ingredients {
+            party.items.insert(item, count.try_into().unwrap());
+        }
+        party.craft(&resources.session, recipe).unwrap();
+        assert_eq!(party.items, [(recipe.result, 1)].into());
+        assert!(party.found_items.contains(&recipe.result));
+        assert_eq!((party.gald, party.spent_gald), (123, 0));
+    }
+}
+
+#[test]
+#[ignore = "requires locally cooked crafting and session definitions; no devices"]
+fn luin_crafting_checks_capacity_materials_and_confirmation() {
+    use resonance_game::field::crafting::Focus;
+    let resources = resources();
+    let (mut events, mut crafting) = open_crafting(&resources, 5);
+    let party = events.world.party.as_mut().unwrap();
+    let recipe = crafting.selected().unwrap().clone();
+    let material = *recipe.ingredients.keys().next().unwrap();
+    let cap = resources.session.items[usize::from(recipe.result)].stack_limit;
+    for (&item, &count) in &recipe.ingredients {
+        party.items.insert(item, count.try_into().unwrap());
+    }
+    party.items.insert(recipe.result, cap);
+    crafting.step(Accept.into(), party).unwrap();
+    assert_eq!(crafting.focus, Focus::InventoryFull);
+    crafting.step(Accept.into(), party).unwrap();
+    party.items.clear();
+    crafting.step(Accept.into(), party).unwrap();
+    assert_eq!(crafting.focus, Focus::MissingMaterials);
+    crafting.step(Cancel.into(), party).unwrap();
+    party.items = recipe
+        .ingredients
+        .iter()
+        .map(|(&item, &count)| (item, count.try_into().unwrap()))
+        .collect();
+    let before = party.items.clone();
+    crafting.step(Accept.into(), party).unwrap();
+    crafting.step(Down.into(), party).unwrap();
+    crafting.step(Accept.into(), party).unwrap();
+    assert_eq!(party.items, before, "No cancels the exchange");
+    crafting.step(Accept.into(), party).unwrap();
+    party.items.remove(&material);
+    crafting.step(Accept.into(), party).unwrap();
+    assert_eq!(
+        crafting.focus,
+        Focus::MissingMaterials,
+        "recheck before consuming anything"
+    );
+    let mut missing = before;
+    missing.remove(&material);
+    assert_eq!(party.items, missing);
+    crafting.step(Cancel.into(), party).unwrap();
+    crafting.step(Start.into(), party).unwrap();
+    assert!(crafting.statistics);
+    for (input, expected_row) in [(PageDown, 9), (PageDown, 18), (PageUp, 9)] {
+        crafting.step(input.into(), party).unwrap();
+        assert_eq!(crafting.row, expected_row);
+        assert!(
+            (crafting.first..crafting.first + resonance_game::field::crafting::VISIBLE_ROWS)
+                .contains(&crafting.row)
+        );
+        assert!(
+            crafting.first + resonance_game::field::crafting::VISIBLE_ROWS
+                <= crafting.recipes().len()
+        );
+        crafting.step(Idle.into(), party).unwrap();
+    }
+}

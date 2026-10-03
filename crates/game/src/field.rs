@@ -12,6 +12,7 @@ pub mod attachments;
 mod blocks;
 mod checkpoint;
 mod conditions;
+pub mod crafting;
 pub mod navigation;
 mod prompt;
 pub mod replay;
@@ -94,6 +95,7 @@ pub struct FieldSession {
     authored_entry: Option<Arc<crate::authored::PreparedEvent>>,
     pub menu: Option<crate::menu::Menu>,
     pub shop: Option<shop::Shop>,
+    pub crafting: Option<crafting::Crafting>,
     menu_operation: Option<resonance_events::Operation>,
     menu_resources: Option<Arc<crate::menu::Resources>>,
     pub dialogue: BTreeMap<u8, crate::dialogue::DialoguePlayer>,
@@ -133,9 +135,11 @@ impl FieldSession {
     pub fn player_has_control(&self) -> bool {
         self.authored_entry.is_none() && self.field_control_available()
     }
+    pub fn menu_is_open(&self) -> bool {
+        self.menu.is_some() || self.shop.is_some() || self.crafting.is_some()
+    }
     fn field_control_available(&self) -> bool {
-        self.menu.is_none()
-            && self.shop.is_none()
+        !self.menu_is_open()
             && self.events.world.menu_request.is_none()
             && self.active_skit.is_none()
             && self.events.world.skit_request.is_none()
@@ -173,9 +177,7 @@ impl FieldSession {
             .apply_origin(id, control_ticks, remaining, opacity, text_opacity)
     }
     pub fn action_prompt(&self) -> Option<ActionPrompt> {
-        self.action_hints
-            .prompt
-            .filter(|_| self.menu.is_none() && self.shop.is_none())
+        self.action_hints.prompt.filter(|_| !self.menu_is_open())
     }
 
     pub fn story_progress(&self) -> Result<i32> {
@@ -236,6 +238,7 @@ impl FieldSession {
             authored_entry: None,
             menu: None,
             shop: None,
+            crafting: None,
             menu_operation: None,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
@@ -272,8 +275,7 @@ impl FieldSession {
     pub fn step(&mut self, input: FieldInput) -> Result<()> {
         if self.allow_incomplete_scripts {
             if input.start
-                && self.menu.is_none()
-                && self.shop.is_none()
+                && !self.menu_is_open()
                 && self
                     .events
                     .world
@@ -320,6 +322,7 @@ impl FieldSession {
         self.active_skit = None;
         self.menu = None;
         self.shop = None;
+        self.crafting = None;
         self.menu_operation = None;
         self.dialogue.clear();
         self.choices = Default::default();
@@ -415,10 +418,7 @@ impl FieldSession {
             return Ok(());
         }
         if let Some(request) = self.events.world.menu_request.take() {
-            ensure!(
-                self.menu.is_none() && self.shop.is_none(),
-                "nested field menu"
-            );
+            ensure!(!self.menu_is_open(), "nested field menu");
             match request.target {
                 resonance_events::menu::Target::Shop(id) => {
                     self.shop = Some(shop::Shop::open(
@@ -431,6 +431,15 @@ impl FieldSession {
                             .party
                             .as_mut()
                             .context("shop party is missing")?,
+                        request.operation,
+                    )?);
+                }
+                resonance_events::menu::Target::Crafting(id) => {
+                    self.crafting = Some(crafting::Crafting::open(
+                        id,
+                        self.menu_resources
+                            .clone()
+                            .context("crafting resources are missing")?,
                         request.operation,
                     )?);
                 }
@@ -478,6 +487,21 @@ impl FieldSession {
                 self.shop = None;
             } else if shop.take_equipment_request() {
                 self.open_menu(crate::menu::Page::Equip, self.menu_checkpoint()?, false);
+            }
+            self.menu_sound(cue.map(|cue| cue as i16))?;
+            return Ok(());
+        }
+        if let Some(crafting) = &mut self.crafting {
+            let cue = crafting.step(
+                input,
+                self.events
+                    .world
+                    .party
+                    .as_mut()
+                    .context("crafting party is missing")?,
+            )?;
+            if crafting.closed {
+                self.crafting = None;
             }
             self.menu_sound(cue.map(|cue| cue as i16))?;
             return Ok(());
@@ -1544,6 +1568,7 @@ mod tests {
             effect_clock: Default::default(),
             menu: None,
             shop: None,
+            crafting: None,
             menu_operation: None,
             conversation_facing: None,
             save_points: Default::default(),

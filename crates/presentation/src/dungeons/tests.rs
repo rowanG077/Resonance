@@ -1,4 +1,6 @@
 //! Device-free scene regressions using fresh progression fixtures.
+#[path = "crafting_tests.rs"]
+mod crafting;
 use super::{DESTINATIONS, new_game};
 use anyhow::{Context, Result};
 use resonance_game::field::{FieldInput, FieldSession};

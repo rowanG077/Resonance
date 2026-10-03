@@ -47,7 +47,7 @@ impl Artwork {
     ) -> Result<()> {
         // Menus and skits retain the last field presentation, including its
         // notifications. Their input remains owned by the modal scene.
-        if session.active_skit.is_some() || session.menu.is_some() || session.shop.is_some() {
+        if session.active_skit.is_some() || session.menu_is_open() {
             return Ok(());
         }
         let mut batches = [Batch::default(), Batch::default()];

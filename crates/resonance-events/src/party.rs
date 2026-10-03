@@ -3,6 +3,8 @@ use resonance_content::session::SessionData;
 use std::collections::{BTreeMap, BTreeSet};
 mod bestiary;
 mod cooking;
+mod crafting;
+pub use crafting::CraftError;
 mod ex_skills;
 pub use bestiary::MonsterKnowledge;
 mod items;
@@ -128,6 +130,40 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn crafting_checks_combined_materials_and_capacity_before_mutating_inventory() {
+        use resonance_content::menu_data::crafting::Recipe;
+        let data = data();
+        let mut party = Party::new(&data, Default::default()).unwrap();
+        let recipe = Recipe {
+            result: 3,
+            ingredients: [(1, 3)].into(),
+        };
+        party.items = [(1, 2)].into();
+        assert_eq!(
+            party.craft(&data, &recipe),
+            Err(CraftError::MissingMaterials)
+        );
+        assert_eq!(party.items, [(1, 2)].into());
+        party.items = [(1, 3), (3, 1)].into();
+        assert_eq!(party.craft(&data, &recipe), Err(CraftError::InventoryFull));
+        assert_eq!(party.items, [(1, 3), (3, 1)].into());
+        party.items.remove(&3);
+        party.craft(&data, &recipe).unwrap();
+        assert_eq!(party.items, [(3, 1)].into());
+        // An ingredient can also be the result, including a currently full stack.
+        party
+            .craft(
+                &data,
+                &Recipe {
+                    result: 3,
+                    ingredients: [(3, 1)].into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(party.items, [(3, 1)].into());
     }
 
     #[test]
@@ -569,8 +605,6 @@ impl Party {
     }
     /// Minimal post-battle recovery used by original field scenes.
     pub fn revive_incapacitated(&mut self) {
-        // fn_8008065C restores knocked-out/petrified members to one HP without
-        // curing other conditions or changing TP, luck or overlimit.
         for member in &mut self.members {
             if member.conditions & items::INCAPACITATED != 0 {
                 member.conditions &= !items::INCAPACITATED;

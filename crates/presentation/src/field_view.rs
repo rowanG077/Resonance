@@ -966,7 +966,7 @@ fn ui(
         {
             applied.loading(Request::FieldDamage);
         }
-        if state.get().menu.is_some() || state.get().shop.is_some() {
+        if state.get().menu_is_open() {
             applied.loading(Request::Menu);
         }
         for &slot in state.get().events.world.dialogue.keys() {
@@ -1057,7 +1057,7 @@ fn ui(
         exit.write(AppExit::error());
     } else {
         applied.ack(Request::FieldDamage);
-        if state.get().menu.is_some() || state.get().shop.is_some() {
+        if state.get().menu_is_open() {
             applied.ack(Request::Menu);
         }
         if state.get().active_skit.is_some() {
