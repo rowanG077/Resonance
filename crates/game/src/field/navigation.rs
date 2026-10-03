@@ -294,6 +294,14 @@ impl WalkMesh {
         let surface = self.walking_surface(proposed, |z| (z - proposed[2]).abs() <= 32.)?;
         Some(Self::resolve_surface(start, proposed, player, surface))
     }
+    pub(super) fn resolve_enemy(&self, start: [f32; 3], proposed: [f32; 3]) -> Option<[f32; 3]> {
+        // fn_800111D4 uses query 0xC4: enemies also reject surface bit20.
+        // Doorways remain walkable for the player and ordinary field actors.
+        let surface = self.surface_within(proposed, |z, attributes| {
+            (z - proposed[2]).abs() <= 32. && CollisionQuery::Enemy.accepts(attributes)
+        })?;
+        Some(Self::resolve_surface(start, proposed, false, surface))
+    }
     pub(super) fn resolve_player(
         &self,
         start: [f32; 3],

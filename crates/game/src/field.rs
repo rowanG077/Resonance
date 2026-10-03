@@ -724,6 +724,8 @@ impl FieldSession {
                     }
                     let position = if id == controlled_actor && !scripted_control && !event_paused {
                         walkmesh.resolve_player(previous, actor.position, player_fall, event_paused)
+                    } else if actor.enemy.is_some() {
+                        walkmesh.resolve_enemy(previous, actor.position)
                     } else {
                         walkmesh.resolve_motion(previous, actor.position, false)
                     };
