@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 const BLOCK_FALL_STEP: f32 = 9.;
 const NO_BLOCK_SUPPORT: u32 = 1 << 22;
-const BLOCK_CELL: f32 = 150.;
+const BLOCK_FLOOR_REACH: f32 = 60.;
 
 /// Lines and circles touch the player's radius; polygons test the player's center.
 /// Both include the authored vertical span and the player's vertical radius.
@@ -103,9 +103,16 @@ impl WalkMesh {
         &self,
         world: &mut resonance_events::GameWorld,
         moving: Option<i32>,
+        falling: &mut std::collections::BTreeMap<i32, u64>,
     ) {
         // fn_8002122C steps downward by nine, then resolves the penetration on
         // the next update. Original puzzle callbacks observe that landing dip.
+        falling.retain(|id, instance| {
+            world
+                .actors
+                .get(id)
+                .is_some_and(|a| a.instance == *instance && a.pushable())
+        });
         let positions: Vec<_> = world
             .actors
             .iter()
@@ -120,15 +127,15 @@ impl WalkMesh {
                             .iter()
                             .filter_map(|(&other, a)| (other != id).then_some(a)),
                     )
-                    .surface_within(actor.position, |z, attributes| {
-                        z <= actor.position[2] + BLOCK_FALL_STEP
-                            && CollisionQuery::Block.accepts(attributes)
-                    });
-                let z = floor
-                    .filter(|s| {
-                        s.attributes & NO_BLOCK_SUPPORT == 0 && s.height >= actor.position[2]
-                    })
-                    .map_or(actor.position[2] - BLOCK_FALL_STEP, |s| s.height);
+                    .block_surface(actor.position, falling.contains_key(&id));
+                let z = if let Some((height, _)) = floor.filter(|(_, a)| a & NO_BLOCK_SUPPORT == 0)
+                {
+                    falling.remove(&id);
+                    height
+                } else {
+                    falling.insert(id, actor.instance);
+                    actor.position[2] - BLOCK_FALL_STEP
+                };
                 (id, z)
             })
             .collect();
@@ -144,13 +151,45 @@ impl WalkMesh {
                 .iter()
                 .filter_map(|(&other, a)| (other != id).then_some(a)),
         )
-        .surface_within(position, |z, attributes| {
-            z >= position[2]
-                && z <= position[2] + BLOCK_FALL_STEP
-                && CollisionQuery::Block.accepts(attributes)
-                && attributes & NO_BLOCK_SUPPORT == 0
-        })
-        .is_some()
+        .block_surface(position, false)
+        .is_some_and(|(_, attributes)| attributes & NO_BLOCK_SUPPORT == 0)
+    }
+    fn block_surface(&self, point: [f32; 3], falling: bool) -> Option<(f32, u32)> {
+        // fn_8002E5F4 / fn_8002E188 keep the highest reachable floor, not
+        // the closest plane. fn_8002EFD4 clears bit 22 after a model hit:
+        // a filled pit remains solid even where its no-support plane overlaps.
+        let mut model_support = false;
+        self.model_floors
+            .iter()
+            .map(|surface| (surface, true))
+            .chain(self.triangles.iter().map(|surface| (surface, false)))
+            .filter_map(|((triangle, attributes), model)| {
+                // Native model floors require an upward normal (Z > 0.2).
+                // Collision packages can also contain the cube's underside.
+                if model && surface_normal(*triangle)[2] <= 0.2 {
+                    return None;
+                }
+                let z = height(*triangle, point)?;
+                if !CollisionQuery::Block.accepts(*attributes)
+                    || (z - point[2]).abs() > BLOCK_FLOOR_REACH
+                    || (falling && z < point[2])
+                {
+                    return None;
+                }
+                model_support |= model;
+                Some((z, *attributes))
+            })
+            .max_by(|(a, _), (b, _)| a.total_cmp(b))
+            .map(|(height, attributes)| {
+                (
+                    height,
+                    if model_support {
+                        attributes & !NO_BLOCK_SUPPORT
+                    } else {
+                        attributes
+                    },
+                )
+            })
     }
     pub(super) fn can_move_block(
         &self,
@@ -171,19 +210,10 @@ impl WalkMesh {
                 .filter_map(|(&other, a)| (other != id).then_some(a)),
         );
         let blocked = |point: [f32; 3], mask| {
-            world.actors.iter().any(|(&other, actor)| {
-                other != id
-                    && (actor.contains_solid(point, mask)
-                        || (matches!(mask, CollisionQuery::Block)
-                            && actor.pushable()
-                            && actor
-                                .model_collision
-                                .as_ref()
-                                .is_none_or(|model| model.solids.is_empty())
-                            && (point[0] - actor.position[0]).abs() <= BLOCK_CELL / 2.
-                            && (point[1] - actor.position[1]).abs() <= BLOCK_CELL / 2.
-                            && (point[2] - actor.position[2]).abs() <= BLOCK_CELL))
-            })
+            world
+                .actors
+                .iter()
+                .any(|(&other, actor)| other != id && actor.contains_solid(point, mask))
         };
         let target = [
             position[0] + delta[0],
@@ -240,31 +270,6 @@ impl WalkMesh {
                         )
                     }));
                 }
-                if !mesh.floors.is_empty() {
-                    continue;
-                }
-            }
-            if actor.pushable() {
-                let [x, y, z] = actor.position;
-                let half = BLOCK_CELL / 2.;
-                model_floors.extend([
-                    (
-                        [
-                            [x - half, y - half, z + BLOCK_CELL],
-                            [x + half, y - half, z + BLOCK_CELL],
-                            [x + half, y + half, z + BLOCK_CELL],
-                        ],
-                        0,
-                    ),
-                    (
-                        [
-                            [x - half, y - half, z + BLOCK_CELL],
-                            [x + half, y + half, z + BLOCK_CELL],
-                            [x - half, y + half, z + BLOCK_CELL],
-                        ],
-                        0,
-                    ),
-                ]);
             }
         }
         Self {
@@ -433,23 +438,11 @@ impl WalkMesh {
             .filter(|(z, _, attributes)| accepts(*z, *attributes))
             .min_by(|(a, _, _), (b, _, _)| (a - point[2]).abs().total_cmp(&(b - point[2]).abs()))
             .map(|(height, [a, b, c], attributes)| {
-                let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
-                let v: [f32; 3] = std::array::from_fn(|i| c[i] - a[i]);
-                let cross = [
-                    u[1] * v[2] - u[2] * v[1],
-                    u[2] * v[0] - u[0] * v[2],
-                    u[0] * v[1] - u[1] * v[0],
-                ];
-                let length = cross
-                    .iter()
-                    .map(|v| v * v)
-                    .sum::<f32>()
-                    .sqrt()
-                    .copysign(cross[2]);
+                let normal = surface_normal([*a, *b, *c]);
                 GroundSurface {
                     height,
                     attributes,
-                    normal: cross.map(|v| v / length),
+                    normal: normal.map(|v| v * normal[2].signum()),
                 }
             })
     }
@@ -505,6 +498,17 @@ impl WalkMesh {
         }
         point
     }
+}
+fn surface_normal([a, b, c]: [[f32; 3]; 3]) -> [f32; 3] {
+    let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
+    let v: [f32; 3] = std::array::from_fn(|i| c[i] - a[i]);
+    let cross = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    let length = cross.iter().map(|v| v * v).sum::<f32>().sqrt();
+    cross.map(|v| v / length)
 }
 fn height([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
     let cross = |a: [f32; 2], b: [f32; 2]| a[0] * b[1] - a[1] * b[0];
