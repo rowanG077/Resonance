@@ -546,7 +546,7 @@ impl GameWorld {
             }
             let column = match emitter {
                 Emitter::Cardinal(cardinal) => {
-                    if effect_tick % 2 == 0 {
+                    if effect_tick.is_multiple_of(2) {
                         cardinal.particles(
                             id,
                             actor.position,
