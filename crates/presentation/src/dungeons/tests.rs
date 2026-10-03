@@ -688,16 +688,40 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
             .sorcerers_ring = ring;
         let player = field.events.world.controlled_actor;
         let actor = field.events.world.actors.get_mut(&player).unwrap();
-        actor.position = [center[0] + 150., center[1], 0.];
-        actor.face(270.);
+        if target == 100 {
+            actor.position = [center[0], center[1] - 300., 0.];
+            // Approach from the front, through the cup's invisible talk marker.
+            // A side-only shot misses that marker and cannot catch interception.
+            for _ in 0..30 {
+                let camera = field.events.world.field_camera.as_ref().unwrap();
+                let angle = (-(camera.target[0] - camera.position[0])
+                    .atan2(camera.target[1] - camera.position[1])
+                    .to_degrees())
+                .trunc()
+                .to_radians();
+                field.step(FieldInput {
+                    direction: [angle.sin(), angle.cos()],
+                    ..Default::default()
+                })?;
+            }
+        } else {
+            actor.position = [center[0] + 150., center[1], 0.];
+            actor.face(270.);
+        }
         field.step(FieldInput {
             alternate: true,
             ..Default::default()
         })?;
-        advance_until(&mut field, |field| {
-            field.events.world.event_flags.contains(&flag) && field.player_has_control()
-        })
-        .with_context(|| format!("ring {ring:?} did not activate Thoda target {target}"))?;
+        for _ in 0..600 {
+            field.step(FieldInput::default())?;
+            if field.events.world.event_flags.contains(&flag) && field.player_has_control() {
+                break;
+            }
+        }
+        assert!(
+            field.events.world.event_flags.contains(&flag) && field.player_has_control(),
+            "ring {ring:?} did not activate Thoda target {target}"
+        );
     }
     Ok(())
 }

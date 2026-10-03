@@ -848,6 +848,9 @@ fn invisible_interaction_actors_remain_ring_targets_while_ordinary_locators_do_n
     let code = script(&[
         (Call::CreateSceneActor, &[1, 0, 0, 0, 0, 24, 0, 0]),
         (Call::SpawnInteractionActor, &[2, 0, 0, 0, 0, 24, 0, 0]),
+        (Call::SpawnActor, &[3, 0, 0, 0, 0, 24, 0, 0]),
+        (Call::SpawnActor, &[4, 0, 0, 0, 0, 24, 0, 0]),
+        (Call::SetActorProperty, &[4, 48, 0]),
     ]);
     let resources = ResourceLibrary {
         locators: [24].into(),
@@ -859,6 +862,9 @@ fn invisible_interaction_actors_remain_ring_targets_while_ordinary_locators_do_n
     assert!(!ordinary.projectile_target());
     assert!(interaction.projectile_target());
     assert_eq!(interaction.role, ActorRole::Interaction);
+    assert_eq!(events.world.actors[&3].properties[&48], 1);
+    assert!(!events.world.actors[&3].projectile_target());
+    assert!(events.world.actors[&4].projectile_target());
 }
 
 #[test]
