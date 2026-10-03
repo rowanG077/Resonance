@@ -748,13 +748,6 @@ impl<'a> Voice<'a> {
             phase == self.pending_end,
             "music block must be mixed before preparing the next block"
         );
-        let pitch_envelope = self.pitch_envelope.as_mut().map_or(0, |(envelope, depth)| {
-            (i32::from(*depth)
-                * i32::from(
-                    envelope.next_gain_at((self.frame + self.block_phase).is_multiple_of(160)),
-                ))
-                >> 7
-        });
         if self.frame.is_multiple_of(32) {
             // Resuming a macro wakes both scheduled controls.
             let woke = if let Some(woke) = self.prepared_woke.take() {
@@ -774,6 +767,9 @@ impl<'a> Voice<'a> {
             if now - self.last_pitch_ms >= 15 || pitch_dirty || woke {
                 let delta = now - self.last_pitch_ms;
                 self.last_pitch_ms = now;
+                let pitch_envelope = self.pitch_envelope.as_mut().map_or(0, |(envelope, depth)| {
+                    (i32::from(*depth) * i32::from(envelope.advance_pitch())) >> 7
+                });
                 for pan in &mut self.pan {
                     pan.advance(delta);
                 }
