@@ -208,8 +208,6 @@ impl<'a> Envelope<'a> {
         (old >> 16, delta)
     }
 
-    /// Native fn_80145988 advances fifteen control steps per pitch job and
-    /// reads currentVolume afterward, without the DSP's per-sample gain ramp.
     pub(crate) fn advance_pitch(&mut self) -> u16 {
         for _ in 0..15 {
             if self.is_done() {

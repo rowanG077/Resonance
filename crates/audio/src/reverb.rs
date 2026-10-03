@@ -99,7 +99,6 @@ impl Studio {
             3 => [0.3, 0.6, 4.0, 0.4, 0.08],
             _ => [1.0, 0.5, 1.0, 0.8, 0.01],
         };
-        // fn_800A1DD8 / fn_800A1E74 / fn_800A1F0C replace the sound reverb.
         if self.sound_parameters != parameters {
             self.effects[1] = StandardReverb::new(parameters)?;
             self.sound_parameters = parameters;

@@ -87,6 +87,13 @@ impl Control {
             .pool
             .owns(lease)
     }
+    pub(super) fn current(&self, lease: Lease) -> bool {
+        self.0
+            .lock()
+            .expect("synthesizer control lock poisoned")
+            .pool
+            .current(lease)
+    }
     pub(super) fn handle(&self, lease: Lease) -> u32 {
         self.0
             .lock()
