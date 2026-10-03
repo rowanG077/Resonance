@@ -393,6 +393,57 @@ fn palmacosta_post_boss_exit_runs_the_ranch_destruction() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
+    use resonance_events::{Autonomy, Behavior};
+    for (map, start_y, target_y, boundary) in
+        [(194, 625., 900., 675.5), (196, 1950., 2280., 2099.74)]
+    {
+        let mut field = enter(5, map, None)?;
+        advance_until(&mut field, FieldSession::player_has_control)?;
+        let id = *field
+            .events
+            .world
+            .actors
+            .iter()
+            .find(|(_, actor)| actor.enemy.is_some())
+            .context("Iselia field enemy")?
+            .0;
+        let start = [224., start_y, 0.];
+        let target = [224., target_y, 0.];
+        let configure = |actor: &mut resonance_events::Actor| {
+            actor.position = start;
+            actor.face(180.);
+            actor.motion = None;
+            actor.autonomy = Some(Autonomy::new(Behavior::FollowPath, 4., start));
+            actor.path.count = 1;
+            actor.path.next = 0;
+            actor.path.points[0] = target;
+        };
+        configure(field.events.world.actors.get_mut(&id).unwrap());
+        for _ in 0..150 {
+            field.step(FieldInput::default())?;
+        }
+        let stopped = field.events.world.actors[&id].position;
+        assert!(
+            stopped[1] > start[1] && stopped[1] < boundary,
+            "map {map}: enemy crossed the authored doorway boundary: {stopped:?}"
+        );
+        let actor = field.events.world.actors.get_mut(&id).unwrap();
+        actor.enemy = None;
+        configure(actor);
+        for _ in 0..150 {
+            field.step(FieldInput::default())?;
+        }
+        assert!(
+            field.events.world.actors[&id].position[1] > target_y - 10.,
+            "ordinary actors must retain access to the doorway"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn iselia_damage_spheres_keep_moving() -> Result<()> {
     for (map, first, count) in [(194, 3021, 8), (196, 3301, 13)] {
         let mut field = enter(5, map, None)?;

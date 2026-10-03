@@ -93,6 +93,7 @@ pub struct CollisionGroup {
 pub enum CollisionQuery {
     All = 0,
     Player = 1 << 19,
+    Enemy = (1 << 19) | (1 << 20),
     Block = 1 << 21,
 }
 
