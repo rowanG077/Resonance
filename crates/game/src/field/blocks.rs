@@ -7,7 +7,6 @@ const GRIP_DISTANCE: f32 = 125.;
 const CELL: f32 = 150.;
 const STEP: f32 = 3.;
 const MOVE_UPDATES: u8 = 50;
-// fn_8006F648 latches a direction above 60 on the native 80-unit stick range.
 const STICK_THRESHOLD: f32 = 60. / 80.;
 const BLEND_UPDATES: u32 = 2;
 const HOLD_CLIP: u16 = ServiceMotion::HoldBlock as u16;
@@ -69,13 +68,19 @@ struct Grip {
     phase: Phase,
 }
 #[derive(Default)]
-pub(super) struct Blocks(Option<Grip>);
+pub(super) struct Blocks {
+    grip: Option<Grip>,
+    falling: std::collections::BTreeMap<i32, u64>,
+}
 impl Blocks {
+    pub fn settle(&mut self, world: &mut GameWorld, mesh: &WalkMesh) {
+        mesh.settle_scenery(world, self.moving(), &mut self.falling);
+    }
     pub fn active(&self) -> bool {
-        self.0.is_some()
+        self.grip.is_some()
     }
     pub fn moving(&self) -> Option<i32> {
-        self.0
+        self.grip
             .as_ref()
             .filter(|g| matches!(g.phase, Phase::Moving { .. }))
             .map(|g| g.block)
@@ -108,14 +113,14 @@ impl Blocks {
             (slot, duration)
         });
         let world = &mut events.world;
-        if self.0.is_none() {
+        if self.grip.is_none() {
             if !world.input_enabled || world.mapped_input_disabled || !input.interact {
                 return;
             }
             let Some(id) = Self::target(world) else {
                 return;
             };
-            if !mesh.block_supported(world, id) {
+            if self.falling.contains_key(&id) || !mesh.block_supported(world, id) {
                 return;
             }
             let block = &world.actors[&id];
@@ -131,7 +136,7 @@ impl Blocks {
             }
             player.face(facing.heading());
             player.motion = None;
-            self.0 = Some(Grip {
+            self.grip = Some(Grip {
                 block: id,
                 instance,
                 player: world.controlled_actor,
@@ -143,7 +148,7 @@ impl Blocks {
             world.input_enabled = false;
             return;
         }
-        let grip = self.0.as_mut().unwrap();
+        let grip = self.grip.as_mut().unwrap();
         let valid = world.controlled_actor == grip.player
             && world
                 .actors
@@ -157,6 +162,7 @@ impl Blocks {
             || (matches!(grip.phase, Phase::Holding)
                 && (!world.input.held.contains(Button::Accept)
                     || world.mapped_input_disabled
+                    || self.falling.contains_key(&grip.block)
                     || !mesh.block_supported(world, grip.block)));
         if release {
             if let Some(player) = world
@@ -166,7 +172,7 @@ impl Blocks {
             {
                 player.scripted_animation = false;
             }
-            self.0 = None;
+            self.grip = None;
             world.grabbed_block = None;
             world.input_enabled = true;
             return;
@@ -214,7 +220,6 @@ impl Blocks {
                 }
             }
         }
-        // fn_80020658/80020348 finish the whole cell even if Accept is released.
         if let Phase::Moving {
             delta,
             remaining,
@@ -293,6 +298,38 @@ mod tests {
         let mut block = Actor::new(2, [0.; 3]);
         block.role = ActorRole::Pushable;
         block.radius = 50.;
+        let cube = CollisionGroup {
+            surface: 0,
+            vertices: [0., CELL]
+                .into_iter()
+                .flat_map(|z| {
+                    [
+                        [-75., -75., z],
+                        [75., -75., z],
+                        [-75., 75., z],
+                        [75., 75., z],
+                    ]
+                })
+                .collect(),
+            triangles: vec![
+                [0, 2, 3],
+                [3, 1, 0],
+                [4, 5, 7],
+                [7, 6, 4],
+                [0, 1, 5],
+                [5, 4, 0],
+                [1, 3, 7],
+                [7, 5, 1],
+                [3, 2, 6],
+                [6, 7, 3],
+                [2, 0, 4],
+                [4, 6, 2],
+            ],
+        };
+        block.model_collision = Some(Arc::new(ModelCollision {
+            floors: vec![cube.clone()],
+            solids: vec![cube],
+        }));
         events.world.insert_actor(2, block);
         (events, floor(1000.), Blocks::default())
     }
@@ -456,16 +493,9 @@ mod tests {
     #[test]
     fn blocks_cannot_be_pushed_into_each_other() {
         let (mut events, mesh, mut blocks) = room();
-        let mut obstacle = Actor::new(3, [0., -150., 0.]);
-        obstacle.role = ActorRole::Pushable;
-        obstacle.radius = 50.;
+        let mut obstacle = events.world.actors[&2].clone();
+        obstacle.position = [0., -150., 0.];
         events.world.insert_actor(3, obstacle);
-        let mut upper = Actor::new(4, [0., 0., 150.]);
-        upper.role = ActorRole::Pushable;
-        upper.radius = 50.;
-        events.world.insert_actor(4, upper);
-        mesh.settle_scenery(&mut events.world, None);
-        assert_eq!(events.world.actors[&4].position[2], 150.);
         step(
             &mut events,
             &mesh,
@@ -479,6 +509,129 @@ mod tests {
             step(&mut events, &mesh, &mut blocks, held([0., -1.]));
         }
         assert_eq!(events.world.actors[&2].position, [0., 0., 0.]);
+        events.world.actors.get_mut(&3).unwrap().model_collision = None;
+        for _ in 0..50 {
+            step(&mut events, &mesh, &mut blocks, held([0., -1.]));
+        }
+        assert_eq!(events.world.actors[&2].position, [0., -150., 0.]);
+    }
+
+    #[test]
+    fn model_support_overrides_pit_planes_but_disabled_collision_does_not() {
+        for plane in [149., 150., 151.] {
+            let (mut events, _, mut blocks) = room();
+            let mesh = WalkMesh::new(&[CollisionGroup {
+                surface: (1 << 19) | (1 << 22),
+                vertices: vec![
+                    [-100., -100., plane],
+                    [100., -100., plane],
+                    [0., 100., plane],
+                ],
+                triangles: vec![[0, 1, 2]],
+            }])
+            .unwrap();
+            let lower = events.world.actors.get_mut(&2).unwrap();
+            lower.properties.insert(19, 0);
+            let mut upper = lower.clone();
+            upper.properties.insert(19, 1);
+            upper.position[2] = 149.;
+            events.world.insert_actor(3, upper);
+            blocks.settle(&mut events.world, &mesh);
+            assert_eq!(events.world.actors[&3].position[2], plane.max(150.));
+            assert!(mesh.block_supported(&events.world, 3));
+            events.world.actors.get_mut(&2).unwrap().model_collision = None;
+            events.world.actors.get_mut(&3).unwrap().position[2] = plane;
+            assert!(!mesh.block_supported(&events.world, 3));
+            blocks.settle(&mut events.world, &mesh);
+            assert_eq!(events.world.actors[&3].position[2], plane - 9.);
+        }
+    }
+
+    #[test]
+    fn falling_blocks_keep_the_landing_dip_and_ignore_model_undersides() {
+        let (mut events, mesh, mut blocks) = room();
+        events.world.actors.get_mut(&2).unwrap().position[2] = 70.;
+        for z in [61., 52., 43., 34., 25., 16., 7., -2., 0.] {
+            blocks.settle(&mut events.world, &mesh);
+            assert_eq!(events.world.actors[&2].position[2], z);
+            if z == 52. {
+                step(
+                    &mut events,
+                    &mesh,
+                    &mut blocks,
+                    FieldInput {
+                        interact: true,
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(events.world.grabbed_block, None);
+            }
+        }
+        let mut ceiling = events.world.actors[&2].clone();
+        ceiling.position[2] = 50.;
+        ceiling.properties.insert(19, 0);
+        events.world.insert_actor(3, ceiling);
+        events.world.actors.get_mut(&2).unwrap().position[2] = 5.;
+        blocks.settle(&mut events.world, &mesh);
+        assert_eq!(events.world.actors[&2].position[2], 0.);
+    }
+
+    #[test]
+    #[ignore = "requires locally cooked fields; no devices"]
+    fn martel_block_stays_on_a_filled_pit_after_pushing() -> anyhow::Result<()> {
+        let root = std::env::var_os("RESONANCE_WORLD_ASSETS")
+            .ok_or_else(|| anyhow::anyhow!("set RESONANCE_WORLD_ASSETS"))?;
+        let field: resonance_content::field::FieldAssets = serde_json::from_slice(&std::fs::read(
+            std::path::Path::new(&root).join("fields/map-308.json"),
+        )?)?;
+        let collision = Arc::new(
+            field
+                .actors
+                .iter()
+                .find(|a| a.resource == 267)
+                .unwrap()
+                .collision
+                .clone(),
+        );
+        assert!(!collision.floors.is_empty());
+        assert!(!collision.solids.is_empty());
+        let mesh = WalkMesh::new(&field.ground)?;
+        let (mut events, _, mut blocks) = room();
+        let z = mesh.height([-1190., -1375., -800.], 10.).unwrap();
+        let block = events.world.actors.get_mut(&2).unwrap();
+        block.position = [-1190., -1375., z];
+        block.model_collision = Some(collision.clone());
+        let player = events.world.actors.get_mut(&1).unwrap();
+        player.position = [-1065., -1375., z];
+        player.face(270.);
+        // Original map 308 places actor 5001 here after filling the west pit.
+        let mut filled = Actor::new(267, [-1340., -1375., -949.]);
+        filled.model_collision = Some(collision);
+        events.world.insert_actor(5001, filled);
+        step(
+            &mut events,
+            &mesh,
+            &mut blocks,
+            FieldInput {
+                interact: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(events.world.grabbed_block, Some(2));
+        for _ in 0..50 {
+            blocks.settle(&mut events.world, &mesh);
+            step(&mut events, &mesh, &mut blocks, held([-1., 0.]));
+        }
+        assert_eq!(events.world.actors[&2].position[..2], [-1340., -1375.]);
+        for _ in 0..60 {
+            blocks.settle(&mut events.world, &mesh);
+            let z = events.world.actors[&2].position[2];
+            assert!(
+                (z + 799.).abs() < 0.01,
+                "block sank into the filled pit: {z}"
+            );
+        }
+        Ok(())
     }
     #[test]
     fn pause_or_replaced_block_releases_the_grip() {

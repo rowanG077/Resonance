@@ -519,8 +519,7 @@ impl FieldSession {
         if !talking {
             self.ring.step(&mut self.events, input.alternate)?;
         }
-        self.walkmesh
-            .settle_scenery(&mut self.events.world, self.blocks.moving());
+        self.blocks.settle(&mut self.events.world, &self.walkmesh);
         self.blocks.step(
             &mut self.events,
             &self.walkmesh,
