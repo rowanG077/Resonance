@@ -460,6 +460,12 @@ mod tests {
         obstacle.role = ActorRole::Pushable;
         obstacle.radius = 50.;
         events.world.insert_actor(3, obstacle);
+        let mut upper = Actor::new(4, [0., 0., 150.]);
+        upper.role = ActorRole::Pushable;
+        upper.radius = 50.;
+        events.world.insert_actor(4, upper);
+        mesh.settle_scenery(&mut events.world, None);
+        assert_eq!(events.world.actors[&4].position[2], 150.);
         step(
             &mut events,
             &mesh,
