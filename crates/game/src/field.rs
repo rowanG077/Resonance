@@ -560,7 +560,7 @@ impl FieldSession {
             .filter(|(_, a)| {
                 a.visible && a.collidable && a.contact == resonance_events::ActorContact::Cylinder
             })
-            .map(|(&id, a)| (id, a.position))
+            .map(|(&id, a)| (id, a.position, a.radius))
             .collect();
         let conversation_facing = &mut self.conversation_facing;
         let mut action = None;
@@ -698,24 +698,26 @@ impl FieldSession {
                 if actor.grounded && actor.resource < SCENERY_RESOURCE_BASE && actor.resource != 24
                 {
                     if id != controlled_actor
+                        && !event_paused
                         && actor.collidable
-                        && actor.motion.is_none()
-                        && actor.autonomy.is_some_and(|a| {
-                            a.activity == resonance_events::Activity::Walk && !a.conversing
-                        })
+                        && actor.contact == resonance_events::ActorContact::Cylinder
                     {
-                        const BODY_SEPARATION: f32 = 35.;
-                        const BODY_HEIGHT: f32 = 60.;
-                        for &(other, position) in &obstacles {
+                        // fn_80024284 uses the same authored radii and height
+                        // for NPC and player contact. A smaller NPC boundary
+                        // can put the player inside an inescapable overlap.
+                        // fn_8001A6FC bypasses contact during mapped-input pause.
+                        for &(other, position, radius) in &obstacles {
                             let position = resolved.get(&other).copied().unwrap_or(position);
-                            if other == id || (previous[2] - position[2]).abs() >= BODY_HEIGHT {
+                            if other == id
+                                || (actor.position[2] - position[2]).abs() > ACTOR_CONTACT_HEIGHT
+                            {
                                 continue;
                             }
                             let mut candidate = previous;
                             for axis in 0..2 {
                                 candidate[axis] = actor.position[axis];
                                 if (candidate[0] - position[0]).hypot(candidate[1] - position[1])
-                                    < BODY_SEPARATION
+                                    < actor.radius + radius
                                 {
                                     actor.position[axis] = previous[axis];
                                     candidate[axis] = previous[axis];
@@ -1620,6 +1622,93 @@ mod tests {
         session.events.world.mapped_input_disabled = false;
         session.step(input).unwrap();
         assert_eq!(session.events.world.actors[&player].position, [16., 0., 0.]);
+    }
+
+    #[test]
+    fn moving_npcs_stop_at_authored_body_radii_without_trapping_the_player() {
+        for (player_radius, npc_radius, height, collidable, movement, paused) in [
+            (42., 42., 0., true, 0, false),
+            (20., 70., 0., true, 0, false),
+            (42., 42., 100., true, 0, false),
+            (42., 42., 151., true, 0, false),
+            (42., 42., 0., true, 1, false),
+            (42., 42., 0., true, 2, false),
+            (42., 42., 0., false, 2, false),
+            (42., 42., 0., true, 2, true),
+        ] {
+            let mut session = choice_session();
+            session.events = EventRuntime::new(
+                Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
+                Arc::new(ResourceLibrary::default()),
+            )
+            .unwrap();
+            session.walkmesh = navigation::WalkMesh::new(&[0., height].map(|z| {
+                resonance_content::field::CollisionGroup {
+                    surface: 0,
+                    vertices: vec![[-500., -500., z], [500., -500., z], [0., 500., z]],
+                    triangles: vec![[0, 1, 2]],
+                }
+            }))
+            .unwrap();
+            let player_id = session.events.world.controlled_actor;
+            let mut player = Actor::new(1, [0.; 3]);
+            player.radius = player_radius;
+            session.events.world.insert_actor(player_id, player);
+            let mut npc = Actor::new(14, [0., 140., height]);
+            npc.radius = npc_radius;
+            npc.collidable = collidable;
+            let mut autonomy = resonance_events::Autonomy::new(
+                resonance_events::Behavior::Wander,
+                2.,
+                npc.position,
+            );
+            autonomy.activity = resonance_events::Activity::Walk;
+            autonomy.initialized = true;
+            autonomy.remaining = 1000;
+            if movement == 2 {
+                npc.motion = Some(resonance_events::ActorMotion {
+                    target: [0., -400., height],
+                    speed: 2.,
+                });
+            } else {
+                if movement == 1 {
+                    autonomy.behavior = resonance_events::Behavior::FollowPath;
+                    npc.path.count = 1;
+                    npc.path.points[0] = [0., -400., height];
+                }
+                npc.autonomy = Some(autonomy);
+            }
+            session.events.world.insert_actor(304, npc);
+            session.events.world.input_enabled = true;
+            session.events.world.mapped_input_disabled = paused;
+            for _ in 0..90 {
+                session.step(FieldInput::default()).unwrap();
+            }
+            let npc = &session.events.world.actors[&304];
+            if height <= ACTOR_CONTACT_HEIGHT && collidable && !paused {
+                assert!(
+                    npc.position[1] >= player_radius + npc_radius,
+                    "NPC penetrated the player: {:?}",
+                    npc.position
+                );
+                assert!(npc.position[1] < player_radius + npc_radius + 2.);
+            } else {
+                assert!(
+                    npc.position[1] < 0.,
+                    "disabled, paused, or vertically separate collision must not block the NPC"
+                );
+            }
+            session
+                .step(FieldInput {
+                    direction: [1., 0.],
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(
+                session.events.world.actors[&player_id].position[0],
+                if paused { 0. } else { 4. }
+            );
+        }
     }
 
     #[test]
