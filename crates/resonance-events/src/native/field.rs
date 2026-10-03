@@ -1310,6 +1310,11 @@ impl NativeHost<'_> {
                 actor.visible = !locator;
                 actor.interaction_anchor = locator;
                 actor.properties.insert(17, if locator { 0 } else { 2 });
+                if locator && op == NativeCall::SpawnActor {
+                    // fn_80059838 disables ring contact on model24 locators.
+                    // Puzzle targets explicitly clear property48 to receive shots.
+                    actor.properties.insert(48, 1);
+                }
                 if op != NativeCall::SpawnActor {
                     // Scenery carries its own collision
                     // mesh and bypasses character grounding, shadows and culling.
