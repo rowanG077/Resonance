@@ -289,13 +289,6 @@ impl Menu {
             self.main_fade = 231 - MAIN_SLIDE_STEP;
         } else if self.page == Page::Equip {
             self.equipment = equipment::Equipment::opening();
-        } else if self.page == Page::Customize {
-            self.customize = customize::Customize {
-                transition: Transition::opening(),
-                preview_shown: 1,
-                draft: self.party().settings.preferences.clone(),
-                ..Default::default()
-            };
         }
     }
     pub fn main_animating(&self) -> bool {
