@@ -229,19 +229,44 @@ impl WalkMesh {
         &self,
         actors: impl Iterator<Item = &'a resonance_events::Actor>,
     ) -> Self {
-        let model_floors = actors
-            .filter_map(|actor| actor.model_collision.as_ref().map(|mesh| (actor, mesh)))
-            .flat_map(|(actor, mesh)| {
-                mesh.floors.iter().flat_map(move |group| {
-                    group.triangles.iter().map(move |triangle| {
+        let mut model_floors = Vec::new();
+        for actor in actors {
+            if let Some(mesh) = actor.model_collision.as_ref() {
+                for group in &mesh.floors {
+                    model_floors.extend(group.triangles.iter().map(|triangle| {
                         (
                             triangle.map(|i| actor.collision_point(group.vertices[usize::from(i)])),
                             group.surface,
                         )
-                    })
-                })
-            })
-            .collect();
+                    }));
+                }
+                if !mesh.floors.is_empty() {
+                    continue;
+                }
+            }
+            if actor.pushable() {
+                let [x, y, z] = actor.position;
+                let half = BLOCK_CELL / 2.;
+                model_floors.extend([
+                    (
+                        [
+                            [x - half, y - half, z + BLOCK_CELL],
+                            [x + half, y - half, z + BLOCK_CELL],
+                            [x + half, y + half, z + BLOCK_CELL],
+                        ],
+                        0,
+                    ),
+                    (
+                        [
+                            [x - half, y - half, z + BLOCK_CELL],
+                            [x + half, y + half, z + BLOCK_CELL],
+                            [x - half, y + half, z + BLOCK_CELL],
+                        ],
+                        0,
+                    ),
+                ]);
+            }
+        }
         Self {
             triangles: self.triangles.clone(),
             model_floors,
