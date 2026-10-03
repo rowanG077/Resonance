@@ -705,6 +705,55 @@ fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn triet_memory_circle_replaces_sealed_geometry_when_unlocked() -> Result<()> {
+    let mut field = enter(1, 220, None)?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    let point = &field.events.world.save_points[0];
+    let id = point.actor;
+    let flag = point.unlock_flag.context("sealed circle flag")?;
+    let check = |field: &FieldSession, hidden: &str| {
+        let actor = &field.events.world.actors[&id];
+        let names = &field
+            .events
+            .resources()
+            .model(actor.resource)
+            .unwrap()
+            .names;
+        assert_eq!(names[0], "HID_Seel");
+        assert_eq!(names[5], "LIVE_Cylinder01");
+        for (node, name) in names.iter().enumerate() {
+            assert_eq!(
+                actor.appearance.hidden_nodes.contains(&(node as u16)),
+                name.starts_with(hidden),
+                "{name} visibility with {hidden} hidden"
+            );
+        }
+    };
+    check(&field, "LIVE_");
+    assert_eq!(
+        field.events.world.actors[&id]
+            .animation
+            .as_ref()
+            .unwrap()
+            .rate,
+        0.
+    );
+    field.events.world.event_flags.insert(flag);
+    field.step(FieldInput::default())?;
+    check(&field, "HID_");
+    assert!(
+        field.events.world.actors[&id]
+            .animation
+            .as_ref()
+            .unwrap()
+            .rate
+            > 0.
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn seal_motes_keep_rising_and_fading_after_the_emitter_is_removed() -> Result<()> {
     for (destination, map, emitter) in [(1, 221, 2000), (3, 510, 1023)] {
         let mut field = enter(destination, map, None)?;

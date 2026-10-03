@@ -113,7 +113,7 @@ impl SavePoints {
         if self.busy(events) || Self::suspended(&events.world) {
             return Ok(());
         }
-        let world = &mut events.world;
+        let world = &events.world;
         let Some(player) = world
             .actors
             .get(&world.controlled_actor)
@@ -121,20 +121,37 @@ impl SavePoints {
         else {
             return Ok(());
         };
-        for index in 0..world.save_points.len() {
-            let point = &mut world.save_points[index];
-            if !point.is_open(&world.event_flags) {
+        for index in 0..events.world.save_points.len() {
+            let point = &events.world.save_points[index];
+            if !point.is_open(&events.world.event_flags) {
                 continue;
             }
+            let hidden_nodes = point.unlock_flag.and_then(|_| {
+                events.resources().model(point.resource).map(|model| {
+                    model
+                        .names
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, name)| name.starts_with("HID_"))
+                        .map(|(i, _)| i as u16)
+                        .collect()
+                })
+            });
+            let world = &mut events.world;
+            let point = &mut world.save_points[index];
             if point.unlock_flag.take().is_some()
-                && let Some(animation) = world
-                    .actors
-                    .get_mut(&point.actor)
-                    .and_then(|a| a.animation.as_mut())
-                && animation.rate == 0.
+                && let Some(actor) = world.actors.get_mut(&point.actor)
             {
-                animation.phase_tick = world.tick;
-                animation.rate = IDLE_RATE;
+                // fn_8000E39C replaces the sealed model before its live glow starts.
+                if let Some(hidden_nodes) = hidden_nodes {
+                    actor.appearance.hidden_nodes = hidden_nodes;
+                }
+                if let Some(animation) = actor.animation.as_mut()
+                    && animation.rate == 0.
+                {
+                    animation.phase_tick = world.tick;
+                    animation.rate = IDLE_RATE;
+                }
             }
             let active =
                 world.event_flags.contains(&TUTORIAL_SEEN) && within_reach(player, point.position);
