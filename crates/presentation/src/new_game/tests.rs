@@ -901,7 +901,7 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
             let ready = field.dialogue.values().any(|page| {
                 !page.closed && !page.persistent && page.fully_revealed() && page.voice_finished()
             });
-            let in_menu = field.menu.is_some() || field.shop.is_some();
+            let in_menu = field.menu_is_open();
             field
                 .step(if tick % 30 == 10 {
                     FieldInput {

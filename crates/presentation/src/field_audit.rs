@@ -67,7 +67,7 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
     applied.expected = expected(&state.get().events.world, |resource| {
         art.models.get(&resource).map_or(1, Vec::len)
     });
-    if state.get().menu.is_some() || state.get().shop.is_some() {
+    if state.get().menu_is_open() {
         applied.expected.insert(Request::Menu);
     }
     if state.get().active_skit.is_some() {

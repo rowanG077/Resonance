@@ -10,8 +10,8 @@ use resonance_events::{Operation, party::Party};
 use std::sync::Arc;
 
 pub const VISIBLE_ITEMS: usize = 7;
-const SLIDE_STEP: u8 = 25;
-const OPENING_FADE: u8 = 231;
+pub(super) const SLIDE_STEP: u8 = 25;
+pub(super) const OPENING_FADE: u8 = 231;
 const REGAL: u8 = 8;
 const PERSONAL: u8 = 50;
 
@@ -488,39 +488,33 @@ impl Shop {
                 }
                 let old = self.row;
                 if self.focus == Focus::Items && (page_up || page_down) {
-                    if page_down {
-                        if self.first + VISIBLE_ITEMS < self.rows.len() {
-                            self.first += VISIBLE_ITEMS;
-                            self.row = (self.row + VISIBLE_ITEMS).min(self.rows.len() - 1);
-                        } else {
-                            self.row = self.rows.len() - 1;
-                        }
+                    let delta = if page_down {
+                        VISIBLE_ITEMS as isize
                     } else {
-                        let first = self.first.saturating_sub(VISIBLE_ITEMS);
-                        self.row = if self.first == 0 {
-                            0
-                        } else {
-                            self.row - (self.first - first)
-                        };
-                        self.first = first;
-                    }
+                        -(VISIBLE_ITEMS as isize)
+                    };
+                    crate::menu::move_list(
+                        &mut self.row,
+                        &mut self.first,
+                        self.rows.len(),
+                        VISIBLE_ITEMS,
+                        delta,
+                    );
                     return Ok((old != self.row).then_some(Page));
                 }
                 if up && old == 0 && self.choice == Choice::Sell && self.focus == Focus::Items {
                     self.focus = Focus::Categories;
                     return Ok(Some(Navigate));
                 }
-                let shift = i32::from(down) - i32::from(up);
-                self.row = (old as i32 + shift).clamp(0, self.rows.len() as i32 - 1) as usize;
+                let shift = isize::from(down) - isize::from(up);
+                self.scroll = crate::menu::move_list(
+                    &mut self.row,
+                    &mut self.first,
+                    self.rows.len(),
+                    VISIBLE_ITEMS,
+                    shift,
+                );
                 if self.row != old {
-                    let first = self.first;
-                    self.first = self
-                        .first
-                        .min(self.row)
-                        .max(self.row.saturating_sub(VISIBLE_ITEMS - 1));
-                    if first != self.first {
-                        self.scroll = if self.first > first { 1 } else { -1 };
-                    }
                     return Ok(Some(Navigate));
                 }
             }

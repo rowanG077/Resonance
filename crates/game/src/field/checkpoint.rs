@@ -28,7 +28,7 @@ impl FieldSession {
             "quicksave unavailable during skit playback"
         );
         ensure!(
-            self.menu.is_none() && self.shop.is_none() && self.events.world.menu_request.is_none(),
+            !self.menu_is_open() && self.events.world.menu_request.is_none(),
             "quicksave unavailable while a menu is open"
         );
         let world = &self.events.world;

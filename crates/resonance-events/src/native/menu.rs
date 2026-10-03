@@ -21,6 +21,12 @@ impl NativeHost<'_> {
                 "shop is not cooked",
             )?;
         }
+        if let crate::menu::Target::Crafting(id) = target {
+            require(
+                data.crafting.vendors.get(usize::from(id)).is_some(),
+                "crafting vendor is not cooked",
+            )?;
+        }
         let operation = self.world.operations.begin()?;
         *self.wait = Some(Wait::Menu(operation.clone()));
         self.world.menu_request = Some(crate::menu::Request { target, operation });

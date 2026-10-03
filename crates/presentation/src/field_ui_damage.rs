@@ -43,7 +43,7 @@ impl Artwork {
         commands: &mut Commands,
         meshes: &mut Assets<Mesh>,
     ) -> Result<()> {
-        if session.active_skit.is_some() || session.menu.is_some() || session.shop.is_some() {
+        if session.active_skit.is_some() || session.menu_is_open() {
             return Ok(());
         }
         let world = &session.events.world;

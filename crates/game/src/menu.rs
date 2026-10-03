@@ -43,6 +43,28 @@ pub(crate) fn fade_description(fade: &mut u8, changed: bool) -> u8 {
     opacity
 }
 
+/// Move a selection and keep it visible. Page jumps move the window together.
+pub(crate) fn move_list(
+    row: &mut usize,
+    first: &mut usize,
+    len: usize,
+    visible: usize,
+    delta: isize,
+) -> i8 {
+    if len == 0 {
+        return 0;
+    }
+    let old = *first;
+    *row = row.saturating_add_signed(delta).min(len - 1);
+    if delta.unsigned_abs() >= visible {
+        *first = first
+            .saturating_add_signed(delta)
+            .min(len.saturating_sub(visible));
+    }
+    *first = (*first).min(*row).max(row.saturating_sub(visible - 1));
+    i8::from(*first > old) - i8::from(*first < old)
+}
+
 /// A submenu's slide is independent of the retained Main-menu backdrop.
 #[derive(Debug, Default, serde::Serialize)]
 pub struct Transition {

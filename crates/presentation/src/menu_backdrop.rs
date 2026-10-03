@@ -127,7 +127,7 @@ fn sync(
         .or_else(|| state.live.as_ref().map(|s| &s.field));
     let identity = field.map(|f| (f.map_id, f.events.tick()));
     // Closing has one fully transparent pose before field simulation resumes.
-    let held = field.is_some_and(|f| f.menu.is_some() || f.shop.is_some())
+    let held = field.is_some_and(|f| f.menu_is_open())
         || backdrop.held && identity.is_some() && identity == backdrop.field;
     // Submit the transparent quad during preparation, then only draw it for menus.
     let warming = field.is_some() && resident.is_some_and(|r| !r.active.load(Ordering::Acquire));
