@@ -66,19 +66,10 @@ pub(crate) fn rotation(matrix: Affine3A) -> Quat {
 enum Adjustment {
     Rotate(Quat),
     Scale(Vec3),
-    Translate(Vec3),
 }
 impl Adjustment {
     fn apply(self, pose: Pose) -> Pose {
         match (self, pose) {
-            (Self::Translate(delta), Pose::Trs(mut value)) => {
-                value.translation += delta;
-                value.into()
-            }
-            (Self::Translate(delta), Pose::Affine(mut matrix)) => {
-                matrix.translation += bevy::math::Vec3A::from(delta);
-                Pose::Affine(matrix)
-            }
             (Self::Rotate(delta), Pose::Trs(mut value)) => {
                 value.rotation *= delta;
                 value.into()
@@ -97,13 +88,20 @@ pub(crate) struct Locals {
     poses: BTreeMap<Entity, (Affine3A, Transform)>,
     worlds: BTreeMap<Entity, GlobalTransform>,
     adjustments: BTreeMap<Entity, Vec<Adjustment>>,
+    /// fn_8006CEB0 runs translation controllers after the whole bone hierarchy is
+    /// composed. Zero entries prevent a child bone inheriting its parent's
+    /// offset; geometry children still follow their owning bone.
+    translations: BTreeMap<Entity, Vec3>,
 }
 impl Locals {
     /// Native dynamics and outline copying can write a world matrix even when
     /// an ancestor has zero scale. No local matrix can represent that result.
     pub fn set_world(&mut self, entity: Entity, pose: GlobalTransform) {
         assert!(pose.affine().is_finite(), "nonfinite native world pose");
-        self.worlds.insert(entity, pose);
+        let mut matrix = pose.affine();
+        matrix.translation -=
+            bevy::math::Vec3A::from(self.translations.get(&entity).copied().unwrap_or_default());
+        self.worlds.insert(entity, matrix.into());
     }
 
     pub fn get(&self, entity: Entity, transform: Transform) -> Pose {
@@ -143,8 +141,12 @@ impl Locals {
     pub fn scale(&mut self, entity: Entity, transform: &mut Transform, scale: Vec3) {
         self.adjust(entity, transform, Adjustment::Scale(scale));
     }
-    pub fn translate(&mut self, entity: Entity, transform: &mut Transform, delta: Vec3) {
-        self.adjust(entity, transform, Adjustment::Translate(delta));
+    pub fn translation_boundary(&mut self, entity: Entity) {
+        self.translations.entry(entity).or_default();
+    }
+
+    pub fn translate(&mut self, entity: Entity, delta: Vec3) {
+        *self.translations.entry(entity).or_default() += delta;
     }
 }
 
@@ -176,6 +178,28 @@ impl Helper<'_, '_> {
         self.affine.as_ref()?.worlds.get(&entity).copied()
     }
 
+    pub fn has_world_translation(&self, entity: Entity) -> bool {
+        self.affine
+            .as_ref()
+            .is_some_and(|affine| affine.translations.contains_key(&entity))
+    }
+
+    fn translated(&self, entity: Entity, pose: GlobalTransform) -> GlobalTransform {
+        let Some(affine) = self
+            .affine
+            .as_ref()
+            .filter(|affine| !affine.translations.is_empty())
+        else {
+            return pose;
+        };
+        let offset = std::iter::once(entity)
+            .chain(self.parents.iter_ancestors(entity))
+            .find_map(|entity| affine.translations.get(&entity));
+        let mut matrix = pose.affine();
+        matrix.translation += bevy::math::Vec3A::from(offset.copied().unwrap_or_default());
+        matrix.into()
+    }
+
     pub fn adjusted(
         &self,
         entity: Entity,
@@ -199,16 +223,16 @@ impl Helper<'_, '_> {
         entity: Entity,
     ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
         if let Some(pose) = self.world_override(entity) {
-            return Ok(pose);
+            return Ok(self.translated(entity, pose));
         }
         let mut pose = self.local(entity)?.global();
         for parent in self.parents.iter_ancestors(entity) {
             if let Some(world) = self.world_override(parent) {
-                return Ok(world * pose);
+                return Ok(self.translated(entity, world * pose));
             }
             pose = self.local(parent)?.global() * pose;
         }
-        Ok(pose)
+        Ok(self.translated(entity, pose))
     }
 
     pub fn global_with(
@@ -225,18 +249,18 @@ impl Helper<'_, '_> {
         if !locals.contains_key(&entity)
             && let Some(world) = self.world_override(entity)
         {
-            return Ok(world);
+            return Ok(self.translated(entity, world));
         }
         let mut world = local(entity)?.global();
         for parent in self.parents.iter_ancestors(entity) {
             if !locals.contains_key(&parent)
                 && let Some(pose) = self.world_override(parent)
             {
-                return Ok(pose * world);
+                return Ok(self.translated(entity, pose * world));
             }
             world = local(parent)?.global() * world;
         }
-        Ok(world)
+        Ok(self.translated(entity, world))
     }
 
     pub fn has_affine_with(&self, entity: Entity, locals: &BTreeMap<Entity, Pose>) -> bool {
@@ -270,9 +294,11 @@ pub(super) fn install(app: &mut App) {
 fn clear(mut affine: ResMut<Locals>, mut transforms: Query<&mut Transform>) {
     affine.adjustments.clear();
     let worlds = std::mem::take(&mut affine.worlds);
+    let translations = std::mem::take(&mut affine.translations);
     for entity in std::mem::take(&mut affine.poses)
         .into_keys()
         .chain(worlds.into_keys())
+        .chain(translations.into_keys())
     {
         if let Ok(mut transform) = transforms.get_mut(entity) {
             // A dropped matrix clip must restore ordinary descendant globals too.
@@ -288,7 +314,12 @@ fn propagate(
     mut globals: Query<&mut GlobalTransform>,
 ) {
     let mut seen = BTreeSet::new();
-    for &root in affine.poses.keys().chain(affine.worlds.keys()) {
+    for &root in affine
+        .poses
+        .keys()
+        .chain(affine.worlds.keys())
+        .chain(affine.translations.keys())
+    {
         for entity in std::iter::once(root).chain(children.iter_descendants(root)) {
             if seen.insert(entity) {
                 let pose = helper
@@ -310,6 +341,188 @@ mod tests {
 
     #[derive(Resource)]
     struct Playback(Option<f32>);
+
+    #[test]
+    fn platform_and_child_effect_receive_independent_world_translations() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = App::new();
+        app.add_plugins(bevy::transform::TransformPlugin);
+        install(&mut app);
+        let root = app.world_mut().spawn(Transform::IDENTITY).id();
+        let platform = app
+            .world_mut()
+            .spawn((Transform::IDENTITY, ChildOf(root)))
+            .id();
+        let effect = app
+            .world_mut()
+            .spawn((Transform::from_xyz(0., 0., 20.), ChildOf(platform)))
+            .id();
+        let child = app
+            .world_mut()
+            .spawn((Transform::from_xyz(0., 0., 30.), ChildOf(effect)))
+            .id();
+        let mesh = app
+            .world_mut()
+            .spawn((Transform::IDENTITY, ChildOf(effect)))
+            .id();
+        app.add_systems(
+            Update,
+            move |mut affine: ResMut<Locals>, mut once: Local<bool>| {
+                if *once {
+                    return;
+                }
+                *once = true;
+                for bone in [platform, effect, child] {
+                    affine.translation_boundary(bone);
+                }
+                for entity in [platform, effect] {
+                    affine.translate(entity, Vec3::new(0., 0., 600.));
+                }
+            },
+        );
+        app.update();
+        for (entity, z) in [(platform, 600.), (effect, 620.), (child, 50.), (mesh, 620.)] {
+            assert_eq!(
+                app.world()
+                    .get::<GlobalTransform>(entity)
+                    .unwrap()
+                    .translation()
+                    .z,
+                z
+            );
+        }
+        app.world_mut()
+            .run_system_once(move |helper: Helper| {
+                assert_eq!(
+                    helper
+                        .compute_global_transform(effect)
+                        .unwrap()
+                        .translation()
+                        .z,
+                    620.
+                );
+                assert_eq!(
+                    helper
+                        .global_with(effect, &BTreeMap::new())
+                        .unwrap()
+                        .translation()
+                        .z,
+                    620.
+                );
+            })
+            .unwrap();
+        let driven = GlobalTransform::from_translation(Vec3::new(10., 20., 900.));
+        app.world_mut()
+            .resource_mut::<Locals>()
+            .set_world(effect, driven);
+        app.world_mut()
+            .run_system_once(move |helper: Helper| {
+                assert_eq!(helper.compute_global_transform(effect).unwrap(), driven);
+                assert_eq!(helper.compute_global_transform(mesh).unwrap(), driven);
+                assert_eq!(
+                    helper.global_with(effect, &BTreeMap::new()).unwrap(),
+                    driven
+                );
+            })
+            .unwrap();
+        // Controllers do not modify local poses, and releasing them restores
+        // ordinary propagation even when the local transforms stay unchanged.
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<GlobalTransform>(effect)
+                .unwrap()
+                .translation()
+                .z,
+            20.
+        );
+    }
+
+    #[test]
+    #[ignore = "requires locally cooked Thoda scenery; no devices"]
+    fn thoda_platform_and_teleporter_bones_rise_by_the_same_amount() -> anyhow::Result<()> {
+        use resonance_content::{animation::Skeleton, field::FieldAssets};
+        let root = std::path::PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
+        let field: FieldAssets =
+            serde_json::from_slice(&std::fs::read(root.join("fields/map-9.json"))?)?;
+        let skeleton = Skeleton::from_glb(&std::fs::read(root.join(&field.parts[0].mesh))?)?;
+        // Original AQU_D03 C3 calls at bytes 0x2a96, 0x2adc and 0x2b22
+        // translate these three nodes upward by 600 over 180 updates.
+        let targets = ["aqu_d03_base00", "aqu_d03_po00", "aqu_d03_po01"]
+            .map(|name| skeleton.bone(name).unwrap());
+        assert_eq!(skeleton.bones[targets[1] as usize].parent, Some(targets[0]));
+        assert_eq!(skeleton.bones[targets[2] as usize].parent, Some(targets[0]));
+        let mut app = App::new();
+        app.add_plugins(bevy::transform::TransformPlugin);
+        install(&mut app);
+        let actor = app
+            .world_mut()
+            .spawn(
+                Transform::from_rotation(Quat::from_rotation_x(0.5))
+                    .with_scale(Vec3::new(2., 3., 4.)),
+            )
+            .id();
+        let mut entities = Vec::new();
+        for bone in &skeleton.bones {
+            let bind = bone.bind;
+            let parent = bone.parent.map_or(actor, |i| entities[i as usize]);
+            entities.push(
+                app.world_mut()
+                    .spawn((
+                        Transform {
+                            translation: Vec3::from_array(bind.translation),
+                            rotation: Quat::from_array(bind.rotation),
+                            scale: Vec3::from_array(bind.scale),
+                        },
+                        ChildOf(parent),
+                    ))
+                    .id(),
+            );
+        }
+        app.update();
+        let before: Vec<_> = entities
+            .iter()
+            .map(|e| *app.world().get::<GlobalTransform>(*e).unwrap())
+            .collect();
+        let nodes = entities.clone();
+        app.insert_resource(Playback(None)).add_systems(
+            Update,
+            move |frame: Res<Playback>, mut affine: ResMut<Locals>| {
+                for &node in &nodes {
+                    affine.translation_boundary(node);
+                }
+                for target in targets {
+                    affine.translate(
+                        nodes[target as usize],
+                        Vec3::Z * frame.0.unwrap_or_default(),
+                    );
+                }
+            },
+        );
+        for height in [600. / 180., 300., 600.] {
+            app.world_mut().resource_mut::<Playback>().0 = Some(height);
+            app.update();
+            for (i, &entity) in entities.iter().enumerate() {
+                let expected = before[i].translation()
+                    + if targets.contains(&(i as u16)) {
+                        Vec3::Z * height
+                    } else {
+                        Vec3::ZERO
+                    };
+                let actual = app
+                    .world()
+                    .get::<GlobalTransform>(entity)
+                    .unwrap()
+                    .translation();
+                assert!(
+                    actual.distance(expected) < 0.001,
+                    "{}: {actual:?} != {expected:?}",
+                    skeleton.bones[i].name
+                );
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn native_world_pose_survives_collapsed_parent_and_restores_after_release() {
