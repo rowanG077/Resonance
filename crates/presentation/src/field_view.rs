@@ -128,6 +128,7 @@ impl Plugin for FieldRendering {
                 PostUpdate,
                 (
                     super::field_animation::blend,
+                    super::field_animation::face_camera,
                     super::field_pose::bones,
                     super::secondary_motion::apply,
                     super::field_pose::attachments,

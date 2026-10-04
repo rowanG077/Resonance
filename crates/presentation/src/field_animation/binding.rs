@@ -11,6 +11,7 @@ pub(crate) struct PoseUpdate {
 }
 
 impl Rig {
+    #[allow(clippy::too_many_arguments)] // Replay uses the same model, clock and camera as its draw.
     pub(super) fn replay_bindings(
         &mut self,
         root: Entity,
@@ -19,6 +20,7 @@ impl Rig {
         clips: &Assets<Clip>,
         actor: &resonance_events::Actor,
         tick: u32,
+        camera: Quat,
     ) -> Result<()> {
         for binding in &actor.animation_bindings.updates {
             let mut poses: Vec<_> = self
@@ -74,6 +76,9 @@ impl Rig {
             let mut transforms: Vec<_> = self.bones.iter().map(|(_, rest)| *rest).collect();
             for (i, pose) in poses.iter().enumerate() {
                 affine.set(self.bones[i].0, &mut transforms[i], pose.pose);
+                if self.camera_facing.contains(&self.bones[i].0) {
+                    affine.face_camera(self.bones[i].0, &mut transforms[i], camera);
+                }
             }
             for adjustment in binding.adjustments.values() {
                 let index = match &adjustment.bone {
@@ -170,8 +175,17 @@ mod tests {
                 })
                 .into(),
         };
-        rig.replay_bindings(root, &spec, &handles, &clips, &actor, 1)
-            .unwrap();
+        rig.camera_facing.push(bone);
+        rig.replay_bindings(
+            root,
+            &spec,
+            &handles,
+            &clips,
+            &actor,
+            1,
+            Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+        )
+        .unwrap();
         let origins: Vec<_> = rig
             .bindings
             .iter()
@@ -182,6 +196,16 @@ mod tests {
             })
             .collect();
         assert_eq!(origins, [120., 230.]);
+        for binding in &rig.bindings {
+            assert!(
+                binding.locals[&bone]
+                    .global()
+                    .affine()
+                    .transform_vector3(Vec3::Y)
+                    .distance(Vec3::Z)
+                    < 0.0001
+            );
+        }
         assert_eq!(rig.presented[0].pose, rest.into());
         assert_eq!(rig.from[0].pose.global().translation().x, 20.);
     }

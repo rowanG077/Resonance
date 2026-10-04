@@ -64,12 +64,21 @@ pub(crate) fn rotation(matrix: Affine3A) -> Quat {
 
 #[derive(Clone, Copy)]
 enum Adjustment {
+    FaceCamera(Quat),
     Rotate(Quat),
     Scale(Vec3),
 }
 impl Adjustment {
     fn apply(self, pose: Pose) -> Pose {
         match (self, pose) {
+            (Self::FaceCamera(camera), Pose::Trs(mut value)) => {
+                value.rotation = camera * value.rotation;
+                value.into()
+            }
+            (Self::FaceCamera(camera), Pose::Affine(mut matrix)) => {
+                matrix.matrix3 = bevy::math::Mat3A::from_quat(camera) * matrix.matrix3;
+                Pose::Affine(matrix)
+            }
             (Self::Rotate(delta), Pose::Trs(mut value)) => {
                 value.rotation *= delta;
                 value.into()
@@ -88,9 +97,6 @@ pub(crate) struct Locals {
     poses: BTreeMap<Entity, (Affine3A, Transform)>,
     worlds: BTreeMap<Entity, GlobalTransform>,
     adjustments: BTreeMap<Entity, Vec<Adjustment>>,
-    /// fn_8006CEB0 runs translation controllers after the whole bone hierarchy is
-    /// composed. Zero entries prevent a child bone inheriting its parent's
-    /// offset; geometry children still follow their owning bone.
     translations: BTreeMap<Entity, Vec3>,
 }
 impl Locals {
@@ -136,6 +142,10 @@ impl Locals {
 
     pub fn rotate(&mut self, entity: Entity, transform: &mut Transform, delta: Quat) {
         self.adjust(entity, transform, Adjustment::Rotate(delta));
+    }
+
+    pub fn face_camera(&mut self, entity: Entity, transform: &mut Transform, camera: Quat) {
+        self.adjust(entity, transform, Adjustment::FaceCamera(camera));
     }
 
     pub fn scale(&mut self, entity: Entity, transform: &mut Transform, scale: Vec3) {
@@ -278,7 +288,7 @@ impl Helper<'_, '_> {
     }
 }
 
-pub(super) fn install(app: &mut App) {
+pub(crate) fn install(app: &mut App) {
     app.init_resource::<Locals>()
         .add_systems(PreUpdate, clear)
         .add_systems(

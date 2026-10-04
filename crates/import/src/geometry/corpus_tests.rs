@@ -3,6 +3,33 @@ use crate::{all_assets::physical_scene, cooked::Source};
 use anyhow::{Context, Result, ensure};
 
 #[test]
+#[ignore = "requires original Mana scenery; no devices"]
+fn mana_flame_nodes_retain_native_camera_facing_flags() -> Result<()> {
+    let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+    for disc in [1, 2] {
+        let archive = crate::field::MapArchive::open(
+            &local.join(format!("disc{disc}/files/MAP/lig_d01.bin")),
+        )?;
+        let sections = crate::field::sections(&archive.bytes)?;
+        let section = &archive.bytes[sections[2].clone().context("flame layer")?];
+        let source = section_source(section)?;
+        let model = source.model.context("flame skeleton")?;
+        assert_eq!(model.nodes.len(), 20);
+        assert!(model.nodes.iter().all(|node| node.flags == 0x100));
+        let geometry = decode_section(
+            section,
+            TextureSource::Local {
+                catalogue: "lamps/palettes/textures.json".into(),
+            },
+        )?;
+        for node in &geometry.gltf["nodes"].as_array().unwrap()[..20] {
+            assert_eq!(node["extras"]["resonance_camera_facing"], true);
+        }
+    }
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires both original discs and frozen cook-all scenes; no texture or audio conversion"]
 fn original_physical_scenes_match_frozen_meshes_and_materials() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");

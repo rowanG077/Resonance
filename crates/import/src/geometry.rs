@@ -32,6 +32,21 @@ pub struct ModelNodeInfo {
     pub translation: [f32; 3],
     pub rotation: [f32; 4],
     pub scale: [f32; 3],
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub camera_facing: bool,
+}
+
+impl ModelNodeInfo {
+    fn gltf_node(&self, index: usize) -> serde_json::Value {
+        let mut node = json!({
+            "name": self.name, "translation": self.translation, "rotation": self.rotation,
+            "scale": self.scale, "children": [], "extras": {"resonance_bone": index}
+        });
+        if self.camera_facing {
+            node["extras"]["resonance_camera_facing"] = json!(true);
+        }
+        node
+    }
 }
 
 /// For a nonzero stage count, start with vertex color and apply the operations
@@ -314,12 +329,7 @@ pub(crate) fn compare_field_layer(
     let mut original = bones
         .iter()
         .enumerate()
-        .map(|(index, bone)| {
-            json!({
-                "name":bone.name,"translation":bone.translation,"rotation":bone.rotation,
-                "scale":bone.scale,"children":[],"extras":{"resonance_bone":index}
-            })
-        })
+        .map(|(index, bone)| bone.gltf_node(index))
         .collect::<Vec<_>>();
     ensure!(
         part.bone_names
@@ -330,6 +340,10 @@ pub(crate) fn compare_field_layer(
         "field bone names differ from source"
     );
     for (index, parent) in parents.iter().enumerate() {
+        ensure!(
+            nodes[index]["extras"] == original[index]["extras"],
+            "field bone {index}/flags differ"
+        );
         ensure!(
             nodes[index]["name"] == original[index]["name"],
             "field bone {index}/name differs"
@@ -750,12 +764,7 @@ fn decode_geometry(
     let mut nodes: Vec<serde_json::Value> = model_nodes
         .iter()
         .enumerate()
-        .map(|(index, n)| {
-            json!({
-                "name": n.name, "translation": n.translation, "rotation": n.rotation,
-                "scale": n.scale, "children": [], "extras": {"resonance_bone": index}
-            })
-        })
+        .map(|(index, n)| n.gltf_node(index))
         .collect();
     let parents = model.map(model_parents).unwrap_or_default();
     for (child, parent) in parents.iter().enumerate() {
@@ -1973,6 +1982,7 @@ pub(crate) fn model_node_info(blob: &Model) -> Vec<ModelNodeInfo> {
                 translation,
                 rotation,
                 scale,
+                camera_facing: node.flags >> 8 != 0,
             }
         })
         .collect()
@@ -1981,6 +1991,25 @@ pub(crate) fn model_node_info(blob: &Model) -> Vec<ModelNodeInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn camera_facing_uses_the_model_flags_high_byte() {
+        for flags in [0u16, 0xff, 0x100, 0x8000, 0xffff] {
+            let mut bytes = vec![0; 60];
+            bytes[..4].copy_from_slice(&0x007b7960_u32.to_be_bytes());
+            bytes[6..8].copy_from_slice(&1_u16.to_be_bytes());
+            bytes[12..16].copy_from_slice(&32_u32.to_be_bytes());
+            bytes[20..22].copy_from_slice(&u16::MAX.to_be_bytes());
+            bytes[52..54].copy_from_slice(&u16::MAX.to_be_bytes());
+            bytes[58..60].copy_from_slice(&flags.to_be_bytes());
+            let model = Model::parse(&bytes).unwrap();
+            let decoded =
+                decode_geometry(&[], Some(&model), vec![], TextureSource::Caller).unwrap();
+            let extras = &decoded.gltf["nodes"][0]["extras"];
+            assert_eq!(extras["resonance_bone"], 0);
+            assert_eq!(extras["resonance_camera_facing"] == true, flags >> 8 != 0);
+        }
+    }
 
     #[test]
     fn physical_scene_keeps_material_recipes_attributes_and_empty_draw_hierarchy() {
