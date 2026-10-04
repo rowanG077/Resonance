@@ -510,6 +510,9 @@ fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
         let start = [224., start_y, 0.];
         let target = [224., target_y, 0.];
         let configure = |actor: &mut resonance_events::Actor| {
+            // Probe floor access independently of body contact. Another guard
+            // occupies this path in map 196 and now correctly blocks the probe.
+            actor.collidable = false;
             actor.position = start;
             actor.face(180.);
             actor.motion = None;
