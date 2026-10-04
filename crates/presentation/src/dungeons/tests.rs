@@ -3,6 +3,8 @@
 mod crafting;
 #[path = "fog_tests.rs"]
 mod fog;
+#[path = "iselia_tests.rs"]
+mod iselia;
 use super::{destinations::Fixture, new_game};
 use anyhow::{Context, Result};
 use resonance_game::field::{FieldInput, FieldSession};
@@ -825,22 +827,6 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
             .travel
             .opened_treasures
             .contains(&157)
-    );
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires locally cooked fields; no devices"]
-fn iselia_forcystus_scene_has_four_valid_reactor_party_members() -> Result<()> {
-    let mut field = enter(5, 197, Some(20_305_000))?;
-    advance_until(&mut field, |f| f.events.world.battle_request.is_some())?;
-    for id in [1, 2, 3, 4] {
-        assert!(field.events.world.actors.contains_key(&id));
-    }
-    assert_eq!(
-        replay(&mut field, |f| f.player_has_control()
-            && f.story_progress().unwrap() == 20_307_000)?,
-        1
     );
     Ok(())
 }
