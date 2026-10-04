@@ -39,9 +39,10 @@ pub(crate) struct Destination {
 #[derive(Clone, Copy)]
 enum Progress {
     MartelEntrance,
+    ForestArrival,
     Story(i32),
     AfterSalvation(i32),
-    AfterFireSeal(Mission, i32),
+    Pilgrimage(Mission, i32),
     IseliaInfiltration(i32),
     Reunited(i32),
 }
@@ -85,21 +86,21 @@ impl Fixture {
                 7,
                 [21., 67., 0.],
                 188.,
-                AfterFireSeal(Mission::Thoda, 12_000),
+                Pilgrimage(Mission::Thoda, 12_000),
             ),
             Self::AirSeal => (
                 "BALACRUF MAUSOLEUM - START",
                 508,
                 [8., 222., 0.],
                 180.,
-                AfterFireSeal(Mission::Balacruf, 11_000),
+                Pilgrimage(Mission::Balacruf, 11_000),
             ),
             Self::Mana => (
                 "TOWER OF MANA - START",
                 362,
                 [-9., -46., -3.],
                 180.,
-                AfterFireSeal(Mission::Mana, 1000),
+                Pilgrimage(Mission::Mana, 1000),
             ),
             Self::Iselia => (
                 "ISELIA HUMAN RANCH - START",
@@ -113,14 +114,14 @@ impl Fixture {
                 201,
                 [10., -498., 0.],
                 180.,
-                AfterFireSeal(Mission::Palmacosta, 1200),
+                Pilgrimage(Mission::Palmacosta, 1200),
             ),
             Self::Asgard => (
                 "ASGARD HUMAN RANCH - START",
                 213,
                 [285., -218., 49.],
                 270.,
-                AfterFireSeal(Mission::Asgard, 3010),
+                Pilgrimage(Mission::Asgard, 3010),
             ),
             Self::GuardEntrance => (
                 "SYLVARANT BASE - START",
@@ -189,7 +190,7 @@ pub(super) const DESTINATIONS: &[Destination] = &[
         192,
         [-1905., -4960., -2000.],
         187.,
-        Progress::Story(104_000),
+        Progress::ForestArrival,
     ),
     Destination::new(
         "ISELIA FOREST - END",
@@ -243,14 +244,14 @@ pub(super) const DESTINATIONS: &[Destination] = &[
     Fixture::WaterSeal
         .destination()
         .at("THODA GEYSER - BEFORE SEAL", 9, [-2555., -811., 0.], 180.)
-        .progress(Progress::AfterFireSeal(Mission::Thoda, 13_000))
+        .progress(Progress::Pilgrimage(Mission::Thoda, 13_000))
         .solved(THODA_WATERWAYS)
         .ring(SorcerersRing::Water),
     Fixture::Palmacosta.destination(),
     Fixture::Palmacosta
         .destination()
         .at("PALMACOSTA HUMAN RANCH - END", 206, [0., 500., 0.], 180.)
-        .progress(Progress::AfterFireSeal(Mission::Palmacosta, 4100))
+        .progress(Progress::Pilgrimage(Mission::Palmacosta, 4100))
         .ring(SorcerersRing::Radar),
     Fixture::AirSeal.destination(),
     Fixture::AirSeal
@@ -261,16 +262,16 @@ pub(super) const DESTINATIONS: &[Destination] = &[
             [11., 1530., 60.],
             180.,
         )
-        .progress(Progress::AfterFireSeal(Mission::Balacruf, 12_000))
+        .progress(Progress::Pilgrimage(Mission::Balacruf, 12_000))
         .solved(BALACRUF_WIND),
     Fixture::Asgard
         .destination()
         .at("ASGARD HUMAN RANCH - START", 211, [-14., -344., 0.], 180.)
-        .progress(Progress::AfterFireSeal(Mission::Asgard, 3000)),
+        .progress(Progress::Pilgrimage(Mission::Asgard, 3000)),
     Fixture::Asgard
         .destination()
         .at("ASGARD HUMAN RANCH - END", 214, [0., 700., 0.], 180.)
-        .progress(Progress::AfterFireSeal(Mission::Asgard, 5000))
+        .progress(Progress::Pilgrimage(Mission::Asgard, 5000))
         .solved(ASGARD_BLOCKS),
     Fixture::Mana.destination(),
     Fixture::Mana
@@ -281,7 +282,7 @@ pub(super) const DESTINATIONS: &[Destination] = &[
             [-652., 2321., 913.],
             270.,
         )
-        .progress(Progress::AfterFireSeal(Mission::Mana, 13_600))
+        .progress(Progress::Pilgrimage(Mission::Mana, 13_600))
         .solved(MANA_BRIDGES)
         .variables(MANA_MIRRORS),
     Destination::new(
@@ -397,6 +398,12 @@ impl Destination {
                 104_000
             }
             Progress::Story(story) => story,
+            Progress::ForestArrival => {
+                let party = persistent.party.as_mut().unwrap();
+                party.formation = vec![1, 3];
+                party.travel.saved_formation = party.formation.clone();
+                202_500
+            }
             Progress::Reunited(story) => {
                 let party = persistent.party.as_mut().unwrap();
                 party.formation = vec![1, 2, 3, 4, 5, 6, 7, 8];
@@ -408,9 +415,19 @@ impl Destination {
                 persistent.memory.write(ANGEL_PROGRESS, Width::S32, 1000)?;
                 story
             }
-            Progress::AfterFireSeal(mission, value) => {
-                // Later seals require Colette's first angel progression branch.
-                persistent.memory.write(ANGEL_PROGRESS, Width::S32, 1)?;
+            Progress::Pilgrimage(mission, value) => {
+                const FIRE_SEAL: u16 = 200;
+                const WATER_SEAL: u16 = 201;
+                const WIND_SEAL: u16 = 202;
+                let (angel_progress, seals) = match mission {
+                    Mission::Balacruf => (101, &[FIRE_SEAL, WATER_SEAL][..]),
+                    Mission::Mana => (201, &[FIRE_SEAL, WATER_SEAL, WIND_SEAL][..]),
+                    _ => (1, &[FIRE_SEAL][..]),
+                };
+                persistent.event_flags.extend(seals);
+                persistent
+                    .memory
+                    .write(ANGEL_PROGRESS, Width::S32, angel_progress)?;
                 persistent.memory.write(mission as u16, Width::S32, value)?;
                 if matches!(mission, Mission::Asgard) {
                     // Asgard's scenes rebuild both three-person groups from

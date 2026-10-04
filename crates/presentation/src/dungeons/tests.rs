@@ -66,6 +66,15 @@ fn location_menu_checkpoints_are_playable() -> Result<()> {
                 if field.events.world.field_transition.is_some() {
                     field = follow_transition(&field)?;
                 } else {
+                    anyhow::ensure!(
+                        field
+                            .events
+                            .world
+                            .fade
+                            .as_ref()
+                            .is_none_or(|fade| fade.alpha(field.events.tick()) == 0.),
+                        "checkpoint returned control behind a fade"
+                    );
                     return Ok(());
                 }
             }
@@ -179,6 +188,23 @@ fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()
                 Ok(f.events.world.battle_request.is_some())
             })
             .with_context(|| format!("{} final encounter", destination.name))?;
+            skip_battle(&mut boss)?;
+            advance_until(&mut boss, FieldSession::player_has_control)
+                .with_context(|| format!("{} seal scene", destination.name))?;
+            let (flag, angel) = match final_room {
+                221 => (200, 1),
+                10 => (201, 1),
+                510 => (202, 101),
+                369 => (203, 201),
+                _ => unreachable!(),
+            };
+            assert!(boss.events.world.event_flags.contains(&flag));
+            assert_eq!(
+                boss.events
+                    .memory()
+                    .read(0x4c, symphonia_script::Width::S32)?,
+                angel
+            );
         }
     }
     Ok(())
