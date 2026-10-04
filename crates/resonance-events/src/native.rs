@@ -1171,6 +1171,28 @@ impl NativeHost<'_> {
                         .ok_or("invalid coordinate register")?,
                 )
             }
+            NativeCall::ReadActorLocalOffset => {
+                require(
+                    a[0] == 3000 && a[6..].iter().all(|v| *v == 0),
+                    "unsupported local coordinate space",
+                )?;
+                let id = if a[1] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[1]
+                };
+                let actor = self
+                    .world
+                    .actors
+                    .get(&id)
+                    .ok_or("offset actor is missing")?;
+                let (sin, cos) = (actor.heading + a[2] as f32).to_radians().sin_cos();
+                self.registers[..3].copy_from_slice(&[
+                    (actor.position[0] + cos * a[3] as f32 - sin * a[4] as f32) as i32,
+                    (actor.position[1] + sin * a[3] as f32 + cos * a[4] as f32) as i32,
+                    (actor.position[2] + a[5] as f32) as i32,
+                ]);
+            }
             NativeCall::ReadActorOffset => {
                 const ACTOR_OFFSET: i32 = 2000;
                 if a[0] == ACTOR_OFFSET {

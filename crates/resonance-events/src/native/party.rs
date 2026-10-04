@@ -8,7 +8,7 @@ impl NativeHost<'_> {
         &mut self,
         op: NativeCall,
         a: &[i32],
-        _memory: &mut Memory,
+        memory: &mut Memory,
     ) -> Result<NativeResult, String> {
         let data = self
             .resources
@@ -33,6 +33,62 @@ impl NativeHost<'_> {
             Ok(id as usize - 1)
         };
         match op {
+            NativeCall::ConfigureExGem => {
+                let index = member()?;
+                let slot = usize::try_from(a[1])
+                    .ok()
+                    .filter(|&slot| slot < 4)
+                    .ok_or("invalid EX gem slot")?;
+                require((-1..=5).contains(&a[2]), "invalid EX gem level")?;
+                let member = &mut party.members[index];
+                self.registers[0] = i32::from(member.ex_gems[slot]);
+                self.registers[1] = i32::from(member.ex_skills[slot]);
+                if a[2] != -1 {
+                    member.ex_gems[slot] = a[2] as u8;
+                    member.ex_skills[slot] = 0;
+                }
+                if a[3] == 0 {
+                    member.ex_skills[slot] = 0;
+                } else if a[3] != -1 {
+                    let skill = u8::try_from(a[3]).map_err(|_| "invalid EX skill")?;
+                    if party.members[index].ex_skills[slot] != skill {
+                        require(
+                            party.set_ex_skill(data, index, slot, skill)?,
+                            "EX skill does not match gem",
+                        )?;
+                    }
+                }
+                party.members[index].clamp_vitals();
+            }
+            NativeCall::SetCharacterName => {
+                let index = member()?;
+                let message = self
+                    .resources
+                    .messages
+                    .get(a[1] as usize)
+                    .ok_or("character name message is missing")?;
+                let resolved = crate::dialogue::resolve(
+                    message,
+                    memory,
+                    &self.resources.names(Some(party)),
+                    &self.resources.text,
+                    controlled_actor,
+                )?;
+                let mut name = String::new();
+                for token in resolved.tokens {
+                    let crate::dialogue::TextToken::Text { text } = token else {
+                        return Err("character name contains a dialogue control".into());
+                    };
+                    name.push_str(&text);
+                }
+                require(
+                    !name.is_empty()
+                        && name.chars().count() <= 12
+                        && !name.chars().any(char::is_control),
+                    "invalid character name",
+                )?;
+                party.members[index].name = Some(name);
+            }
             NativeCall::SetCharacterCostume => {
                 let id = if a[0] == crate::CONTROLLED_ACTOR {
                     controlled_actor

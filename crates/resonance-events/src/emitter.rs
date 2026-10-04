@@ -32,6 +32,10 @@ enum Kind {
     Gathering {
         delay: i32,
     },
+    Charge {
+        palette: i32,
+        radius: i32,
+    },
     Scatter {
         palette: i32,
         size: i32,
@@ -42,6 +46,7 @@ enum Kind {
         mote_life: i32,
     },
     Travel {
+        sprite: u16,
         palette: i32,
         size: i32,
         burst_size: i32,
@@ -63,6 +68,7 @@ enum Kind {
         expands: bool,
     },
     Contract {
+        target: Option<[f32; 3]>,
         palette: i32,
         radius: i32,
         life: i32,
@@ -95,6 +101,11 @@ enum Kind {
 }
 
 impl Emitter {
+    pub(crate) fn aim_at(&mut self, position: [f32; 3]) {
+        if let Kind::Contract { target, .. } = &mut self.kind {
+            *target = Some(position);
+        }
+    }
     pub(crate) fn camera_offset(&self) -> Option<f32> {
         if let Kind::Stream(stream) = &self.kind {
             stream.camera_offset()
@@ -131,6 +142,7 @@ impl Emitter {
                     stream.particles(
                         owner,
                         center,
+                        camera,
                         &actor.properties,
                         actor.blend,
                         born,
@@ -142,6 +154,7 @@ impl Emitter {
                 }
             }
             Kind::Travel {
+                sprite,
                 palette: color,
                 size,
                 burst_size,
@@ -169,6 +182,7 @@ impl Emitter {
                 actor.position = std::array::from_fn(|i| start[i] + delta[i] * t);
                 actor.position[2] += distance * *curvature * t * (1. - t);
                 let mut glow = particle(actor.position, born, *color as u16, 30);
+                glow.recipe = *sprite;
                 glow.size = [*size as f32; 2];
                 glow.fade = Fade::Linear(*fade as f32);
                 out.push(glow);
@@ -234,6 +248,22 @@ impl Emitter {
                     stage = DONE;
                 }
             }
+            Kind::Charge {
+                palette: color,
+                radius,
+            } => {
+                if stage < 2 && *radius > 0 {
+                    let mut glow = particle(center, born, *color as u16, 1);
+                    glow.owner = Some(owner);
+                    glow.size = [*radius as f32 * 2.; 2];
+                    glow.rgba[3] = 160;
+                    out.push(glow.clone());
+                    glow.recipe = crate::effect::ELECTRIC_ARC_SPRITE;
+                    glow.size = [*radius as f32 * 3.; 2];
+                    glow.rotation[2] = crate::world::random_unit(random) * 360.;
+                    out.push(glow);
+                }
+            }
             Kind::Scatter {
                 palette: color,
                 size,
@@ -242,7 +272,7 @@ impl Emitter {
                 mote_variation,
                 life,
                 mote_life,
-            } => {
+            } if stage != 1 && tick.is_multiple_of(6) => {
                 const SCATTER: u8 = 0;
                 const ORBIT: u8 = 2;
                 for (image, size, variation, life) in [
@@ -254,10 +284,15 @@ impl Emitter {
                         *mote_life,
                     ),
                 ] {
-                    let mut p = particle(center, born, *color as u16, life.max(1) as u32);
+                    let mut p = particle(center, born, *color as u16, life.clamp(1, 180) as u32);
+                    p.owner = Some(owner);
                     p.recipe = image;
-                    p.size = [size as f32; 2];
-                    p.rgba[3] = 150;
+                    p.size = [size as f32 * 0.5; 2];
+                    p.rgba[3] = 64;
+                    p.fade = Fade::Proportional {
+                        after: 0,
+                        lifetime: p.lifetime,
+                    };
                     p.velocity[2] = if stage == SCATTER { 0. } else { 0.8 };
                     p.blend_mode = actor.blend.map(|b| b as u8);
                     if stage == ORBIT {
@@ -275,7 +310,7 @@ impl Emitter {
                         count: 1,
                         spread: 0.,
                         speed: speed / 10.,
-                        size_variation: variation as f32,
+                        size_variation: variation as f32 * 0.5,
                     }
                     .emit(random, out);
                 }
@@ -329,6 +364,7 @@ impl Emitter {
                             (*radius as f32 / speed).max(1.) as u32,
                         );
                         mote.owner = Some(owner);
+                        mote.recipe = crate::effect::ORB_SPRITE;
                         mote.size = [*size as f32; 2];
                         mote.blend_mode = (*blend == 1).then_some(0);
                         let mut orbit = Orbit::new(
@@ -392,6 +428,7 @@ impl Emitter {
                 out.push(glow);
             }
             Kind::Contract {
+                target,
                 palette: color,
                 radius,
                 life,
@@ -403,6 +440,7 @@ impl Emitter {
                 fade,
                 growth,
             } => {
+                let radius_initial = *radius as f32;
                 const CONTRACT: u8 = 0;
                 const WAIT: u8 = 1;
                 const EXPAND: u8 = 2;
@@ -420,14 +458,22 @@ impl Emitter {
                         p.fade = Fade::Linear(*fade as f32);
                         out.push(p);
                     }
-                    actor.position[2] += speed;
+                    let start = *self.origin.get_or_insert(center);
+                    if let Some(target) = target {
+                        let progress = 1. - radius / radius_initial.max(1.);
+                        actor.position =
+                            std::array::from_fn(|i| start[i] + (target[i] - start[i]) * progress);
+                    } else {
+                        actor.position[2] += speed;
+                    }
                     if radius == 0. {
                         stage = WAIT;
                     }
                 } else if stage == EXPAND {
-                    let mut p = particle(center, born, *color as u16, BURST_LIFETIME);
-                    p.recipe = crate::effect::STATION_GLOW_SPRITE;
-                    p.size_delta = *growth as f32;
+                    let mut p = particle(center, born, *color as u16, 30);
+                    p.size = [*width as f32; 2];
+                    p.rgba[3] = 96;
+                    p.size_delta = *growth as f32 / 4.;
                     out.push(p);
                     stage = DONE;
                 }
@@ -507,7 +553,7 @@ impl Emitter {
                     };
                 }
             }
-            Kind::Cardinal { .. } => {}
+            Kind::Cardinal { .. } | Kind::Scatter { .. } => {}
         }
         self.stage = stage;
         self.age = self.age.saturating_add(1);

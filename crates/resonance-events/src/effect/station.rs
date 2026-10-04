@@ -74,20 +74,19 @@ impl Transfer {
                 position[0] += cos * arc;
                 position[1] += sin * arc;
                 position[2] += arc;
-                for (image, size) in [(super::STAR_SPRITE, 80.), (super::CAMERA_DISC_SPRITE, 48.)] {
+                for (image, size) in [(super::ORB_SPRITE, 32.), (super::STAR_SPRITE, 20.)] {
                     let mut sprite = self.sprite(world, position, image, 1, size);
-                    sprite.rotation[0] = age as f32 * 4.;
+                    sprite.rotation[2] = age as f32 * 4.;
                     world.emit_billboard(sprite)?;
                 }
                 if age.is_multiple_of(4) {
-                    let mut trail = self.sprite(
-                        world,
-                        position,
-                        super::CAMERA_DISC_SPRITE,
-                        AFTERGLOW_TICKS,
-                        48.,
-                    );
+                    let mut trail = self.sprite(world, position, super::ORB_SPRITE, 12, 24.);
                     trail.palette = None;
+                    trail.rgba[3] = 48;
+                    trail.fade = Fade::Proportional {
+                        after: 0,
+                        lifetime: trail.lifetime,
+                    };
                     trail.rgba[..3].copy_from_slice(&color);
                     world.emit_billboard(trail)?;
                 }

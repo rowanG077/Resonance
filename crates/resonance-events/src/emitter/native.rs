@@ -4,6 +4,7 @@ use crate::effect::BILLBOARD_LIMIT;
 #[derive(Debug, Clone)]
 pub(super) struct Inputs {
     preset: i32,
+    sprite: u16,
     parameters: [i32; 10],
 }
 
@@ -14,6 +15,7 @@ impl Emitter {
         }
         let inputs = Inputs {
             preset: a[5],
+            sprite: a[4] as u16,
             parameters: a[8..].try_into().unwrap(),
         };
         Ok(Self {
@@ -69,7 +71,7 @@ impl Inputs {
     fn decode(&self) -> Result<Kind, String> {
         let a = &self.parameters;
         let kind = match self.preset {
-            0..=3 | 9 | 15..=17 | 24 | 26..=28 | 30 | 33 | 36 | 54 | 55 | 75 => {
+            0..=3 | 9 | 15..=17 | 24 | 26..=28 | 30 | 33 | 36 | 48 | 54 | 55 | 75 => {
                 Kind::Stream(Box::new(stream::Stream {
                     settings: stream::Settings::decode(self.preset, *a)?,
                     angle: 0.,
@@ -77,6 +79,10 @@ impl Inputs {
                 }))
             }
             11 => Kind::Gathering { delay: a[0] },
+            19 => Kind::Charge {
+                palette: a[0],
+                radius: a[3],
+            },
             13 => Kind::Scatter {
                 palette: a[0],
                 size: a[1],
@@ -87,6 +93,7 @@ impl Inputs {
                 mote_life: a[6],
             },
             18 => Kind::Travel {
+                sprite: crate::effect::ORB_SPRITE,
                 palette: 33,
                 size: a[1],
                 burst_size: 0,
@@ -108,6 +115,7 @@ impl Inputs {
                 expands: self.preset == 63,
             },
             31 => Kind::Contract {
+                target: None,
                 palette: a[0],
                 radius: a[1],
                 life: a[2],
@@ -128,14 +136,19 @@ impl Inputs {
                 clear: a[8],
                 blend: a[9],
             },
-            46 => Kind::Travel {
+            46 | 47 | 66 => Kind::Travel {
+                sprite: if self.preset == 47 {
+                    self.sprite
+                } else {
+                    crate::effect::ORB_SPRITE
+                },
                 palette: a[0],
                 size: a[1],
                 burst_size: a[2],
-                fade: a[3],
+                fade: if self.preset == 66 { a[3] / 16 } else { a[3] },
                 target: [a[4], a[5], a[6]],
                 curvature: 0.,
-                afterimages: true,
+                afterimages: self.preset == 46,
             },
             49 => Kind::Seal {
                 palette: a[0],
@@ -187,7 +200,9 @@ impl Kind {
                     && *variation >= 0
                     && *mote_variation >= 0
             }
-            Kind::Travel { palette, .. } | Kind::Seal { palette, .. } => color(*palette),
+            Kind::Travel { palette, .. }
+            | Kind::Seal { palette, .. }
+            | Kind::Charge { palette, .. } => color(*palette),
             _ => true,
         };
         if valid {

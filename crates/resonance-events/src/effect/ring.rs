@@ -90,6 +90,27 @@ impl Visuals {
             }
             return;
         }
+        if matches!(kind, SorcerersRing::Fire | SorcerersRing::LongRangeFire) && !impact {
+            let scale = if kind == SorcerersRing::LongRangeFire {
+                2.
+            } else {
+                1.
+            };
+            let mut core = sprite(super::ORB_SPRITE, 24. * scale, 2);
+            core.rgba = [128, 64, 12, 192];
+            self.add(core);
+            let mut flame = sprite(super::GLOW_SPRITE, 28. * scale, 14);
+            flame.rgba = [96, 24, 4, 160];
+            flame.blend_mode = Some(1);
+            flame.velocity = self.velocity.map(|v| -v * 0.15);
+            flame.size_delta = -scale;
+            flame.fade = Fade::Proportional {
+                after: 0,
+                lifetime: flame.lifetime,
+            };
+            self.cloud(flame, 2, 3. * scale, 0.3, random);
+            return;
+        }
         if kind == SorcerersRing::Wind && impact {
             return;
         }
@@ -143,18 +164,16 @@ impl Visuals {
         }
     }
     pub fn electric(&mut self, flying: bool, random: &mut u32) {
-        let mut orb = sprite(super::ORB_SPRITE, if flying { 60. } else { 90. }, 4);
-        orb.palette = Some(1);
-        orb.rgba[3] = 224;
-        self.cloud(orb, 1, 0., 0., random);
-        if self.tick.is_multiple_of(2) {
-            let mut arc = sprite(super::ELECTRIC_ARC_SPRITE, 80., 6);
-            arc.palette = Some(1);
-            arc.rgba[3] = 224;
-            arc.rotation[2] = crate::world::random_unit(random) * 360.;
-            self.add(arc);
-        }
+        let size = if flying { 48. } else { 72. };
+        let mut orb = sprite(super::ORB_SPRITE, size * 0.65, 1);
+        orb.rgba = [24, 40, 96, 128];
+        self.add(orb);
+        let mut arc = sprite(super::ELECTRIC_ARC_SPRITE, size, 1);
+        arc.rgba = [32, 48, 96, 192];
+        arc.rotation[2] = crate::world::random_unit(random) * 360.;
+        self.add(arc);
     }
+
     pub fn bomb(&mut self, burst: bool, random: &mut u32) {
         if burst {
             let mut flame = sprite(super::FLAME_SPRITE, 50., 70);

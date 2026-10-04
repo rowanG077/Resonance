@@ -351,8 +351,8 @@ impl Party {
             self.members.iter().all(|m| m
                 .name
                 .as_ref()
-                .is_none_or(|name| (1..=12).contains(&name.len())
-                    && name.bytes().all(|b| (32..127).contains(&b)))),
+                .is_none_or(|name| (1..=12).contains(&name.chars().count())
+                    && !name.chars().any(char::is_control))),
             "invalid saved character name"
         );
         self.settings.preferences.validate()?;

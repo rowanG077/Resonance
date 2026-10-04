@@ -19,6 +19,7 @@ pub(super) struct Settings {
     pub(super) count: u32,
     pub(super) radius: [f32; 2],
     pub(super) filled: bool,
+    pub(super) converge: bool,
     pub(super) size_variation: f32,
     pub(super) speed_variation: f32,
     pub(super) speed_scale: f32,
@@ -43,6 +44,7 @@ impl Default for Settings {
             count: 1,
             radius: [0.; 2],
             filled: false,
+            converge: false,
             size_variation: 0.,
             speed_variation: 0.,
             speed_scale: 0.,
@@ -73,6 +75,7 @@ impl Stream {
         &mut self,
         owner: i32,
         center: [f32; 3],
+        camera: [f32; 3],
         properties: &std::collections::BTreeMap<i32, i32>,
         blend: Option<crate::model_particle::Blend>,
         born: u32,
@@ -81,6 +84,12 @@ impl Stream {
         out: &mut Vec<BillboardEffect>,
     ) -> Result<(), String> {
         let s = &self.settings;
+        let center = if s.converge {
+            let direction = normalized([camera[0], camera[1], 0.]);
+            std::array::from_fn(|i| center[i] + direction[i] * s.camera_offset.unwrap_or(0.))
+        } else {
+            center
+        };
         let actor_speed = properties.get(&super::SPEED_PROPERTY).copied().unwrap_or(0) as f32;
         if s.limit.is_some_and(|limit| self.emitted >= limit) {
             return Ok(());
@@ -132,10 +141,22 @@ impl Stream {
                 p.velocity[1] += sin * (s.radial_speed + actor_speed * s.radial_speed_scale);
                 p.velocity[2] += speed + random_unit(random) * s.speed_variation;
             }
+            if s.converge {
+                let orbit = super::Orbit::new(center, normalized(camera), spread, 0., angle, 0.);
+                p.position = orbit.position(0);
+                p.velocity =
+                    std::array::from_fn(|i| (center[i] - p.position[i]) / p.lifetime as f32);
+                let [x, y, z] = p.velocity;
+                p.rotation = [
+                    z.atan2(x.hypot(y)).to_degrees(),
+                    0.,
+                    (-x).atan2(y).to_degrees(),
+                ];
+            }
             if s.owned {
                 p.owner = Some(owner);
             }
-            if let Some(distance) = s.camera_offset {
+            if let Some(distance) = s.camera_offset.filter(|_| !s.converge) {
                 p.controller = Some(BillboardController::CameraOffset {
                     emitter: owner,
                     center,
