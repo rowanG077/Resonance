@@ -358,6 +358,50 @@ fn mana_selector_plays_the_opening_mechanism_scene() -> Result<()> {
     Ok(())
 }
 
+#[test]
+#[ignore = "requires locally cooked Mana scenery; no devices"]
+fn mana_lamps_bind_the_animated_flame_texture() -> Result<()> {
+    let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
+    let assets: resonance_content::field::FieldAssets =
+        serde_json::from_slice(&std::fs::read(root.join("fields/map-362.json"))?)?;
+    let mut field = enter(4, 362, None)?;
+    advance_until(&mut field, |field| {
+        field.events.world.render_settings.get(&128) == Some(&1)
+    })?;
+    let [track] = assets.texture_animations.as_slice() else {
+        anyhow::bail!("missing Mana flame atlas");
+    };
+    let world = &field.events.world;
+    let actor = &world.actors[&track.actor.resolve(&world.render_settings)];
+    assert_eq!(
+        actor.resource,
+        resonance_content::field::SCENERY_RESOURCE_BASE + 2
+    );
+    assert!(actor.visible);
+    let texture = track.texture.resolve(&world.render_settings);
+    let flames = assets.parts.iter().find(|part| part.resource == 2).unwrap();
+    assert!(
+        flames
+            .materials
+            .iter()
+            .flat_map(|material| [&material.color, &material.multiply])
+            .flatten()
+            .any(|binding| binding.texture as i32 == texture)
+    );
+    let offset = |field: &FieldSession| {
+        track.offset(
+            field.events.world.texture_animation_tick,
+            field.events.world.texture_animation_effect_tick,
+        )
+    };
+    let first = offset(&field);
+    ticks(&mut field, 7, FieldInput::default())?;
+    assert_ne!(first, offset(&field));
+    ticks(&mut field, 28, FieldInput::default())?;
+    assert_eq!(first, offset(&field));
+    Ok(())
+}
+
 fn mana_intro() -> Result<FieldSession> {
     let mut field = enter(4, 362, None)?;
     advance_until(&mut field, |field| {
@@ -1035,5 +1079,72 @@ fn thoda_seal_finishes_after_colette_releases_her_wings() -> Result<()> {
         wings && f.player_has_control() && mission(f, 0xc4) == 21_000
     })?;
     assert!(battles > 0 && field.events.world.event_flags.contains(&201));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires RESONANCE_WORLD_ASSETS; Thoda bridge, no devices"]
+fn thoda_bridge_targets_a_live_material_and_scrolls() -> Result<()> {
+    let root = PathBuf::from(
+        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
+    );
+    let package = new_game::FieldPackage::prepare(&root, 6, &mut Default::default(), || false)?;
+    let data = Arc::new(package.files.json("game/session-data.json")?);
+    let mut entry = DESTINATIONS[2].entry(data, new_game::available_fields(&root)?)?;
+    entry
+        .persistent
+        .memory
+        .write(0xc4, symphonia_script::Width::S32, 13_000)?;
+    let mut field = package.enter(entry)?;
+    advance_until(&mut field, |field| {
+        field.events.world.actors.contains_key(&6000)
+    })?;
+    let assets: resonance_content::field::FieldAssets =
+        serde_json::from_slice(&std::fs::read(root.join("fields/map-6.json"))?)?;
+    assets.validate()?;
+    let bridge = assets
+        .texture_animations
+        .iter()
+        .find(|track| {
+            matches!(
+                track.actor,
+                resonance_content::field::RenderValue::Setting(2)
+            )
+        })
+        .context("missing exterior bridge callback")?;
+    let world = &field.events.world;
+    assert_eq!(world.render_settings.get(&128), Some(&1));
+    let id = bridge.actor.resolve(&world.render_settings);
+    let texture = bridge.texture.resolve(&world.render_settings);
+    let actor = world.actors.get(&id).context("bridge actor is absent")?;
+    assert!(actor.visible);
+    let model = assets
+        .actors
+        .iter()
+        .find(|model| model.resource == actor.resource)
+        .context("bridge model is absent")?;
+    assert!(
+        model
+            .parts
+            .iter()
+            .flat_map(|part| &part.materials)
+            .flat_map(|material| [&material.color, &material.multiply])
+            .flatten()
+            .any(|binding| binding.texture as i32 == texture),
+        "bridge callback does not bind an actual material"
+    );
+    let before = bridge.offset(
+        world.texture_animation_tick,
+        world.texture_animation_effect_tick,
+    );
+    ticks(&mut field, 60, FieldInput::default())?;
+    let world = &field.events.world;
+    let after = bridge.offset(
+        world.texture_animation_tick,
+        world.texture_animation_effect_tick,
+    );
+    assert_eq!(before[0], after[0]);
+    assert_ne!(before, after, "bridge material must animate");
+    assert!(field.events.exploration_error.is_none());
     Ok(())
 }

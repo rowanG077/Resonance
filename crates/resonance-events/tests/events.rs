@@ -1078,16 +1078,22 @@ fn field_texture_clock_pauses_resumes_and_resets_through_native_commands() {
     let mut events = command(GameWorld::default(), 128, 1);
     steps(&mut events, 7);
     assert_eq!(events.world.texture_animation_tick, 7);
+    assert_eq!(events.world.texture_animation_effect_tick, 7);
     let mut events = command(events.world, 128, 0);
     steps(&mut events, 3);
     assert_eq!(events.world.texture_animation_tick, 7);
+    assert_eq!(events.world.effect_tick, 10);
+    assert_eq!(events.world.texture_animation_effect_tick, 7);
     let mut events = command(events.world, 128, 1);
     events.step().unwrap();
     assert_eq!(events.world.texture_animation_tick, 8);
+    assert_eq!(events.world.texture_animation_effect_tick, 11);
     let mut events = command(events.world, 129, 0);
     assert_eq!(events.world.texture_animation_tick, 0);
+    assert_eq!(events.world.texture_animation_effect_tick, 11);
     events.step().unwrap();
     assert_eq!(events.world.texture_animation_tick, 1);
+    assert_eq!(events.world.texture_animation_effect_tick, 12);
 }
 
 #[test]

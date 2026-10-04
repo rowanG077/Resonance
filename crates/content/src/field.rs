@@ -174,21 +174,24 @@ pub struct FieldAssets {
 pub enum RenderValue {
     Fixed(i32),
     Setting(u8),
+    SettingOffset { slot: u8, offset: i32 },
 }
 impl RenderValue {
     pub fn resolve(&self, settings: &BTreeMap<i32, i32>) -> i32 {
         match *self {
             Self::Fixed(value) => value,
             Self::Setting(slot) => settings.get(&i32::from(slot)).copied().unwrap_or(0),
+            Self::SettingOffset { slot, offset } => settings
+                .get(&i32::from(slot))
+                .copied()
+                .unwrap_or(0)
+                .wrapping_add(offset),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FieldTextureAnimation {
-    pub actor: RenderValue,
-    pub motion: crate::TextureAnimation<RenderValue>,
-}
+mod texture_animation;
+pub use texture_animation::{FieldTextureAnimation, FieldTextureWave, TextureClock, TextureMotion};
 
 /// A scenery hinge and the standing pose used to open it before a field exit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,13 +260,7 @@ impl FieldAssets {
     pub fn validate(&self) -> Result<()> {
         ensure!(self.version == FIELD_VERSION, "unsupported field assets");
         for animation in &self.texture_animations {
-            animation.motion.validate()?;
-            for target in [&animation.actor, &animation.motion.texture] {
-                ensure!(
-                    !matches!(target, RenderValue::Setting(slot) if *slot > 7),
-                    "invalid field texture animation slot"
-                );
-            }
+            animation.validate()?;
         }
         for actor in &self.actors {
             for group in actor.collision.floors.iter().chain(&actor.collision.solids) {

@@ -73,7 +73,7 @@ pub(crate) fn prepare(
     .collect::<Result<_>>()?;
     Ok(Prepared {
         catalogue: catalogue.clone(),
-        texture_animations: crate::texture_animation::field::read(executable)?,
+        texture_animations: crate::texture_animation::field::profiles(),
         resource_catalogue,
         font,
         effects,
@@ -177,7 +177,6 @@ fn resource_lookup_preserves_ids_aliases_and_absent_original_sources() -> Result
     Ok(())
 }
 
-/// fn_8000E510's question and fn_8000E39C's formatted inventory notice.
 pub(crate) fn memory_circle_messages(
     executable: &[u8],
     item: &str,

@@ -595,6 +595,8 @@ pub struct GameWorld {
     pub render_settings: BTreeMap<i32, i32>,
     /// Native field callback clock, held while ConfigureRendering(128, 0).
     pub texture_animation_tick: u64,
+    /// Running clock sampled by the last enabled field texture callback.
+    pub texture_animation_effect_tick: u32,
     /// Two enlarged framebuffer copies, selected by their native depth test.
     /// Zero disables a pass; values are orthographic screen depths.
     pub screen_copy_depth: [f32; 2],
