@@ -560,6 +560,126 @@ fn mana_reunion_restores_both_groups_with_empty_slots() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn palmacosta_radar_fog_does_not_reprepare_scene_materials() -> Result<()> {
+    use crate::{field_view, materials::TitleSurface};
+    use bevy::{asset::AssetPlugin, prelude::*};
+    let mut field = enter(6, 201, None)?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    field
+        .events
+        .world
+        .party
+        .as_mut()
+        .unwrap()
+        .travel
+        .sorcerers_ring = resonance_events::ring::SorcerersRing::Radar;
+    let original_fog = field.events.world.fog().cloned();
+    let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
+    let manifest: resonance_content::field::FieldAssets =
+        serde_json::from_slice(&std::fs::read(root.join("fields/map-201.json"))?)?;
+    // The warm pass retains 26 variants for every loaded material slot.
+    let slots: usize = manifest
+        .parts
+        .iter()
+        .chain(manifest.actors.iter().flat_map(|actor| &actor.parts))
+        .map(|part| part.materials.len())
+        .sum();
+    let mut app = App::new();
+    app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+        .init_asset::<TitleSurface>()
+        .insert_resource(field_view::Session(field))
+        .add_systems(Update, field_view::fog);
+    let camera = app.world_mut().spawn(crate::FieldCamera).id();
+    let retained: Vec<_> = (0..slots * 26)
+        .map(|_| {
+            app.world_mut()
+                .resource_mut::<Assets<TitleSurface>>()
+                .add(TitleSurface {
+                    field_fog: true,
+                    ..default()
+                })
+        })
+        .collect();
+    app.update();
+    app.world_mut()
+        .resource_mut::<Messages<AssetEvent<TitleSurface>>>()
+        .clear();
+    let mut changes = 0;
+    let mut peak = 0;
+    let mut radar_ticks = 0;
+    let mut fog_steps = 0;
+    let mut previous = original_fog.clone();
+    for tick in 0..660 {
+        let current = {
+            let mut session = app.world_mut().resource_mut::<field_view::Session>();
+            session
+                .0
+                .events
+                .world
+                .skip_battle_as_victory()
+                .map_err(anyhow::Error::msg)?;
+            session.0.step(FieldInput {
+                alternate: tick == 0,
+                ..Default::default()
+            })?;
+            session.0.events.world.fog().cloned()
+        };
+        radar_ticks += usize::from(
+            current
+                .as_ref()
+                .is_some_and(|fog| fog.color == [10, 255, 10]),
+        );
+        fog_steps += usize::from(current != previous);
+        app.update();
+        let view = app
+            .world()
+            .get::<DistanceFog>(camera)
+            .expect("stable fog pipeline key");
+        let (color, start, end) = current.as_ref().map_or((Vec4::ZERO, 0., 0.), |fog| {
+            (
+                Vec3::from_array(fog.color.map(|c| f32::from(c) / 255.)).extend(1.),
+                fog.start,
+                fog.end,
+            )
+        });
+        assert_eq!(
+            Vec4::from_array(view.color.to_linear().to_f32_array()),
+            color
+        );
+        assert!(
+            matches!(view.falloff, FogFalloff::Linear { start: a, end: b } if a == start && b == end)
+        );
+        previous = current;
+        let modified = app
+            .world_mut()
+            .resource_mut::<Messages<AssetEvent<TitleSurface>>>()
+            .drain()
+            .filter(|event| matches!(event, AssetEvent::Modified { .. }))
+            .count();
+        changes += modified;
+        peak = peak.max(modified);
+    }
+    assert!(
+        radar_ticks > 590 && fog_steps > 50,
+        "radar ticks={radar_ticks}, fog steps={fog_steps}"
+    );
+    assert_eq!(
+        previous, original_fog,
+        "the radar must restore the room's fog"
+    );
+    eprintln!(
+        "radar: {} retained materials, {radar_ticks} active ticks, {fog_steps} fog steps, {changes} material modifications, peak {peak}/tick",
+        retained.len()
+    );
+    assert_eq!(
+        changes, 0,
+        "animated fog must not invalidate material bindings"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn palmacosta_teleport_lands_before_the_arrival_fade_reveals_the_player() -> Result<()> {
     let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
     let package = new_game::FieldPackage::prepare(&root, 206, &mut Default::default(), || false)?;

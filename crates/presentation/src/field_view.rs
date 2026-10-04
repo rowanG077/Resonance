@@ -839,30 +839,22 @@ pub(super) fn advance_live(
     }
 }
 
-fn fog(state: State, mut materials: ResMut<Assets<TitleSurface>>) {
-    const EXPONENTIAL_SQUARED: f32 = 2.;
-    let (color, range) = state
+pub(super) fn fog(state: State, mut views: Query<&mut DistanceFog, With<super::FieldCamera>>) {
+    // Transport the native range through Bevy's per-view fog uniform. The
+    // surface shader applies GX's curve; Bevy's linear falloff is not used.
+    // Updating materials here would reprepare every retained warm variant.
+    let (color, start, end) = state
         .get()
         .events
         .world
         .fog()
-        .map_or((Vec4::ZERO, Vec4::ZERO), |fog| {
-            (
-                Vec3::from_array(fog.color.map(|c| f32::from(c) / 255.)).extend(1.),
-                Vec4::new(fog.start, fog.end, EXPONENTIAL_SQUARED, 0.),
-            )
+        .map_or((Color::NONE, 0., 0.), |fog| {
+            let [r, g, b] = fog.color.map(|c| f32::from(c) / 255.);
+            (Color::linear_rgb(r, g, b), fog.start, fog.end)
         });
-    let changed: Vec<_> = materials
-        .iter()
-        .filter_map(|(id, surface)| {
-            (surface.field_fog && (surface.fog_color != color || surface.fog_range != range))
-                .then_some(id)
-        })
-        .collect();
-    for id in changed {
-        let mut surface = materials.get_mut(id).unwrap();
-        surface.fog_color = color;
-        surface.fog_range = range;
+    for mut view in &mut views {
+        view.color = color;
+        view.falloff = FogFalloff::Linear { start, end };
     }
 }
 
@@ -1962,8 +1954,6 @@ fn pose(
                 Vec4::ONE
             };
         let light = session.character_light(instance.actor);
-        // fn_80055140 writes these bytes to the model's ambient channel.
-        // fn_8006C978 resets ambient modulation before drawing its outline.
         let ambient_color = if instance.part == 0 {
             Vec3::from_array(
                 [42, 43, 44]
@@ -2038,7 +2028,6 @@ fn pose(
                 }
             }
             let mut offsets = Vec4::new(offset[0], offset[1], 0., 0.);
-            // Both wing controllers scroll texture 0: fn_80019B3C / fn_800F420C.
             if instance.actor == resonance_events::COLETTE_WINGS_ACTOR {
                 for (stage, binding) in [&material.color, &material.multiply]
                     .into_iter()
@@ -2087,8 +2076,6 @@ fn pose(
                 actor.properties.get(&TOON_LIGHTING).copied(),
             );
             let depth_write = material.depth_write && actor.depth_write;
-            // fn_8001A6FC keeps source-alpha blending enabled for scripted
-            // fades, including Mana's half-opacity remote party member.
             let blend = material.blend || actor.blend.is_some() || tint.w < 1.;
             let additive = actor.blend.map_or(
                 actor.ring_station || (save_point.is_some() && !sealed),

@@ -9,6 +9,10 @@ use bevy::{
     sprite_render::{AlphaMode2d, Material2d, Material2dKey},
 };
 
+#[cfg(test)]
+#[path = "surface_shader_tests.rs"]
+mod shader_tests;
+
 /// Each geometry mesh has one authored draw recipe, bound per scene instance.
 #[derive(Component, Reflect, Clone, Copy, Debug, PartialEq, Eq)]
 #[reflect(Component)]
@@ -190,7 +194,7 @@ pub(super) struct TitleSurface {
     /// Scene fog: RGB color, depth start/end, and nonlinear exponent (zero is linear).
     pub fog_color: Vec4,
     pub fog_range: Vec4,
-    /// Field scene geometry participates in camera fog; menu previews do not.
+    /// Use per-view field fog; menu previews and overworld materials keep their own fog.
     pub field_fog: bool,
     pub vertex_color: bool,
     pub constant_color: bool,
@@ -266,7 +270,10 @@ impl From<&TitleSurface> for SurfaceUniform {
             field_light: value.field_light,
             shade_colors: value.shade_colors,
             fog_color: value.fog_color,
-            fog_range: value.fog_range,
+            fog_range: value
+                .fog_range
+                .truncate()
+                .extend(if value.field_fog { 1. } else { 0. }),
         }
     }
 }
@@ -401,6 +408,26 @@ impl Material for TitleSurface {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn field_fog_uses_the_view_without_changing_overworld_fog() {
+        let mut surface = TitleSurface {
+            fog_color: Vec4::new(0.2, 0.3, 0.4, 1.),
+            fog_range: Vec4::new(100., 1000., 1., 0.),
+            ..default()
+        };
+        let overworld = SurfaceUniform::from(&surface);
+        assert_eq!(overworld.fog_range, surface.fog_range);
+        assert_eq!(overworld.fog_color, surface.fog_color);
+        surface.field_fog = true;
+        let field = SurfaceUniform::from(&surface);
+        assert_eq!(field.fog_range.w, 1.);
+        assert_eq!(field.fog_range.truncate(), overworld.fog_range.truncate());
+        assert_eq!(
+            SurfaceUniform::from(&TitleSurface::default()).fog_range,
+            Vec4::ZERO
+        );
+    }
 
     #[test]
     fn unused_catalogue_slots_are_allowed_but_unbound_scene_meshes_are_rejected() {

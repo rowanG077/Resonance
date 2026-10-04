@@ -177,6 +177,8 @@ fn begin(
         commands
             .spawn((
                 Camera3d::default(),
+                // Match FieldCamera even before a script enables fog.
+                DistanceFog::default(),
                 Camera {
                     order: -20,
                     ..default()
