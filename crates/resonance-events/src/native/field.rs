@@ -1372,7 +1372,11 @@ impl NativeHost<'_> {
                     actor.blend = Some(crate::model_particle::Blend::Additive);
                     actor.scripted_animation = true;
                     if let Some(animation) = &mut actor.animation {
-                        animation.rate = 0.002;
+                        // fn_800F420C replaces the initializer's .001 speed
+                        // with the default .5-frame step and a two-tick blend
+                        // before the first draw. Automatic flight wings use a
+                        // different callback and retain their slow idle rate.
+                        animation.blend_ticks = 2;
                     }
                 }
                 // fn_80059CFC allocates ID-zero actors, but find_actor(0)
