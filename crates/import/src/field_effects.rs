@@ -1,8 +1,7 @@
 //! Bind field effects to shared textures and parsed animation recipes.
-mod catalogue;
-mod constructors;
 mod emotes;
 mod recipe;
+mod sprites;
 #[cfg(test)]
 mod tests;
 use crate::{dol, write_atomic};
@@ -60,7 +59,6 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<Prepared> {
 }
 
 fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> {
-    recipe.catalogue.encode()?;
     let (textures, _) = textures(extracted, output, &recipe.archive)?;
     let status = crate::font::system_texture(extracted, output)?.path;
     let image = |atlas| -> Result<String> {

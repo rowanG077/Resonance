@@ -685,7 +685,7 @@ fn palmacosta_teleport_lands_before_the_arrival_fade_reveals_the_player() -> Res
     let package = new_game::FieldPackage::prepare(&root, 206, &mut Default::default(), || false)?;
     let data = Arc::new(package.files.json("game/session-data.json")?);
     let mut entry = DESTINATIONS[6].entry(data, new_game::available_fields(&root)?)?;
-    // The original south teleporter places Lloyd 82 units above the room floor.
+    // The south teleporter places Lloyd 82 units above the room floor.
     entry.position = [0., -722., 82.];
     entry.heading = 180.;
     entry
@@ -1102,7 +1102,12 @@ fn seal_motes_keep_rising_and_fading_after_the_emitter_is_removed() -> Result<()
             .billboards
             .get(&id)
             .context("recent seal mote vanished")?;
-        assert!(mote.position[2] > height);
+        assert!(
+            mote.position[2] > height,
+            "map {map}: mote stayed at {height}, velocity {:?}, now {:?}",
+            mote.velocity,
+            mote.position
+        );
         assert!(mote.alpha(world.tick) < alpha);
     }
     Ok(())

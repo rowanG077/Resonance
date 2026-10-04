@@ -13,7 +13,7 @@ impl EyeBlink {
     fn new(cycle: &BlinkCycle, random: u32) -> Self {
         Self {
             frame: 0,
-            tick: cycle.initial_tick + (random % u32::from(cycle.initial_spread)) as u16,
+            tick: (random as usize % cycle.frames.len()) as u16,
         }
     }
     fn step(&mut self, cycle: &BlinkCycle) {

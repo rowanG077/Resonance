@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const FIELD_VERSION: u32 = 10;
+pub const FIELD_VERSION: u32 = 11;
 /// Reserved resource range for static scenery, separate from character models.
 pub const SCENERY_RESOURCE_BASE: u32 = 0x1000_0000;
 /// Ordinary actor models embedded in a field archive, addressed by signed script IDs.

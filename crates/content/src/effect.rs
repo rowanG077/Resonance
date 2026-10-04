@@ -1,6 +1,6 @@
-//! Cooked camera-facing sprites; no original draw commands at runtime.
+//! Camera-facing sprite content.
 pub const FIELD_PALETTE_COLORS: usize = 110;
-/// The automatic wing callback writes its atlas rectangle directly.
+/// Wing spark artwork uses a dedicated atlas rectangle.
 pub const WING_SPARK_SPRITE: u16 = 256;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -11,18 +11,13 @@ use std::collections::BTreeMap;
 #[serde(deny_unknown_fields)]
 pub struct BlinkCycle {
     pub frames: Vec<u8>,
-    pub initial_tick: u16,
-    pub initial_spread: u16,
 }
 impl BlinkCycle {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             !self.frames.is_empty()
                 && self.frames.len() <= 1024
-                && self.frames.iter().all(|frame| *frame < 16)
-                && self.initial_spread > 0
-                && usize::from(self.initial_tick) + usize::from(self.initial_spread)
-                    <= self.frames.len(),
+                && self.frames.iter().all(|frame| *frame < 16),
             "invalid eye blink animation"
         );
         Ok(())
