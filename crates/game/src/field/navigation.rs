@@ -1,8 +1,10 @@
 //! Field movement over cooked triangles, independent of rendering and scripts.
 use anyhow::{Result, ensure};
 use resonance_content::field::{CollisionGroup, CollisionQuery};
+use resonance_events::collision::{Plane, body_contact, segment_contact};
 use std::sync::Arc;
 
+const MAX_STEP_HEIGHT: f32 = 32.;
 const BLOCK_FALL_STEP: f32 = 9.;
 const NO_BLOCK_SUPPORT: u32 = 1 << 22;
 const BLOCK_FLOOR_REACH: f32 = 60.;
@@ -13,9 +15,17 @@ pub fn touches_trigger(trigger: &resonance_events::Trigger, p: [f32; 3], radius:
     trigger.touches(p, radius)
 }
 
+type Surface = ([[f32; 3]; 3], u32);
+
 pub struct WalkMesh {
-    triangles: Arc<[([[f32; 3]; 3], u32)]>,
-    model_floors: Vec<([[f32; 3]; 3], u32)>,
+    triangles: Arc<[Surface]>,
+    model_floors: Vec<(u64, Surface)>,
+    solids: Vec<Solid>,
+}
+struct Solid {
+    owner: u64,
+    surface: u32,
+    planes: Vec<Plane>,
 }
 #[derive(Default)]
 pub(super) enum PlayerFall {
@@ -47,7 +57,7 @@ impl WalkMesh {
             if let Some(enemy) = &mut actor.enemy {
                 enemy.alerted = player.is_some_and(|player| {
                     self.sees_player(
-                        actor.position,
+                        (actor.instance, actor.position),
                         actor.heading,
                         enemy.sight_angle,
                         enemy.sight_distance,
@@ -61,7 +71,7 @@ impl WalkMesh {
 
     fn sees_player(
         &self,
-        position: [f32; 3],
+        (owner, position): (u64, [f32; 3]),
         heading: f32,
         angle: f32,
         range: f32,
@@ -73,7 +83,8 @@ impl WalkMesh {
             return false;
         }
         let delta: [f32; 3] = std::array::from_fn(|i| player[i] - position[i]);
-        if delta.iter().map(|v| v * v).sum::<f32>().sqrt() >= range {
+        let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if distance >= range {
             return false;
         }
         let horizontal = delta[0].hypot(delta[1]);
@@ -81,177 +92,106 @@ impl WalkMesh {
             return false;
         }
         let heading = heading.to_radians();
-        let dot = (delta[0] * heading.sin() - delta[1] * heading.cos()) / horizontal;
-        let angle = if rate == 2 { angle * 2. } else { angle }.clamp(0., 360.);
+        let dot = (delta[0] * heading.sin() - delta[1] * heading.cos()) / distance;
+        let angle = (angle * if rate == 2 { 2. } else { 1. }).clamp(0., 360.);
         if dot < (angle.to_radians() * 0.5).cos() {
             return false;
         }
-        // Native query 0x41 samples static field triangles, excluding surface
-        // bit 19, at head height with a 600-unit vertical reach. It does not
-        // include actor collision models (query bit 4 is absent).
-        (1..=16).all(|step| {
-            let mut point = std::array::from_fn(|i| position[i] + delta[i] * (step as f32 / 16.));
-            point[2] += 150.;
-            self.triangles.iter().any(|(triangle, attributes)| {
-                CollisionQuery::Player.accepts(*attributes)
-                    && height(*triangle, point).is_some_and(|z| (z - point[2]).abs() <= 600.)
+        const EYE_HEIGHT: f32 = 100.;
+        let eye = |mut point: [f32; 3]| {
+            point[2] += EYE_HEIGHT;
+            point
+        };
+        let (start, end) = (eye(position), eye(player));
+        !self.blocked_segment(start, end, CollisionQuery::Enemy, owner)
+            && !self.triangles.iter().any(|(triangle, attributes)| {
+                CollisionQuery::Enemy.accepts(*attributes)
+                    && crosses_triangle(start, end, *triangle)
             })
-        })
     }
 
     pub(super) fn settle_scenery(
         &self,
         world: &mut resonance_events::GameWorld,
         moving: Option<i32>,
-        falling: &mut std::collections::BTreeMap<i32, u64>,
     ) {
-        // fn_8002122C steps downward by nine, then resolves the penetration on
-        // the next update. Original puzzle callbacks observe that landing dip.
-        falling.retain(|id, instance| {
-            world
-                .actors
-                .get(id)
-                .is_some_and(|a| a.instance == *instance && a.pushable())
-        });
-        let positions: Vec<_> = world
-            .actors
-            .iter()
-            .filter(|(id, actor)| {
-                moving != Some(**id) && actor.pushable() && actor.motion.is_none()
-            })
-            .map(|(&id, actor)| {
-                let floor = self
-                    .with_actors(
-                        world
-                            .actors
-                            .iter()
-                            .filter_map(|(&other, a)| (other != id).then_some(a)),
-                    )
-                    .block_surface(actor.position, falling.contains_key(&id));
-                let z = if let Some((height, _)) = floor.filter(|(_, a)| a & NO_BLOCK_SUPPORT == 0)
-                {
-                    falling.remove(&id);
-                    height
-                } else {
-                    falling.insert(id, actor.instance);
-                    actor.position[2] - BLOCK_FALL_STEP
-                };
-                (id, z)
-            })
-            .collect();
-        for (id, z) in positions {
-            world.actors.get_mut(&id).unwrap().position[2] = z;
+        for (&id, actor) in &mut world.actors {
+            if moving == Some(id) || !actor.pushable() || actor.motion.is_some() {
+                continue;
+            }
+            let next = actor.position[2] - BLOCK_FALL_STEP;
+            actor.position[2] = self
+                .block_surface(actor.position, actor.instance)
+                .map_or(next, |floor| next.max(floor));
         }
     }
-    pub(super) fn block_supported(&self, world: &resonance_events::GameWorld, id: i32) -> bool {
-        let position = world.actors[&id].position;
-        self.with_actors(
-            world
-                .actors
-                .iter()
-                .filter_map(|(&other, a)| (other != id).then_some(a)),
-        )
-        .block_surface(position, false)
-        .is_some_and(|(_, attributes)| attributes & NO_BLOCK_SUPPORT == 0)
+
+    pub(super) fn block_supported(&self, actor: &resonance_events::Actor) -> bool {
+        self.block_surface(actor.position, actor.instance)
+            .is_some_and(|height| (height - actor.position[2]).abs() < 0.01)
     }
-    fn block_surface(&self, point: [f32; 3], falling: bool) -> Option<(f32, u32)> {
-        // fn_8002E5F4 / fn_8002E188 keep the highest reachable floor, not
-        // the closest plane. fn_8002EFD4 clears bit 22 after a model hit:
-        // a filled pit remains solid even where its no-support plane overlaps.
-        let mut model_support = false;
+
+    fn block_surface(&self, point: [f32; 3], owner: u64) -> Option<f32> {
         self.model_floors
             .iter()
-            .map(|surface| (surface, true))
+            .filter(|(id, _)| *id != owner)
+            .map(|(_, surface)| (surface, true))
             .chain(self.triangles.iter().map(|surface| (surface, false)))
             .filter_map(|((triangle, attributes), model)| {
-                // Native model floors require an upward normal (Z > 0.2).
-                // Collision packages can also contain the cube's underside.
-                if model && surface_normal(*triangle)[2] <= 0.2 {
+                // Only upward-facing model surfaces can support a block.
+                if (model && surface_normal(*triangle)[2] <= 0.)
+                    || (!model && attributes & NO_BLOCK_SUPPORT != 0)
+                    || !CollisionQuery::Block.accepts(*attributes)
+                {
                     return None;
                 }
                 let z = height(*triangle, point)?;
-                if !CollisionQuery::Block.accepts(*attributes)
-                    || (z - point[2]).abs() > BLOCK_FLOOR_REACH
-                    || (falling && z < point[2])
-                {
-                    return None;
-                }
-                model_support |= model;
-                Some((z, *attributes))
+                ((z - point[2]).abs() <= BLOCK_FLOOR_REACH).then_some(z)
             })
-            .max_by(|(a, _), (b, _)| a.total_cmp(b))
-            .map(|(height, attributes)| {
-                (
-                    height,
-                    if model_support {
-                        attributes & !NO_BLOCK_SUPPORT
-                    } else {
-                        attributes
-                    },
-                )
-            })
+            .max_by(f32::total_cmp)
     }
     pub(super) fn can_move_block(
         &self,
-        world: &resonance_events::GameWorld,
-        id: i32,
+        block: &resonance_events::Actor,
+        player: &resonance_events::Actor,
         delta: [f32; 2],
-        pulling: bool,
     ) -> bool {
-        const PROBE_HEIGHT: f32 = 100.;
-        const OVERHEAD: f32 = 225.;
         const FLOOR_REACH: f32 = 60.;
-        const FOOT_DEPTH: f32 = 20.;
-        let position = world.actors[&id].position;
-        let mesh = self.with_actors(
-            world
-                .actors
-                .iter()
-                .filter_map(|(&other, a)| (other != id).then_some(a)),
-        );
-        let blocked = |point: [f32; 3], mask| {
-            world
-                .actors
-                .iter()
-                .any(|(&other, actor)| other != id && actor.contains_solid(point, mask))
-        };
-        let target = [
-            position[0] + delta[0],
-            position[1] + delta[1],
-            position[2] - FOOT_DEPTH,
-        ];
-        let support = |point: [f32; 3], query: CollisionQuery| {
-            mesh.surface_within(point, |z, attributes| {
-                (z - point[2]).abs() <= FLOOR_REACH && query.accepts(attributes)
-            })
-            .is_some()
-        };
-        if blocked(
-            [position[0], position[1], position[2] + OVERHEAD],
-            CollisionQuery::Block,
-        ) || !support(target, CollisionQuery::Block)
-        {
-            return false;
-        }
-        if pulling {
-            let behind = [
-                position[0] + delta[0] * 2.,
-                position[1] + delta[1] * 2.,
-                position[2] - FOOT_DEPTH,
+        [
+            (block, CollisionQuery::Block),
+            (player, CollisionQuery::Player),
+        ]
+        .into_iter()
+        .all(|(actor, query)| {
+            let target = [
+                actor.position[0] + delta[0],
+                actor.position[1] + delta[1],
+                actor.position[2],
             ];
-            !blocked(
-                [behind[0], behind[1], position[2] + PROBE_HEIGHT],
-                CollisionQuery::Player,
-            ) && support(behind, CollisionQuery::Player)
-        } else {
-            !blocked(
-                [target[0], target[1], position[2] + PROBE_HEIGHT],
-                CollisionQuery::Block,
-            )
-        }
+            let supported = self
+                .surface_within(target, |z, attributes| {
+                    (z - target[2]).abs() <= FLOOR_REACH && query.accepts(attributes)
+                })
+                .is_some();
+            let (low, high) = actor.collision_bounds();
+            let center = std::array::from_fn(|i| (low[i] + high[i]) * 0.5);
+            let half_size = std::array::from_fn(|i| (high[i] - low[i]) * 0.5);
+            let end = [center[0] + delta[0], center[1] + delta[1], center[2]];
+            supported
+                && !self.solids.iter().any(|solid| {
+                    solid.owner != block.instance
+                        && solid.owner != player.instance
+                        && query.accepts(solid.surface)
+                        && body_contact(solid.planes.iter().copied(), center, end, half_size)
+                })
+        })
     }
+
     fn surfaces(&self) -> impl Iterator<Item = &([[f32; 3]; 3], u32)> {
-        self.model_floors.iter().chain(self.triangles.iter())
+        self.model_floors
+            .iter()
+            .map(|(_, surface)| surface)
+            .chain(self.triangles.iter())
     }
     /// Snapshot live model floors without copying the map. Hidden scenery also
     /// carries floors; native property 48 only masks projectile contact.
@@ -260,21 +200,33 @@ impl WalkMesh {
         actors: impl Iterator<Item = &'a resonance_events::Actor>,
     ) -> Self {
         let mut model_floors = Vec::new();
+        let mut solids = Vec::new();
         for actor in actors {
             if let Some(mesh) = actor.model_collision.as_ref() {
+                for group in &mesh.solids {
+                    let planes = actor
+                        .collision_triangles(group)
+                        .map(Plane::triangle)
+                        .collect();
+                    solids.push(Solid {
+                        owner: actor.instance,
+                        surface: group.surface,
+                        planes,
+                    });
+                }
                 for group in &mesh.floors {
-                    model_floors.extend(group.triangles.iter().map(|triangle| {
-                        (
-                            triangle.map(|i| actor.collision_point(group.vertices[usize::from(i)])),
-                            group.surface,
-                        )
-                    }));
+                    model_floors.extend(
+                        actor
+                            .collision_triangles(group)
+                            .map(|triangle| (actor.instance, (triangle, group.surface))),
+                    );
                 }
             }
         }
         Self {
             triangles: self.triangles.clone(),
             model_floors,
+            solids,
         }
     }
     pub fn new(groups: &[CollisionGroup]) -> Result<Self> {
@@ -292,6 +244,7 @@ impl WalkMesh {
         Ok(Self {
             triangles: triangles.into(),
             model_floors: Vec::new(),
+            solids: Vec::new(),
         })
     }
     /// Keep an entrance on its floor, or use the nearest valid triangle when an
@@ -317,30 +270,51 @@ impl WalkMesh {
                 distance(a).total_cmp(&distance(b))
             })
     }
-    /// Select the closest reachable floor. This also preserves authored ramps
-    /// and raised platforms without importing the original collision engine.
+    /// Select the closest reachable floor, including ramps and raised platforms.
     pub fn height(&self, point: [f32; 3], max_step: f32) -> Option<f32> {
         self.walking_surface(point, |z| (z - point[2]).abs() <= max_step)
             .map(|surface| surface.height)
     }
-    /// Tilt horizontal intent onto the floor and resolve penetration along its
-    /// normal. Player movement applies pitch before roll; NPCs use the reverse.
-    pub fn resolve_motion(
+    /// Ground reachable by a normal walking step, including raised platforms.
+    pub fn ground_surface(&self, point: [f32; 3]) -> Option<GroundSurface> {
+        self.surface(point, MAX_STEP_HEIGHT)
+    }
+    /// Place a horizontal destination on the closest reachable floor.
+    pub fn resolve_motion(&self, proposed: [f32; 3]) -> Option<[f32; 3]> {
+        let surface =
+            self.walking_surface(proposed, |z| (z - proposed[2]).abs() <= MAX_STEP_HEIGHT)?;
+        Some([proposed[0], proposed[1], surface.height])
+    }
+    pub(super) fn blocked(&self, point: [f32; 3], query: CollisionQuery, owner: u64) -> bool {
+        self.blocked_segment(point, point, query, owner)
+    }
+    fn blocked_segment(
         &self,
         start: [f32; 3],
-        proposed: [f32; 3],
-        player: bool,
-    ) -> Option<[f32; 3]> {
-        let surface = self.walking_surface(proposed, |z| (z - proposed[2]).abs() <= 32.)?;
-        Some(Self::resolve_surface(start, proposed, player, surface))
+        end: [f32; 3],
+        query: CollisionQuery,
+        owner: u64,
+    ) -> bool {
+        self.solids.iter().any(|solid| {
+            solid.owner != owner
+                && query.accepts(solid.surface)
+                && segment_contact(solid.planes.iter().copied(), start, end).is_some()
+        })
     }
-    pub(super) fn resolve_enemy(&self, start: [f32; 3], proposed: [f32; 3]) -> Option<[f32; 3]> {
-        // fn_800111D4 uses query 0xC4: enemies also reject surface bit20.
-        // Doorways remain walkable for the player and ordinary field actors.
+
+    pub(super) fn resolve_enemy(&self, proposed: [f32; 3], owner: u64) -> Option<[f32; 3]> {
+        const BODY_PROBE_HEIGHT: f32 = 45.;
+        if self.blocked(
+            [proposed[0], proposed[1], proposed[2] + BODY_PROBE_HEIGHT],
+            CollisionQuery::Enemy,
+            owner,
+        ) {
+            return None;
+        }
         let surface = self.surface_within(proposed, |z, attributes| {
-            (z - proposed[2]).abs() <= 32. && CollisionQuery::Enemy.accepts(attributes)
+            (z - proposed[2]).abs() <= MAX_STEP_HEIGHT && CollisionQuery::Enemy.accepts(attributes)
         })?;
-        Some(Self::resolve_surface(start, proposed, false, surface))
+        Some([proposed[0], proposed[1], surface.height])
     }
     pub(super) fn resolve_player(
         &self,
@@ -349,9 +323,6 @@ impl WalkMesh {
         fall: &mut PlayerFall,
         event_paused: bool,
     ) -> Option<[f32; 3]> {
-        // fn_8001D5F4: falling probes accept penetration, not a floor still
-        // below the feet. A downward ray keeps unsupported actors over voids
-        // in place; it also rejects a step that would pass through the floor.
         const ACCELERATION: f32 = 9.;
         const FLOOR_REACH: f32 = 60.;
         let surface = match fall {
@@ -364,7 +335,7 @@ impl WalkMesh {
         };
         if let Some(surface) = surface {
             *fall = PlayerFall::Supported;
-            return Some(Self::resolve_surface(start, proposed, true, surface));
+            return Some([proposed[0], proposed[1], surface.height]);
         }
         let updates = match (event_paused, &*fall) {
             (true, _) => 0,
@@ -391,24 +362,6 @@ impl WalkMesh {
             None
         }
     }
-    fn resolve_surface(
-        start: [f32; 3],
-        proposed: [f32; 3],
-        player: bool,
-        surface: GroundSurface,
-    ) -> [f32; 3] {
-        let [nx, ny, nz] = surface.normal;
-        let pitch = (-ny).clamp(-1., 1.).asin();
-        let roll = nx.atan2(nz);
-        let dx = proposed[0] - start[0];
-        let dy = proposed[1] - start[1];
-        let cross = pitch.sin() * roll.sin();
-        [
-            start[0] + dx * roll.cos() + if player { dy * cross } else { 0. },
-            start[1] + dy * pitch.cos() + if player { 0. } else { dx * cross },
-            start[2] + (surface.height - start[2]) * nz * nz,
-        ]
-    }
     pub fn surface(&self, point: [f32; 3], max_step: f32) -> Option<GroundSurface> {
         self.surface_within(point, |z, _| (z - point[2]).abs() <= max_step)
     }
@@ -420,8 +373,6 @@ impl WalkMesh {
         point: [f32; 3],
         accepts: impl Fn(f32) -> bool,
     ) -> Option<GroundSurface> {
-        // Native walking queries set 0x40; collision dispatch then excludes
-        // surface bit 19. Block probes and other surface queries retain it.
         self.surface_within(point, |z, attributes| {
             CollisionQuery::Player.accepts(attributes) && accepts(z)
         })
@@ -510,6 +461,33 @@ fn surface_normal([a, b, c]: [[f32; 3]; 3]) -> [f32; 3] {
     let length = cross.iter().map(|v| v * v).sum::<f32>().sqrt();
     cross.map(|v| v / length)
 }
+// Segment/triangle intersection also handles vertical walls in the field mesh.
+fn crosses_triangle(start: [f32; 3], end: [f32; 3], triangle: [[f32; 3]; 3]) -> bool {
+    let normal = surface_normal(triangle);
+    let side = |point: [f32; 3]| {
+        (0..3)
+            .map(|i| (point[i] - triangle[0][i]) * normal[i])
+            .sum::<f32>()
+    };
+    let (from, to) = (side(start), side(end));
+    if from * to >= 0. {
+        return false;
+    }
+    let t = from / (from - to);
+    let point: [f32; 3] = std::array::from_fn(|i| start[i] + (end[i] - start[i]) * t);
+    (0..3).all(|edge| {
+        let (a, b) = (triangle[edge], triangle[(edge + 1) % 3]);
+        let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
+        let v: [f32; 3] = std::array::from_fn(|i| point[i] - a[i]);
+        let cross = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        (0..3).map(|i| cross[i] * normal[i]).sum::<f32>() >= 0.
+    })
+}
+
 fn height([a, b, c]: [[f32; 3]; 3], p: [f32; 3]) -> Option<f32> {
     let cross = |a: [f32; 2], b: [f32; 2]| a[0] * b[1] - a[1] * b[0];
     let ab = [b[0] - a[0], b[1] - a[1]];
@@ -624,36 +602,16 @@ mod tests {
         }
     }
     #[test]
-    fn walking_intent_tilts_onto_single_and_double_axis_slopes() {
-        let mesh = WalkMesh::new(&[CollisionGroup {
-            surface: 96,
-            vertices: vec![[0., -100., 0.], [100., -100., 75.], [0., 100., 0.]],
-            triangles: vec![[0, 1, 2]],
-        }])
-        .unwrap();
-        let resolved = mesh.resolve_motion([0.; 3], [10., 0., 0.], true).unwrap();
-        // A 3:4:5 slope rotates ten horizontal units to eight. The initial
-        // floor correction follows the normal rather than snapping vertically.
-        for (actual, expected) in resolved.into_iter().zip([8., 0., 4.8]) {
-            assert!((actual - expected).abs() < 0.0001);
-        }
-        let mesh = WalkMesh::new(&[CollisionGroup {
-            surface: 96,
-            vertices: vec![[0., -100., -50.], [100., -100., 25.], [0., 100., 50.]],
-            triangles: vec![[0, 1, 2]],
-        }])
-        .unwrap();
-        // Pitching a sideways player step must not introduce forward drift.
-        // NPC motion retains its separately authored orientation convention.
-        for (player, expected) in [
-            (true, [8., 0., 4.137931]),
-            (false, [8., -2.228344, 4.137931]),
-        ] {
-            let actual = mesh.resolve_motion([0.; 3], [10., 0., 0.], player).unwrap();
-            for (actual, expected) in actual.into_iter().zip(expected) {
-                assert!((actual - expected).abs() < 0.0001);
-            }
-        }
+    fn walking_follows_slopes_without_horizontal_drift() {
+        let mesh = square();
+        let target = [50., 50., 0.];
+        let expected = [target[0], target[1], mesh.height(target, 32.).unwrap()];
+        assert_eq!(mesh.resolve_motion(target), Some(expected));
+        assert_eq!(mesh.resolve_enemy(target, 0), Some(expected));
+        assert_eq!(
+            mesh.resolve_player([50., 40., 8.], target, &mut PlayerFall::default(), false),
+            Some(expected)
+        );
     }
     #[test]
     fn doorway_height_does_not_expand_its_horizontal_reach() {
@@ -714,7 +672,7 @@ mod tests {
         .unwrap()
     }
     #[test]
-    fn enemy_sight_checks_range_heading_bottles_and_the_static_path() {
+    fn enemy_sight_respects_range_and_cone() {
         let floor = |y: [f32; 2], surface| CollisionGroup {
             surface,
             vertices: vec![
@@ -726,18 +684,21 @@ mod tests {
             triangles: vec![[0, 1, 2], [0, 2, 3]],
         };
         let mesh = WalkMesh::new(&[floor([-700., 700.], 0)]).unwrap();
-        let sees = |point, rate| mesh.sees_player([0.; 3], 0., 90., 600., point, rate);
+        let sees = |point, rate| mesh.sees_player((0, [0.; 3]), 0., 90., 600., point, rate);
         assert!(sees([0., -300., 0.], 0));
         assert!(!sees([0., -300., 0.], 1));
         assert!(!sees([0., 300., 0.], 0));
         assert!(!sees([0., -600., 0.], 0));
         assert!(!sees([300., -100., 0.], 0));
+        assert!(!sees([250., -150., 0.], 0));
+        assert!(sees([150., -250., 0.], 0));
         assert!(sees([300., -100., 0.], 2));
-        assert!(!mesh.sees_player([0.; 3], 0., 90., 1000., [0., -100., 700.], 0));
-        let gap = WalkMesh::new(&[floor([-700., -150.], 0), floor([-100., 700.], 0)]).unwrap();
-        assert!(!gap.sees_player([0.; 3], 0., 90., 600., [0., -300., 0.], 0));
-        let masked = WalkMesh::new(&[floor([-700., 700.], 1 << 19)]).unwrap();
-        assert!(!masked.sees_player([0.; 3], 0., 90., 600., [0., -300., 0.], 0));
+        assert!(!mesh.sees_player((0, [0.; 3]), 0., 90., 600., [0., -100., 500.], 0));
+        assert!(crosses_triangle(
+            [0., 0., 100.],
+            [0., -300., 100.],
+            [[-100., -150., 0.], [100., -150., 0.], [0., -150., 300.]]
+        ));
     }
     #[test]
     fn ramp_height_and_shared_edge_are_continuous() {

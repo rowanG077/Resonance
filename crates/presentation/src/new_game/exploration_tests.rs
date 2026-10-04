@@ -177,7 +177,7 @@ fn original_linkite_conversations_restore_walking_on_the_floor() -> Result<()> {
     }
     let before = player(&field);
     ensure!(
-        field.ground_surface(before).is_some(),
+        field.collision().ground_surface(before).is_some(),
         "Lloyd was left above the walking floor"
     );
     for _ in 0..30 {
@@ -424,7 +424,17 @@ fn original_fire_seal_skipped_battles_preserve_field_control() -> Result<()> {
         .iter()
         .filter_map(|(&id, a)| a.enemy.as_ref().map(|_| id))
         .collect();
+    let start = player(&field);
     for enemy in enemies {
+        // Test each battle from the same walkable area, before reaching a wall.
+        let controlled = field.events.world.controlled_actor;
+        field
+            .events
+            .world
+            .actors
+            .get_mut(&controlled)
+            .unwrap()
+            .position = start;
         let camera = field.events.world.field_camera.as_ref().unwrap();
         let view = (camera.angles, camera.distance);
         let battles = field.events.world.party.as_ref().unwrap().battles.total;
@@ -465,7 +475,9 @@ fn original_fire_seal_skipped_battles_preserve_field_control() -> Result<()> {
         }
         ensure!(
             (player(&field)[0] - before[0]).hypot(player(&field)[1] - before[1]) > 1.,
-            "battle left walking frozen"
+            "battle {contacts} against {enemy} left walking frozen: {before:?} -> {:?}; controlled={}",
+            player(&field),
+            field.player_has_control()
         );
         contacts += 1;
     }

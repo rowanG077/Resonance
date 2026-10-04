@@ -38,6 +38,7 @@ mod operation;
 pub use operation::{Operation, Outcome, Progress};
 pub mod camera;
 pub mod caption;
+pub mod collision;
 pub mod dialogue;
 pub mod effect;
 mod gameplay_random;

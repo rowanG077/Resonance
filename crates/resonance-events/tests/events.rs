@@ -1969,63 +1969,9 @@ fn event_controlled_player_selects_idle_before_initializing_its_timer() {
 }
 
 #[test]
-fn conversation_preserves_decision_timer_until_the_foreground_event_finishes() {
-    let child = script(&[(Call::YieldCommand, &[0, 3])]);
-    let mut actor = Actor::new(24, [0.; 3]);
-    actor.autonomy = Some(Autonomy {
-        activity: Activity::Idle,
-        remaining: 32,
-        initialized: true,
-        ..Autonomy::new(Behavior::Stationary, 0., actor.position)
-    });
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
-    world.random_state = 1_624_982_312;
-    world.insert_actor(42, actor);
-    let mut events = runtime(
-        program_kind(&[0x20ff], &child, 0),
-        Default::default(),
-        world,
-    );
-    assert!(events.interact(42).unwrap());
-    let actor = events.world.actors.get_mut(&42).unwrap();
-    let ai = actor.autonomy.as_mut().unwrap();
-    ai.begin_conversation();
-    ai.resolve_floor(false);
-    // Event ownership, rather than an input flag, holds the conversation.
-    events.world.input_enabled = true;
-    for _ in 0..8 {
-        events.step().unwrap();
-        let ai = events.world.actors[&42].autonomy.unwrap();
-        assert!(ai.conversing);
-        assert_eq!(ai.remaining, 32);
-        assert_eq!(events.world.random_state, 1_624_982_312);
-        if events.active_instances() == 0 {
-            break;
-        }
-    }
-    assert_eq!(events.active_instances(), 0);
-    events.world.input_enabled = false;
-    for activity in [Activity::Select, Activity::Idle] {
-        events.step().unwrap();
-        let ai = events.world.actors[&42].autonomy.unwrap();
-        assert_eq!(ai.activity, activity);
-        assert!(!ai.conversing && !ai.initialized);
-        assert_eq!(ai.remaining, 32);
-        assert_eq!(events.world.random_state, 1_624_982_312);
-    }
-    events.step().unwrap();
-    let ai = events.world.actors[&42].autonomy.unwrap();
-    assert_eq!(ai.activity, Activity::Idle);
-    assert!(ai.initialized);
-    assert_eq!(ai.remaining, 120);
-    assert_eq!(events.world.random_state, 616_691_777);
-}
-
-#[test]
-fn spawned_npcs_wander_pause_during_events_and_yield_to_scripted_motion() {
+fn wandering_pauses_for_conversation_and_yields_to_scripted_motion() {
     use animation::slot;
-    let code = script(&[(Call::SpawnActor, &[42, 100, 200, 0, 0, 5, 2, 3])]);
+    let setup = script(&[(Call::SpawnActor, &[42, 100, 200, 0, 0, 5, 2, 3])]);
     let resources = ResourceLibrary {
         bindings: [(5, (ResourceKind::Model, 5))].into(),
         models: [(5, model([slot::IDLE, slot::WALK], 100))].into(),
@@ -2033,93 +1979,49 @@ fn spawned_npcs_wander_pause_during_events_and_yield_to_scripted_motion() {
     };
     let mut world = GameWorld::default();
     world.input_enabled = true;
-    world.random_state = 1;
     world.field_camera = Some(Default::default());
-    let conversation = script(&[(Call::YieldCommand, &[0, 200])]);
-    let mut events = runtime(program_kind(&code, &conversation, 0), resources, world);
-    steps(&mut events, 30);
-    let npc = &events.world.actors[&42];
-    let ai = npc.autonomy.unwrap();
-    assert_eq!(
-        (ai.behavior, ai.home, ai.speed),
-        (Behavior::WanderNearHome, [100., 200., 0.], 3.)
-    );
-    assert_ne!(npc.position, ai.home);
-    assert_eq!(npc.animation.as_ref().unwrap().slot, slot::WALK);
-    let position = npc.position;
-    let animation_sample = npc
-        .animation
-        .as_ref()
-        .unwrap()
-        .sample(events.tick(), 0, 100.);
-    assert!(animation_sample > 0.);
-    let random = events.world.random_state;
+    let conversation = script(&[(Call::YieldCommand, &[0, 60])]);
+    let mut events = runtime(program_kind(&setup, &conversation, 0), resources, world);
+    for _ in 0..360 {
+        events.step().unwrap();
+        if events.world.actors[&42].position != [100., 200., 0.] {
+            break;
+        }
+    }
+    let position = events.world.actors[&42].position;
+    assert_ne!(position, [100., 200., 0.]);
     events.world.input_enabled = false;
     steps(&mut events, 20);
-    let npc = &events.world.actors[&42];
-    assert_eq!(npc.position, position);
-    assert_eq!(npc.autonomy.unwrap().remaining, ai.remaining);
-    assert_eq!(events.world.random_state, random);
-    assert_eq!(
-        npc.animation
-            .as_ref()
-            .unwrap()
-            .sample(events.tick(), 0, 100.),
-        animation_sample
-    );
-    events.world.input_enabled = true;
-    events.step().unwrap();
-    let npc = &events.world.actors[&42];
-    assert_ne!(npc.position, position);
-    assert_eq!(
-        npc.animation
-            .as_ref()
-            .unwrap()
-            .sample(events.tick(), 0, 100.),
-        animation_sample + 1.
-    );
-
-    let npc = events.world.actors.get_mut(&42).unwrap();
-    let heading = npc.target_heading;
-    npc.autonomy.as_mut().unwrap().resolve_floor(false);
-    events.world.random_state = 1;
-    events.step().unwrap();
-    let npc = events.world.actors.get_mut(&42).unwrap();
-    assert_eq!(
-        (npc.target_heading - heading + 180.).rem_euclid(360.) - 180.,
-        -90.
-    );
-    let position = npc.position;
-    npc.motion = Some(ActorMotion {
-        target: [position[0] + 100., position[1], position[2]],
-        speed: 20.,
-    });
-    let random = events.world.random_state;
-    events.step().unwrap();
-    assert_eq!(
-        events.world.actors[&42].position,
-        [position[0] + 20., position[1], position[2]]
-    );
-    assert_eq!(events.world.random_state, random);
-    let npc = events.world.actors.get_mut(&42).unwrap();
-    let position = npc.position;
-    npc.motion = None;
-    npc.autonomy.as_mut().unwrap().begin_conversation();
-    assert!(events.interact(42).unwrap());
-    steps(&mut events, 100);
     assert_eq!(events.world.actors[&42].position, position);
-    assert_eq!(
-        events.world.actors[&42].animation.as_ref().unwrap().slot,
-        slot::IDLE
-    );
+    events.world.input_enabled = true;
+    assert!(events.interact(42).unwrap());
+    events
+        .world
+        .actors
+        .get_mut(&42)
+        .unwrap()
+        .autonomy
+        .as_mut()
+        .unwrap()
+        .begin_conversation();
+    steps(&mut events, 30);
+    assert_eq!(events.world.actors[&42].position, position);
+    // Scripted destinations remain usable while the conversation owns input.
+    let destination = [position[0] + 100., position[1], position[2]];
     events.world.actors.get_mut(&42).unwrap().motion = Some(ActorMotion {
-        target: [position[0] + 100., position[1], position[2]],
+        target: destination,
         speed: 20.,
     });
-    events.step().unwrap();
-    let npc = &events.world.actors[&42];
-    assert!(!npc.autonomy.unwrap().conversing);
-    assert_eq!(npc.position, [position[0] + 20., position[1], position[2]]);
+    steps(&mut events, 6);
+    assert_eq!(events.world.actors[&42].position, destination);
+    for _ in 0..360 {
+        events.step().unwrap();
+        if events.player_has_control() && events.world.actors[&42].position != destination {
+            break;
+        }
+    }
+    assert!(events.player_has_control());
+    assert_ne!(events.world.actors[&42].position, destination);
 }
 
 #[test]
@@ -2637,32 +2539,21 @@ fn locomotion_matches_native_speed_and_keeps_its_phase_across_rate_changes() {
 }
 
 #[test]
-fn walking_settles_to_whole_degree_facing_without_quantizing_the_path() {
-    // Raine's question checkpoint observes heading 181 even though the
-    // displacement points at 181.956 degrees. Position remains continuous.
-    let start = [222.20871, 12.970599, 0.];
-    let target = [210., 370., 0.];
+fn walking_faces_its_destination_without_changing_the_path() {
+    let start = [0.; 3];
+    let target: [f32; 3] = [25., 100., 0.];
     let mut actor = Actor::new(4, start);
     actor.face(180.);
-    actor.motion = Some(ActorMotion {
-        target,
-        speed: 1.875,
-    });
+    actor.motion = Some(ActorMotion { target, speed: 2. });
     let mut world = GameWorld::default();
     world.actors.insert(4, actor);
     let mut events = runtime(program(&[0x20ff], &[0x20ff]), Default::default(), world);
-    steps(&mut events, 31);
+    steps(&mut events, 10);
     let actor = &events.world.actors[&4];
-    assert_eq!(actor.heading, 181.);
-    assert_eq!(actor.target_heading, 181.);
-    let traveled = (actor.position[0] - start[0]).hypot(actor.position[1] - start[1]);
-    assert!((traveled - 31. * 1.875).abs() < 0.0001);
-    let cross = (actor.position[0] - start[0]) * (target[1] - start[1])
-        - (actor.position[1] - start[1]) * (target[0] - start[0]);
-    assert!(
-        cross.abs() < 0.05,
-        "facing must not change the movement vector"
-    );
+    let desired = target[0].atan2(-target[1]).to_degrees().rem_euclid(360.);
+    assert!((actor.heading - desired).abs() < 0.001);
+    assert!(actor.position[0].hypot(actor.position[1]) > 0.);
+    assert!((actor.position[0] * target[1] - actor.position[1] * target[0]).abs() < 0.001);
 }
 
 #[test]

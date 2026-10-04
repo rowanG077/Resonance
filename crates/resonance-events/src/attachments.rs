@@ -121,7 +121,7 @@ mod tests {
     use crate::{Actor, Animation, AnimationClip, AttachmentPose, EventRuntime, ModelResource};
     use resonance_content::{
         animation::{Bone, Motion, Skeleton, TransformChannels},
-        field::{CollisionGroup, CollisionQuery, ModelCollision},
+        field::CollisionQuery,
     };
     use std::sync::Arc;
 
@@ -188,30 +188,9 @@ mod tests {
             }
             world.insert_actor(id, actor);
         }
-        world.actors.get_mut(&30).unwrap().model_collision = Some(Arc::new(ModelCollision {
-            solids: vec![CollisionGroup {
-                surface: 0,
-                vertices: vec![
-                    [-1., -1., -1.],
-                    [1., -1., -1.],
-                    [-1., 1., -1.],
-                    [1., 1., -1.],
-                    [-1., -1., 1.],
-                    [1., -1., 1.],
-                    [-1., 1., 1.],
-                    [1., 1., 1.],
-                ],
-                triangles: vec![
-                    [0, 4, 2],
-                    [1, 3, 5],
-                    [0, 1, 4],
-                    [2, 6, 3],
-                    [0, 2, 1],
-                    [4, 5, 6],
-                ],
-            }],
-            ..Default::default()
-        }));
+        world.actors.get_mut(&30).unwrap().model_collision = Some(
+            resonance_content::test_support::solid_box([-1.; 3], [1.; 3]),
+        );
         let program =
             symphonia_script::Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap();
         let mut events =

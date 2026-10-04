@@ -18,7 +18,6 @@ pub enum Behavior {
     ChasePlayer = 12,
 }
 impl Behavior {
-    /// Enemy mode selection shared by creation and property 26 (fn_80012588).
     pub(crate) fn enemy(mode: u8) -> Self {
         match mode {
             0 => Self::WanderNearHome,
@@ -137,9 +136,6 @@ impl Actor {
             return intent;
         };
         if let Some(enemy) = &mut self.enemy {
-            // fn_800111D4 freezes autonomous movement while this signed timer
-            // is nonzero. Positive values expire; -1 remains until a script
-            // resumes the enemy. Scripted motion has its own controller.
             if enemy.pause_ticks != 0 && self.motion.is_none() {
                 if enemy.pause_ticks > 0 {
                     enemy.pause_ticks -= 1;
@@ -264,6 +260,19 @@ impl Actor {
                 if intent.paused {
                     return intent;
                 }
+                let outside_home = ai.behavior == Behavior::WanderNearHome
+                    && (ai.radius < 0.
+                        || self
+                            .position
+                            .iter()
+                            .zip(ai.home)
+                            .map(|(a, b)| (a - b).powi(2))
+                            .sum::<f32>()
+                            > ai.radius * ai.radius);
+                if self.enemy.is_some() && outside_home {
+                    ai.remaining = 120;
+                    self.target_heading = heading(self.position, ai.home);
+                }
                 ai.remaining -= 1;
                 if ai.remaining < -1 {
                     if random() & 15 == 0 {
@@ -275,8 +284,6 @@ impl Actor {
                         self.target_heading += if ai.remaining & 1 != 0 { 90. } else { -90. };
                         ai.remaining = (random() & 31) as i32 + 8;
                     } else {
-                        // fn_80013AE4 uses property 27 to select narrow or
-                        // wide random turns for enemy wandering mode 1.
                         let mask = if self
                             .enemy
                             .as_ref()
@@ -288,16 +295,7 @@ impl Actor {
                         };
                         self.target_heading += (random() & mask) as f32 - (mask / 2 + 1) as f32;
                         match ai.behavior {
-                            Behavior::WanderNearHome
-                                if ai.radius < 0.
-                                    || self
-                                        .position
-                                        .iter()
-                                        .zip(ai.home)
-                                        .map(|(a, b)| (a - b).powi(2))
-                                        .sum::<f32>()
-                                        > ai.radius * ai.radius =>
-                            {
+                            Behavior::WanderNearHome if outside_home => {
                                 ai.remaining = 60;
                                 self.target_heading = heading(self.position, ai.home);
                             }
@@ -315,7 +313,12 @@ impl Actor {
                         }
                     }
                 }
-                let angle = self.target_heading.to_radians();
+                let angle = if self.enemy.is_some() {
+                    self.heading
+                } else {
+                    self.target_heading
+                }
+                .to_radians();
                 let mut delta = [angle.sin() * ai.speed, -angle.cos() * ai.speed];
                 if self.heading.trunc() != self.target_heading.trunc() {
                     delta = delta.map(|v| (f64::from(v) / 1.5) as f32);
@@ -349,6 +352,44 @@ pub struct ActorOrigin {
 #[cfg(test)]
 mod path_tests {
     use super::*;
+
+    #[test]
+    fn enemy_returns_home_before_its_random_turn_timer_expires() {
+        let mut actor = Actor::new(164, [301., 0., 0.]);
+        actor.face(90.);
+        actor.turn_speed = 10.;
+        let mut ai = Autonomy::new(Behavior::WanderNearHome, 3., [0.; 3]);
+        ai.radius = 300.;
+        ai.activity = Activity::Walk;
+        ai.initialized = true;
+        ai.remaining = 500;
+        actor.autonomy = Some(ai);
+        actor.enemy = Some(crate::world::Enemy {
+            event: 0,
+            behavior: 0,
+            normal_speed: 3.,
+            alert_speed: 6.,
+            random_turns: false,
+            chase_on_sight: false,
+            sight_angle: 90.,
+            sight_distance: 600.,
+            alerted: false,
+            event_parameters: [0; 2],
+            pause_ticks: 0,
+            reaction: crate::effect::StunEffect::None,
+        });
+        let mut seed = 1;
+        let mut random = || crate::world::random(&mut seed);
+        for _ in 0..120 {
+            actor.step_autonomy(true, false, None, &mut random);
+            actor.step_heading(false, true);
+        }
+        assert!(actor.position[0].hypot(actor.position[1]) < 300.);
+        let before = actor.position;
+        actor.step_autonomy(false, false, None, &mut random);
+        assert_eq!(actor.position, before);
+    }
+
     #[test]
     fn patrol_reverses_at_end_and_pauses_for_dialogue() {
         let mut actor = Actor::new(1, [0.; 3]);

@@ -222,37 +222,46 @@ impl Actor {
                 if !query.accepts(group.surface) || group.triangles.is_empty() {
                     return None;
                 }
-                let (mut enter, mut exit) = (0_f32, 1_f32);
-                for triangle in &group.triangles {
-                    let [a, b, c] =
-                        triangle.map(|i| self.collision_point(group.vertices[usize::from(i)]));
-                    let u: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
-                    let v: [f32; 3] = std::array::from_fn(|i| c[i] - a[i]);
-                    let normal = [
-                        u[1] * v[2] - u[2] * v[1],
-                        u[2] * v[0] - u[0] * v[2],
-                        u[0] * v[1] - u[1] * v[0],
-                    ];
-                    let distance =
-                        |p: [f32; 3]| (0..3).map(|i| (p[i] - a[i]) * normal[i]).sum::<f32>();
-                    let from = distance(start);
-                    let speed = distance(end) - from;
-                    if speed == 0. {
-                        if from >= 0. {
-                            return None;
-                        }
-                    } else if speed < 0. {
-                        enter = enter.max(-from / speed);
-                    } else {
-                        exit = exit.min(-from / speed);
-                    }
-                    if enter > exit {
-                        return None;
-                    }
-                }
-                Some(enter)
+                let planes = self
+                    .collision_triangles(group)
+                    .map(crate::collision::Plane::triangle);
+                crate::collision::segment_contact(planes, start, end)
             })
             .min_by(f32::total_cmp)
+    }
+
+    pub fn collision_triangles<'a>(
+        &'a self,
+        group: &'a resonance_content::field::CollisionGroup,
+    ) -> impl Iterator<Item = [[f32; 3]; 3]> + 'a {
+        group
+            .triangles
+            .iter()
+            .map(|triangle| triangle.map(|i| self.collision_point(group.vertices[usize::from(i)])))
+    }
+
+    pub fn collision_bounds(&self) -> ([f32; 3], [f32; 3]) {
+        let points = self
+            .model_collision
+            .iter()
+            .flat_map(|mesh| &mesh.solids)
+            .flat_map(|group| &group.vertices)
+            .map(|p| self.collision_point(*p));
+        let mut bounds = None;
+        for point in points {
+            let (low, high) = bounds.get_or_insert((point, point));
+            for i in 0..3 {
+                low[i] = low[i].min(point[i]);
+                high[i] = high[i].max(point[i]);
+            }
+        }
+        bounds.unwrap_or_else(|| {
+            let [x, y, z] = self.position;
+            (
+                [x - self.radius, y - self.radius, z],
+                [x + self.radius, y + self.radius, z + ACTOR_CONTACT_HEIGHT],
+            )
+        })
     }
 
     pub fn collision_point(&self, point: [f32; 3]) -> [f32; 3] {
@@ -347,41 +356,32 @@ impl Actor {
         }
     }
     pub(crate) fn step_heading(&mut self, controlled: bool, moving: bool) {
-        // A new direction can cross a full turn. Choose the turn before wrapping
-        // the target, then stop when the new heading reaches its angular sector.
-        let direction = self.turn_direction();
         let speed = if controlled {
             20.
         } else {
-            self.turn_speed * if moving { 2. } else { 1. }
+            self.turn_speed
+                * if moving && self.enemy.is_none() {
+                    2.
+                } else {
+                    1.
+                }
         };
-        self.target_heading = self.target_heading.trunc().rem_euclid(360.);
-        if speed <= 0. {
-            return;
+        self.target_heading = self.target_heading.rem_euclid(360.);
+        if speed > 0. {
+            let delta = self.heading_delta();
+            self.heading = if delta.abs() <= speed {
+                self.target_heading
+            } else {
+                (self.heading + delta.signum() * speed).rem_euclid(360.)
+            };
         }
-        let current = if self.heading < 0. {
-            360. + self.heading
-        } else {
-            self.heading
-        };
-        let next = self.heading + direction * speed.min((self.target_heading - current).abs());
-        let sectors = (360. / speed) as i32;
-        let same_sector = sectors > 0
-            && ((360. + next.trunc().rem_euclid(360.)) / speed) as i32 % sectors
-                == ((360. + self.target_heading) / speed) as i32 % sectors;
-        self.heading = if same_sector {
-            self.target_heading
-        } else {
-            next
-        };
+    }
+    fn heading_delta(&self) -> f32 {
+        (self.target_heading - self.heading + 180.).rem_euclid(360.) - 180.
     }
     pub(crate) fn turn_direction(&self) -> f32 {
-        let delta = self.heading - self.target_heading;
-        if delta == 0. {
-            return 0.;
-        }
-        let direction = if delta.abs() >= 180. { 1. } else { -1. };
-        if delta < 0. { -direction } else { direction }
+        let delta = self.heading_delta();
+        if delta == 0. { 0. } else { delta.signum() }
     }
     pub(crate) fn step_motion(&mut self) {
         let speed = self.movement_speed();
@@ -566,8 +566,6 @@ pub struct GameWorld {
     pub skit_request: Option<crate::skit::Request>,
     pub menu_request: Option<crate::menu::Request>,
     pub actors: BTreeMap<i32, Actor>,
-    /// Additional native objects sharing a script key. Commands address the
-    /// first object; fn_80058D64 destroys every object carrying that key.
     pub(crate) duplicate_actors: BTreeMap<i32, i32>,
     pub(crate) automatic_wings: Option<(u64, u64)>,
     pub(crate) wing_attachment: Option<crate::wings::RetainedAttachment>,
