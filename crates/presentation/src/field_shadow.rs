@@ -64,6 +64,7 @@ pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
     let Some(session) = world.get_resource::<crate::new_game::Session>() else {
         return serde_json::Value::Null;
     };
+    let collision = session.field.collision();
     serde_json::Value::Array(
         session
             .field
@@ -75,7 +76,7 @@ pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
                 serde_json::json!({
                     "actor": id,
                     "casts_shadow": actor.casts_shadow,
-                    "ground": session.field.ground_surface(actor.position).map(|s| s.height),
+                    "ground": collision.ground_surface(actor.position).map(|s| s.height),
                     "quad": shadows.get(&id),
                 })
             })
@@ -189,6 +190,7 @@ pub(super) fn pose(
             ))
         })
         .collect();
+    let collision = state.get().collision();
     for (mut shadow, mut transform, mut visibility, mut order, material) in &mut transforms.p1() {
         let Some(actor) = state.get().events.world.actors.get(&shadow.0) else {
             continue;
@@ -210,7 +212,6 @@ pub(super) fn pose(
             .position(|id| *id == shadow.0)
             .expect("shadow actor has a submission order");
         order.set_if_neq(DrawOrder(crate::draw_order::CONTACT_SHADOWS, actor_order));
-        let surface = state.get().ground_surface(actor.position);
         let anchor = anchors.get(&shadow.0);
         *visibility = Visibility::Hidden;
         if actor.visible
@@ -218,6 +219,7 @@ pub(super) fn pose(
             && actor.casts_shadow
             && let Some(anchor) = anchor
         {
+            let surface = collision.ground_surface(actor.position);
             // A missing floor keeps the actor's height and last floor tilt.
             // A replacement actor starts with a horizontal shadow.
             transform.translation = Vec3::new(

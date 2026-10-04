@@ -608,10 +608,7 @@ impl FieldSession {
                         let forward = events.world.field_camera.as_ref().map_or([0., 1.], |c| {
                             [c.target[0] - c.position[0], c.target[1] - c.position[1]]
                         });
-                        // Field controls rotate in whole degrees relative to the view.
-                        let angle = (-forward[0].atan2(forward[1]).to_degrees())
-                            .trunc()
-                            .to_radians();
+                        let angle = -forward[0].atan2(forward[1]);
                         let forward = [-angle.sin(), angle.cos()];
                         let size = events.world.player_size;
                         let speed = if input.run { 8. } else { 4. } * size.movement_scale();
@@ -623,25 +620,20 @@ impl FieldSession {
                             start
                         } else {
                             walkmesh.move_by(start, delta, size.floor_clearance(), |p| {
-                                events.world.actors.iter().any(|(other, a)| {
+                                const MODEL_PROBE_HEIGHT: f32 = 45.;
+                                walkmesh.blocked(
+                                    [p[0], p[1], p[2] + MODEL_PROBE_HEIGHT],
+                                    CollisionQuery::Player,
+                                    actor.instance,
+                                ) || events.world.actors.iter().any(|(other, a)| {
                                     if *other == id {
                                         return false;
-                                    }
-                                    const MODEL_PROBE_HEIGHT: f32 = 45.;
-                                    if a.contains_solid(
-                                        [p[0], p[1], p[2] + MODEL_PROBE_HEIGHT],
-                                        CollisionQuery::Player,
-                                    ) {
-                                        return true;
                                     }
                                     let blocked = a.visible
                                         && a.collidable
                                         && a.contact == resonance_events::ActorContact::Cylinder
-                                        && actor.contact == resonance_events::ActorContact::Cylinder
-                                        // fn_80024284 adds the two authored
-                                        // cylinder radii, with a 150-unit
-                                        // vertical overlap tolerance. Local
-                                        // models participate just like global ones.
+                                        && actor.contact
+                                            == resonance_events::ActorContact::Cylinder
                                         && (p[2] - a.position[2]).abs() <= ACTOR_CONTACT_HEIGHT
                                         && (p[0] - a.position[0]).hypot(p[1] - a.position[1])
                                             < actor.radius + a.radius;
@@ -655,8 +647,6 @@ impl FieldSession {
                                 })
                             })
                         };
-                        // Derive facing before adding world coordinates: subtracting
-                        // rounded positions can push a whole-degree angle across its boundary.
                         let heading = (delta != [0.; 2]).then(|| movement_heading(delta));
                         player_destination = Some((id, target, heading));
                         let actor = events.world.actors.get_mut(&id).unwrap();
@@ -678,7 +668,6 @@ impl FieldSession {
                         {
                             // Ordinary field conversations turn the selected person
                             // toward Lloyd while leaving the player's facing alone.
-                            // Independent NPC 304/305 oracle checkpoints verify this.
                             let other = events.world.actors.get_mut(&target).unwrap();
                             if let Some(autonomy) = &mut other.autonomy {
                                 autonomy.begin_conversation();
@@ -724,10 +713,6 @@ impl FieldSession {
                         && actor.collidable
                         && actor.contact == resonance_events::ActorContact::Cylinder
                     {
-                        // fn_80024284 uses the same authored radii and height
-                        // for NPC and player contact. A smaller NPC boundary
-                        // can put the player inside an inescapable overlap.
-                        // fn_8001A6FC bypasses contact during mapped-input pause.
                         for &(other, position, radius) in &obstacles {
                             let position = resolved.get(&other).copied().unwrap_or(position);
                             if other == id
@@ -747,14 +732,12 @@ impl FieldSession {
                             }
                         }
                     }
-                    // fn_8001D5F4 resolves the player during scripted arrivals too.
-                    // Only the mapped-input pause suspends an unsupported fall.
                     let position = if id == controlled_actor {
                         walkmesh.resolve_player(previous, actor.position, player_fall, event_paused)
                     } else if actor.enemy.is_some() {
-                        walkmesh.resolve_enemy(previous, actor.position)
+                        walkmesh.resolve_enemy(actor.position, actor.instance)
                     } else {
-                        walkmesh.resolve_motion(previous, actor.position, false)
+                        walkmesh.resolve_motion(actor.position)
                     };
                     if let Some(autonomy) = &mut actor.autonomy {
                         autonomy.resolve_floor(position.is_some());
@@ -765,10 +748,6 @@ impl FieldSession {
                             // Keep their horizontal motion and hold the last height.
                             [actor.position[0], actor.position[1], previous[2]]
                         } else {
-                            // fn_8001A6FC cancels the movement command (B0=-1)
-                            // when a grounded actor reaches an unsupported
-                            // destination. Retaining it would leave scripts
-                            // waiting forever for an unreachable endpoint.
                             actor.motion = None;
                             previous
                         }
@@ -777,7 +756,7 @@ impl FieldSession {
                 resolved.insert(id, actor.position);
             },
             |events| {
-                self.walkmesh.update_enemy_sight(&mut events.world);
+                walkmesh.update_enemy_sight(&mut events.world);
                 conditions::step(&mut events.world, self.effect_clock.tick())?;
                 self.save_points
                     .step_effects(events, self.effect_clock.tick())?;
@@ -1131,15 +1110,9 @@ impl FieldSession {
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(id, _)| id)
     }
-    pub fn ground_below(&self, point: [f32; 3]) -> Option<navigation::GroundSurface> {
-        self.walkmesh
-            .with_actors(self.events.world.actors.values())
-            .surface_below(point)
-    }
-    pub fn ground_surface(&self, point: [f32; 3]) -> Option<navigation::GroundSurface> {
-        self.walkmesh
-            .with_actors(self.events.world.actors.values())
-            .surface(point, 32.)
+    /// Snapshot current actor geometry once for a batch of collision queries.
+    pub fn collision(&self) -> navigation::WalkMesh {
+        self.walkmesh.with_actors(self.events.world.actors.values())
     }
     pub fn character_light(&self, id: i32) -> resonance_events::effect::CharacterLight {
         self.events
@@ -1199,9 +1172,7 @@ fn within_interaction_reach(player: &Actor, actor: &Actor) -> bool {
         && (actor.position[2] - player.position[2]).abs() <= HEIGHT
 }
 fn movement_heading([x, y]: [f32; 2]) -> f32 {
-    // Fuse the conversion: separate rounding can turn 0.9999976 degrees into
-    // exactly 1, changing the whole-degree facing selected by actor movement.
-    y.atan2(x).mul_add(1_f32.to_degrees(), 90.).rem_euclid(360.)
+    x.atan2(-y).to_degrees().rem_euclid(360.)
 }
 
 pub fn start(
@@ -1606,6 +1577,91 @@ mod tests {
     }
 
     #[test]
+    fn enemies_see_the_player_only_after_a_live_barrier_opens() {
+        use resonance_content::field::{CollisionGroup, ModelCollision};
+        let mut session = choice_session();
+        session.events = EventRuntime::new(
+            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
+            Arc::new(ResourceLibrary::default()),
+        )
+        .unwrap();
+        let world = &mut session.events.world;
+        world.controlled_actor = 1;
+        world.input_enabled = true;
+        let mut player = Actor::new(1, [0., -300., 0.]);
+        player.grounded = false;
+        world.insert_actor(1, player);
+        let mut enemy = Actor::new(2, [0.; 3]);
+        enemy.grounded = false;
+        enemy.enemy = Some(resonance_events::Enemy {
+            event: 0,
+            behavior: 0,
+            normal_speed: 0.,
+            alert_speed: 0.,
+            random_turns: false,
+            chase_on_sight: false,
+            sight_angle: 90.,
+            sight_distance: 600.,
+            alerted: false,
+            event_parameters: [0; 2],
+            pause_ticks: 0,
+            reaction: resonance_events::effect::StunEffect::None,
+        });
+        world.insert_actor(2, enemy);
+        let mut door = Actor::new(3, [0., -150., 0.]);
+        door.grounded = false;
+        door.model_collision = Some(Arc::new(ModelCollision {
+            floors: vec![],
+            solids: vec![CollisionGroup {
+                surface: 0,
+                vertices: [0., 200.]
+                    .into_iter()
+                    .flat_map(|z| {
+                        [
+                            [-100., -10., z],
+                            [100., -10., z],
+                            [-100., 10., z],
+                            [100., 10., z],
+                        ]
+                    })
+                    .collect(),
+                triangles: vec![
+                    [0, 2, 3],
+                    [3, 1, 0],
+                    [4, 5, 7],
+                    [7, 6, 4],
+                    [0, 1, 5],
+                    [5, 4, 0],
+                    [1, 3, 7],
+                    [7, 5, 1],
+                    [3, 2, 6],
+                    [6, 7, 3],
+                    [2, 0, 4],
+                    [4, 6, 2],
+                ],
+            }],
+        }));
+        world.insert_actor(3, door);
+        session.step(FieldInput::default()).unwrap();
+        assert!(
+            !session.events.world.actors[&2]
+                .enemy
+                .as_ref()
+                .unwrap()
+                .alerted
+        );
+        session.events.world.actors.get_mut(&3).unwrap().position[2] = 300.;
+        session.step(FieldInput::default()).unwrap();
+        assert!(
+            session.events.world.actors[&2]
+                .enemy
+                .as_ref()
+                .unwrap()
+                .alerted
+        );
+    }
+
+    #[test]
     fn mapped_pause_blocks_walking_but_preserves_scripted_motion() {
         let mut session = choice_session();
         session.events = EventRuntime::new(
@@ -1838,14 +1894,29 @@ mod tests {
             reached[1] > 300. && (reached[2] - 20.).abs() < 0.001,
             "{reached:?}"
         );
-        let floor = session.ground_below([0., 120., 40.]).unwrap();
+        let floor = session.collision().surface_below([0., 120., 40.]).unwrap();
         assert_eq!((floor.height, floor.attributes), (20., 7));
 
         session.events.world.actors.get_mut(&500).unwrap().position[0] = 400.;
-        assert!(session.ground_surface([0., 120., 20.]).is_none());
-        assert!(session.ground_surface([400., 120., 20.]).is_some());
+        assert!(
+            session
+                .collision()
+                .ground_surface([0., 120., 20.])
+                .is_none()
+        );
+        assert!(
+            session
+                .collision()
+                .ground_surface([400., 120., 20.])
+                .is_some()
+        );
         session.events.world.actors.remove(&500);
-        assert!(session.ground_below([400., 120., 40.]).is_none());
+        assert!(
+            session
+                .collision()
+                .surface_below([400., 120., 40.])
+                .is_none()
+        );
         session.events.world.actors.get_mut(&1).unwrap().position = [0., -80., 0.];
         for _ in 0..50 {
             session
@@ -2165,19 +2236,14 @@ mod tests {
     }
 
     #[test]
-    fn movement_heading_preserves_the_observed_genis_house_turn_boundary() {
-        // Ten downward steps inside Genis's house finish facing 0 degrees in
-        // the source capture, despite a small positive X displacement.
-        let heading = movement_heading([0.069_809_62, -3.999_390_8]);
-        assert_eq!(heading, 0.999_997_6);
-        assert_eq!(heading.trunc(), 0.);
+    fn movement_heading_matches_the_input_direction() {
         for (delta, expected) in [
             ([0., -1.], 0.),
             ([1., 0.], 90.),
             ([0., 1.], 180.),
             ([-1., 0.], 270.),
         ] {
-            assert_eq!(movement_heading(delta).trunc().rem_euclid(360.), expected);
+            assert_eq!(movement_heading(delta), expected);
         }
     }
 

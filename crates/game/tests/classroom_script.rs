@@ -2950,7 +2950,7 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
         let position = session.events.world.actors[&id].position;
         let approach = [position[0], position[1] - 80., position[2]];
         assert!(
-            session.ground_surface(approach).is_some(),
+            session.collision().ground_surface(approach).is_some(),
             "target has no reachable approach"
         );
         let player = session

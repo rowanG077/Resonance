@@ -5,9 +5,9 @@ use resonance_events::{Animation, EventRuntime, GameWorld, input::Button};
 
 const GRIP_DISTANCE: f32 = 125.;
 const CELL: f32 = 150.;
-const STEP: f32 = 3.;
+const STEP: f32 = CELL / MOVE_UPDATES as f32;
 const MOVE_UPDATES: u8 = 50;
-const STICK_THRESHOLD: f32 = 60. / 80.;
+const STICK_THRESHOLD: f32 = 0.75;
 const BLEND_UPDATES: u32 = 2;
 const HOLD_CLIP: u16 = ServiceMotion::HoldBlock as u16;
 const PUSH_CLIP: u16 = ServiceMotion::PushBlock as u16;
@@ -70,11 +70,11 @@ struct Grip {
 #[derive(Default)]
 pub(super) struct Blocks {
     grip: Option<Grip>,
-    falling: std::collections::BTreeMap<i32, u64>,
 }
 impl Blocks {
     pub fn settle(&mut self, world: &mut GameWorld, mesh: &WalkMesh) {
-        mesh.settle_scenery(world, self.moving(), &mut self.falling);
+        mesh.with_actors(world.actors.values())
+            .settle_scenery(world, self.moving());
     }
     pub fn active(&self) -> bool {
         self.grip.is_some()
@@ -97,6 +97,7 @@ impl Blocks {
         if !self.active() && (!events.player_has_control() || !input.interact) {
             return;
         }
+        let mesh = &mesh.with_actors(events.world.actors.values());
         let service_clips = [HOLD_CLIP, PUSH_CLIP, PULL_CLIP].map(|slot| {
             let duration = events
                 .world
@@ -120,7 +121,7 @@ impl Blocks {
             let Some(id) = Self::target(world) else {
                 return;
             };
-            if self.falling.contains_key(&id) || !mesh.block_supported(world, id) {
+            if !mesh.block_supported(&world.actors[&id]) {
                 return;
             }
             let block = &world.actors[&id];
@@ -162,8 +163,7 @@ impl Blocks {
             || (matches!(grip.phase, Phase::Holding)
                 && (!world.input.held.contains(Button::Accept)
                     || world.mapped_input_disabled
-                    || self.falling.contains_key(&grip.block)
-                    || !mesh.block_supported(world, grip.block)));
+                    || !mesh.block_supported(&world.actors[&grip.block])));
         if release {
             if let Some(player) = world
                 .actors
@@ -207,10 +207,9 @@ impl Blocks {
                     }
                 });
                 if mesh.can_move_block(
-                    world,
-                    grip.block,
+                    &world.actors[&grip.block],
+                    &world.actors[&world.controlled_actor],
                     delta.map(|v| v / STEP * CELL),
-                    matches!(movement, Movement::Pull),
                 ) {
                     grip.phase = Phase::Moving {
                         delta,
@@ -298,34 +297,7 @@ mod tests {
         let mut block = Actor::new(2, [0.; 3]);
         block.role = ActorRole::Pushable;
         block.radius = 50.;
-        let cube = CollisionGroup {
-            surface: 0,
-            vertices: [0., CELL]
-                .into_iter()
-                .flat_map(|z| {
-                    [
-                        [-75., -75., z],
-                        [75., -75., z],
-                        [-75., 75., z],
-                        [75., 75., z],
-                    ]
-                })
-                .collect(),
-            triangles: vec![
-                [0, 2, 3],
-                [3, 1, 0],
-                [4, 5, 7],
-                [7, 6, 4],
-                [0, 1, 5],
-                [5, 4, 0],
-                [1, 3, 7],
-                [7, 5, 1],
-                [3, 2, 6],
-                [6, 7, 3],
-                [2, 0, 4],
-                [4, 6, 2],
-            ],
-        };
+        let cube = resonance_content::test_support::cuboid([-75., -75., 0.], [75., 75., CELL]);
         block.model_collision = Some(Arc::new(ModelCollision {
             floors: vec![cube.clone()],
             solids: vec![cube],
@@ -463,31 +435,39 @@ mod tests {
         assert!(events.player_has_control());
     }
     #[test]
-    fn pulling_needs_retreat_floor_and_both_moves_need_headroom() {
-        let (mut events, _, _) = room();
-        let ledge = floor(200.);
-        assert!(ledge.can_move_block(&events.world, 2, [0., 150.], false));
-        assert!(!ledge.can_move_block(&events.world, 2, [0., 150.], true));
-        let mut ceiling = Actor::new(3, [0., 0., 200.]);
-        ceiling.model_collision = Some(Arc::new(ModelCollision {
-            solids: vec![CollisionGroup {
-                surface: 0,
-                vertices: vec![
-                    [-500., -500., 0.],
-                    [500., -500., 0.],
-                    [0., 500., 0.],
-                    [0., 0., 100.],
-                ],
-                triangles: vec![[0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]],
-            }],
-            ..Default::default()
-        }));
-        events.world.insert_actor(3, ceiling);
-        assert!(!ledge.can_move_block(&events.world, 2, [0., -150.], false));
-        assert!(!floor(1000.).can_move_block(&events.world, 2, [0., 150.], true));
-        events.world.actors.get_mut(&3).unwrap().position = [0., -150., 50.];
-        assert!(!floor(1000.).can_move_block(&events.world, 2, [0., -150.], false));
-        assert!(floor(1000.).can_move_block(&events.world, 2, [0., 150.], true));
+    fn pulling_checks_the_players_body_and_actual_retreat_position() {
+        for (floor_edge, obstacle, moves) in [
+            (280., None, true),
+            (270., None, false),
+            (1000., Some(([-50., 230., 0.], [50., 240., 50.])), false),
+            (1000., Some(([-50., 230., 160.], [50., 240., 250.])), true),
+        ] {
+            let (mut events, _, mut blocks) = room();
+            let mesh = floor(floor_edge);
+            if let Some((low, high)) = obstacle {
+                let mut wall = Actor::new(3, [0.; 3]);
+                wall.model_collision = Some(resonance_content::test_support::solid_box(low, high));
+                events.world.insert_actor(3, wall);
+            }
+            step(
+                &mut events,
+                &mesh,
+                &mut blocks,
+                FieldInput {
+                    interact: true,
+                    ..Default::default()
+                },
+            );
+            for _ in 0..MOVE_UPDATES {
+                step(&mut events, &mesh, &mut blocks, held([0., 1.]));
+            }
+            let moved = if moves { CELL } else { 0. };
+            assert_eq!(events.world.actors[&2].position, [0., moved, 0.]);
+            assert_eq!(
+                events.world.actors[&1].position,
+                [0., GRIP_DISTANCE + moved, 0.]
+            );
+        }
     }
 
     #[test]
@@ -517,6 +497,32 @@ mod tests {
     }
 
     #[test]
+    fn pushing_cannot_cross_a_thin_wall() {
+        let (mut events, mesh, mut blocks) = room();
+        let mut wall = events.world.actors[&2].clone();
+        wall.position = [0., -100., 0.];
+        let geometry = Arc::make_mut(wall.model_collision.as_mut().unwrap());
+        geometry.floors.clear();
+        for vertex in &mut geometry.solids[0].vertices {
+            vertex[1] *= 0.02;
+        }
+        events.world.insert_actor(3, wall);
+        step(
+            &mut events,
+            &mesh,
+            &mut blocks,
+            FieldInput {
+                interact: true,
+                ..Default::default()
+            },
+        );
+        for _ in 0..MOVE_UPDATES {
+            step(&mut events, &mesh, &mut blocks, held([0., -1.]));
+        }
+        assert_eq!(events.world.actors[&2].position, [0.; 3]);
+    }
+
+    #[test]
     fn model_support_overrides_pit_planes_but_disabled_collision_does_not() {
         for plane in [149., 150., 151.] {
             let (mut events, _, mut blocks) = room();
@@ -537,24 +543,31 @@ mod tests {
             upper.position[2] = 149.;
             events.world.insert_actor(3, upper);
             blocks.settle(&mut events.world, &mesh);
-            assert_eq!(events.world.actors[&3].position[2], plane.max(150.));
-            assert!(mesh.block_supported(&events.world, 3));
+            assert_eq!(events.world.actors[&3].position[2], 150.);
+            assert!(
+                mesh.with_actors(events.world.actors.values())
+                    .block_supported(&events.world.actors[&3])
+            );
             events.world.actors.get_mut(&2).unwrap().model_collision = None;
             events.world.actors.get_mut(&3).unwrap().position[2] = plane;
-            assert!(!mesh.block_supported(&events.world, 3));
+            assert!(
+                !mesh
+                    .with_actors(events.world.actors.values())
+                    .block_supported(&events.world.actors[&3])
+            );
             blocks.settle(&mut events.world, &mesh);
             assert_eq!(events.world.actors[&3].position[2], plane - 9.);
         }
     }
 
     #[test]
-    fn falling_blocks_keep_the_landing_dip_and_ignore_model_undersides() {
+    fn falling_blocks_land_without_overshoot_and_ignore_model_undersides() {
         let (mut events, mesh, mut blocks) = room();
         events.world.actors.get_mut(&2).unwrap().position[2] = 70.;
-        for z in [61., 52., 43., 34., 25., 16., 7., -2., 0.] {
+        for tick in 0..10 {
             blocks.settle(&mut events.world, &mesh);
-            assert_eq!(events.world.actors[&2].position[2], z);
-            if z == 52. {
+            assert!(events.world.actors[&2].position[2] >= 0.);
+            if tick == 1 {
                 step(
                     &mut events,
                     &mesh,
@@ -567,6 +580,7 @@ mod tests {
                 assert_eq!(events.world.grabbed_block, None);
             }
         }
+        assert_eq!(events.world.actors[&2].position[2], 0.);
         let mut ceiling = events.world.actors[&2].clone();
         ceiling.position[2] = 50.;
         ceiling.properties.insert(19, 0);
@@ -604,7 +618,7 @@ mod tests {
         let player = events.world.actors.get_mut(&1).unwrap();
         player.position = [-1065., -1375., z];
         player.face(270.);
-        // Original map 308 places actor 5001 here after filling the west pit.
+        // The west pit is filled at this progression checkpoint.
         let mut filled = Actor::new(267, [-1340., -1375., -949.]);
         filled.model_collision = Some(collision);
         events.world.insert_actor(5001, filled);

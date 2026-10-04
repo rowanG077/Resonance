@@ -355,8 +355,9 @@ pub(super) fn render(
         );
         applied.ack(Request::Particle(particle.handle));
     }
+    let collision = world.ring_shadows().next().map(|_| state.get().collision());
     for position in world.ring_shadows() {
-        if let Some(surface) = state.get().ground_below(position) {
+        if let Some(surface) = collision.as_ref().and_then(|c| c.surface_below(position)) {
             let (spec, batch) = &art.shadow;
             batches[*batch].sprite(
                 Vec3::new(

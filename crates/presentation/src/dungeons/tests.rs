@@ -1241,3 +1241,51 @@ fn thoda_bridge_targets_a_live_material_and_scrolls() -> Result<()> {
     assert!(field.events.exploration_error.is_none());
     Ok(())
 }
+
+#[test]
+#[ignore = "requires locally cooked Mana bridge assets; no devices"]
+fn mana_enemies_respect_closed_bridge_barriers() -> Result<()> {
+    let mut field = configured(Fixture::Mana, 366, |entry| {
+        entry
+            .persistent
+            .memory
+            .write(0xcc, symphonia_script::Width::S32, 12_000)?;
+        entry.position = [40., 0., 7.];
+        Ok(())
+    })?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    let enemy = *field
+        .events
+        .world
+        .actors
+        .iter()
+        .find(|(_, a)| a.enemy.is_some())
+        .context("bridge-room enemy")?
+        .0;
+    let start = [650., 605., 309.2];
+    let target = [350., 605., 309.2];
+    for open in [false, true] {
+        if open {
+            field.events.world.actors.remove(&800);
+        }
+        let actor = field.events.world.actors.get_mut(&enemy).unwrap();
+        actor.position = start;
+        actor.autonomy = None;
+        actor.collidable = false;
+        actor.motion = Some(resonance_events::ActorMotion { target, speed: 4. });
+        ticks(&mut field, 100, FieldInput::default())?;
+        let x = field.events.world.actors[&enemy].position[0];
+        if open {
+            assert!(
+                (x - target[0]).abs() < 1.,
+                "open bridge stopped enemy at {x}"
+            );
+        } else {
+            assert!(
+                x < start[0] && x >= 595.,
+                "closed barrier let enemy through to {x}"
+            );
+        }
+    }
+    Ok(())
+}
