@@ -10,10 +10,183 @@ use anyhow::{Context, Result};
 use resonance_game::field::{FieldInput, FieldSession};
 use std::{path::PathBuf, sync::Arc};
 
+#[test]
+fn location_menu_pages_and_shortcuts_select_visible_rows() {
+    use super::{DESTINATIONS, Menu, PAGE_SIZE};
+    let mut menu = Menu::default();
+    menu.turn_page(true);
+    assert_eq!(menu.selected, PAGE_SIZE);
+    assert!(menu.select_row(2));
+    assert_eq!(menu.selected, PAGE_SIZE + 2);
+    menu.turn_page(false);
+    assert_eq!(menu.selected, 2);
+    menu.turn_page(false);
+    assert_eq!(
+        menu.page_start(),
+        (DESTINATIONS.len() - 1) / PAGE_SIZE * PAGE_SIZE
+    );
+    assert!(!menu.select_row(PAGE_SIZE));
+    let remaining = DESTINATIONS.len() - menu.page_start();
+    assert!(menu.select_row(remaining - 1));
+    assert!(!menu.select_row(remaining));
+    menu.turn_page(true);
+    assert_eq!(menu.page_start(), 0);
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn location_menu_checkpoints_are_playable() -> Result<()> {
+    let root = assets_root()?;
+    let mut cache = Default::default();
+    let mut failures = Vec::new();
+    for &destination in super::DESTINATIONS {
+        let result = (|| -> Result<()> {
+            let package =
+                new_game::FieldPackage::prepare(&root, destination.map, &mut cache, || false)?;
+            let entry = destination.entry(
+                Arc::new(package.files.json("game/session-data.json")?),
+                new_game::available_fields(&root)?,
+            )?;
+            let mut field = Scene::enter(&package, entry)?;
+            for _ in 0..4 {
+                until(&mut field, dialogue_input(), |f| {
+                    skip_battle(f)?;
+                    if let Some(movie) = &f.events.world.movie {
+                        movie.operation.complete(None).map_err(anyhow::Error::msg)?;
+                    }
+                    Ok(f.player_has_control() || f.events.world.field_transition.is_some())
+                })?;
+                anyhow::ensure!(
+                    field.events.exploration_error.is_none(),
+                    "{:?}",
+                    field.events.exploration_error
+                );
+                if field.events.world.field_transition.is_some() {
+                    field = follow_transition(&field)?;
+                } else {
+                    return Ok(());
+                }
+            }
+            anyhow::bail!("checkpoint never returned control")
+        })();
+        if let Err(error) = result {
+            failures.push(format!("{}: {error:#}", destination.name));
+        }
+    }
+    anyhow::ensure!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()> {
+    let root = assets_root()?;
+    let mut cache = Default::default();
+    for (map, portal, final_room) in [
+        (350, [150., 0.], 350),
+        (307, [0., 2775.], 309),
+        (220, [-2131., -154.], 221),
+        (9, [-2555., -611.], 10),
+        (509, [11., 2000.], 510),
+        (366, [-852., 2321.], 369),
+        (275, [-1000., 950.], 276),
+        (206, [0., 875.], 207),
+        (214, [0., 1060.], 217),
+        (196, [2065., 6100.], 197),
+        (227, [600., -2.], 232),
+        (149, [0., 4860.], 535),
+    ] {
+        let destination = super::DESTINATIONS
+            .iter()
+            .find(|d| d.map == map && (d.name.contains("BEFORE") || d.name.ends_with("END")))
+            .unwrap();
+        let package = new_game::FieldPackage::prepare(&root, map, &mut cache, || false)?;
+        let entry = destination.entry(
+            Arc::new(package.files.json("game/session-data.json")?),
+            new_game::available_fields(&root)?,
+        )?;
+        let mut field = Scene::enter(&package, entry)?;
+        advance_until(&mut field, FieldSession::player_has_control)?;
+        if map == 366 {
+            const LIT_RECEIVER: u32 = (-1_179_642_i32) as u32;
+            assert_eq!(
+                field
+                    .events
+                    .world
+                    .actors
+                    .values()
+                    .filter(|a| a.visible && a.resource == LIT_RECEIVER)
+                    .count(),
+                3,
+                "all three receivers must be lit in the solved mirror room"
+            );
+        }
+        anyhow::ensure!(
+            field.events.world.field_transition.is_none(),
+            "{} started inside its exit",
+            destination.name
+        );
+        for tick in 0..SCENE_TIMEOUT {
+            let player = field.actor(field.events.world.controlled_actor).position;
+            let delta = [portal[0] - player[0], portal[1] - player[1]];
+            let length = delta[0].hypot(delta[1]).max(4.);
+            let camera = field.events.world.field_camera.as_ref().unwrap();
+            let angle = -(camera.target[0] - camera.position[0])
+                .atan2(camera.target[1] - camera.position[1]);
+            field.step(FieldInput {
+                alternate: map == 206 && tick == 0,
+                direction: [
+                    (angle.cos() * delta[0] + angle.sin() * delta[1]) / length,
+                    (-angle.sin() * delta[0] + angle.cos() * delta[1]) / length,
+                ],
+                interact: tick % 2 == 0,
+                accelerate_dialogue: true,
+                ..Default::default()
+            })?;
+            if map == final_room && field.events.world.battle_request.is_some() {
+                break;
+            }
+            skip_battle(&mut field)?;
+            if field.events.world.field_transition.is_some() {
+                break;
+            }
+        }
+        if map == final_room {
+            anyhow::ensure!(
+                field.events.world.battle_request.is_some(),
+                "{} cannot reach its final encounter; position={:?}, waits={:?}",
+                destination.name,
+                field.actor(field.events.world.controlled_actor).position,
+                field.events.pending_operations()
+            );
+            continue;
+        }
+        anyhow::ensure!(
+            field.events.world.field_transition.as_ref().map(|t| t.map) == Some(final_room),
+            "{} cannot reach the final room; position={:?}, waits={:?}",
+            destination.name,
+            field.actor(field.events.world.controlled_actor).position,
+            field.events.pending_operations()
+        );
+        if matches!(final_room, 221 | 10 | 510 | 369) {
+            let mut boss = follow_transition(&field)?;
+            until(&mut boss, dialogue_input(), |f| {
+                if let Some(movie) = &f.events.world.movie {
+                    movie.operation.complete(None).map_err(anyhow::Error::msg)?;
+                }
+                Ok(f.events.world.battle_request.is_some())
+            })
+            .with_context(|| format!("{} final encounter", destination.name))?;
+        }
+    }
+    Ok(())
+}
+
 struct Scene {
     field: FieldSession,
     audio: crate::field_audio::validation::Playback,
 }
+
 impl std::ops::Deref for Scene {
     type Target = FieldSession;
     fn deref(&self) -> &FieldSession {
