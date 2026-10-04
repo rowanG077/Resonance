@@ -677,9 +677,13 @@ impl FieldSession {
                     player_destination,
                     !events.world.input_enabled,
                     events.world.mapped_input_disabled,
+                    events.world.grabbed_block.is_some(),
                 ))
             },
-            |(player_destination, scripted_control, event_paused), id, actor, previous| {
+            |(player_destination, scripted_control, event_paused, grabbing),
+             id,
+             actor,
+             previous| {
                 let (scripted_control, event_paused) = (*scripted_control, *event_paused);
                 if let Some((player, target, heading)) = *player_destination
                     && id == player
@@ -689,7 +693,10 @@ impl FieldSession {
                         actor.target_heading = heading;
                     }
                 }
-                if actor.grounded && actor.resource < SCENERY_RESOURCE_BASE && actor.resource != 24
+                if actor.grounded
+                    && actor.attachment.is_none()
+                    && actor.resource < SCENERY_RESOURCE_BASE
+                    && actor.resource != 24
                 {
                     if id != controlled_actor
                         && !event_paused
@@ -715,7 +722,10 @@ impl FieldSession {
                             }
                         }
                     }
-                    let position = if id == controlled_actor {
+                    let position = if id == controlled_actor
+                        && !*grabbing
+                        && (!scripted_control || actor.motion.is_none())
+                    {
                         walkmesh.resolve_player(previous, actor.position, player_fall, event_paused)
                     } else if actor.enemy.is_some() {
                         walkmesh.resolve_enemy(actor.position, actor.instance)
@@ -811,6 +821,7 @@ impl FieldSession {
         let walkmesh = self.walkmesh.with_actors(self.events.world.actors.values());
         for (id, actor) in &mut self.events.world.actors {
             if actor.grounded
+                && actor.attachment.is_none()
                 && actor.resource < SCENERY_RESOURCE_BASE
                 && actor.resource != 24
                 // A script can move an actor after its movement update. New
@@ -952,16 +963,11 @@ impl FieldSession {
             .iter()
             .find(|(_, choice)| choice.operation.is_pending())
             .map(|(&slot, _)| slot);
-        let focus = choice_slot.or_else(|| {
-            self.dialogue
-                .iter()
-                .find(|(_, d)| !d.closed && !d.persistent && d.operation.is_pending())
-                .map(|(slot, _)| *slot)
-        });
         for (slot, player) in &mut self.dialogue {
+            let accepts_input = choice_slot.is_none_or(|choice| choice == *slot);
             for voice in player.step(
-                (input.interact || input.cancel) && choice_slot.is_none() && focus == Some(*slot),
-                input.accelerate_dialogue && focus == Some(*slot),
+                (input.interact || input.cancel) && choice_slot.is_none(),
+                input.accelerate_dialogue && accepts_input,
             )? {
                 self.events.world.audio_commands.push(match voice {
                     crate::dialogue::VoiceAction::Play(id) => {
@@ -1069,7 +1075,11 @@ impl FieldSession {
                 }
             }
         }
-        Ok(focus.is_some())
+        Ok(choice_slot.is_some()
+            || self
+                .dialogue
+                .values()
+                .any(|d| !d.closed && !d.persistent && d.operation.is_pending()))
     }
     pub fn interaction_target(&self) -> Option<i32> {
         let id = self.events.world.controlled_actor;
@@ -2214,6 +2224,43 @@ mod tests {
             session.step(FieldInput::default()).unwrap();
         }
         panic!("script never finished revealing the question and choices");
+    }
+
+    #[test]
+    fn simultaneous_replies_close_on_the_same_confirmation() {
+        let mut code = vec![4, 0, 0, 0];
+        for slot in [0, 2] {
+            native(
+                &mut code,
+                NativeCall::ConfigureDialogue,
+                &[slot, 0, -2, 1, 0, 0, 0, 0],
+            );
+        }
+        native(&mut code, NativeCall::YieldCommand, &[3, 0]);
+        code.push(0x20ff);
+        let resources = ResourceLibrary {
+            messages: vec![Message {
+                tokens: vec![Token::Text {
+                    text: "Yeah!".into(),
+                }],
+            }],
+            ..Default::default()
+        };
+        let mut session = session(runtime(code, resources));
+        for _ in 0..60 {
+            session.step(FieldInput::default()).unwrap();
+        }
+        assert!(session.dialogue.values().all(|d| d.accepts_input()));
+        session
+            .step(FieldInput {
+                interact: true,
+                ..Default::default()
+            })
+            .unwrap();
+        for _ in 0..10 {
+            session.step(FieldInput::default()).unwrap();
+        }
+        assert!(session.dialogue.values().all(|d| !d.window_visible()));
     }
 
     #[test]

@@ -318,8 +318,12 @@ impl CameraRig {
         self.target_settled = false;
     }
     pub fn step(&mut self, actors: &BTreeMap<i32, Actor>) {
+        self.step_positions(|id| actors.get(&id).map(|actor| actor.position));
+    }
+
+    pub(crate) fn step_positions(&mut self, position: impl Fn(i32) -> Option<[f32; 3]>) {
         if let Some(motion) = &mut self.motion {
-            (self.position, self.target) = motion.step(actors);
+            (self.position, self.target) = motion.step(position);
             return;
         }
         let camera = &mut self.cameras[self.selected];
@@ -330,9 +334,9 @@ impl CameraRig {
         }
         self.distance += (camera.distance - self.distance) / rate;
         if camera.follow
-            && let Some(actor) = actors.get(&camera.actor)
+            && let Some(position) = position(camera.actor)
         {
-            camera.target = std::array::from_fn(|i| actor.position[i] + camera.offset[i]);
+            camera.target = std::array::from_fn(|i| position[i] + camera.offset[i]);
             camera.look_offset = std::array::from_fn(|i| camera.target[i] - camera.position[i]);
             if camera.anchor_to_actor {
                 camera.anchor = camera.target;

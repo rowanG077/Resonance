@@ -235,7 +235,13 @@ impl Actor {
         let points = self
             .model_collision
             .iter()
-            .flat_map(|mesh| &mesh.solids)
+            .flat_map(|mesh| {
+                if self.pushable() && !mesh.floors.is_empty() {
+                    &mesh.floors
+                } else {
+                    &mesh.solids
+                }
+            })
             .flat_map(|group| &group.vertices)
             .map(|p| self.collision_point(*p));
         let mut bounds = None;

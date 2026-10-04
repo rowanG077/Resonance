@@ -719,8 +719,26 @@ impl EventRuntime {
             }
         }
         // The view follows the pose presented by the preceding actor update.
+        let tracked_actor = self.world.field_camera.as_ref().map(|rig| {
+            rig.motion
+                .as_ref()
+                .map_or(rig.cameras[rig.selected].actor, |motion| motion.actor)
+        });
+        let attached_position = tracked_actor
+            .filter(|id| {
+                self.world
+                    .actors
+                    .get(id)
+                    .is_some_and(|actor| actor.attachment.is_some())
+            })
+            .map(|id| self.world.attached_model_position(&self.resources, id))
+            .transpose()?;
         if let Some(camera) = &mut self.world.field_camera {
-            camera.step(&self.world.actors);
+            camera.step_positions(|id| {
+                attached_position
+                    .filter(|_| Some(id) == tracked_actor)
+                    .or_else(|| self.world.actors.get(&id).map(|actor| actor.position))
+            });
             camera.shake.step(&mut self.world.random_state);
             if let Some(playback) = &self.world.camera
                 && let Some(track) = self.resources.camera_tracks.get(&playback.resource)
