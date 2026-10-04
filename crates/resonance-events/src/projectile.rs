@@ -1,17 +1,21 @@
-//! Scene-local projectile state. Scripts own lifetime and reactions; the field
-//! queries each movement segment before the script advances it.
-use crate::{ACTOR_CONTACT_HEIGHT, Animation, GameWorld, Operation, Outcome};
+//! Ring contact geometry and scene-owned effect lifetimes.
+use crate::{ACTOR_CONTACT_HEIGHT, GameWorld, Operation, Outcome};
 
 impl crate::Actor {
     pub fn projectile_target(&self) -> bool {
-        // Native contact survives alpha-zero phases, including Ice's rising water.
+        // Invisible puzzle targets can still receive ring hits.
         self.contact != crate::ActorContact::None
             && self.ring_contact_enabled()
             && (self.resource < resonance_content::field::SCENERY_RESOURCE_BASE
                 || resonance_content::field::LOCAL_MODEL_RESOURCES.contains(&self.resource))
     }
     /// First contact along a segment with the actor's horizontal collision cylinder.
-    fn projectile_contact(&self, start: [f32; 3], delta: [f32; 3], radius: f32) -> Option<f32> {
+    pub(crate) fn projectile_contact(
+        &self,
+        start: [f32; 3],
+        delta: [f32; 3],
+        radius: f32,
+    ) -> Option<f32> {
         if self.contact != crate::ActorContact::Cylinder {
             return None;
         }
@@ -47,32 +51,24 @@ impl crate::Actor {
     }
 }
 
-pub struct Projectile {
-    /// Root task that owns this controller, independent of its input lease.
-    pub task: i32,
+pub(crate) struct Shot {
     pub source: i32,
-    pub source_instance: u64,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub radius: f32,
-    pub shadow: Option<Shadow>,
-    /// A script may retain an impact effect's velocity without advancing its origin.
-    pub paused: bool,
-    pub(crate) blocks_menu: bool,
-    pub(crate) operation: Operation,
 }
 
-impl Projectile {
-    fn movement(&self) -> [f32; 3] {
-        if self.paused { [0.; 3] } else { self.velocity }
+impl Shot {
+    pub fn advance(&mut self) {
+        self.position = std::array::from_fn(|i| self.position[i] + self.velocity[i]);
     }
     pub(crate) fn touches_actor(&self, actor: &crate::Actor, radius: f32) -> bool {
         actor
-            .projectile_contact(self.position, self.movement(), radius)
+            .projectile_contact(self.position, self.velocity, radius)
             .is_some()
     }
     pub(crate) fn barrier(&self, world: &GameWorld) -> Option<f32> {
-        let end = std::array::from_fn(|i| self.position[i] + self.movement()[i]);
+        let end = std::array::from_fn(|i| self.position[i] + self.velocity[i]);
         world
             .actors
             .iter()
@@ -86,28 +82,26 @@ impl Projectile {
             })
             .min_by(f32::total_cmp)
     }
-    pub(crate) fn reaches(&self, actor: &crate::Actor, radius: f32, barrier: Option<f32>) -> bool {
-        actor
-            .projectile_contact(self.position, self.movement(), radius)
-            .is_some_and(|time| barrier.is_none_or(|barrier| time < barrier))
+    pub(crate) fn targets<'a>(
+        &'a self,
+        world: &'a GameWorld,
+        radius: f32,
+    ) -> impl Iterator<Item = (i32, f32)> + 'a {
+        let barrier = self.barrier(world);
+        world.actors.iter().filter_map(move |(&id, actor)| {
+            if id == self.source || !actor.projectile_target() {
+                return None;
+            }
+            let time = actor.projectile_contact(self.position, self.velocity, radius)?;
+            barrier
+                .is_none_or(|barrier| time < barrier)
+                .then_some((id, time))
+        })
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Shadow {
-    pub size: f32,
-    pub rgba: [u8; 4],
-}
-
-pub(crate) struct OwnedPose {
-    pub actor: i32,
-    pub instance: u64,
-    pub previous: Option<Animation>,
-    pub scripted: bool,
-    pub slot: u16,
-    pub started: u32,
-    pub tint: Option<[u8; 3]>,
-    pub operation: Operation,
+    pub(crate) fn nearest_target(&self, world: &GameWorld, radius: f32) -> Option<(i32, f32)> {
+        self.targets(world, radius)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    }
 }
 
 pub const CHAIN_HISTORY_TICKS: u32 = 16;
@@ -127,34 +121,10 @@ pub(crate) struct VisualLift {
 
 impl GameWorld {
     pub fn pose_tint(&self, actor: i32) -> Option<[u8; 3]> {
-        let instance = self.actors.get(&actor)?.instance;
-        self.owned_poses.values().rev().find_map(|pose| {
-            (pose.actor == actor && pose.instance == instance && pose.operation.is_pending())
-                .then_some(pose.tint)
-                .flatten()
-        })
+        self.ring.pose_tint(actor, self.effect_tick)
     }
     pub fn menu_blocked(&self) -> bool {
-        self.menu_disabled
-            || self
-                .projectiles
-                .values()
-                .any(|p| p.blocks_menu && p.operation.is_pending())
-    }
-    /// Controllers can outlive their input lease; spent effects and visual tails
-    /// do not prevent the next cast while a task finishes joining its children.
-    pub fn has_authored_controller(&self, task: i32) -> bool {
-        self.effect_contexts
-            .values()
-            .any(|c| c.task == task && c.operation.is_pending())
-            || self
-                .projectiles
-                .values()
-                .any(|p| p.task == task && p.operation.is_pending())
-            || self
-                .fog_effects
-                .values()
-                .any(|f| f.task == task && f.operation.is_pending())
+        self.menu_disabled || self.ring.blocks_menu()
     }
 
     pub(crate) fn reap_authored_resources(&mut self) {
@@ -167,8 +137,6 @@ impl GameWorld {
             .retain(|_, actor| actor.operation.as_ref().is_none_or(Operation::is_pending));
         self.fog_effects
             .retain(|_, effect| effect.operation.is_pending());
-        self.projectiles.retain(|_, p| p.operation.is_pending());
-        self.effect_contexts.retain(|_, c| c.operation.is_pending());
         self.model_particles
             .retain(|_, p| p.operation.as_ref().is_none_or(Operation::is_pending));
         self.billboards.retain(|_, p| {
@@ -193,38 +161,6 @@ impl GameWorld {
                 self.tick.saturating_sub(*tick) < CHAIN_HISTORY_TICKS
                     && impulse.operation.progress().outcome != Some(Outcome::Cancelled)
             });
-        }
-        let finished: Vec<_> = self
-            .owned_poses
-            .iter()
-            .filter_map(|(id, pose)| (!pose.operation.is_pending()).then_some(*id))
-            .collect();
-        for id in finished {
-            let mut pose = self.owned_poses.remove(&id).unwrap();
-            // A newer pose may have captured this one before it completed.
-            // Unwind that saved baseline too, so rapid recasts cannot restore a spent pose.
-            for successor in self.owned_poses.values_mut() {
-                if successor.actor == pose.actor
-                    && successor.instance == pose.instance
-                    && successor
-                        .previous
-                        .as_ref()
-                        .is_some_and(|a| a.slot == pose.slot && a.start_tick == pose.started)
-                {
-                    successor.previous = pose.previous.clone();
-                    successor.scripted = pose.scripted;
-                }
-            }
-            if let Some(actor) = self.actors.get_mut(&pose.actor)
-                && actor.instance == pose.instance
-                && actor
-                    .animation
-                    .as_ref()
-                    .is_some_and(|a| a.slot == pose.slot && a.start_tick == pose.started)
-            {
-                actor.animation = pose.previous.take();
-                actor.scripted_animation = pose.scripted;
-            }
         }
     }
 }

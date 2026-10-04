@@ -1,21 +1,20 @@
-//! Sorcerer's Ring state and the original event ABI. Dungeon policy belongs in
-//! scripts; numeric encodings are confined to this boundary.
+//! Sorcerer's Ring abilities and scenario encodings; casting lives in the controller.
+mod controller;
+pub(crate) use controller::Controller;
 use serde::{Deserialize, Serialize};
 
 pub const ITEM: u16 = 55;
+pub(crate) const SCRIPT_ACTOR: i32 = 99_992;
 
 pub(crate) const CALLBACK: u32 = u32::MAX;
 /// Shared native registry entry: scan expiry or insufficient TP, by ability.
 pub(crate) const SECONDARY_CALLBACK: u32 = (-9999_i32) as u32;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "[u8; 2]", into = "[u8; 2]")]
 pub enum SorcerersRing {
     #[default]
     Disabled,
     Fire,
-    /// Native mode 2 shares the ordinary fire controller; no retail station sets it.
-    AlternateFire,
     Shrink,
     Mana,
     ElectricOrb(ElectricOrbKind),
@@ -34,27 +33,27 @@ pub enum SorcerersRing {
     Bubble(BubblePhase),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ElectricOrbKind {
     Sylvarant,
     Tethealla,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LightningColor {
     Blue,
     Yellow,
     Red,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallColor {
     Pink,
     White,
     Blue,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BubblePhase {
     Release,
     Float,
@@ -66,8 +65,7 @@ impl TryFrom<[u8; 2]> for SorcerersRing {
     fn try_from([mode, variant]: [u8; 2]) -> Result<Self, String> {
         Ok(match (mode, variant) {
             (0, 0) => Self::Disabled,
-            (1, 0) => Self::Fire,
-            (2, 0) => Self::AlternateFire,
+            (1 | 2, 0) => Self::Fire,
             (3, 0) => Self::Shrink,
             (4, 0) => Self::Mana,
             (5, 0) => Self::ElectricOrb(ElectricOrbKind::Sylvarant),
@@ -105,7 +103,6 @@ impl From<SorcerersRing> for [u8; 2] {
         match ring {
             Disabled => [0, 0],
             Fire => [1, 0],
-            AlternateFire => [2, 0],
             Shrink => [3, 0],
             Mana => [4, 0],
             ElectricOrb(ElectricOrbKind::Sylvarant) => [5, 0],
@@ -132,7 +129,7 @@ impl From<SorcerersRing> for [u8; 2] {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Hit {
     Actor(i16),
     /// Area and transformation abilities identify the ring itself to the script.
@@ -141,32 +138,13 @@ pub enum Hit {
 
 impl Hit {
     pub(crate) fn event_actor(self) -> i16 {
-        // The original ring actor ID (99_992) is stored in an s16 event field.
-        const RING_ACTOR: i16 = 99_992u32 as i16;
+        // The scenario ring actor ID (99_992) is stored in an s16 event field.
         match self {
             Self::Actor(actor) => actor,
-            Self::Pulse => RING_ACTOR,
+            Self::Pulse => SCRIPT_ACTOR as i16,
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn save_loading_rejects_variants_that_do_not_belong_to_the_selected_ability() {
-        for invalid in ["[1,1]", "[13,3]", "[18,3]", "[19,2]", "[20,0]"] {
-            assert!(serde_json::from_str::<SorcerersRing>(invalid).is_err());
-        }
-        // Original Thunder Temple and Latheon station encodings in saved travel.
-        assert_eq!(
-            serde_json::from_str::<SorcerersRing>("[13,1]").unwrap(),
-            SorcerersRing::Lightning(LightningColor::Yellow)
-        );
-        assert_eq!(
-            serde_json::from_str::<SorcerersRing>("[19,1]").unwrap(),
-            SorcerersRing::Bubble(BubblePhase::Float)
-        );
-    }
-}
+mod tests;

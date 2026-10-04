@@ -86,11 +86,11 @@ pub struct TechniqueShortcut {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use resonance_content::session::{CharacterDefinition, ItemDefinition, StatGrowth};
 
-    fn data() -> SessionData {
+    pub(crate) fn data() -> SessionData {
         SessionData {
             ex_skills: None,
             version: 1,

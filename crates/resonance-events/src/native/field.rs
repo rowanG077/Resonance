@@ -74,19 +74,11 @@ impl NativeHost<'_> {
                 );
             }
             NativeCall::SetPlayerSize => {
-                // This legacy service is restricted to the four sewer maps.
-                const SEWERS: std::ops::RangeInclusive<u32> = 466..=469;
-                if self
-                    .world
-                    .current_field
-                    .is_some_and(|map| SEWERS.contains(&map))
-                {
-                    self.world.player_size = if a[0] as u8 == 0 {
-                        crate::world::PlayerSize::Normal
-                    } else {
-                        crate::world::PlayerSize::Small
-                    };
-                }
+                self.world.player_size = if a[0] as u8 == 0 {
+                    crate::world::PlayerSize::Normal
+                } else {
+                    crate::world::PlayerSize::Small
+                };
             }
             NativeCall::RumbleController => {
                 self.world.rumble = Some(crate::rumble::Rumble::new(
@@ -147,7 +139,6 @@ impl NativeHost<'_> {
                     .ok_or("treasure opening animation is not cooked")?;
                 let id = i32::MIN + 1024 + self.world.treasures.len() as i32;
                 let mut actor = Actor::new(resource, [a[3] as f32, a[4] as f32, a[5] as f32]);
-                // fn_8000F0F8 initializes the chest's body cylinder to 50.
                 actor.radius = 50.;
                 actor.face(a[6] as f32);
                 actor.grounded = false;
@@ -240,8 +231,6 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::ClearSceneryAnimation => {
-                // Unlike 0x42, fn_8004FAB0 recognizes only selectors 2 and 3;
-                // every other value selects the main scenery layer.
                 let id = match a[0] {
                     2 => SECOND_SCENERY,
                     3 => THIRD_SCENERY,
@@ -315,8 +304,6 @@ impl NativeHost<'_> {
                     .names
                     .iter()
                     .enumerate()
-                    // The sealed controller hides LIVE_; unlocking recreates
-                    // the model with HID_ hidden instead (fn_8000DF24/E720).
                     .filter(|(_, name)| name.starts_with(if sealed { "LIVE_" } else { "HID_" }))
                     .map(|(i, _)| i as u16)
                     .collect();
@@ -338,8 +325,6 @@ impl NativeHost<'_> {
             NativeCall::Unknown92 => {
                 match FieldSystemCommand::try_from(a[0])? {
                     FieldSystemCommand::FieldLeader => {
-                        // fn_80043538 selector 13 reads the selected field
-                        // character, independently of the current event actor.
                         value = Some(i32::from(
                             self.world
                                 .party
@@ -542,10 +527,6 @@ impl NativeHost<'_> {
                         volume: a[1].clamp(0, 127) as u8,
                         duration_ticks: a[2].max(0) as u32,
                     },
-                    // fn_8004ECB0 uses -1 with an explicit slot to release
-                    // that voice. It is not a sound resource ID. Unslotted
-                    // playback (including PlaySoundSimple) retains its own
-                    // semantics and must not silently swallow negative IDs.
                     NativeCall::PlaySound if a[0] == -1 && a[3] != 255 => AudioCommand::StopSound(
                         u16::try_from(a[3]).map_err(|_| "invalid sound slot")?,
                     ),
@@ -1016,8 +997,6 @@ impl NativeHost<'_> {
                 );
             }
             NativeCall::ConfigureActorBoneRotation => {
-                // fn_80046FE4 uses the same fn_8006C660 controller as C1,
-                // with the fixed 30-update duration at DOL 0x8035B56C.
                 return self.field(
                     NativeCall::ConfigureActorAttachment,
                     &[a[0], a[1], a[2], a[3], a[4], a[5], 30],
@@ -1130,10 +1109,10 @@ impl NativeHost<'_> {
                 // Arguments are operation, first actor, second actor.
                 require((0..=3).contains(&a[0]), "unknown actor geometry query")?;
                 let actor = |id| {
-                    self.world.actors.get(&if id == crate::CONTROLLED_ACTOR {
-                        self.world.controlled_actor
-                    } else {
-                        id
+                    self.world.actors.get(&match id {
+                        crate::CONTROLLED_ACTOR => self.world.controlled_actor,
+                        crate::ring::SCRIPT_ACTOR => self.world.ring.bomb()?,
+                        _ => id,
                     })
                 };
                 value = Some(match (actor(a[1]), actor(a[2])) {
@@ -1282,8 +1261,6 @@ impl NativeHost<'_> {
                 let resource = if locator {
                     a[5] as u32
                 } else {
-                    // fn_8005D138 falls back to Lloyd for model ID zero:
-                    // the field model table contains only IDs above nine.
                     self.resolve(if a[5] == 0 { 1 } else { a[5] }, ResourceKind::Model)?
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
@@ -1317,8 +1294,6 @@ impl NativeHost<'_> {
                 actor.interaction_anchor = locator;
                 actor.properties.insert(17, if locator { 0 } else { 2 });
                 if locator && op == NativeCall::SpawnActor {
-                    // fn_80059838 disables ring contact on model24 locators.
-                    // Puzzle targets explicitly clear property48 to receive shots.
                     actor.properties.insert(48, 1);
                 }
                 if op != NativeCall::SpawnActor {
@@ -1361,8 +1336,6 @@ impl NativeHost<'_> {
                     });
                 }
                 if a[0] == crate::COLETTE_WINGS_ACTOR {
-                    // SpawnActor selects fn_800F3A78 by actor ID, even when the
-                    // script supplies a different model (NPC 356 at the fire seal).
                     actor.collidable = false;
                     actor.contact = crate::ActorContact::None;
                     actor.grounded = false;
@@ -1372,16 +1345,9 @@ impl NativeHost<'_> {
                     actor.blend = Some(crate::model_particle::Blend::Additive);
                     actor.scripted_animation = true;
                     if let Some(animation) = &mut actor.animation {
-                        // fn_800F420C replaces the initializer's .001 speed
-                        // with the default .5-frame step and a two-tick blend
-                        // before the first draw. Automatic flight wings use a
-                        // different callback and retain their slow idle rate.
                         animation.blend_ticks = 2;
                     }
                 }
-                // fn_80059CFC allocates ID-zero actors, but find_actor(0)
-                // always returns null. Keep each instance drawable without
-                // making later script commands address or replace it.
                 let id = if a[0] == 0 {
                     self.world.unaddressable_actor_key()?
                 } else {
@@ -1868,9 +1834,8 @@ impl NativeHost<'_> {
             sight_distance: 600.,
             alerted: false,
             event_parameters: [a[1] as i16, a[2] as i16],
-            contact_cooldown: 0,
-            pause_effect_mode: 0,
-            stun: None,
+            pause_ticks: 0,
+            reaction: crate::effect::StunEffect::None,
         });
         if let Some(model) = self.resources.model(resource) {
             actor

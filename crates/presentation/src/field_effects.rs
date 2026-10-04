@@ -355,24 +355,19 @@ pub(super) fn render(
         );
         applied.ack(Request::Particle(particle.handle));
     }
-    for shot in world.projectiles.values() {
-        if let Some(shadow) = shot.shadow
-            && let Some(surface) = state.get().ground_below(shot.position)
-        {
+    for position in world.ring_shadows() {
+        if let Some(surface) = state.get().ground_below(position) {
             let (spec, batch) = &art.shadow;
-            let color = std::array::from_fn(|i| {
-                (f32::from(shadow.rgba[i]) * if i < 3 { 4. } else { 1. } / 255.).min(1.)
-            });
             batches[*batch].sprite(
                 Vec3::new(
-                    shot.position[0],
-                    shot.position[1],
+                    position[0],
+                    position[1],
                     surface.height + spec.height_offset,
                 ),
                 Quat::from_rotation_arc(Vec3::Z, Vec3::from_array(surface.normal)),
-                [shadow.size; 2],
+                [40.; 2],
                 [0., 0., spec.uv_size[0], spec.uv_size[1]],
-                color,
+                [0., 0., 1., 64. / 255.],
             );
         }
     }

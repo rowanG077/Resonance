@@ -137,18 +137,12 @@ impl Actor {
             return intent;
         };
         if let Some(enemy) = &mut self.enemy {
-            if let Some(stun) = enemy.stun {
-                enemy.stun = std::num::NonZeroU16::new(stun.remaining.get() - 1)
-                    .map(|remaining| crate::effect::Stun { remaining, ..stun });
-                intent.paused = true;
-                return intent;
-            }
             // fn_800111D4 freezes autonomous movement while this signed timer
             // is nonzero. Positive values expire; -1 remains until a script
             // resumes the enemy. Scripted motion has its own controller.
-            if enemy.contact_cooldown != 0 && self.motion.is_none() {
-                if enemy.contact_cooldown > 0 {
-                    enemy.contact_cooldown -= 1;
+            if enemy.pause_ticks != 0 && self.motion.is_none() {
+                if enemy.pause_ticks > 0 {
+                    enemy.pause_ticks -= 1;
                 }
                 intent.paused = true;
                 return intent;

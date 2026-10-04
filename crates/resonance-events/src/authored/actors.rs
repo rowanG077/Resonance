@@ -32,7 +32,6 @@ impl FieldHost<'_> {
     }
 }
 
-use super::projectile::VECTOR;
 const ACTOR: Type = Type::Handle("game::actors::Actor");
 
 pub(super) const fn register(
@@ -40,15 +39,14 @@ pub(super) const fn register(
 ) -> NativeBindings<FieldHost<'_>> {
     bindings
         .function(
-            "game::actors::position",
-            &[ACTOR],
-            Some(VECTOR),
+            "game::actors::controlled",
+            &[],
+            Some(ACTOR),
             false,
-            |h, a, _| {
-                let actor = &h.world.actors[&h.actor_id(a[0])?];
-                Ok(NativeResult::Values(
-                    actor.position.map(|v| v.to_bits() as i32).to_vec(),
-                ))
+            |h, _, _| {
+                Ok(NativeResult::Continue(Some(
+                    h.world.authored_actor(h.world.controlled_actor)?,
+                )))
             },
         )
         .function(

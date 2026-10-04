@@ -20,7 +20,6 @@ pub struct Fog {
 }
 
 pub(crate) struct FogEffect {
-    pub task: i32,
     pub fog: Fog,
     pub operation: crate::Operation,
 }

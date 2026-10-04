@@ -1,4 +1,6 @@
 //! Billboard effects expressed as ordinary position, size, rotation and lifetime.
+pub(crate) mod emission;
+pub(crate) mod ring;
 pub(crate) mod station;
 pub(crate) const BILLBOARD_LIMIT: usize = 2048;
 pub const NEUTRAL_TINT: u8 = 64;
@@ -12,20 +14,9 @@ pub(crate) const SPINNING_STAR_SPRITE: u16 = 8;
 pub(crate) const ORB_SPRITE: u16 = 10;
 pub(crate) const RING_SPRITE: u16 = 41;
 pub(crate) const ELECTRIC_SPARK_SPRITE: u16 = 42;
+pub(crate) const ELECTRIC_ARC_SPRITE: u16 = 14;
+pub(crate) const FLAME_SPRITE: u16 = 11;
 
-/// A stationary origin whose effects share one authored task's lifetime.
-pub(crate) struct EffectContext {
-    pub task: i32,
-    pub position: [f32; 3],
-    pub operation: crate::Operation,
-}
-
-/// An enemy reaction survives the projectile that applied it.
-#[derive(Debug, Clone, Copy)]
-pub struct Stun {
-    pub remaining: std::num::NonZeroU16,
-    pub effect: StunEffect,
-}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StunEffect {
     None,
@@ -33,14 +24,24 @@ pub enum StunEffect {
     Lightning,
     Ice,
     Darkness,
+    TetheallaElectric,
 }
 impl StunEffect {
+    pub const ALL: [Self; 6] = [
+        Self::None,
+        Self::Electric,
+        Self::Lightning,
+        Self::Ice,
+        Self::Darkness,
+        Self::TetheallaElectric,
+    ];
+
     pub fn tint(self) -> Option<[u8; 3]> {
         match self {
             Self::Electric => Some([128; 3]),
-            // fn_800111D4's default stun mode includes ordinary fire. `None`
-            // means no additional particle effect, not an unchanged model tint.
-            Self::None | Self::Lightning | Self::Ice | Self::Darkness => Some([40, 40, 255]),
+            Self::None | Self::Lightning | Self::Ice | Self::Darkness | Self::TetheallaElectric => {
+                Some([40, 40, 255])
+            }
         }
     }
 }

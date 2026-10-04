@@ -244,6 +244,106 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
+fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
+    use resonance_events::ring::{ElectricOrbKind, SorcerersRing};
+    let mut field = enter(8, 268, Some(1_105_100))?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    field
+        .events
+        .world
+        .party
+        .as_mut()
+        .unwrap()
+        .travel
+        .sorcerers_ring = SorcerersRing::ElectricOrb(ElectricOrbKind::Sylvarant);
+    // Fix the approach geometry without supplying a stun or changing the
+    // puzzle's polling events. Ring hits must supply the charge.
+    for (id, x) in [(8001, -1000.), (8002, 1000.)] {
+        let drone = field
+            .events
+            .world
+            .actors
+            .get_mut(&id)
+            .context("puzzle drone")?;
+        drone.position = [x, 1000., 0.];
+        let enemy = drone.enemy.as_mut().unwrap();
+        enemy.normal_speed = 0.;
+        enemy.alert_speed = 0.;
+        enemy.sight_distance = 0.;
+    }
+    ticks(&mut field, 30, FieldInput::default())?;
+    assert!(!field.events.world.event_flags.contains(&154));
+    assert!(field.events.world.actors.contains_key(&200));
+    for (id, x) in [(8001, -1000.), (8002, 1000.)] {
+        let player = field.events.world.controlled_actor;
+        let actor = field.events.world.actors.get_mut(&player).unwrap();
+        actor.position = [x, 1300., 0.];
+        actor.face(0.);
+        field.step(FieldInput {
+            alternate: true,
+            ..Default::default()
+        })?;
+        for _ in 0..60 {
+            field.step(FieldInput::default())?;
+        }
+        let enemy = field.events.world.actors[&id].enemy.as_ref().unwrap();
+        assert!(enemy.pause_ticks > 0);
+        assert_eq!(enemy.pause_effect_mode, 5);
+        if id == 8001 {
+            assert!(field.events.world.actors.contains_key(&401));
+            assert!(!field.events.world.event_flags.contains(&154));
+        }
+    }
+    assert!(
+        field.events.world.event_flags.contains(&154),
+        "both electrified panels must open the door"
+    );
+    advance_until(&mut field, |field| {
+        field.player_has_control() && !field.events.world.actors.contains_key(&200)
+    })?;
+    assert!(
+        field
+            .events
+            .world
+            .triggers
+            .iter()
+            .any(|trigger| trigger.key == 7010)
+    );
+    let player = field.events.world.controlled_actor;
+    field.events.world.actors.get_mut(&player).unwrap().position = [-1000., 1500., 0.];
+    for tick in 0..600 {
+        let camera = field.events.world.field_camera.as_ref().unwrap();
+        let angle = (-(camera.target[0] - camera.position[0])
+            .atan2(camera.target[1] - camera.position[1])
+            .to_degrees())
+        .trunc()
+        .to_radians();
+        field.step(FieldInput {
+            direction: [-angle.cos(), angle.sin()],
+            interact: tick % 2 == 0,
+            accelerate_dialogue: true,
+            ..Default::default()
+        })?;
+        if field.events.world.field_transition.is_some() {
+            break;
+        }
+    }
+    assert_eq!(
+        field
+            .events
+            .world
+            .field_transition
+            .as_ref()
+            .context("walk through the opened panel door")?
+            .map,
+        269
+    );
+    assert!(field.events.exploration_error.is_none());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
 fn asgard_guard_alarm_starts_battle_and_resumes_the_room() -> Result<()> {
     let mut field = configured(7, 210, |entry| {
         entry

@@ -16,7 +16,6 @@ pub mod crafting;
 pub mod navigation;
 mod prompt;
 pub mod replay;
-mod ring;
 mod save_point;
 pub mod shop;
 pub(crate) mod skit;
@@ -106,7 +105,6 @@ pub struct FieldSession {
     conversation_facing: Option<(i32, f32, f32)>,
     save_points: save_point::SavePoints,
     treasures: treasure::Treasures,
-    ring: ring::Ring,
     blocks: blocks::Blocks,
     action_hints: prompt::ActionHints,
     skits: skit::Skits,
@@ -246,10 +244,6 @@ impl FieldSession {
             save_points: save_point::SavePoints::new(services.clone()),
             treasures: treasure::Treasures {
                 event: services.as_ref().map(|s| s.treasure.clone()),
-            },
-            ring: ring::Ring {
-                event: services.as_ref().map(|s| s.ring.clone()),
-                ..Default::default()
             },
             blocks: Default::default(),
             action_hints: Default::default(),
@@ -539,7 +533,7 @@ impl FieldSession {
         self.treasures
             .step(&mut self.events, input.interact && !talking)?;
         if !talking {
-            self.ring.step(&mut self.events, input.alternate)?;
+            self.events.activate_ring(input.alternate)?;
         }
         self.blocks.settle(&mut self.events.world, &self.walkmesh);
         self.blocks.step(
@@ -558,9 +552,10 @@ impl FieldSession {
                 .and_then(|player| {
                     world.actors.iter().find_map(|(&id, actor)| {
                         (actor.visible
-                            && actor.enemy.as_ref().is_some_and(|enemy| {
-                                enemy.contact_cooldown == 0 && enemy.stun.is_none()
-                            })
+                            && actor
+                                .enemy
+                                .as_ref()
+                                .is_some_and(|enemy| enemy.pause_ticks == 0)
                             && actor
                                 .position
                                 .iter()
@@ -1576,7 +1571,6 @@ mod tests {
             conversation_facing: None,
             save_points: Default::default(),
             treasures: Default::default(),
-            ring: Default::default(),
             blocks: Default::default(),
             action_hints: Default::default(),
             skits: Default::default(),
