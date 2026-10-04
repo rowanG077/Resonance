@@ -48,6 +48,10 @@ enum Mission {
     Asgard = 0xE0,
 }
 
+const STORY: u16 = 0x40;
+const ANGEL_PROGRESS: u16 = 0x4c;
+const SAVED_PARTY: u16 = 0x150;
+const SAVED_LEADER: u16 = 0x158;
 const PARTY: [u8; 5] = [1, 2, 3, 4, 9];
 
 impl Fixture {
@@ -166,8 +170,6 @@ impl Destination {
         };
         let story = match self.progress {
             Progress::MartelEntrance => {
-                // HOL_D02 introduces the golem at 104000 and removes the
-                // altar ring at 107000. Let its original events grant the ring.
                 let party = persistent.party.as_mut().unwrap();
                 party.formation = vec![1, 2, 3, 9];
                 party.travel.saved_formation = party.formation.clone();
@@ -177,12 +179,12 @@ impl Destination {
             }
             Progress::Story(story) => story,
             Progress::AfterSalvation(story) => {
-                persistent.memory.write(0x4c, Width::S32, 1000)?;
+                persistent.memory.write(ANGEL_PROGRESS, Width::S32, 1000)?;
                 story
             }
             Progress::AfterFireSeal(mission, value) => {
                 // Later seals require Colette's first angel progression branch.
-                persistent.memory.write(0x4c, Width::S32, 1)?;
+                persistent.memory.write(ANGEL_PROGRESS, Width::S32, 1)?;
                 persistent.memory.write(mission as u16, Width::S32, value)?;
                 if matches!(mission, Mission::Asgard) {
                     // Stage 3010 follows the party split. Field 214 rebuilds
@@ -190,18 +192,7 @@ impl Destination {
                     let party = persistent.party.as_mut().unwrap();
                     party.formation = vec![1, 2, 9, 4, 3, 5];
                     party.travel.saved_formation = party.formation.clone();
-                    for (index, &id) in party.formation.iter().enumerate() {
-                        let slot = index % 3;
-                        let base = 150 + u16::from(id) * 3;
-                        for (offset, set) in [index >= 3, slot & 2 != 0, slot & 1 != 0]
-                            .into_iter()
-                            .enumerate()
-                        {
-                            if set {
-                                persistent.event_flags.insert(base + offset as u16);
-                            }
-                        }
-                    }
+                    split_party(&mut persistent, 3);
                 }
                 if matches!(mission, Mission::Palmacosta) {
                     // Field 198's post-Magnius evacuation and destruction
@@ -213,35 +204,19 @@ impl Destination {
             }
             Progress::IseliaInfiltration => {
                 let party = persistent.party.as_mut().unwrap();
-                // Sheena handles the escape route; FAA_D05 excludes her when
-                // rebuilding the four-person party that confronts Forcystus.
-                party.formation = vec![1, 2, 3, 4, 5, 6, 7, 8];
+                party.formation = vec![1, 2, 3, 9, 4, 6, 7, 8];
                 party.travel.saved_formation = party.formation.clone();
-                // FAA_D02 L_2D42 backs up the party and field leader before
-                // the split. FAA_D01 restores both after the Forcystus battle.
                 for (slot, id) in party.formation.iter().copied().enumerate() {
                     persistent
                         .memory
-                        .write(0x150 + slot as u16, Width::S8, i32::from(id))?;
+                        .write(SAVED_PARTY + slot as u16, Width::S8, i32::from(id))?;
                 }
-                persistent.memory.write(0x158, Width::S8, 1)?;
-                // FAA_D03 reconstructs groups from three bits per character:
-                // reserve group followed by the two slot bits.
-                for (slot, id) in party.formation.iter().copied().enumerate() {
-                    let base = 150 + u16::from(id) * 3;
-                    for (offset, set) in [slot >= 4, slot & 2 != 0, slot & 1 != 0]
-                        .into_iter()
-                        .enumerate()
-                    {
-                        if set {
-                            persistent.event_flags.insert(base + offset as u16);
-                        }
-                    }
-                }
+                persistent.memory.write(SAVED_LEADER, Width::S8, 1)?;
+                split_party(&mut persistent, 4);
                 20_303_000
             }
         };
-        persistent.memory.write(0x40, Width::S32, story)?;
+        persistent.memory.write(STORY, Width::S32, story)?;
         Ok(FieldEntry {
             persistent,
             data: Some(data),
@@ -250,5 +225,22 @@ impl Destination {
             heading: self.heading,
             ..Default::default()
         })
+    }
+}
+
+/// Each character stores a group bit and a two-bit position within that group.
+fn split_party(state: &mut PersistentState, group_size: usize) {
+    const GROUP_FLAGS: u16 = 150;
+    for (index, &id) in state.party.as_ref().unwrap().formation.iter().enumerate() {
+        let slot = index % group_size;
+        let base = GROUP_FLAGS + u16::from(id) * 3;
+        for (offset, set) in [index >= group_size, slot & 2 != 0, slot & 1 != 0]
+            .into_iter()
+            .enumerate()
+        {
+            if set {
+                state.event_flags.insert(base + offset as u16);
+            }
+        }
     }
 }
