@@ -163,17 +163,7 @@ impl FieldSession {
         self.skits = previous.skits.next_field();
         self.effect_clock = previous.effect_clock;
     }
-    pub fn apply_skit_origin(
-        &mut self,
-        id: u16,
-        control_ticks: u32,
-        remaining: u16,
-        opacity: u8,
-        text_opacity: u8,
-    ) -> Result<()> {
-        self.skits
-            .apply_origin(id, control_ticks, remaining, opacity, text_opacity)
-    }
+
     pub fn action_prompt(&self) -> Option<ActionPrompt> {
         self.action_hints.prompt.filter(|_| !self.menu_is_open())
     }
@@ -689,16 +679,9 @@ impl FieldSession {
                     events.world.mapped_input_disabled,
                 ))
             },
-            |(player_destination, scripted_control, event_paused), update, id, actor, previous| {
-                let (scripted_control, event_paused) = match update {
-                    resonance_events::MotionUpdate::Frame => (*scripted_control, *event_paused),
-                    resonance_events::MotionUpdate::AnimationBinding {
-                        event_paused,
-                        input_enabled,
-                    } => (!input_enabled, event_paused),
-                };
-                if update == resonance_events::MotionUpdate::Frame
-                    && let Some((player, target, heading)) = *player_destination
+            |(player_destination, scripted_control, event_paused), id, actor, previous| {
+                let (scripted_control, event_paused) = (*scripted_control, *event_paused);
+                if let Some((player, target, heading)) = *player_destination
                     && id == player
                 {
                     actor.position = target;
@@ -1526,6 +1509,26 @@ mod tests {
                 .collect(),
             ..Default::default()
         };
+        session(runtime(code, resources))
+    }
+
+    fn runtime(words: Vec<u16>, resources: ResourceLibrary) -> EventRuntime {
+        let bytes: Vec<_> = words.into_iter().flat_map(u16::to_be_bytes).collect();
+        EventRuntime::new(
+            Arc::new(Program::decode(&bytes).unwrap()),
+            Arc::new(resources),
+        )
+        .unwrap()
+    }
+
+    fn empty_session() -> FieldSession {
+        session(runtime(
+            vec![4, 0, 0, 0, 0x20ff],
+            ResourceLibrary::default(),
+        ))
+    }
+
+    fn session(events: EventRuntime) -> FieldSession {
         FieldSession {
             allow_incomplete_scripts: false,
             entered_control: false,
@@ -1550,19 +1553,7 @@ mod tests {
             voice_durations: Default::default(),
             voice_feedback: None,
             talking: Default::default(),
-            events: EventRuntime::new(
-                Arc::new(
-                    Program::decode(
-                        &code
-                            .into_iter()
-                            .flat_map(u16::to_be_bytes)
-                            .collect::<Vec<_>>(),
-                    )
-                    .unwrap(),
-                ),
-                Arc::new(resources),
-            )
-            .unwrap(),
+            events,
             dialogue: BTreeMap::new(),
             choices: Default::default(),
             walkmesh: navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
@@ -1578,13 +1569,7 @@ mod tests {
 
     #[test]
     fn enemies_see_the_player_only_after_a_live_barrier_opens() {
-        use resonance_content::field::{CollisionGroup, ModelCollision};
-        let mut session = choice_session();
-        session.events = EventRuntime::new(
-            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
-            Arc::new(ResourceLibrary::default()),
-        )
-        .unwrap();
+        let mut session = empty_session();
         let world = &mut session.events.world;
         world.controlled_actor = 1;
         world.input_enabled = true;
@@ -1610,37 +1595,10 @@ mod tests {
         world.insert_actor(2, enemy);
         let mut door = Actor::new(3, [0., -150., 0.]);
         door.grounded = false;
-        door.model_collision = Some(Arc::new(ModelCollision {
-            floors: vec![],
-            solids: vec![CollisionGroup {
-                surface: 0,
-                vertices: [0., 200.]
-                    .into_iter()
-                    .flat_map(|z| {
-                        [
-                            [-100., -10., z],
-                            [100., -10., z],
-                            [-100., 10., z],
-                            [100., 10., z],
-                        ]
-                    })
-                    .collect(),
-                triangles: vec![
-                    [0, 2, 3],
-                    [3, 1, 0],
-                    [4, 5, 7],
-                    [7, 6, 4],
-                    [0, 1, 5],
-                    [5, 4, 0],
-                    [1, 3, 7],
-                    [7, 5, 1],
-                    [3, 2, 6],
-                    [6, 7, 3],
-                    [2, 0, 4],
-                    [4, 6, 2],
-                ],
-            }],
-        }));
+        door.model_collision = Some(resonance_content::test_support::solid_box(
+            [-100., -10., 0.],
+            [100., 10., 200.],
+        ));
         world.insert_actor(3, door);
         session.step(FieldInput::default()).unwrap();
         assert!(
@@ -1663,12 +1621,7 @@ mod tests {
 
     #[test]
     fn mapped_pause_blocks_walking_but_preserves_scripted_motion() {
-        let mut session = choice_session();
-        session.events = EventRuntime::new(
-            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
-            Arc::new(ResourceLibrary::default()),
-        )
-        .unwrap();
+        let mut session = empty_session();
         session.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
             surface: 0,
             vertices: vec![[-500., -500., 0.], [500., -500., 0.], [0., 500., 0.]],
@@ -1714,12 +1667,7 @@ mod tests {
             (42., 42., 0., false, 2, false),
             (42., 42., 0., true, 2, true),
         ] {
-            let mut session = choice_session();
-            session.events = EventRuntime::new(
-                Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
-                Arc::new(ResourceLibrary::default()),
-            )
-            .unwrap();
+            let mut session = empty_session();
             session.walkmesh = navigation::WalkMesh::new(&[0., height].map(|z| {
                 resonance_content::field::CollisionGroup {
                     surface: 0,
@@ -1791,12 +1739,7 @@ mod tests {
 
     #[test]
     fn falling_player_keeps_descending_with_input_and_can_walk_after_landing() {
-        let mut session = choice_session();
-        session.events = EventRuntime::new(
-            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
-            Arc::new(ResourceLibrary::default()),
-        )
-        .unwrap();
+        let mut session = empty_session();
         session.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
             surface: 0,
             vertices: vec![[-500., -500., 0.], [500., -500., 0.], [0., 500., 0.]],
@@ -1851,12 +1794,7 @@ mod tests {
             ],
             triangles: vec![[0, 1, 2], [1, 3, 2]],
         };
-        let mut session = choice_session();
-        session.events = EventRuntime::new(
-            Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
-            Arc::new(ResourceLibrary::default()),
-        )
-        .unwrap();
+        let mut session = empty_session();
         session.walkmesh = navigation::WalkMesh::new(&[
             rectangle([-100., 100.], [-200., 0.], 0.),
             rectangle([-100., 100.], [240., 500.], 20.),
@@ -1992,7 +1930,7 @@ mod tests {
             if initial {
                 assert!(EventRuntime::new(program.clone(), Default::default()).is_err());
             }
-            let mut session = choice_session();
+            let mut session = empty_session();
             session.allow_incomplete_scripts = true;
             let mut world = resonance_events::GameWorld::default();
             world.controlled_actor = 1;
@@ -2043,20 +1981,7 @@ mod tests {
             native(&mut code, NativeCall::YieldCommand, &[0, 20]);
             native(&mut code, NativeCall::EnableMappedInput, &[]);
             code.push(0x20ff);
-            let mut session = choice_session();
-            session.events = EventRuntime::new(
-                Arc::new(
-                    Program::decode(
-                        &code
-                            .into_iter()
-                            .flat_map(u16::to_be_bytes)
-                            .collect::<Vec<_>>(),
-                    )
-                    .unwrap(),
-                ),
-                Arc::new(ResourceLibrary::default()),
-            )
-            .unwrap();
+            let mut session = session(runtime(code, ResourceLibrary::default()));
             session.walkmesh =
                 navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
                     surface: 0,
@@ -2146,21 +2071,7 @@ mod tests {
         native(&mut code, NativeCall::SetEventBit, &[77]);
         code.push(0x20ff);
         for resource in [2, SCENERY_RESOURCE_BASE + 0x100] {
-            let mut session = choice_session();
-            session.events = EventRuntime::new(
-                Arc::new(
-                    Program::decode(
-                        &code
-                            .clone()
-                            .into_iter()
-                            .flat_map(u16::to_be_bytes)
-                            .collect::<Vec<_>>(),
-                    )
-                    .unwrap(),
-                ),
-                Arc::new(ResourceLibrary::default()),
-            )
-            .unwrap();
+            let mut session = session(runtime(code.clone(), ResourceLibrary::default()));
             session.walkmesh =
                 navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
                     surface: 0,
@@ -2194,12 +2105,7 @@ mod tests {
         use resonance_events::PlayerSize;
         let mut positions = Vec::new();
         for size in [PlayerSize::Normal, PlayerSize::Small] {
-            let mut session = choice_session();
-            session.events = EventRuntime::new(
-                Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
-                Arc::new(ResourceLibrary::default()),
-            )
-            .unwrap();
+            let mut session = empty_session();
             session.walkmesh =
                 navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
                     surface: 0,
@@ -2252,12 +2158,7 @@ mod tests {
         let start = [-2855.4521, 1513.175, 66.4043];
         let approach = [-2935.7058, 1510.4801, 192.68102];
         for scripted in [false, true] {
-            let mut session = choice_session();
-            session.events = EventRuntime::new(
-                Arc::new(Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap()),
-                Arc::new(ResourceLibrary::default()),
-            )
-            .unwrap();
+            let mut session = empty_session();
             session.walkmesh =
                 navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
                     surface: 0,

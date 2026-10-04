@@ -1,6 +1,5 @@
 //! Available skit titles are transient field notifications, not save-state data.
 use super::*;
-use anyhow::Context;
 use resonance_content::skit::{SkitCatalog, SkitCondition, SkitLocation};
 
 const REFRESH_TICKS: u32 = 1200;
@@ -46,32 +45,6 @@ impl Skits {
             control_ticks: self.control_ticks,
             ..Default::default()
         }
-    }
-
-    /// Apply a source-observed notification phase for an oracle replay.
-    /// Notifications remain transient and are never included in checkpoints.
-    pub fn apply_origin(
-        &mut self,
-        id: u16,
-        control_ticks: u32,
-        remaining: u16,
-        opacity: u8,
-        text_opacity: u8,
-    ) -> Result<()> {
-        let data = self.data.as_ref().context("skit catalog is missing")?;
-        let selected = data
-            .skits
-            .iter()
-            .position(|skit| skit.id == id)
-            .context("source skit id is not in the catalog")?;
-        ensure!(remaining <= HOLD_TICKS, "source skit timer is out of range");
-        self.control_ticks = control_ticks;
-        self.selected = Some(selected);
-        self.remaining = remaining;
-        self.opacity = opacity;
-        self.text_opacity = text_opacity;
-        self.visible = true;
-        Ok(())
     }
 
     pub fn prompt(&self) -> Option<SkitPrompt<'_>> {
@@ -263,7 +236,8 @@ mod tests {
             media: BTreeMap::new(),
         });
         let mut skits = Skits::new(Some(catalog));
-        skits.apply_origin(600, 1, 100, 255, 255).unwrap();
+        skits.selected = Some(0);
+        skits.visible = true;
         assert_eq!(skits.open(), Some(600));
         assert!(skits.prompt().is_none());
     }

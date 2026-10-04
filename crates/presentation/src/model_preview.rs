@@ -857,8 +857,7 @@ mod tests {
                             let binding = Binding(nodes.map(|entity| (entity, rest)).into());
                             restore_pose(&binding, &mut transforms, &mut affine).unwrap();
                             if hidden {
-                                // A native scale setter replaces matrix mode, including
-                                // its translation/shear; it must not decompose the matrix.
+                                // Hiding geometry preserves its bone origin.
                                 affine.set(
                                     nodes[0],
                                     &mut transforms.get_mut(nodes[0]).unwrap(),
@@ -886,14 +885,17 @@ mod tests {
                 )
                 .unwrap();
             for nodes in entities {
-                assert_eq!(
-                    *world.get::<Transform>(nodes[0]).unwrap(),
-                    if hidden {
-                        Transform::from_scale(Vec3::ZERO)
-                    } else {
-                        rest
-                    }
-                );
+                let pose = world
+                    .resource::<Locals>()
+                    .get(nodes[0], *world.get::<Transform>(nodes[0]).unwrap())
+                    .global()
+                    .affine();
+                if hidden {
+                    assert_eq!(pose.translation, Vec3::splat(20.).into());
+                    assert_eq!(pose.matrix3, bevy::math::Mat3A::ZERO);
+                } else {
+                    assert_eq!(pose, rest.compute_affine());
+                }
                 assert_eq!(*world.get::<Transform>(nodes[1]).unwrap(), rest);
             }
         }

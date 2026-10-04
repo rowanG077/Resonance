@@ -29,28 +29,8 @@ impl Pose {
                 rotation: from.rotation.slerp(to.rotation, weight),
                 scale: from.scale.lerp(to.scale, weight),
             }),
-            // Matrix keys carry no matching TRS flags for native cross-fades.
+            // Matrix keys carry no matching TRS channels for cross-fades.
             _ => to,
-        }
-    }
-
-    pub fn adjusted(self, base: Self, current: Self) -> Self {
-        if base == current {
-            return self;
-        }
-        match (self, base, current) {
-            (Self::Trs(binding), Self::Trs(base), Self::Trs(current)) => Self::Trs(Transform {
-                translation: binding.translation + (current.translation - base.translation),
-                rotation: binding.rotation * (base.rotation.inverse() * current.rotation),
-                scale: binding.scale * (current.scale / base.scale),
-            }),
-            _ => {
-                assert_eq!(
-                    base, current,
-                    "late-binding attachment cannot reapply affine secondary deformation to a held pose"
-                );
-                self
-            }
         }
     }
 }
@@ -58,52 +38,21 @@ impl Pose {
 pub(crate) fn rotation(matrix: Affine3A) -> Quat {
     Quat::from_array(
         resonance_content::animation::matrix_rotation(Mat4::from(matrix).to_cols_array_2d())
-            .expect("invalid native matrix rotation"),
+            .expect("invalid matrix rotation"),
     )
-}
-
-#[derive(Clone, Copy)]
-enum Adjustment {
-    FaceCamera(Quat),
-    Rotate(Quat),
-    Scale(Vec3),
-}
-impl Adjustment {
-    fn apply(self, pose: Pose) -> Pose {
-        match (self, pose) {
-            (Self::FaceCamera(camera), Pose::Trs(mut value)) => {
-                value.rotation = camera * value.rotation;
-                value.into()
-            }
-            (Self::FaceCamera(camera), Pose::Affine(mut matrix)) => {
-                matrix.matrix3 = bevy::math::Mat3A::from_quat(camera) * matrix.matrix3;
-                Pose::Affine(matrix)
-            }
-            (Self::Rotate(delta), Pose::Trs(mut value)) => {
-                value.rotation *= delta;
-                value.into()
-            }
-            (Self::Rotate(delta), Pose::Affine(matrix)) => {
-                Transform::from_rotation(rotation(matrix * Affine3A::from_quat(delta))).into()
-            }
-            (Self::Scale(scale), Pose::Trs(value)) => value.with_scale(scale).into(),
-            (Self::Scale(scale), Pose::Affine(_)) => Transform::from_scale(scale).into(),
-        }
-    }
 }
 
 #[derive(Resource, Default)]
 pub(crate) struct Locals {
     poses: BTreeMap<Entity, (Affine3A, Transform)>,
     worlds: BTreeMap<Entity, GlobalTransform>,
-    adjustments: BTreeMap<Entity, Vec<Adjustment>>,
     translations: BTreeMap<Entity, Vec3>,
 }
 impl Locals {
-    /// Native dynamics and outline copying can write a world matrix even when
+    /// Dynamics and outline copying can write a world matrix even when
     /// an ancestor has zero scale. No local matrix can represent that result.
     pub fn set_world(&mut self, entity: Entity, pose: GlobalTransform) {
-        assert!(pose.affine().is_finite(), "nonfinite native world pose");
+        assert!(pose.affine().is_finite(), "nonfinite world pose");
         let mut matrix = pose.affine();
         matrix.translation -=
             bevy::math::Vec3A::from(self.translations.get(&entity).copied().unwrap_or_default());
@@ -134,22 +83,40 @@ impl Locals {
         }
     }
 
-    fn adjust(&mut self, entity: Entity, transform: &mut Transform, adjustment: Adjustment) {
-        let pose = adjustment.apply(self.get(entity, *transform));
-        self.set(entity, transform, pose);
-        self.adjustments.entry(entity).or_default().push(adjustment);
-    }
-
+    /// Rotate about the bone origin in its parent's axes, retaining scale and shear.
     pub fn rotate(&mut self, entity: Entity, transform: &mut Transform, delta: Quat) {
-        self.adjust(entity, transform, Adjustment::Rotate(delta));
+        let pose = match self.get(entity, *transform) {
+            Pose::Trs(mut value) => {
+                value.rotation = delta * value.rotation;
+                value.into()
+            }
+            Pose::Affine(mut value) => {
+                value.matrix3 = bevy::math::Mat3A::from_quat(delta) * value.matrix3;
+                Pose::Affine(value)
+            }
+        };
+        self.set(entity, transform, pose);
     }
 
     pub fn face_camera(&mut self, entity: Entity, transform: &mut Transform, camera: Quat) {
-        self.adjust(entity, transform, Adjustment::FaceCamera(camera));
+        self.rotate(entity, transform, camera);
     }
 
     pub fn scale(&mut self, entity: Entity, transform: &mut Transform, scale: Vec3) {
-        self.adjust(entity, transform, Adjustment::Scale(scale));
+        let pose = match self.get(entity, *transform) {
+            Pose::Trs(value) => value.with_scale(scale).into(),
+            Pose::Affine(mut value) => {
+                let matrix = &mut value.matrix3;
+                for (axis, length) in [&mut matrix.x_axis, &mut matrix.y_axis, &mut matrix.z_axis]
+                    .into_iter()
+                    .zip(scale.to_array())
+                {
+                    *axis = axis.normalize_or_zero() * length;
+                }
+                Pose::Affine(value)
+            }
+        };
+        self.set(entity, transform, pose);
     }
     pub fn translation_boundary(&mut self, entity: Entity) {
         self.translations.entry(entity).or_default();
@@ -210,81 +177,31 @@ impl Helper<'_, '_> {
         matrix.into()
     }
 
-    pub fn adjusted(
-        &self,
-        entity: Entity,
-        mut binding: Pose,
-        mut base: Pose,
-        current: Pose,
-    ) -> Pose {
-        if let Some(affine) = &self.affine
-            && let Some(adjustments) = affine.adjustments.get(&entity)
-        {
-            for adjustment in adjustments {
-                binding = adjustment.apply(binding);
-                base = adjustment.apply(base);
-            }
-        }
-        binding.adjusted(base, current)
-    }
-
     pub fn compute_global_transform(
         &self,
         entity: Entity,
     ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
-        if let Some(pose) = self.world_override(entity) {
-            return Ok(self.translated(entity, pose));
-        }
-        let mut pose = self.local(entity)?.global();
-        for parent in self.parents.iter_ancestors(entity) {
-            if let Some(world) = self.world_override(parent) {
-                return Ok(self.translated(entity, world * pose));
-            }
-            pose = self.local(parent)?.global() * pose;
-        }
-        Ok(self.translated(entity, pose))
+        self.global_with(entity, &BTreeMap::new())
     }
 
+    /// Parent overrides let attached actors resolve in dependency order.
     pub fn global_with(
         &self,
         entity: Entity,
         locals: &BTreeMap<Entity, Pose>,
     ) -> Result<GlobalTransform, bevy::ecs::query::QueryEntityError> {
-        let local = |entity| {
-            locals
-                .get(&entity)
-                .copied()
-                .map_or_else(|| self.local(entity), Ok)
-        };
-        if !locals.contains_key(&entity)
-            && let Some(world) = self.world_override(entity)
-        {
-            return Ok(self.translated(entity, world));
-        }
-        let mut world = local(entity)?.global();
-        for parent in self.parents.iter_ancestors(entity) {
-            if !locals.contains_key(&parent)
-                && let Some(pose) = self.world_override(parent)
-            {
-                return Ok(self.translated(entity, pose * world));
+        let mut world = GlobalTransform::IDENTITY;
+        for node in std::iter::once(entity).chain(self.parents.iter_ancestors(entity)) {
+            if let Some(local) = locals.get(&node) {
+                world = local.global() * world;
+            } else if let Some(pose) = self.world_override(node) {
+                world = pose * world;
+                break;
+            } else {
+                world = self.local(node)?.global() * world;
             }
-            world = local(parent)?.global() * world;
         }
         Ok(self.translated(entity, world))
-    }
-
-    pub fn has_affine_with(&self, entity: Entity, locals: &BTreeMap<Entity, Pose>) -> bool {
-        std::iter::once(entity)
-            .chain(self.parents.iter_ancestors(entity))
-            .any(|entity| {
-                matches!(
-                    locals
-                        .get(&entity)
-                        .copied()
-                        .map_or_else(|| self.local(entity), Ok),
-                    Ok(Pose::Affine(_))
-                )
-            })
     }
 }
 
@@ -302,7 +219,6 @@ pub(crate) fn install(app: &mut App) {
 }
 
 fn clear(mut affine: ResMut<Locals>, mut transforms: Query<&mut Transform>) {
-    affine.adjustments.clear();
     let worlds = std::mem::take(&mut affine.worlds);
     let translations = std::mem::take(&mut affine.translations);
     for entity in std::mem::take(&mut affine.poses)
@@ -411,14 +327,6 @@ mod tests {
                         .z,
                     620.
                 );
-                assert_eq!(
-                    helper
-                        .global_with(effect, &BTreeMap::new())
-                        .unwrap()
-                        .translation()
-                        .z,
-                    620.
-                );
             })
             .unwrap();
         let driven = GlobalTransform::from_translation(Vec3::new(10., 20., 900.));
@@ -429,10 +337,6 @@ mod tests {
             .run_system_once(move |helper: Helper| {
                 assert_eq!(helper.compute_global_transform(effect).unwrap(), driven);
                 assert_eq!(helper.compute_global_transform(mesh).unwrap(), driven);
-                assert_eq!(
-                    helper.global_with(effect, &BTreeMap::new()).unwrap(),
-                    driven
-                );
             })
             .unwrap();
         // Controllers do not modify local poses, and releasing them restores
@@ -456,8 +360,7 @@ mod tests {
         let field: FieldAssets =
             serde_json::from_slice(&std::fs::read(root.join("fields/map-9.json"))?)?;
         let skeleton = Skeleton::from_glb(&std::fs::read(root.join(&field.parts[0].mesh))?)?;
-        // Original AQU_D03 C3 calls at bytes 0x2a96, 0x2adc and 0x2b22
-        // translate these three nodes upward by 600 over 180 updates.
+        // The platform and both teleporters must rise together.
         let targets = ["aqu_d03_base00", "aqu_d03_po00", "aqu_d03_po01"]
             .map(|name| skeleton.bone(name).unwrap());
         assert_eq!(skeleton.bones[targets[1] as usize].parent, Some(targets[0]));
@@ -535,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn native_world_pose_survives_collapsed_parent_and_restores_after_release() {
+    fn world_pose_survives_collapsed_parent_and_restores_after_release() {
         use bevy::ecs::system::RunSystemOnce;
         let mut app = App::new();
         app.add_plugins(bevy::transform::TransformPlugin);
@@ -590,61 +493,32 @@ mod tests {
     }
 
     #[test]
-    fn native_setters_replace_matrix_mode_and_replay_for_held_attachments() {
-        use bevy::ecs::system::RunSystemOnce;
-        let matrix = |shear| {
-            Affine3A::from_cols(
-                Vec3::X.into(),
-                Vec3::new(shear, 1., 0.).into(),
-                Vec3::Z.into(),
-                Vec3::splat(10.).into(),
-            )
-        };
-        let held = Pose::Affine(matrix(0.5));
-        let binding = Pose::Affine(matrix(1.5));
-        let delta = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
-        let mut world = World::new();
-        world.init_resource::<Locals>();
-        let entity = world.spawn(Transform::IDENTITY).id();
-        world
-            .run_system_once(
-                move |mut nodes: Query<&mut Transform>, mut locals: ResMut<Locals>| {
-                    let mut transform = nodes.get_mut(entity).unwrap();
-                    locals.set(entity, &mut transform, held);
-                    locals.rotate(entity, &mut transform, delta);
-                    assert_eq!(transform.translation, Vec3::ZERO);
-                    assert_eq!(transform.scale, Vec3::ONE);
-                    assert!(
-                        transform
-                            .rotation
-                            .abs_diff_eq(Quat::from_xyzw(0., 0., 0.8, 1.).normalize(), 0.00001)
-                    );
-                },
-            )
-            .unwrap();
-        let adjusted = world
-            .run_system_once(move |helper: Helper| {
-                helper.adjusted(entity, binding, held, helper.local(entity).unwrap())
-            })
-            .unwrap();
-        let Pose::Trs(adjusted) = adjusted else {
-            panic!("rotation clears matrix mode")
-        };
-        assert!(
-            adjusted
-                .rotation
-                .abs_diff_eq(Quat::from_xyzw(0., 0., 4. / 7., 1.).normalize(), 0.00001)
+    fn affine_adjustments_preserve_position_and_other_components() {
+        let entity = Entity::PLACEHOLDER;
+        let mut transform = Transform::IDENTITY;
+        let mut poses = Locals::default();
+        let matrix = Affine3A::from_cols(
+            Vec3::X.into(),
+            Vec3::new(0.5, 1., 0.).into(),
+            Vec3::Z.into(),
+            Vec3::splat(10.).into(),
         );
-        assert_eq!(adjusted.translation, Vec3::ZERO);
-        assert_eq!(adjusted.scale, Vec3::ONE);
-
-        let hidden = Adjustment::Scale(Vec3::ZERO).apply(binding);
-        assert_eq!(hidden, Transform::from_scale(Vec3::ZERO).into());
-        assert_eq!(hidden.adjusted(hidden, hidden), hidden);
-        for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
-            let expected = Quat::from_axis_angle(axis, std::f32::consts::PI);
-            assert!(rotation(Affine3A::from_quat(expected)).dot(expected).abs() > 0.99999);
-        }
+        poses.set(entity, &mut transform, Pose::Affine(matrix));
+        poses.rotate(entity, &mut transform, Quat::from_rotation_z(1.));
+        let rotated = poses.get(entity, transform).global().affine();
+        assert_eq!(rotated.translation, matrix.translation);
+        assert!((rotated.matrix3.y_axis.length() - matrix.matrix3.y_axis.length()).abs() < 0.0001);
+        poses.scale(entity, &mut transform, Vec3::splat(2.));
+        let scaled = poses.get(entity, transform).global().affine();
+        assert_eq!(scaled.translation, matrix.translation);
+        assert!(
+            scaled
+                .matrix3
+                .y_axis
+                .normalize()
+                .abs_diff_eq(rotated.matrix3.y_axis.normalize(), 0.0001)
+        );
+        assert!((scaled.matrix3.y_axis.length() - 2.).abs() < 0.0001);
     }
 
     #[test]

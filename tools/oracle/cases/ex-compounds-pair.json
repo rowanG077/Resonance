@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "EX compound skills: newly learned highlights, active requirements, bounded navigation, previews, unequipping and reopening.",
-  "registration": "Controlled ex-compound-fixture-v1 adds learned Lloyd compounds 0,11,13 and recent flags 0,13 to copies of the matched EX gem checkpoints. Actual gem and skill choices use controller inputs. Native menu opens at update 40; subsequent inputs use source poll/2. Whole images and EX state compare actual equipped compound IDs independently from stat previews; unused X/Y/Z/Start inputs and reopening test highlight retention. Source video has no presentation at VI 2310,3590,3670,4630; these captures use the following timestamped VI in both engines. No image-based alignment.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/ex-compound-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "ex-compounds-keyboard.json",
-    "sha256": "0ab9a854375717502566b19624717834fadac6d7ad2713db0065685e79d0227b"
+    "sha256": "9855c44d8d61b2e072bb73c34cf68833a7278cda9b195ffbe74fd9a3dc8aba37"
   },
   "dolphin": {
     "state": {

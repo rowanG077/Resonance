@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Training Manual: all 115 reading paragraphs across 30 learned topics and nine chapters, lower page bounds, navigation wrap and return to Items.",
-  "registration": "Controlled manual-full-fixture-v1 grants item 73 and all 30 learned topic flags in matched checkpoint copies. Native menu opens at update 40; later inputs use source poll/2. Every chapter and reading paragraph is captured after settling, plus each topic's lower page bound. Desired captures advance only to the next timestamped source presentation when the video omits that VI (at most three VIs and before the next input); both engines use that same VI. Registration uses the full manual-all-source-v1 video timestamp index, never image similarity. All Manual captures compare whole images and chapter/topic/paragraph state; the final Items capture compares the whole image and field state.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/manual-full-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "manual-all-keyboard.json",
-    "sha256": "fbdce4ce4a99f68aa06f2840bcbc49211ce7ad2530eb17f5d2c85f817cfe5f66"
+    "sha256": "6d13e08712b7ffca8ab37d8aed8fc67bfb6606fcc509c82b90db7ffdad11d359"
   },
   "dolphin": {
     "state": {

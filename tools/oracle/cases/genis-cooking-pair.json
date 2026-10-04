@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Genis cooking tutorial: choose Yes, read all explanation pages, receive ingredients once, and regain control.",
-  "registration": "A Rust controlled fixture changes only source story2500→202000 before entering338; native initializes the same2500 field and applies the source-observed live change at free-control update64 before door interaction. This preserves outdoor NPC bindings: source map330 initialization branches at112000, so initializing it directly at202000 would not match this controlled fixture. The naturally completed exterior reminder flag374 is retained and cooking flag275 starts clear in both. Player/camera/party values remain source-observed. The tutorial is started by ordinary door interaction, followed by A presses through its original dialogue and default Yes choice. Source grants Bread/Lettuce/Beef3 each atVI4386 and restores control4467. Native update64 registers sourceVI0, including the source-verified settled live camera with fractional angles[330.875,0,38.875] and distance1669.00048828125; desired saved camera settings remain unchanged. Input edges use poll/2+1 plus64. Strict pose/images are checked throughout; cooking inventory/vital state is checked when control returns because event snapshots intentionally lack a restartable checkpoint. Event275 has not been added to the source watcher, so this pair does not claim a numeric event-flag gate. No per-frame correction or simulated disc wait is used. Complete timeline normalization now uses native_update = 64 + source_vi - collapsed loading VIs. Inclusive source loading intervals: 113..128, 152..156. This same mapping applies to all input edges, captures, expected states and replay duration; source target VIs, key order and all strict gates are unchanged. The source UI advances through loading, so presentation_advances restores those skipped UI ticks once at each first retained update; field effects receive no extra ticks. Original video confirms black presentation or absent output during these blocking loads. Actor clearing, field initialization, placement and RNG draws at completion are preserved as semantic setup work, not falsely described as immutable memory. No idle, dialogue or visible animation ticks are removed. Full source interval evidence and old/new pins are in timeline-provenance.json.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/iselia-expansion/genis-native-source-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "genis-cooking-keyboard.json",
-    "sha256": "457d75cd2ea07a60ce8c86f146552c9567a270a5f8d990fc8a0c10ef44408825"
+    "sha256": "9ccd1dc3c97cfee5ab32091b05ee15051b134200d221a82a3c36adff9f33ec42"
   },
   "dolphin": {
     "state": {

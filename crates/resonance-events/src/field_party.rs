@@ -37,7 +37,6 @@ impl GameWorld {
         // Model initialization evaluates its default clip before the first
         // activity selection; a later idle handler may choose the event pose.
         actor.animation = Some(crate::Animation {
-            binding_updates: 1,
             ..crate::Animation::new(id as u32, slot::IDLE, idle.duration_ticks, self.tick)
         });
         actor.face(previous.heading);

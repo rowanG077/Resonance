@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Open the Rename Gem through Recent Items, edit and commit a character name, and return to the item list.",
-  "registration": "Uses the same audited Rename Gem fixture as the Status editor case. Inputs after native menu update 40 use source poll/2 + 1. The first observation is settled Items at VI/update 200, after source disc loading. Captures share presentation origin 38084 and equal update/VI. Source VI 469 has no movie presentation; capture 470 uses the next timestamp. Target-panel closure, Items departure, name entry and return transitions are observed, together with names and gem count. A completed name-editor fade is inactive on its blank handoff frame. No image-based registration is used.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/rename-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "rename-items-keyboard.json",
-    "sha256": "8ef56b4b600c15b344337b4f27c95bb55a8982099b7d52299effb22e02d8d620"
+    "sha256": "d5f7564b634750a8bff0a40dfc417d0c456775c2adbb1580d2ca2580787abe68"
   },
   "dolphin": {
     "state": {

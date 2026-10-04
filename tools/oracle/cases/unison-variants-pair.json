@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "U. Attack variants: twelve learned Lloyd techniques, bounded paging, retained selection, duplicate shortcuts and shared persistence.",
-  "registration": "Controlled unison-variants-fixture-v1 grants Lloyd techniques 2 through 12 using the source learned bitset and cooked named technique IDs, with the original table order verified. Its story threshold is applied to the already initialized source field; native applies it after the main menu opens at update 40. This tests menu behavior, not later-story field entry, skit availability or technique acquisition. Remaining input and image ticks use source poll/2; state gates require matching presentation clocks, list indices, selection and all nine characters saved shortcuts.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/unison-variants-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "unison-variants-keyboard.json",
-    "sha256": "4492c40fdd51cf63dd02c873f35220800e84e7b5300aa8daa01fa6d5cc9ecac4"
+    "sha256": "ce324bf2446ece3f1c592188ae832e285ab1d7623fde649684b6dfd078f0566c"
   },
   "dolphin": {
     "state": {

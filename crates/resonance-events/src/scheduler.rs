@@ -1,9 +1,9 @@
+use crate::GameWorld;
 use crate::ResourceLibrary;
 use crate::native::{EventAction, EventCommand, NativeHost};
 use crate::operation::Wait;
-use crate::{Animation, GameWorld, animation::slot};
 use anyhow::{Context, Result, ensure};
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 use symphonia_script::Program;
 use symphonia_script_vm::{Memory, RunEvent, Vm};
 
@@ -18,7 +18,6 @@ struct Instance {
     join: Option<i32>,
     registers: [i32; 6],
     background: Option<Background>,
-    resource_resume: Option<ResourceWaitObservation>,
     callback: Option<Callback>,
 }
 
@@ -57,7 +56,6 @@ impl Instance {
             join: None,
             registers: [0; 6],
             background: None,
-            resource_resume: None,
             callback: None,
         })
     }
@@ -79,30 +77,6 @@ struct Background {
     require_control: bool,
 }
 
-/// One timed ambient wait observed at the start of an oracle replay.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BackgroundWaitOrigin {
-    pub key: u32,
-    pub pc: u32,
-    pub remaining: u32,
-    pub require_control: bool,
-}
-
-/// Oracle-observed storage readiness. Only the waiting script is suspended;
-/// ordinary execution uses preloaded resources without this schedule.
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourceWaitObservation {
-    /// Word PC immediately after YieldCommand(1, resource_handle).
-    pub pc: u32,
-    pub resource: i32,
-    pub request_tick: u32,
-    pub resume_tick: u32,
-}
-
-/// Stable slot order and one shared script data region, following the original
-/// 32-instance event pool. Scheduling is independent of render frame rate.
 pub struct EventRuntime {
     pub world: GameWorld,
     /// Diagnostic retained when the temporary playground abandons field scripts.
@@ -114,7 +88,6 @@ pub struct EventRuntime {
     next_handle: i32,
     failed: bool,
     interaction: Option<i32>,
-    resource_waits: Option<VecDeque<ResourceWaitObservation>>,
     tasks: crate::authored::Tasks,
 }
 impl EventRuntime {
@@ -131,8 +104,6 @@ impl EventRuntime {
         self.world
             .select_party_member(&self.resources, i32::from(id))
     }
-    /// fn_8001A6FC replaces an incapacitated current actor, but otherwise
-    /// preserves an explicit script selection independently of the menu leader.
     pub fn replace_incapacitated_field_leader(&mut self) -> Result<()> {
         let Some(party) = self.world.party.as_mut() else {
             return Ok(());
@@ -185,11 +156,10 @@ impl EventRuntime {
             next_handle: 2,
             failed: false,
             interaction: None,
-            resource_waits: None,
             tasks: Default::default(),
         };
         if let Err(error) = events
-            .execute(true, &mut |_, _, _, _| {})
+            .execute()
             .and_then(|()| events.world.update_collision_attachments(&events.resources))
         {
             if !allow_incomplete_scripts {
@@ -201,146 +171,6 @@ impl EventRuntime {
     }
     pub fn tick(&self) -> u32 {
         self.world.tick
-    }
-    pub fn register_resource_wait_observations(
-        &mut self,
-        observations: Vec<ResourceWaitObservation>,
-    ) -> Result<()> {
-        ensure!(
-            self.resource_waits.is_none(),
-            "resource waits already registered"
-        );
-        ensure!(
-            observations.iter().all(|o| {
-                o.request_tick > self.world.tick
-                    && o.resume_tick > o.request_tick
-                    && self.resources.binding(o.resource).is_some()
-                    && o.pc
-                        .checked_sub(1)
-                        .and_then(|pc| self.program.instruction(pc))
-                        == Some((
-                            symphonia_script::Op::Native(
-                                symphonia_script::NativeCall::YieldCommand as u8,
-                            ),
-                            o.pc,
-                        ))
-            }) && observations
-                .windows(2)
-                .all(|w| w[0].request_tick <= w[1].request_tick),
-            "invalid observed resource wait schedule"
-        );
-        self.resource_waits = Some(observations.into());
-        Ok(())
-    }
-    pub fn finish_resource_wait_observations(&self) -> Result<()> {
-        ensure!(
-            self.resource_waits.as_ref().is_some_and(VecDeque::is_empty)
-                && self
-                    .instances
-                    .iter()
-                    .flatten()
-                    .all(|i| i.resource_resume.is_none()),
-            "recording ended with unused or unfinished resource waits"
-        );
-        Ok(())
-    }
-    pub fn background_waits(&self) -> Vec<BackgroundWaitOrigin> {
-        self.instances
-            .iter()
-            .flatten()
-            .filter_map(|instance| {
-                let background = instance.background.as_ref()?;
-                let Some(Wait::Tick(wake)) = instance.wait else {
-                    return None;
-                };
-                (!background.paused).then_some(BackgroundWaitOrigin {
-                    key: instance.key?,
-                    pc: instance.vm.pc(),
-                    remaining: wake.saturating_sub(self.world.tick),
-                    require_control: background.require_control,
-                })
-            })
-            .collect()
-    }
-    /// Adjust only an existing wait; never seek a VM or replace its stacks.
-    pub fn apply_background_wait_origin(&mut self, origin: &BackgroundWaitOrigin) -> Result<()> {
-        ensure!(
-            (1..=36000).contains(&origin.remaining),
-            "invalid ambient wait duration"
-        );
-        let instance = self
-            .instances
-            .iter_mut()
-            .flatten()
-            .find(|i| i.key == Some(origin.key) && i.background.is_some())
-            .context("ambient wait event is missing")?;
-        let background = instance.background.as_ref().unwrap();
-        ensure!(
-            instance.vm.pc() == origin.pc
-                && !background.paused
-                && background.require_control == origin.require_control,
-            "ambient event {} is not at the observed wait (PC {:#x}, expected {:#x})",
-            origin.key,
-            instance.vm.pc(),
-            origin.pc
-        );
-        let Some(Wait::Tick(wake)) = &mut instance.wait else {
-            anyhow::bail!("ambient event is not waiting for time");
-        };
-        *wake = self
-            .world
-            .tick
-            .checked_add(origin.remaining)
-            .context("ambient wait clock overflow")?;
-        Ok(())
-    }
-    pub fn apply_flutter_origin(&mut self, origins: &[crate::effect::FlutterOrigin]) -> Result<()> {
-        ensure!(origins.len() <= 32, "too many initial leaves");
-        let particles = origins
-            .iter()
-            .map(|origin| {
-                let Some(crate::ParticleKind::Flutter(recipe)) =
-                    self.resources.particles.get(&origin.kind)
-                else {
-                    anyhow::bail!("leaf origin requires a cooked flutter recipe");
-                };
-                origin.particle(self.world.tick, recipe)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        self.world.particles.retain(|p| p.flutter.is_none());
-        for particle in particles {
-            let born = particle.born;
-            self.world
-                .emit_particle(particle)
-                .map_err(anyhow::Error::msg)?;
-            self.world.particles.last_mut().unwrap().born = born;
-        }
-        Ok(())
-    }
-    /// Register an existing blink once when preparing an oracle replay.
-    pub fn apply_eye_origin(&mut self, id: i32, eyes: crate::EyeBlink) -> Result<()> {
-        let cycle = self
-            .resources
-            .blink
-            .as_ref()
-            .context("eye blink animation is not cooked")?;
-        let tick = usize::from(eyes.tick);
-        ensure!(
-            tick < cycle.frames.len()
-                && eyes.frame == cycle.frames[(tick + cycle.frames.len() - 1) % cycle.frames.len()],
-            "eye origin does not follow the blink sequence"
-        );
-        let actor = self
-            .world
-            .actors
-            .get_mut(&id)
-            .context("eye origin actor is missing")?;
-        ensure!(
-            matches!(actor.appearance.face, crate::Face::Blink) && actor.appearance.eyes.is_some(),
-            "eye origin requires an active blink"
-        );
-        actor.appearance.eyes = Some(eyes);
-        Ok(())
     }
     pub fn active_instances(&self) -> usize {
         self.instances.iter().filter(|i| i.is_some()).count()
@@ -466,8 +296,6 @@ impl EventRuntime {
     /// reachability belong to the game layer; the scheduler owns exclusivity
     /// and returns control when the foreground event finishes.
     pub fn has_interaction(&self, actor: i32) -> bool {
-        // fn_800246E4 only scans ordinary actors and native services. Enemy
-        // symbols (interaction kind 6) dispatch through contact_enemy instead.
         !self
             .world
             .actors
@@ -828,7 +656,7 @@ impl EventRuntime {
         self.step_with_motion(
             self.world.tick.saturating_add(1),
             |_| Ok(()),
-            |_, _, _, _, _| {},
+            |_, _, _, _| {},
             |_| Ok(()),
         )
     }
@@ -840,7 +668,7 @@ impl EventRuntime {
         &mut self,
         effect_tick: u32,
         prepare: impl FnOnce(&mut Self) -> Result<T>,
-        mut resolve: impl FnMut(&T, crate::MotionUpdate, i32, &mut crate::Actor, [f32; 3]),
+        mut resolve: impl FnMut(&T, i32, &mut crate::Actor, [f32; 3]),
         services: impl FnOnce(&mut Self) -> Result<()>,
     ) -> Result<()> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
@@ -964,7 +792,7 @@ impl EventRuntime {
                 .map(|motion| motion.speed)
                 .or_else(|| ambient.walking.then(|| actor.autonomy.unwrap().speed));
             actor.step_motion();
-            resolve(&prepared, crate::MotionUpdate::Frame, *id, actor, previous);
+            resolve(&prepared, *id, actor, previous);
             actor.step_heading(
                 self.world.input_enabled && *id == self.world.controlled_actor,
                 actor.motion.is_some() || actor.position[..2] != previous[..2],
@@ -975,95 +803,21 @@ impl EventRuntime {
             {
                 let dialogue = self.world.dialogue.values().any(|d| d.operation.is_pending()
                     && matches!(d.anchor, crate::dialogue::DialogueAnchor::Actor(speaker) if speaker == *id));
-                // The player has a distinct idle pose while an event owns control.
-                let event_controlled =
-                    !self.world.input_enabled && *id == self.world.controlled_actor;
-                let player_locomotion =
-                    self.world.input_enabled && *id == self.world.controlled_actor;
-                let requested = if let Some(speed) = movement_speed {
-                    let running = !ambient.walking && speed > 7.;
-                    let event_gait = if running {
-                        slot::EVENT_RUN
-                    } else {
-                        slot::EVENT_WALK
-                    };
-                    if event_controlled && model.clips.contains_key(&event_gait) {
-                        event_gait
-                    } else if running && model.clips.contains_key(&slot::RUN) {
-                        slot::RUN
-                    } else {
-                        slot::WALK
-                    }
-                } else if turn != 0. && model.clips.contains_key(&slot::TURN_RIGHT) {
-                    if turn < 0. {
-                        slot::TURN_LEFT
-                    } else {
-                        slot::TURN_RIGHT
-                    }
-                } else if dialogue {
-                    // Use the event conversation pose when the script owns the player.
-                    [
-                        if event_controlled {
-                            slot::EVENT_TALK
-                        } else {
-                            slot::TALK
-                        },
-                        slot::TALK_FALLBACK,
-                        slot::IDLE,
-                    ]
-                    .into_iter()
-                    .find(|slot| model.clips.contains_key(slot))
-                    .unwrap_or(actor.idle_animation)
-                } else if event_controlled && model.clips.contains_key(&slot::EVENT_IDLE) {
-                    slot::EVENT_IDLE
-                } else {
-                    actor.idle_animation
-                };
-                let slot = if model.clips.contains_key(&requested) {
-                    requested
-                } else {
-                    slot::IDLE
-                };
-                if model.clips.contains_key(&slot)
-                    && actor.animation.as_ref().is_none_or(|a| {
-                        a.source != crate::animation::AnimationSource::Model
-                            || a.resource != actor.resource
-                            || a.slot != slot
-                    })
-                {
-                    actor.animation = Some(Animation {
-                        blend_ticks: if matches!(slot, slot::TURN_RIGHT | slot::TURN_LEFT)
-                            || player_locomotion && matches!(slot, slot::WALK | slot::RUN)
-                        {
-                            2
-                        } else {
-                            8
-                        },
-                        repeat: !matches!(slot, slot::TURN_RIGHT | slot::TURN_LEFT),
-                        ..Animation::new(
-                            actor.resource,
-                            slot,
-                            model.clips[&slot].duration_ticks,
-                            self.world.tick,
-                        )
-                    });
-                }
-                if player_locomotion
-                    && let Some(motion) = &actor.motion
-                    && let Some(animation) = &mut actor.animation
-                    && matches!(slot, slot::WALK | slot::RUN)
-                {
-                    // Scale player gait with movement speed. Script-directed movement
-                    // keeps its independent authored rate and blend duration.
-                    let rate = motion.speed / if slot == slot::WALK { 2. } else { 10. };
-                    if animation.rate != rate {
-                        animation.seek(
-                            animation.sample(self.world.tick, 0, animation.duration_ticks as f32),
-                            self.world.tick,
-                        );
-                        animation.rate = rate;
-                    }
-                }
+                actor.select_automatic_animation(
+                    model,
+                    self.world.tick,
+                    crate::animation::Locomotion {
+                        movement_speed,
+                        walking: ambient.walking,
+                        turn,
+                        dialogue,
+                        event_controlled: !self.world.input_enabled
+                            && *id == self.world.controlled_actor,
+                        player_controlled: self.world.input_enabled
+                            && *id == self.world.controlled_actor,
+                        release: None,
+                    },
+                );
             }
             actor.animation_culled = actor.cull_outside_view
                 && !actor.appearance.model_hidden
@@ -1116,11 +870,7 @@ impl EventRuntime {
             .world
             .step_field_exit(&self.resources)
             .map_err(anyhow::Error::msg)
-            .and_then(|()| {
-                self.execute(false, &mut |update, id, actor, previous| {
-                    resolve(&prepared, update, id, actor, previous);
-                })
-            })
+            .and_then(|()| self.execute())
             .and_then(|()| self.step_ring())
             .and_then(|()| {
                 let colette_progress = self.memory.read(0x4c, symphonia_script::Width::S32)?;
@@ -1189,11 +939,7 @@ impl EventRuntime {
         }
     }
 
-    fn execute(
-        &mut self,
-        initial_dispatch: bool,
-        resolve_motion: &mut crate::native::MotionResolver<'_>,
-    ) -> Result<()> {
+    fn execute(&mut self) -> Result<()> {
         const AUTHORED_BUDGET: u32 = 32_768;
         // Imported scenes may issue a large finite batch of native particle calls.
         const LEGACY_BUDGET: u32 = 131_072;
@@ -1252,12 +998,6 @@ impl EventRuntime {
                 continue;
             }
             if let Some(wait) = instance.wait.take() {
-                if let Some(observation) = instance.resource_resume.take() {
-                    ensure!(
-                        self.world.tick == observation.resume_tick,
-                        "observed resource resumed at the wrong tick"
-                    );
-                }
                 if matches!(wait, Wait::ControlHandoff(_)) {
                     self.world.input_enabled = true;
                 }
@@ -1323,7 +1063,6 @@ impl EventRuntime {
             let mut commands = Vec::new();
             let mut spawns = Vec::new();
             let mut wait = None;
-            let mut resource_wait = None;
             let result = if instance.program.authored().is_some() {
                 let mut host = crate::authored::FieldHost {
                     world: &mut self.world,
@@ -1351,7 +1090,6 @@ impl EventRuntime {
             } else {
                 let mut host = NativeHost {
                     world: &mut self.world,
-                    resolve_motion,
                     resources: &self.resources,
                     program: &instance.program,
                     event_actor: instance.event_actor,
@@ -1369,8 +1107,6 @@ impl EventRuntime {
                             }
                         }),
                     wait: &mut wait,
-                    resource_waits: self.resource_waits.as_ref(),
-                    resource_wait: &mut resource_wait,
                 };
                 instance.vm.run(
                     &mut host,
@@ -1388,16 +1124,6 @@ impl EventRuntime {
                 );
                 self.task_error(&mut instance, anyhow::Error::new(error).context(context))
             })?;
-            if let Some(observation) = resource_wait {
-                ensure!(
-                    instance.vm.pc() == observation.pc,
-                    "observed resource wait reached the wrong script PC: {:#x}, expected {:#x}",
-                    instance.vm.pc(),
-                    observation.pc
-                );
-                self.resource_waits.as_mut().unwrap().pop_front();
-                instance.resource_resume = Some(observation);
-            }
             update_budget -= result.steps;
             let program = instance.program.clone();
             match result.event {
@@ -1505,167 +1231,6 @@ impl EventRuntime {
                 break;
             }
         }
-        // Initialization precedes the first ordinary actor update. Later scripts
-        // run after actors, so their immediate binding is this tick's only new pose.
-        for id in std::mem::take(&mut self.world.pending_animation_bindings) {
-            if let Some(actor) = self.world.actors.get_mut(&id)
-                && actor.scripted_animation
-                && let Some(animation) = actor.animation.as_mut()
-                && animation.start_tick == self.world.tick
-            {
-                animation.binding_updates = u32::from(initial_dispatch);
-                animation.binding_timing = if initial_dispatch {
-                    crate::animation::BindingTiming::BeforeDraw
-                } else {
-                    crate::animation::BindingTiming::AfterDraw
-                };
-            }
-        }
-        ensure!(
-            self.resource_waits
-                .as_ref()
-                .and_then(|q| q.front())
-                .is_none_or(|o| o.request_tick > self.world.tick)
-                && self.instances.iter().flatten().all(|i| i
-                    .resource_resume
-                    .is_none_or(|o| o.resume_tick > self.world.tick)),
-            "missed observed resource request or resume"
-        );
-        Ok(())
-    }
-}
-
-impl EventRuntime {
-    /// Register an observed ambient phase once; ordinary saves recreate actors.
-    pub fn apply_actor_origin(&mut self, id: i32, origin: &crate::ActorOrigin) -> Result<()> {
-        let waiting = |instance: &Instance| {
-            matches!(&instance.wait, Some(Wait::Service { condition, ready_at: None })
-                if matches!(**condition, Wait::ActorAnimation(actor) if actor == id))
-        };
-        // Background scripts may randomly choose between clips in an actor's
-        // own bank. Register their visible phase without seeking the script.
-        let ambient_binding = self.world.input_enabled
-            && self.interaction.is_none()
-            && self.instances.iter().flatten().any(|instance| {
-                instance
-                    .background
-                    .as_ref()
-                    .is_some_and(|b| b.require_control && !b.paused)
-                    && waiting(instance)
-            })
-            && !self
-                .instances
-                .iter()
-                .flatten()
-                .any(|instance| instance.background.is_none() && waiting(instance));
-        let actor = self
-            .world
-            .actors
-            .get_mut(&id)
-            .ok_or_else(|| anyhow::anyhow!("ambient actor {id} is missing"))?;
-        let current = actor
-            .autonomy
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("actor {id} has no ambient behavior"))?;
-        let state = &origin.autonomy;
-        // The player's home records its spawn position, not a patrol boundary.
-        ensure!(
-            current.behavior == state.behavior
-                && current.speed == state.speed
-                && (current.home == state.home
-                    || id == self.world.controlled_actor
-                        && current.behavior == crate::Behavior::Player
-                        && state
-                            .home
-                            .iter()
-                            .all(|v| v.is_finite() && v.abs() <= 100_000.))
-                && current.radius == state.radius
-                && (-2..=183).contains(&state.remaining)
-                && !state.conversing,
-            "ambient origin changes actor {id}'s authored movement settings"
-        );
-        use crate::animation::slot;
-        ensure!(
-            origin
-                .position
-                .iter()
-                .all(|v| v.is_finite() && v.abs() <= 100_000.)
-                && origin.heading.is_finite()
-                && origin.target_heading.is_finite()
-                && (actor.interaction_anchor && origin.animation_slot.is_none()
-                    || actor.scripted_animation
-                    || state.activity == crate::Activity::Select
-                        && !state.initialized
-                        && origin.animation_slot == Some(slot::IDLE)
-                    || matches!(
-                        (state.activity, origin.animation_slot),
-                        (crate::Activity::Idle, Some(slot::IDLE))
-                            | (crate::Activity::Walk, Some(slot::WALK))
-                    )),
-            "invalid ambient pose for actor {id}"
-        );
-        if id == self.world.controlled_actor {
-            ensure!(
-                origin.position == actor.position && origin.heading == actor.heading,
-                "ambient origin cannot reposition the player"
-            );
-        }
-        let animation = if let Some(slot) = origin.animation_slot {
-            let binding = if actor.scripted_animation {
-                actor.animation.as_ref()
-            } else {
-                None
-            };
-            ensure!(
-                !actor.scripted_animation
-                    || binding.is_some_and(|animation| {
-                        (animation.slot == slot
-                            || ambient_binding
-                                && animation.source == crate::animation::AnimationSource::Model
-                                && animation.resource == actor.resource)
-                            && animation.repeat == origin.animation_repeat
-                    }),
-                "ambient origin changes actor {id}'s scripted binding"
-            );
-            let resource = binding.map_or(actor.resource, |animation| animation.resource);
-            let source = binding.map_or(crate::animation::AnimationSource::Model, |animation| {
-                animation.source
-            });
-            let clip = self
-                .resources
-                .clips(resource, source)
-                .and_then(|clips| clips.get(&slot))
-                .context("ambient animation is not cooked")?;
-            ensure!(
-                (0. ..=clip.duration_ticks as f32).contains(&origin.animation_sample)
-                    && binding.is_none_or(|animation| {
-                        animation.slot != slot || animation.duration_ticks == clip.duration_ticks
-                    }),
-                "ambient animation sample is outside its clip"
-            );
-            Some(Animation {
-                source,
-                start_frame: origin.animation_sample,
-                rate: binding.map_or(1., |animation| animation.rate),
-                loop_start: binding.map_or(0., |animation| animation.loop_start),
-                repeat: origin.animation_repeat,
-                ..Animation::new(resource, slot, clip.duration_ticks, self.world.tick)
-            })
-        } else {
-            ensure!(
-                actor.interaction_anchor
-                    && actor.animation.is_none()
-                    && origin.animation_sample == 0.
-                    && !origin.animation_repeat,
-                "only a scene locator can omit its animation"
-            );
-            None
-        };
-        actor.autonomy = Some(*state);
-        actor.position = origin.position;
-        actor.heading = origin.heading;
-        actor.target_heading = origin.target_heading;
-        actor.animation = animation;
         Ok(())
     }
 }

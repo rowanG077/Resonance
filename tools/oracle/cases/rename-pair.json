@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Rename Gem editing, deletion, factory defaults, restoring the saved name, cancellation, committing and changing character.",
-  "registration": "Both saves grant one Rename Gem through the audited inventory fixture. Status becomes visible at source VI 278; native confirmation at update 266 begins the twelve-update Main handoff, presenting Status at update 278 without a disc wait. Later inputs use source poll/2 + 1, with native Right corresponding to source R on Status. All images use equal native update/source VI and presentation origin 38084. VIs 363, 366, 369, 372, 590, 670, 870, 1300 and 1700 have no recorded presentation; captures use the next timestamped presentation. Selection uses timestamps and observed UI state, never image similarity. Names and gem count are checked throughout; focused editor selections and fades are checked while active. Source retains an unused command selection between openings, which is checked only while the commands have focus. Items entry and field dialogue are separate validations.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/rename-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "rename-keyboard.json",
-    "sha256": "6dc89a0c770ecde6913f50a5db4c898aaebda77e3e59d480d50fb4d1749a5c28"
+    "sha256": "2b0bf46d1033c87b2d5f4dda82e906b12db74cb92e495f352049164723b5b105"
   },
   "dolphin": {
     "state": {

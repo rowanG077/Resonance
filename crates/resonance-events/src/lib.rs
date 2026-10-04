@@ -9,7 +9,7 @@ mod emitter;
 mod enemy_source;
 pub use ambient::AmbientSound;
 pub mod battle;
-pub use autonomy::{Activity, ActorOrigin, Autonomy, Behavior};
+pub use autonomy::{Activity, Autonomy, Behavior};
 mod face;
 pub use face::EyeBlink;
 pub mod field_damage;
@@ -26,13 +26,13 @@ pub use resources::{
     AnimationClip, AttachmentPose, MemoryCircleText, ModelAttachments, ModelResource, ParticleKind,
     ResourceKind, ResourceLibrary,
 };
-pub use scheduler::{BackgroundWaitOrigin, EventRuntime, ResourceWaitObservation};
+pub use scheduler::EventRuntime;
 pub use world::{
-    ACTOR_CONTACT_HEIGHT, Actor, ActorContact, ActorCreation, ActorMotion, ActorRole, Appearance,
-    Attachment, AudioCommand, BoneAdjustment, BoneScale, BoneTarget, CameraTrack, Emote, Enemy,
-    EventRecord, Face, Fade, FieldTransition, GameWorld, MotionUpdate, MusicCommand, Overlay,
-    OverlayKind, Particle, PlayerSize, SavePoint, SceneDestination, SpriteOverlay, TreasureChest,
-    TreasureKind, TreasureReward, Trigger, TriggerShape, VoicePlayback, WorldTransition,
+    ACTOR_CONTACT_HEIGHT, Actor, ActorContact, ActorMotion, ActorRole, Appearance, Attachment,
+    AudioCommand, BoneAdjustment, BoneScale, BoneTarget, CameraTrack, Emote, Enemy, EventRecord,
+    Face, Fade, FieldTransition, GameWorld, MusicCommand, Overlay, OverlayKind, Particle,
+    PlayerSize, SavePoint, SceneDestination, SpriteOverlay, TreasureChest, TreasureKind,
+    TreasureReward, Trigger, TriggerShape, VoicePlayback, WorldTransition,
 };
 mod operation;
 pub use operation::{Operation, Outcome, Progress};

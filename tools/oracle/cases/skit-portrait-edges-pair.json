@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Opening Iselia skit: consecutive portrait texture-edge and authored-border checks for Lloyd and Genis, with full-frame comparisons retained.",
-  "registration": "Reuse skit-playback source/save/input pins and the accepted Lloyd subtitle registration: Dolphin VI 300 pairs with native update 1601. Across every source VI 291..309, skit 600, media 65544, media status 0x01030101, panel and text alpha remain unchanged; scene_ticks advances exactly once per VI (240..258), with no media startup, drain or subtitle handoff. Thus each consecutive native update 1592..1610 maps directly. Preserve full frames and add narrow portrait-edge and authored-border regions; no pixels, clocks, masks or tolerances are changed. Focused regions check Lloyd’s right texture edge above the underlying 3D actor, Genis’s left texture edge, and the full-height left and right authored Lloyd borders. The first diagnostic’s wider transparent strip also sampled the 3D Lloyd/savepoint background, and its interior box sampled mouth animation: those pre-existing differences are retained as separate diagnostics. The original player starts its media clock after decoder startup, while this replay aligns subtitles and the prepared player starts immediately, so mouth phase is not a border/gutter assertion. No full-frame gates, thresholds, source pins or time origins change.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/paired-school-grounds.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "skit-portrait-edges-keyboard.json",
-    "sha256": "cbad721e61debbdaa355c5fab7057f63c6c5f39df8dac0265b6ff13d24b19884"
+    "sha256": "72792f225e1de44c2287148632475177a76e146db3be7a4de6384f9e172aca00"
   },
   "dolphin": {
     "state": {

@@ -1326,7 +1326,6 @@ impl NativeHost<'_> {
                     .and_then(|m| m.clips.get(&crate::animation::slot::IDLE))
                 {
                     actor.animation = Some(Animation {
-                        binding_updates: u32::from(self.world.field_camera.is_some()),
                         ..Animation::new(
                             resource,
                             crate::animation::slot::IDLE,

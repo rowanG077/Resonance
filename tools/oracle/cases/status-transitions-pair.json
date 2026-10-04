@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Status entrance, character cross-fades and title picker opening, cancellation and confirmation, with independently observed UI state.",
-  "registration": "Uses the matched five-member condition fixture. The source initializes Status at VI 518, observed from the page-fade and portrait state becoming 206/224. Native Status confirmation is scheduled at update 506, so the twelve-update Main handoff presents Status at update 518, bypassing source disc loading without adding a runtime wait. Subsequent inputs use source poll/2 + 1. All capture updates equal source VIs and share presentation origin 38084. The diagnostic source movie has no presentation at VIs 519, 522, 525, 528, 531, 587, 667, 705, 708, 858, 861, 979, so these are omitted; remaining observations are selected by timestamps and state, never image similarity. Main-menu departure and field return are outside this case. VI 1038 is also omitted because the overlap trace records no presentation there. Additional inputs try to change character during entrance (native Right/source R), cancel the opening title picker and confirm during its closing fade. The final sequence opens titles during a character cross-fade to check compositing and input ownership.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/tech-conditions-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "status-transitions-keyboard.json",
-    "sha256": "22db2d6d98b35aa2ed51000d2481fec437397000008851b6883ca37dd053e8db"
+    "sha256": "0a1d172efe11737739b76213109ed2f9630b9f5a6821022e100dfd60a0ffe00b"
   },
   "dolphin": {
     "state": {

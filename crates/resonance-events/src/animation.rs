@@ -1,4 +1,7 @@
 //! Authored animation playback. Slots are resource-table byte offsets.
+mod locomotion;
+pub(crate) use locomotion::Locomotion;
+
 pub mod slot {
     pub const IDLE: u16 = 12;
     pub const TALK: u16 = 24;
@@ -13,55 +16,6 @@ pub mod slot {
     pub const EVENT_WALK: u16 = 120;
     pub const EVENT_RUN: u16 = 124;
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BindingTiming {
-    BeforeDraw,
-    AfterDraw,
-}
-
-/// One immediate model evaluation, before a later script command can replace it.
-#[derive(Debug, Clone)]
-pub struct AnimationBinding {
-    pub animation: Animation,
-    pub scenery: std::collections::BTreeMap<i8, Animation>,
-    pub position: [f32; 3],
-    pub angles: [f32; 3],
-    pub scale: [f32; 3],
-    pub adjustments: std::collections::BTreeMap<u8, crate::BoneAdjustment>,
-    pub secondary_motion_disabled: bool,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct AnimationBindings {
-    pub tick: u32,
-    pub updates: Vec<AnimationBinding>,
-}
-
-impl crate::Actor {
-    pub(crate) fn record_animation_binding(&mut self, tick: u32, size: f32) {
-        let Some(animation) = &self.animation else {
-            return;
-        };
-        if self.animation_bindings.tick != tick {
-            self.animation_bindings.updates.clear();
-            self.animation_bindings.tick = tick;
-        }
-        self.animation_bindings.updates.push(AnimationBinding {
-            animation: animation.clone(),
-            scenery: self.scenery_animations.clone(),
-            position: self.visual_position(),
-            angles: [
-                self.tilt_degrees()[0],
-                self.tilt_degrees()[1],
-                self.appearance.fixed_heading.unwrap_or(self.heading),
-            ],
-            scale: self.model_scale().map(|axis| axis * size),
-            adjustments: self.appearance.bone_adjustments.clone(),
-            secondary_motion_disabled: self.appearance.secondary_motion_disabled,
-        });
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Animation {
     pub resource: u32,
@@ -76,10 +30,6 @@ pub struct Animation {
     pub duration_ticks: u32,
     pub slot: u16,
     pub start_tick: u32,
-    /// Explicit native binding evaluates once before the ordinary actor update.
-    pub binding_updates: u32,
-    /// VM bindings can be observed by attachments before their first model draw.
-    pub binding_timing: BindingTiming,
     /// Last seek/rate update; changing speed does not restart a cross-fade.
     pub phase_tick: u32,
     pub repeat: bool,
@@ -107,8 +57,6 @@ impl Animation {
             paused_rate: None,
             loop_start: 0.,
             blend_ticks: 0,
-            binding_updates: 0,
-            binding_timing: BindingTiming::BeforeDraw,
             repeat: true,
             paused_at: None,
             paused_ticks: 0,
@@ -126,41 +74,23 @@ impl Animation {
 
     pub fn elapsed(&self, tick: u32, presentation_delay: u32) -> f32 {
         let tick = self.animation_tick(tick);
-        let binding_age = tick
-            .saturating_sub(self.start_tick)
-            .saturating_add(self.binding_updates);
-        let phase_age = tick.saturating_sub(self.phase_tick).saturating_add(
-            if self.phase_tick == self.start_tick {
-                self.binding_updates
-            } else {
-                0
-            },
-        );
-        self.start_frame
-            + binding_age
-                .saturating_sub(self.blend_ticks.saturating_sub(1))
-                .min(phase_age)
-                .saturating_sub(presentation_delay) as f32
-                * self.rate
-    }
-    /// Hold the new clip’s first sample while the old pose blends out.
-    /// Blend weights progress from 1/(duration+1) to duration/(duration+1).
-    pub fn blend_weight(&self, tick: u32) -> f32 {
-        let tick = self.animation_tick(tick);
         let age = tick
             .saturating_sub(self.start_tick)
-            .saturating_add(self.binding_updates);
-        if age >= self.blend_ticks {
-            1.
-        } else {
-            (age + 1) as f32 / (self.blend_ticks + 1) as f32
+            .saturating_sub(self.blend_ticks);
+        let phase_age = tick.saturating_sub(self.phase_tick);
+        self.start_frame + age.min(phase_age).saturating_sub(presentation_delay) as f32 * self.rate
+    }
+    /// Blend from the displayed pose before advancing the new clip.
+    pub fn blend_weight(&self, tick: u32) -> f32 {
+        if self.blend_ticks == 0 {
+            return 1.;
         }
+        (self.animation_tick(tick).saturating_sub(self.start_tick) as f32 / self.blend_ticks as f32)
+            .min(1.)
     }
     pub fn sample(&self, tick: u32, presentation_delay: u32, duration: f32) -> f32 {
         let elapsed = self.elapsed(tick, presentation_delay);
         if self.repeat && duration > 0. && elapsed < 0. {
-            // fn_8006D2E0 wraps reverse playback through the full duration.
-            // The loop-start offset applies only to forward playback.
             elapsed.rem_euclid(duration)
         } else if self.repeat && duration > self.loop_start && elapsed > duration {
             let phase = (elapsed - self.loop_start) % (duration - self.loop_start);

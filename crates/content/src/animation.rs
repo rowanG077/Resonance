@@ -406,9 +406,7 @@ impl Transform {
     }
 }
 
-/// Native setters replace matrix mode; they do not decompose its translation,
-/// scale or shear. Quaternion extraction uses the complete 3x3 basis, then the
-/// quaternion-to-matrix writer normalizes it.
+/// Extract a normalized quaternion from the 3x3 basis; translation is ignored.
 pub fn matrix_rotation(matrix: Matrix) -> Result<[f32; 4]> {
     let m = |row: usize, col: usize| matrix[col][row];
     let trace = m(0, 0) + m(1, 1) + m(2, 2);

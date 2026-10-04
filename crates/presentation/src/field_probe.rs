@@ -94,7 +94,6 @@ impl ClassroomProbe {
             animation.start_frame = sample;
             // This diagnostic explicitly chooses the already-evaluated pose;
             // it does not perform another native animation binding.
-            animation.binding_updates = 0;
             animation.start_tick = tick.saturating_sub(animation.blend_ticks);
             animation.phase_tick = tick;
         }

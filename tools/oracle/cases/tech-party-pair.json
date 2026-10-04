@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Tech party access: rejection of knocked-out members at entry, browsing them with page buttons, header navigation, reserve members and unavailable controller settings.",
-  "registration": "Controlled fixture extends tech-spells-fixture-v2 to formation 1/2/3/4/5 while preserving its wounds and learned/AI flags. Story remains 2500. Native menu opens at update 40; later inputs/images use source poll/2 and registered presentation/session clocks. This verifies menu access, not recruitment or battle participation.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/tech-party-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "tech-party-keyboard.json",
-    "sha256": "22269d579a4d1cb25776795899e8ca243269089885371dc0c6acd63905f0b410"
+    "sha256": "50dd49b7f9ab8cd9af803719080ec2b10f5d383984be2dc7d0494bbc89499186"
   },
   "dolphin": {
     "state": {

@@ -126,10 +126,6 @@ struct Replay(Option<resonance_game::replay::TitleReplay>);
 struct Menu(TitleState);
 #[derive(Resource, Default)]
 struct Clock(PresentationClock);
-/// Source video can omit presentations while simulation continues (for
-/// example during a field-loading stall). Replay fixtures register that gap.
-#[derive(Resource, Default)]
-pub(crate) struct PresentationPause(pub(crate) bool);
 #[derive(Resource)]
 struct Events(resonance_events::EventRuntime);
 #[derive(Resource)]
@@ -371,7 +367,6 @@ fn build_app_with_display(
         .insert_resource(options)
         .insert_resource(Menu(state))
         .insert_resource(Clock(clock))
-        .init_resource::<PresentationPause>()
         .insert_resource(Art {
             manifest,
             images: Vec::new(),

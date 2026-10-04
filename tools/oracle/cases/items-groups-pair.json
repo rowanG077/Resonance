@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Items group recovery: five-member automatic previews and cursors, ignored navigation, popup opening/closing, cancellation and item exhaustion; HP recovery and the knockout-only TP eligibility edge case.",
-  "registration": "Controlled fixture grants one Energy Tablets and one Spirit Bottle to copies of items-targets-fixture-v1 and changes only knocked-out Colette's TP to zero. Living members retain full TP, so the Spirit Bottle observation specifically tests original group-item eligibility when only a knockout has missing TP. Artificial conditions and formation test menus, not recruitment or natural status acquisition. Every item use and cancellation uses menu input. Consecutive captures span popup fades and all five preview boundaries. Inventory checks compare every item count, every member's vitals/conditions/equipment, preview counter, target, focus and popup opacity. Native menu opens at update 40/source poll 20; subsequent native inputs occur at source poll/2 + 1, the VI where controller events first change source state; observations retain equal native-update/source-VI timestamps and the established clock origins. Full-frame tolerance remains 8/1%. The knockout-only TP image uses the next actual video presentation at 1351 on both sides rather than absent VI 1350. This does not change clock origins or tolerance.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/items-groups-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "items-groups-keyboard.json",
-    "sha256": "b9993baa9aa83344f36e28a380c1f796925d021d62027f612d405afb516a0188"
+    "sha256": "1bfe533e33cf6c686e9c45568f9b531cdda5995efc6a5aface43d77ca1b1b0d3"
   },
   "dolphin": {
     "state": {

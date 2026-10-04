@@ -1,4 +1,5 @@
 use super::*;
+use crate::sparse_animation::affine::Helper;
 use bevy::{ecs::system::RunSystemOnce, math::Affine3A};
 
 #[test]
@@ -52,18 +53,6 @@ fn camera_facing_preserves_affine_pose_translation_and_attachment_offsets() {
                     .distance(expected)
                     < 0.0001
             );
-            // A binding-frame attachment replays the camera operation on its new
-            // local pose, including shear, without moving the bone's origin.
-            let mut incoming = local;
-            incoming.translation += bevy::math::Vec3A::X;
-            let bound = helper.adjusted(
-                bone,
-                Pose::Affine(incoming),
-                Pose::Affine(local),
-                helper.local(bone).unwrap(),
-            );
-            assert_eq!(bound.global().affine().translation, incoming.translation);
-            assert_eq!(bound.global().affine().matrix3, result.matrix3);
         })
         .unwrap();
 }

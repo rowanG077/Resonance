@@ -2,9 +2,11 @@
 //! The inverted outline hull consumes the primary skeleton's result.
 use super::field_view::{ActorPart, Art, State};
 use super::sparse_animation::affine::{Helper as TransformHelper, Locals, Pose, rotation};
-use bevy::{math::Affine3A, prelude::*};
+use bevy::prelude::*;
 use resonance_content::secondary_motion::Chain;
 use std::collections::BTreeMap;
+
+const SETTLE_UPDATES: u32 = 300;
 
 #[derive(Component)]
 pub(super) struct Rig {
@@ -12,10 +14,7 @@ pub(super) struct Rig {
     bones: BTreeMap<u16, Bone>,
     chains: Vec<(Chain, Simulation)>,
     tick: Option<u32>,
-    creation: Option<resonance_events::ActorCreation>,
     pose: BTreeMap<u16, GlobalTransform>,
-    binding_tick: Option<(u32, usize)>,
-    binding_pose: BTreeMap<Entity, GlobalTransform>,
     impulses: BTreeMap<u32, Vec3>,
     disabled: bool,
 }
@@ -84,10 +83,7 @@ impl Rig {
                 .map(|chain| (chain, Simulation::default()))
                 .collect(),
             tick: None,
-            creation: None,
             pose: BTreeMap::new(),
-            binding_tick: None,
-            binding_pose: BTreeMap::new(),
             impulses: BTreeMap::new(),
             disabled: false,
         })
@@ -100,30 +96,19 @@ impl Rig {
         tick: u32,
         settle: bool,
         animated_roots: &[u16],
-        initial: Option<Affine3A>,
     ) -> Option<BTreeMap<u16, GlobalTransform>> {
-        // The hidden binding has advanced the retained solver beyond this draw.
-        // Render-only updates must reuse the draw, not those newer positions.
-        if self.binding_tick.is_some_and(|(when, _)| when == tick) {
-            return Some(self.pose.clone());
-        }
-        self.binding_tick = None;
-        self.binding_pose.clear();
         let Pose::Trs(actor) = helper.local(self.root).ok()? else {
-            panic!("secondary-motion actor root must expose its native scale")
+            panic!("secondary-motion actor root must expose its scale")
         };
-        let authored = self.authored(helper, &BTreeMap::new())?;
+        let authored = self.authored(helper)?;
         let steps = if self.tick.is_none() && settle {
-            300
+            SETTLE_UPDATES
         } else {
-            self.tick
-                .or(self.creation.map(|p| p.tick))
-                .map_or(1, |previous| {
-                    tick.saturating_sub(previous)
-                        .min(resonance_events::projectile::CHAIN_HISTORY_TICKS)
-                })
+            self.tick.map_or(1, |previous| {
+                tick.saturating_sub(previous)
+                    .min(resonance_events::projectile::CHAIN_HISTORY_TICKS)
+            })
         };
-        let initial = initial.filter(|_| self.tick.is_none() && !settle);
         let forces: Vec<_> = (0..steps)
             .map(|step| {
                 tick.checked_sub(steps - step - 1)
@@ -132,86 +117,25 @@ impl Rig {
                     .unwrap_or_default()
             })
             .collect();
-        let output = self.evaluate(
-            &authored,
-            actor.scale,
-            yaw,
-            animated_roots,
-            &forces,
-            initial,
-        );
+        let output = self.evaluate(&authored, actor.scale, yaw, animated_roots, &forces);
         self.tick = Some(tick);
         self.pose.clone_from(&output);
         Some(output)
     }
 
-    fn authored(
-        &self,
-        helper: &TransformHelper,
-        locals: &BTreeMap<Entity, Pose>,
-    ) -> Option<BTreeMap<u16, Authored>> {
+    fn authored(&self, helper: &TransformHelper) -> Option<BTreeMap<u16, Authored>> {
         self.bones
             .iter()
             .map(|(&node, bone)| {
                 Some((
                     node,
                     Authored {
-                        world: helper.global_with(bone.entity, locals).ok()?,
-                        affine: helper.has_affine_with(bone.entity, locals),
+                        world: helper.compute_global_transform(bone.entity).ok()?,
+                        affine: helper.has_affine(bone.entity),
                     },
                 ))
             })
             .collect()
-    }
-
-    /// Binding runs the same model update again without drawing. Keep its
-    /// solver history, but retain separate world matrices for the held draw.
-    fn bind_pose(
-        &mut self,
-        helper: &TransformHelper,
-        locals: &BTreeMap<Entity, Pose>,
-        yaw: f32,
-        stamp: (u32, usize),
-        animated_roots: &[u16],
-    ) -> Option<()> {
-        if self.binding_tick == Some(stamp) {
-            return Some(());
-        }
-        let Pose::Trs(actor) = locals
-            .get(&self.root)
-            .copied()
-            .or_else(|| helper.local(self.root).ok())?
-        else {
-            panic!("secondary-motion actor root must expose its native scale")
-        };
-        let authored = self.authored(helper, locals)?;
-        let driven = self.evaluate(
-            &authored,
-            actor.scale,
-            yaw,
-            animated_roots,
-            &[Vec3::ZERO],
-            None,
-        );
-        // The model caches all world matrices before dynamics. Driven nodes
-        // replace their entries; untracked children retain their authored world.
-        self.binding_pose = authored
-            .into_iter()
-            .map(|(node, pose)| {
-                (
-                    self.bones[&node].entity,
-                    driven.get(&node).copied().unwrap_or(pose.world),
-                )
-            })
-            .collect();
-        self.binding_tick = Some(stamp);
-        Some(())
-    }
-
-    pub(super) fn binding_attachment(&self, entity: Entity, tick: u32) -> Option<Vec3> {
-        (self.binding_tick.is_some_and(|(when, _)| when == tick))
-            .then(|| self.binding_pose.get(&entity))?
-            .map(|pose| pose.translation())
     }
 
     fn evaluate(
@@ -221,7 +145,6 @@ impl Rig {
         yaw: f32,
         animated_roots: &[u16],
         forces: &[Vec3],
-        initial: Option<Affine3A>,
     ) -> BTreeMap<u16, GlobalTransform> {
         let actor_rotation = Quat::from_rotation_z(yaw.to_radians());
         let mut output = BTreeMap::new();
@@ -232,8 +155,7 @@ impl Rig {
                 .map(|joint| authored[&joint.node].world.translation())
                 .collect();
             if self.disabled {
-                // Native property 40 pins non-root joints to their animated
-                // targets and bypasses dynamics without discarding velocity.
+                // Pin disabled joints to the animated pose.
                 if simulation.positions.len() != targets.len() {
                     simulation.reset(&targets);
                 }
@@ -258,17 +180,8 @@ impl Rig {
             } else {
                 chain.attraction
             };
-            if let Some(transform) = initial {
-                simulation.reset(
-                    &targets
-                        .iter()
-                        .map(|&p| transform.transform_point3(p))
-                        .collect::<Vec<_>>(),
-                );
-            }
             simulation.advance(chain, &targets, plane, attraction, forces);
-            // The terminal guide participates in simulation, but native model
-            // drawing retains its world matrix from before the chain update.
+            // Keep the terminal guide at its animated world pose.
             let tip = chain.joints.last().unwrap().node;
             output.entry(tip).or_insert(authored[&tip].world);
             for (index, joint) in chain.joints.iter().enumerate().take(chain.joints.len() - 1) {
@@ -308,7 +221,7 @@ impl Rig {
     ) -> Vec<(Entity, Deformation)> {
         let mut locals = Vec::new();
         let Ok(Pose::Trs(actor)) = helper.local(self.root) else {
-            panic!("secondary-motion actor root must expose its native scale")
+            panic!("secondary-motion actor root must expose its scale")
         };
         let entities: BTreeMap<_, _> = self
             .bones
@@ -420,19 +333,18 @@ pub(super) fn diagnostic(world: &mut World) -> serde_json::Value {
 pub(super) fn bind(
     mut commands: Commands,
     art: Res<Art>,
-    mut actors: Query<(Entity, &mut ActorPart), Without<Rig>>,
+    actors: Query<(Entity, &ActorPart), Without<Rig>>,
     children: Query<&Children>,
     nodes: Query<(&Name, &Transform, &ChildOf)>,
     meshes: Query<(), With<Mesh3d>>,
 ) {
-    for (root, mut actor) in &mut actors {
+    for (root, actor) in &actors {
         let spec = &art.models[&actor.resource][actor.part].spec;
         if !actor.prepared || spec.secondary_motion.is_empty() {
             continue;
         }
         let names = super::field_pose::named_bones(root, &children, &nodes, &meshes);
-        if let Some(mut rig) = Rig::new(root, spec, &names) {
-            rig.creation = actor.creation.take();
+        if let Some(rig) = Rig::new(root, spec, &names) {
             commands.entity(root).insert(rig);
         }
     }
@@ -457,7 +369,7 @@ pub(super) fn restore(rigs: Query<&Rig>, mut transforms: Query<&mut Transform>) 
 pub(super) fn apply(
     state: State,
     art: Res<Art>,
-    mut rigs: Query<(&ActorPart, &mut Rig, Option<&super::field_animation::Rig>)>,
+    mut rigs: Query<(&ActorPart, &mut Rig)>,
     parts: Query<&ActorPart>,
     mut transforms: ParamSet<(TransformHelper, (Query<&mut Transform>, ResMut<Locals>))>,
     mut applied: ResMut<super::field_audit::Applied>,
@@ -466,7 +378,7 @@ pub(super) fn apply(
     let mut poses: BTreeMap<i32, BTreeMap<u16, GlobalTransform>> = BTreeMap::new();
     {
         let helper = transforms.p0();
-        for (part, mut rig, animation) in &mut rigs {
+        for (part, mut rig) in &mut rigs {
             if part.part != 0 {
                 continue;
             }
@@ -474,10 +386,6 @@ pub(super) fn apply(
                 continue;
             };
             rig.disabled = actor.appearance.secondary_motion_disabled;
-            if !rig.binding_tick.is_some_and(|(when, _)| when == tick) {
-                rig.binding_tick = None;
-                rig.binding_pose.clear();
-            }
             // Offscreen actors keep their last model pose and dynamics. Move
             // the clock forward so returning onscreen does not catch up the
             // skipped simulation ticks; a new rig still evaluates once.
@@ -496,22 +404,6 @@ pub(super) fn apply(
                 .map(|(&tick, impulse)| (tick, Vec3::from_array(impulse.acceleration)))
                 .collect();
             let yaw = actor.appearance.fixed_heading.unwrap_or(actor.heading);
-            // Constructor evaluation precedes same-tick script movement. Keep
-            // its pose for a new rig, while restored and running actors retain
-            // their normal initialization/history.
-            let initial = rig.creation.filter(|_| rig.tick.is_none()).map(|p| {
-                if p.position == actor.position && p.heading == yaw {
-                    Affine3A::IDENTITY
-                } else {
-                    let transform = |position, heading: f32| {
-                        Affine3A::from_rotation_translation(
-                            Quat::from_rotation_z(heading.to_radians()),
-                            Vec3::from_array(position),
-                        )
-                    };
-                    transform(p.position, p.heading) * transform(actor.position, yaw).inverse()
-                }
-            });
             let output = if culled {
                 Some(rig.pose.clone())
             } else {
@@ -521,34 +413,10 @@ pub(super) fn apply(
                     tick,
                     state.checkpoint.is_some(),
                     animated_roots,
-                    initial,
                 )
             };
             if let Some(output) = output {
                 poses.insert(part.actor, output);
-            }
-            if !rig.binding_tick.is_some_and(|(when, _)| when == tick)
-                && let Some(animation) = animation
-            {
-                if animation.bindings.is_empty() {
-                    if let Some(locals) = animation.binding_locals(&helper) {
-                        rig.bind_pose(&helper, &locals, yaw, (tick, 0), animated_roots)
-                            .expect("prepared binding skeleton must have world transforms");
-                    }
-                } else {
-                    for (index, binding) in animation.bindings.iter().enumerate() {
-                        rig.disabled = binding.secondary_motion_disabled;
-                        rig.bind_pose(
-                            &helper,
-                            &binding.locals,
-                            binding.yaw,
-                            (tick, index),
-                            &binding.animated_roots,
-                        )
-                        .expect("prepared binding skeleton must have world transforms");
-                    }
-                    rig.disabled = actor.appearance.secondary_motion_disabled;
-                }
             }
         }
     }
@@ -556,7 +424,7 @@ pub(super) fn apply(
     // world joints to the outline prevents a second, independently moving hull.
     let helper = transforms.p0();
     let mut locals = Vec::new();
-    for (part, rig, _) in &rigs {
+    for (part, rig) in &rigs {
         let Some(pose) = poses.get(&part.actor) else {
             // Outline scenes can finish loading before their primary scene.
             // They consume that primary skeleton's dynamics, so propagate
@@ -669,177 +537,8 @@ impl Simulation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::math::Affine3A;
     use resonance_content::secondary_motion::Joint;
-
-    #[test]
-    fn held_affine_bindings_advance_in_order_without_replacing_or_repeating_the_draw() {
-        use bevy::ecs::system::RunSystemOnce;
-        let mut world = World::new();
-        world.init_resource::<Locals>();
-        let root = world.spawn(Transform::from_scale(Vec3::splat(2.))).id();
-        let neck = world.spawn((Transform::IDENTITY, ChildOf(root))).id();
-        let offset = Transform::from_xyz(8., 0., 0.);
-        let head = world.spawn((offset, ChildOf(neck))).id();
-        let tip = world.spawn((offset, ChildOf(head))).id();
-        let matrix = |shear, height| {
-            Affine3A::from_cols(
-                Vec3::X.into(),
-                Vec3::new(shear, 1., 0.).into(),
-                Vec3::Z.into(),
-                Vec3::new(0., 0., height).into(),
-            )
-        };
-        world.resource_scope(|world, mut locals: Mut<Locals>| {
-            locals.set(
-                neck,
-                &mut world.get_mut::<Transform>(neck).unwrap(),
-                Pose::Affine(matrix(0.5, 20.)),
-            );
-        });
-        let chain = Chain {
-            joints: (0..3)
-                .map(|node| Joint {
-                    node,
-                    gravity: 0.333,
-                    damping: 0.766,
-                })
-                .collect(),
-            attraction: 0.03,
-            preserve_rotation: true,
-            rotation_locks: [false; 2],
-            collision_plane: None,
-        };
-        world.entity_mut(root).insert(Rig {
-            root,
-            bones: [
-                (0, neck, root, Transform::IDENTITY),
-                (1, head, neck, offset),
-                (2, tip, head, offset),
-            ]
-            .into_iter()
-            .map(|(node, entity, parent, authored)| {
-                (
-                    node,
-                    Bone {
-                        entity,
-                        parent,
-                        authored,
-                    },
-                )
-            })
-            .collect(),
-            chains: vec![(chain, Simulation::default())],
-            tick: None,
-            creation: None,
-            pose: BTreeMap::new(),
-            binding_tick: None,
-            binding_pose: BTreeMap::new(),
-            impulses: BTreeMap::new(),
-            disabled: false,
-        });
-        let hidden = BTreeMap::from([(neck, Pose::Affine(matrix(1.5, 24.)))]);
-        world
-            .run_system_once(move |helper: TransformHelper, mut rigs: Query<&mut Rig>| {
-                let mut rig = rigs.get_mut(root).unwrap();
-                rig.advance(&helper, 0., 0, false, &[], None).unwrap();
-                let drawn = rig.advance(&helper, 0., 1, false, &[], None).unwrap();
-                assert_eq!(
-                    drawn.get(&2),
-                    Some(&helper.compute_global_transform(tip).unwrap())
-                );
-                assert!(rig.locals(&helper, &drawn).iter().any(|(entity, pose)| {
-                    *entity == tip && matches!(pose, Deformation::World(_))
-                }));
-                let binding = rig.authored(&helper, &hidden).unwrap();
-                let targets: Vec<_> = binding
-                    .values()
-                    .map(|pose| pose.world.translation())
-                    .collect();
-                let (chain, before) = &rig.chains[0];
-                let chain = chain.clone();
-                let mut expected = Simulation {
-                    positions: before.positions.clone(),
-                    previous: before.previous.clone(),
-                    velocity: before.velocity.clone(),
-                    targets: before.targets.clone(),
-                };
-                expected.advance(&chain, &targets, None, chain.attraction, &[Vec3::ZERO]);
-                rig.bind_pose(&helper, &hidden, 0., (1, 0), &[]).unwrap();
-                assert_eq!(rig.chains[0].1.positions, expected.positions);
-                assert_eq!(rig.chains[0].1.velocity, expected.velocity);
-                assert_eq!(rig.pose, drawn);
-                assert_eq!(rig.binding_attachment(head, 1), Some(expected.positions[1]));
-                assert!(expected.positions[1].distance(drawn[&1].translation()) > 1.);
-                // Native world-matrix reads do not propagate a driven parent's
-                // deformation into the terminal bone's already evaluated matrix.
-                assert_eq!(rig.binding_attachment(tip, 1), Some(targets[2]));
-                assert!(expected.positions[2].distance(targets[2]) > 0.1);
-                assert!(
-                    rig.binding_pose[&head].affine().abs_diff_eq(
-                        Transform::from_translation(expected.positions[1])
-                            .with_rotation(rotation(binding[&1].world.affine()))
-                            .with_scale(Vec3::splat(2.))
-                            .compute_affine(),
-                        0.00001
-                    )
-                );
-                for _ in 0..5 {
-                    assert_eq!(
-                        rig.advance(&helper, 0., 1, false, &[], None).unwrap(),
-                        drawn
-                    );
-                    rig.bind_pose(&helper, &hidden, 0., (1, 0), &[]).unwrap();
-                    assert_eq!(rig.chains[0].1.positions, expected.positions);
-                    assert_eq!(rig.chains[0].1.velocity, expected.velocity);
-                }
-                let mut second = hidden.clone();
-                second.insert(
-                    root,
-                    Transform::from_xyz(-10., 0., 0.)
-                        .with_scale(Vec3::splat(2.))
-                        .into(),
-                );
-                let targets: Vec<_> = rig
-                    .authored(&helper, &second)
-                    .unwrap()
-                    .values()
-                    .map(|pose| pose.world.translation())
-                    .collect();
-                expected.advance(&chain, &targets, None, chain.attraction, &[Vec3::ZERO]);
-                for _ in 0..2 {
-                    rig.bind_pose(&helper, &second, 0., (1, 1), &[]).unwrap();
-                    assert_eq!(rig.chains[0].1.positions, expected.positions);
-                    assert_eq!(rig.chains[0].1.velocity, expected.velocity);
-                    assert_eq!(rig.binding_attachment(tip, 1), Some(targets[2]));
-                    assert_eq!(
-                        rig.advance(&helper, 0., 1, false, &[], None).unwrap(),
-                        drawn
-                    );
-                }
-                // The next ordinary update starts from the hidden binding's state.
-                let next = rig.authored(&helper, &BTreeMap::new()).unwrap();
-                let targets: Vec<_> = next.values().map(|pose| pose.world.translation()).collect();
-                expected.advance(&chain, &targets, None, chain.attraction, &[Vec3::ZERO]);
-                rig.advance(&helper, 0., 2, false, &[], None).unwrap();
-                assert_eq!(rig.chains[0].1.positions, expected.positions);
-                assert_eq!(rig.chains[0].1.velocity, expected.velocity);
-                assert_eq!(rig.binding_attachment(head, 2), None);
-                rig.disabled = true;
-                assert!(
-                    rig.advance(&helper, 0., 3, false, &[], None)
-                        .unwrap()
-                        .is_empty()
-                );
-                assert_eq!(rig.chains[0].1.positions[1..], targets[1..]);
-                assert_eq!(rig.chains[0].1.velocity, expected.velocity);
-                rig.bind_pose(&helper, &hidden, 0., (3, 0), &[]).unwrap();
-                assert_eq!(
-                    rig.binding_attachment(head, 3),
-                    Some(binding[&1].world.translation())
-                );
-            })
-            .unwrap();
-    }
 
     #[test]
     fn stretched_actor_keeps_secondary_bone_scale_and_world_pose() {

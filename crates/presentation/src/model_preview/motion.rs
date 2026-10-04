@@ -30,7 +30,7 @@ pub(super) fn apply(
         })
         .unwrap_or_default();
     let helper = transforms.p0();
-    let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots, None) else {
+    let Some(pose) = rig.advance(&helper, preview.yaw, menu.tick, true, roots) else {
         return;
     };
     let mut locals = Vec::new();

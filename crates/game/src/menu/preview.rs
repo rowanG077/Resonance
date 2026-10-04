@@ -122,20 +122,4 @@ impl Menu {
             _ => None,
         }
     }
-    pub fn register_preview(&mut self, id: PreviewId, tick: u32) -> bool {
-        if !self.preview().is_some_and(|p| {
-            p.id == id
-                && p.model.parts.iter().any(|part| {
-                    part.selected_clip()
-                        .is_ok_and(|clip| clip.is_some_and(|(_, c)| tick <= c.duration_ticks()))
-                })
-        }) {
-            return false;
-        }
-        match id {
-            PreviewId::Monster(_) => self.monsters.view.animation_tick = tick,
-            PreviewId::Figurine(_) => self.figurines.view.animation_tick = tick,
-        }
-        true
-    }
 }

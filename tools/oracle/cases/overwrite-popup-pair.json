@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Overwrite confirmation opening, settled cursor cycle and dismissal through the default No choice.",
-  "registration": "The source starts at a populated Save list; native creates its own slot from the ordinary field checkpoint using keyboard input. Register confirmation opening at native update 329 and source VI 11; both menu clocks have phase 21 modulo 24. Dismiss after 32 updates, then capture the complete fade and returned list. The populated-menu savestate creates an unused startup video header; select contiguous video segment 1, whose presentation queue begins two VIs before the memory-observation origin (video_first_vi = -2). The opening alpha 32 at observed VI 11 is presented at video timestamp tick 13, and dismissal alpha 223 at VI 43 at timestamp tick 45; this single offset applies to every compared frame. All segment hashes remain in capture.json. Every frame checks the whole image and logical/displayed popup state. The opaque popup additionally has a tight region; randomized HP/TP and recorded play times differ in the underlying slot card, so translucent/absent popup crops would also measure those fixture differences. The separate save-popup case checks all fade phases with a tight region over identical empty-slot content. Audio remains file-only. Set the shared UI presentation origin once to 39076: observed source VI 11 has UI clock 39405 and pairs native update 329. Every one of this case's 48 frame observations yields the same source-UI-minus-native-update constant. The runtime already used the shared UI clock before the first cleanup; the former fixture registered only the local menu clock. No per-frame clock adjustment, capture movement, source substitution or relaxed gate is applied.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/paired-school-grounds.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "overwrite-popup-keyboard.json",
-    "sha256": "20f99e3a81b7fd38ebaa8f27e16d4fb7e2ea030b802dc9578fdeec6de56bcc29"
+    "sha256": "fad51e32863fb582463c882ad2bc97f5c82d8a68ae700c2917e6ebe660e289ee"
   },
   "dolphin": {
     "state": {

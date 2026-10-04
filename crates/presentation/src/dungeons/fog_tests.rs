@@ -11,14 +11,7 @@ use resonance_game::field::{FieldInput, FieldSession};
 fn radar_updates_camera_fog_and_restores_the_room_without_material_changes() -> Result<()> {
     let mut field = enter(Fixture::Palmacosta, 201, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
-    field
-        .events
-        .world
-        .party
-        .as_mut()
-        .unwrap()
-        .travel
-        .sorcerers_ring = resonance_events::ring::SorcerersRing::Radar;
+    field.party_mut().travel.sorcerers_ring = resonance_events::ring::SorcerersRing::Radar;
     let original = field.events.world.fog().cloned();
     let mut app = App::new();
     app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))

@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Collector's Book: discovered items no longer held, category percentages, all eight categories, an empty category, category focus and return to Items.",
-  "registration": "Controlled menu inventory fixture: inventory-fixture grants item 70 to copies of the original matched checkpoints. It verifies starting inventory/discoveries and records both original hashes and the changes in local/findings-menu/collection-fixture-v1/fixture.json. This tests menu behavior, not story unlocks. Native menu input at update 40 allows field setup; all subsequent inputs use source poll/2. Compare complete menu images and source-observed book category, row, scroll and focus. Native UI origin is the source-observed 38084; subsequent inputs use source poll/2 + 1, matching the source input-processing VI. The collection gate now also checks the UI clock, page fade and description crossfade.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/collection-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "collection-keyboard.json",
-    "sha256": "3e429bd3d95673dd279cfb9bfc6fc4b729c462287c9b2ce276f2351989874fe0"
+    "sha256": "797af6364f8d89a26508ba6e9fdadeafba52b10c28cbc7122b0b584e4eaf6622"
   },
   "dolphin": {
     "state": {

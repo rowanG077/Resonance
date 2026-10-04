@@ -248,8 +248,7 @@ pub(super) fn attachments(
                 )
             })
         } else {
-            // Native AttachActorToMember stores a bone-matrix reference. Triet
-            // removes and recreates Colette while its scripted wings remain;
+            // Triet removes and recreates Colette while her wings remain;
             // retain the last resolved frame during that gap. A never-resolved
             // or changed attachment still fails the ordinary presentation audit.
             retained

@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "EX Skills: replacing gems, cancellation, Max choices, duplicates, button text, HP/TP bonuses and character switching.",
-  "registration": "Controlled ex-skill-fixture-v1 grants one of each EX gem in copies of matched checkpoints. Native menu opens at update 40; subsequent inputs use source poll/2. Frames use timestamped video and compare whole images, navigation, inventories, all characters EX selections and learned compounds, and the selected character statistics.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/ex-skill-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "ex-skills-variants-keyboard.json",
-    "sha256": "e2ffce6eff754070488431550588d8a65ed9e764c57273de0a449150cd964a2d"
+    "sha256": "f7b573e53cf6d71503744c59b35eae96fd1319d1a1091e8d4f3369646ae9768f"
   },
   "dolphin": {
     "state": {

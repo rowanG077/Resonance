@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Figure Collection: owned figurines, bounded row selection and page jumps, ignored A/X/horizontal-stick inputs, idle animation and return to Items.",
-  "registration": "Controlled inventory fixture grants item 72 and nineteen figurines in copies of matched checkpoints without changing story progress; provenance: local/findings-menu/figurine-fixture-v1/fixture.json. Native menu opens at update 40 for field initialization; later inputs use source poll/2. Preview clocks are registered once per newly selected model from figurine-source-v1/memory.jsonl because native preparation omits disc waits. All subsequent samples advance normally. VI 1900 has no video presentation: both engines use the first subsequent presented VI, 1901, selected from video timestamps before comparing images.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/figurine-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "figurine-keyboard.json",
-    "sha256": "92732181549bde6380e7cd5fe1e2fe310153664e5299b33bd89cdc4f1e828078"
+    "sha256": "4e0baf202b34b89ed46caa7171171797188c1156520038dcc0c0453f460f411e"
   },
   "dolphin": {
     "state": {
@@ -257,4 +257,3 @@
   ],
   "audio": []
 }
-

@@ -218,58 +218,6 @@ pub struct Flutter {
     initial_fall_variation: Option<f32>,
 }
 
-/// Transient motion registered once by an oracle replay, never an ordinary save.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FlutterOrigin {
-    pub kind: i32,
-    pub age: u32,
-    pub lifetime: u32,
-    pub position: [f32; 3],
-    pub size: f32,
-    /// Current scripted tint; effect properties can override the palette.
-    pub rgba: [u8; 4],
-    pub motion: Flutter,
-}
-impl FlutterOrigin {
-    pub(crate) fn particle(
-        &self,
-        tick: u32,
-        recipe: &resonance_content::effect::FlutterRecipe,
-    ) -> anyhow::Result<crate::Particle> {
-        anyhow::ensure!(
-            self.age <= self.lifetime
-                && self.age <= tick
-                && self.lifetime <= 32767
-                && self
-                    .position
-                    .iter()
-                    .chain(&self.motion.rotation)
-                    .all(|v| v.is_finite())
-                && self.motion.heading.is_finite()
-                && (0. ..=65535.).contains(&self.size)
-                && (-36..=68).contains(&self.motion.turn_after)
-                && self.motion.spin == recipe.spin
-                && self.motion.fall_speed
-                    >= recipe.fall_speed - 31. * recipe.fall_variation - 0.000001
-                && self.motion.fall_speed <= recipe.fall_speed,
-            "leaf origin is outside its cooked motion recipe"
-        );
-        Ok(crate::Particle {
-            kind: self.kind,
-            handle: 0,
-            born: tick - self.age,
-            lifetime: self.lifetime,
-            position: self.position,
-            velocity: [0.; 3],
-            size: self.size,
-            size_delta: 0.,
-            rgba: self.rgba.map(f32::from),
-            alpha_delta: 0.,
-            flutter: Some(self.motion.clone()),
-        })
-    }
-}
 impl Flutter {
     pub(crate) fn new(recipe: &resonance_content::effect::FlutterRecipe) -> Self {
         Self {

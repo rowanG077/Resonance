@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Tech group healing and cures, poisoned portraits, preview cycling and reserve targets.",
-  "registration": "Controlled five-member fixture grants Raine Nurse, Recover and Purify, poisons injured Lloyd and Genis, and injures reserve Sheena. Colette remains knocked out. Story remains 2500. Fixture changes use the Rust fixture tool and preserve matching source/native learned and AI flags. Menu opens at update 40; later inputs and images use registered source poll/2 and unchanged presentation/session origins. Idle observations measure the group preview cycle; directional input must not change all-party targeting. Native update and source VI 4150→4151 move together to the next observed video presentation; the clock origin and tolerance are unchanged. Boundary captures check the displayed member and observed counter across consecutive preview changes.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/tech-groups-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "tech-groups-keyboard.json",
-    "sha256": "761a75a9e3511f5aafbc88a94c6342b6cad6f4ace721704e6bfdbf291e34fe40"
+    "sha256": "07806bee64a6bfb25bccba12f0501ed452f3cac363ac89bbdbe3728b34bf8c82"
   },
   "dolphin": {
     "state": {

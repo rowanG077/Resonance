@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Synopsis: unlocked entry, recorded level/date, world map, reading, scrolling, and return to the main menu.",
-  "registration": "Use the paired school-grounds party and scenario record observed in the Dolphin state, including its recorded level/date and total play time. The native replay registers the existing skit notification and source session clock once at initialization. Menus retain the frozen field notifications. Compare whole frames at the same settled list and reading states, without changing the existing image tolerance.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "synopsis-keyboard.json",
-    "sha256": "e5e53f4e34faf4cccb4b581282a55f6ee7a9cda56e016e948d1add19a1926599"
+    "sha256": "12ed81c922fb173c69cb4d182fd6673189c67cd006b98cfeb21c2505487cfe50"
   },
   "dolphin": {
     "state": {

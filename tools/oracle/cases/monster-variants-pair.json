@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Monster List: unscanned records, two Minicoid statistics and three Zombie statistics.",
-  "registration": "Controlled fixture grants item 71, encounters Torent without scanning, and records full Minicoid/Zombie knowledge with observed repeat variants 1/2. Provenance: local/findings-menu/monster-variants-fixture-v1/fixture.json. No story advancement. The preview clock is registered once per selected model to source-observed samples at VIs 470, 550 and 790 in monster-variants-source-v2/memory.jsonl, omitting source disc waits. Variant changes keep the same animation running. Every frame checks the whole image, navigation and animation state.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/monster-variants-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "monster-variants-keyboard.json",
-    "sha256": "2bc090ebf86b5a870a1d7aa9d84ded0613736f56d10fdcdbbd296bd9850909e7"
+    "sha256": "437b1c19033e3558a7ab54ee8a1bc237c4f008aef7312d4a5b74b7876c015815"
   },
   "dolphin": {
     "state": {

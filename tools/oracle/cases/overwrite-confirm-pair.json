@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Overwrite confirmation: default No and one full cursor cycle",
-  "registration": "Dolphin begins at the independently recorded populated Save slot list after a normal save. Native begins from the same persistent field progress and free-control checkpoint, creates its own save through normal keyboard input, dismisses success and selects that populated slot. The starting menu state is intentionally reconstructed by input, not added to the native checkpoint. Register settled No once: native update 380 corresponds to Dolphin dump 136, then compare 25 consecutive frames without further adjustment. Dolphin memory observations use VI 134 onward; PNG and VI indices are distinct because rendering is buffered. Both fixtures preserve map 332/story 2500 and the same pose. Different saved play times and randomized HP/TP remain visible in the underlying slot card and are not claimed equivalent. The complete overwrite popup region extends below the frame to include the cursor. No audio acceptance is claimed. Set the shared UI presentation origin once to 39148: observed source VI 134 has UI clock 39528 and pairs native update 380. Every one of this case's 25 frame observations yields the same source-UI-minus-native-update constant. The runtime already used the shared UI clock before the first cleanup; the former fixture registered only the local menu clock. No per-frame clock adjustment, capture movement, source substitution or relaxed gate is applied. Its dedicated replay retains save-load-keyboard's corrected input sequence; Load's independently registered window requires a different initial UI origin and therefore a separate replay identity.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/paired-school-grounds.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "overwrite-confirm-keyboard.json",
-    "sha256": "0ac17097dc1ae2e232b4361da59c17c2109887c63b6ddc3509486b4987e6c7c0"
+    "sha256": "c009ed25471c32f5fcd3eafae6abca59dc1e886a4166124c86add94d217322ff"
   },
   "dolphin": {
     "state": {

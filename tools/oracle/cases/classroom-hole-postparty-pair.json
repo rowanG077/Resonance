@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Naturally examine the classroom hole after the pastor event, checking the corner action hint, prepared-actor fade-in, dotted-bubble growth and retirement, and return to player control.",
-  "registration": "Source VI 0 defines the unchanged source-observed actor, eye, RNG and UI origins and native update 0. One complete source-presentation mapping applies to every input edge, capture, expected state and replay duration: native_update = source_vi minus the number of source VIs with no emitted video presentation at or before it. Actual video packet timestamps verify the complete missing-presentation intervals 331..340. These are interrupted field callbacks: the last missing VI is followed by the same callback's completed presentation, not an extra actor update. Source UI advances throughout; presentation_advances restores skipped UI ticks at the first retained presentation. Field effects receive no extra ticks. Inputs retain their key sequence/order; all original scored source VIs, regions and strict thresholds are unchanged. The source first visible fade at VI6012 remains represented, where applicable. The later pastor resource waits continue actor/effect/UI clocks and are NOT collapsed: their exact per-resource VI boundaries are unobserved, and a mere frame shift would not preserve the advancing actor/RNG state. They remain strict diagnostics; no production storage waits or new replay API were introduced. Complete packet/memory proof and previous pins are in timeline-provenance.json. Audio is recorded silently without an audio gate. The saved source VI 0 still defines all actor/eye/RNG/UI origins and native update 0 remains captured, but its initial image is not scored: independent raw-video checks found a one-frame globally softened source presentation with every camera word unchanged across VI 0..5. The first scored sample instead compares source VI 1 with native update 1, allowing both engines their ordinary one animation update; it is never compared with native update 0. The original first gate name is retained for report continuity and its thresholds/regions are unchanged. Evidence: local/iselia-followup/oracle/hole-first-presents-v1/finding.json, SHA256 66363bb8a6aab528254bdc66996d54b45f28332fd9c1b902dbc399cf36d52b59. No other source registration changes.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/iselia-followup/oracle/hole-native-save.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "classroom-hole-postparty-keyboard.json",
-    "sha256": "8c45b74531483838eb2acd25e32305b3c7bb305dd8c13c81b726ba49f8eed494"
+    "sha256": "4d10a1ed92d8fa903d17ebd2cf725d40bc05f1d98b2941bc60ca09b59d21f8b7"
   },
   "dolphin": {
     "state": {
