@@ -1,6 +1,6 @@
 //! Ordered immediate model evaluations retain poses hidden by a later binding.
 use super::*;
-use crate::sparse_animation::{Clip, sample_track};
+use crate::sparse_animation::Clip;
 use anyhow::Result;
 
 pub(crate) struct PoseUpdate {
@@ -22,6 +22,8 @@ impl Rig {
         tick: u32,
         camera: Quat,
     ) -> Result<()> {
+        let displayed = self.presented.clone();
+        let displayed_channels = self.authored_channels.clone();
         for binding in &actor.animation_bindings.updates {
             let mut poses: Vec<_> = self
                 .bones
@@ -29,48 +31,28 @@ impl Rig {
                 .enumerate()
                 .map(|(i, (_, rest))| Frame::sample((*rest).into(), 0, self.bind_channels[i]))
                 .collect();
-            let mut channels = vec![0; self.bones.len()];
+            self.authored_channels.fill(0);
             let mut animated_roots = Vec::new();
             for (layer, animation) in std::iter::once(&binding.animation)
                 .chain(binding.scenery.values())
                 .enumerate()
             {
-                let Some(index) = model
-                    .clips
-                    .iter()
-                    .position(|c| animation.matches(c, actor.resource))
+                let Some((motion, time, roots)) =
+                    sample_clip(model, handles, clips, animation, actor.resource, tick, 0.)
                 else {
                     continue;
                 };
-                let spec = &model.clips[index];
                 if layer == 0 {
-                    animated_roots.clone_from(&spec.secondary_pose_nodes);
+                    animated_roots.extend_from_slice(roots);
                 }
-                let motion = &clips.get(&handles[index]).expect("prepared sparse clip").0;
-                let time = animation.sample(
-                    tick,
-                    0,
-                    spec.duration_seconds * resonance_content::ANIMATION_HZ,
-                ) * resonance_content::animation::FRAME_HZ
-                    / resonance_content::ANIMATION_HZ;
-                for track in &motion.tracks {
-                    let i = usize::from(track.bone);
-                    channels[i] |= track.channels().0;
-                    poses[i] = Frame::sample(
-                        sample_track(track, time, self.bones[i].1)?,
-                        channels[i],
-                        self.bind_channels[i],
-                    );
+                for (i, pose) in self.sample_tracks(motion, time)? {
+                    poses[i] = pose;
                 }
             }
             self.from.clone_from(&self.previous);
             let weight = binding.animation.blend_weight(tick);
             for (i, pose) in poses.iter_mut().enumerate() {
-                if weight < 1. {
-                    *pose = self.from[i].mix(*pose, self.bones[i].1, self.bind_channels[i], weight);
-                } else {
-                    self.previous[i] = *pose;
-                }
+                self.blend_bone(i, pose, weight, false, self.authored_channels[i] != 0);
             }
             let mut affine = Locals::default();
             let mut transforms: Vec<_> = self.bones.iter().map(|(_, rest)| *rest).collect();
@@ -122,6 +104,8 @@ impl Rig {
             });
             self.binding_pose = poses;
         }
+        self.presented = displayed;
+        self.authored_channels = displayed_channels;
         self.binding_tick = Some(tick);
         Ok(())
     }
@@ -140,7 +124,7 @@ mod tests {
         let rest = Transform::from_xyz(10., 0., 0.);
         let mut rig = Rig::new(vec![(bone, rest)]);
         let mut clips = Assets::<Clip>::default();
-        let handles: Vec<_> = [20., 40.]
+        let mut handles: Vec<_> = [20., 40.]
             .map(|x| {
                 let motion = serde_json::from_value(serde_json::json!({
                     "duration_frames":1., "tracks":[{"bone":0,"bind_channels":8,
@@ -151,16 +135,25 @@ mod tests {
                 clips.add(Clip(std::sync::Arc::new(motion)))
             })
             .into();
+        // A later clip omits the socket: keep the intermediate binding pose,
+        // even though it has never been displayed.
+        handles.push(clips.add(Clip(std::sync::Arc::new(
+            resonance_content::animation::Motion {
+                duration_frames: 1.,
+                tracks: Vec::new(),
+            },
+        ))));
         let spec = serde_json::from_value(serde_json::json!({
             "resource":1,"mesh":"test.glb","textures":[],"materials":[],
             "translation":[0.,0.,0.],"autoplay":false,"texture_animations":[],"bone_names":["socket"],
             "clips":[{"motion":"a.motion","resource_slot":12,"duration_seconds":1.},
-                     {"motion":"b.motion","resource_slot":24,"duration_seconds":1.}]
+                     {"motion":"b.motion","resource_slot":24,"duration_seconds":1.},
+                     {"motion":"c.motion","resource_slot":36,"duration_seconds":1.}]
         })).unwrap();
         let mut actor = resonance_events::Actor::new(1, [0.; 3]);
         actor.animation_bindings = AnimationBindings {
             tick: 1,
-            updates: [(12, 0, 100.), (24, 1, 200.)]
+            updates: [(12, 0, 100.), (24, 1, 200.), (36, 0, 300.)]
                 .map(|(slot, blend_ticks, x)| AnimationBinding {
                     animation: resonance_events::Animation {
                         blend_ticks,
@@ -195,7 +188,7 @@ mod tests {
                     .x
             })
             .collect();
-        assert_eq!(origins, [120., 230.]);
+        assert_eq!(origins, [120., 230., 330.]);
         for binding in &rig.bindings {
             assert!(
                 binding.locals[&bone]

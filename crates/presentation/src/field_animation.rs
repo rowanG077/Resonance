@@ -1,7 +1,9 @@
-//! Blend authored skeletal poses before script adjustments and secondary motion.
+//! Blend skeletal poses before script adjustments and secondary motion.
 mod binding;
 #[cfg(test)]
 mod camera_tests;
+#[cfg(test)]
+mod continuity_tests;
 mod frame;
 use super::field_view::{ActorPart, Art, State};
 use super::sparse_animation::affine::{Helper, Locals, Pose};
@@ -68,7 +70,34 @@ pub(super) fn restore(rigs: Query<&Rig>, mut nodes: Query<&mut Transform>) {
     }
 }
 
-/// Evaluate the original sparse curves before blending and native adjustments.
+/// Resolve a clip and its sampling time for both display and immediate bindings.
+fn sample_clip<'a>(
+    model: &'a resonance_content::ScenePart,
+    handles: &[Handle<super::sparse_animation::Clip>],
+    clips: &'a Assets<super::sparse_animation::Clip>,
+    animation: &resonance_events::Animation,
+    resource: u32,
+    tick: u32,
+    delay: f32,
+) -> Option<(&'a resonance_content::animation::Motion, f32, &'a [u16])> {
+    let index = model
+        .clips
+        .iter()
+        .position(|clip| animation.matches(clip, resource))?;
+    let spec = &model.clips[index];
+    let duration = spec.duration_seconds * resonance_content::ANIMATION_HZ;
+    let mut time = animation.sample(tick, 0, duration);
+    if delay != 0. && duration > 0. {
+        time = (time - delay).rem_euclid(duration);
+    }
+    Some((
+        &clips.get(&handles[index]).expect("prepared sparse clip").0,
+        time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
+        &spec.secondary_pose_nodes,
+    ))
+}
+
+/// Evaluate sparse curves before blending and script adjustments.
 pub(super) fn sample(
     state: State,
     art: Res<Art>,
@@ -88,41 +117,31 @@ pub(super) fn sample(
             .iter()
             .chain(actor.scenery_animations.values())
         {
-            let Some(index) = model
-                .spec
-                .clips
-                .iter()
-                .position(|clip| animation.matches(clip, actor.resource))
-            else {
+            let delay = if part.actor == resonance_events::COLETTE_WINGS_ACTOR && part.pass < 2 {
+                2. * f32::from(part.pass + 1)
+            } else {
+                0.
+            };
+            let Some((clip, time, _)) = sample_clip(
+                &model.spec,
+                &model.clips,
+                &clips,
+                animation,
+                actor.resource,
+                world.tick,
+                delay,
+            ) else {
                 continue;
             };
-            let clip = &clips
-                .get(&model.clips[index])
-                .expect("prepared sparse clip")
-                .0;
-            let mut time = animation.sample(
-                world.tick,
-                0,
-                model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ,
-            );
-            if part.actor == resonance_events::COLETTE_WINGS_ACTOR && part.pass < 2 {
-                let duration =
-                    model.spec.clips[index].duration_seconds * resonance_content::ANIMATION_HZ;
-                if duration > 0. {
-                    time = (time - 2. * f32::from(part.pass + 1)).rem_euclid(duration);
+            for (i, pose) in rig
+                .sample_tracks(clip, time)
+                .expect("validated animation must evaluate")
+            {
+                let entity = rig.bones[i].0;
+                if let Ok(mut transform) = nodes.get_mut(entity) {
+                    affine.set(entity, &mut transform, pose.pose);
                 }
             }
-            for track in &clip.tracks {
-                rig.authored_channels[usize::from(track.bone)] |= track.channels().0;
-            }
-            super::sparse_animation::sample(
-                &rig.bones,
-                clip,
-                time * resonance_content::animation::FRAME_HZ / resonance_content::ANIMATION_HZ,
-                &mut nodes,
-                &mut affine,
-            )
-            .expect("validated sparse animation must evaluate");
             applied.ack(super::field_audit::Request::Animation {
                 actor: part.actor,
                 part: part.part,
@@ -197,8 +216,40 @@ impl Rig {
         Ok(None)
     }
 
-    fn blend_bone(&mut self, index: usize, pose: &mut Frame, weight: f32, hold: bool) {
-        if weight < 1. {
+    fn sample_tracks(
+        &mut self,
+        motion: &resonance_content::animation::Motion,
+        time: f32,
+    ) -> anyhow::Result<Vec<(usize, Frame)>> {
+        motion
+            .tracks
+            .iter()
+            .map(|track| {
+                let i = usize::from(track.bone);
+                self.authored_channels[i] |= track.channels().0;
+                Ok((
+                    i,
+                    Frame::sample(
+                        super::sparse_animation::sample_track(track, time, self.bones[i].1)?,
+                        self.authored_channels[i],
+                        self.bind_channels[i],
+                    ),
+                ))
+            })
+            .collect()
+    }
+
+    fn blend_bone(
+        &mut self,
+        index: usize,
+        pose: &mut Frame,
+        weight: f32,
+        hold: bool,
+        animated: bool,
+    ) {
+        if !animated {
+            *pose = self.presented[index];
+        } else if weight < 1. {
             *pose = self.from[index].mix(
                 *pose,
                 self.bones[index].1,
@@ -217,7 +268,7 @@ impl Rig {
         self.presented[index] = *pose;
         // Interrupted blends retain their completed source pose. The binding
         // frame separately holds the last displayed, potentially blended pose.
-        if weight >= 1. {
+        if weight >= 1. || !animated {
             self.previous[index] = *pose;
         }
     }
@@ -257,8 +308,6 @@ impl Rig {
     }
 }
 
-/// fn_8006CEB0 rotates the local basis by the transposed view matrix, retaining
-/// its translation. Apply after blending so saved animation poses stay unrotated.
 pub(super) fn face_camera(
     state: State,
     rigs: Query<&Rig>,
@@ -348,7 +397,8 @@ pub(super) fn blend(
                     rig.authored_channels[i],
                     rig.bind_channels[i],
                 );
-                rig.blend_bone(i, &mut pose, weight, hold);
+                let animated = rig.authored_channels[i] != 0;
+                rig.blend_bone(i, &mut pose, weight, hold, animated);
                 affine.set(entity, &mut transform, pose.pose);
             }
         }
@@ -376,12 +426,12 @@ mod tests {
         rig.from[0] = from;
         rig.presented[0] = from;
         let mut pose = to;
-        rig.blend_bone(0, &mut pose, 0.25, true);
+        rig.blend_bone(0, &mut pose, 0.25, true, true);
         assert_eq!(pose, from);
         assert_eq!(rig.binding_pose, [to]);
         assert_eq!(rig.previous, [from]);
         pose = to;
-        rig.blend_bone(0, &mut pose, 0.25, false);
+        rig.blend_bone(0, &mut pose, 0.25, false, true);
         assert_eq!(pose, to);
     }
 
@@ -433,18 +483,18 @@ mod tests {
         // midpoint, but its later cross-fade still starts at the completed pose.
         let mut rig = world.get_mut::<Rig>(rig).unwrap();
         let mut pose = Frame::from(rest);
-        rig.blend_bone(0, &mut pose, 0.5, false);
+        rig.blend_bone(0, &mut pose, 0.5, false, true);
         assert_eq!(pose, middle.into());
         let next = Transform::from_xyz(-8., 2., 6.);
         rig.from = rig.previous.clone();
         for _ in 0..2 {
             pose = next.into();
-            rig.blend_bone(0, &mut pose, 0.25, true);
+            rig.blend_bone(0, &mut pose, 0.25, true, true);
             assert_eq!(pose, middle.into());
         }
         assert_eq!(rig.previous, vec![old.into()]);
         pose = next.into();
-        rig.blend_bone(0, &mut pose, 0.25, false);
+        rig.blend_bone(0, &mut pose, 0.25, false, true);
         assert_eq!(
             pose,
             Frame::from(old).mix(next.into(), rest, frame::TRS, 0.25)
