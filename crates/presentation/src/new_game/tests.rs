@@ -351,8 +351,50 @@ fn asset_root() -> std::path::PathBuf {
     )
 }
 
+/// A live checkpoint above the school ramp exercises grounding after reload.
+pub(crate) fn school_checkpoint(root: &Path) -> FieldCheckpoint {
+    let package = FieldPackage::prepare(root, 332, &mut Default::default(), || false).unwrap();
+    let data: Arc<resonance_content::session::SessionData> =
+        Arc::new(package.files.json("game/session-data.json").unwrap());
+    let mut entry = FieldEntry {
+        data: Some(data.clone()),
+        persistent: resonance_events::PersistentState {
+            party: Some(resonance_events::party::Party::new(&data, Default::default()).unwrap()),
+            event_flags: [520].into(), // Memory-circle tutorial already read.
+            ..Default::default()
+        },
+        position: [1968., 1005., 0.],
+        available_fields: available_fields(root).unwrap(),
+        ..Default::default()
+    };
+    entry
+        .persistent
+        .memory
+        .write(0x40, symphonia_script::Width::S32, 2500)
+        .unwrap();
+    let mut field = package.enter(entry).unwrap();
+    for tick in 0..2000 {
+        if let Ok(mut saved) = field.checkpoint() {
+            saved.position[2] += 10.;
+            return saved;
+        }
+        field
+            .step(FieldInput {
+                interact: tick % 2 == 0,
+                accelerate_dialogue: true,
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    panic!(
+        "school did not become playable: {:?}, {:?}",
+        field.checkpoint().err(),
+        field.events.pending_operations()
+    );
+}
+
 #[test]
-#[ignore = "requires cooked fields and the captured slope quicksave; no window or audio device"]
+#[ignore = "requires cooked school grounds; no window or audio device"]
 fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
     use super::super::loading::{FieldPending, Pending, Resident, Task};
     use std::{
@@ -372,37 +414,29 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
             thread::sleep(Duration::from_millis(1));
         }
     }
-    struct Directory(std::path::PathBuf);
-    impl Drop for Directory {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    let source_root = Directory(
-        std::env::temp_dir().join(format!("resonance-authored-loading-{}", std::process::id())),
-    );
-    fs::create_dir(&source_root.0).unwrap();
+    let source_root = tempfile::tempdir().unwrap();
     fs::write(
-        source_root.0.join("fields.json"),
+        source_root.path().join("fields.json"),
         r#"{"332":{"module":"entry","task":"run","on":"entry"}}"#,
     )
     .unwrap();
-    let source = "use game::story; use game::field; pub task run() { await field::wait_ticks(2ticks); story::set_flag(2000, true); }";
-    fs::write(source_root.0.join("entry.sym"), source).unwrap();
+    let source = "script field; use game::story; use game::field; pub task run() { await field::wait_ticks(2ticks); story::set_flag(2000, true); }";
+    fs::write(source_root.path().join("entry.sym"), source).unwrap();
     let root = asset_root();
-    let identity = Session::identity(&root).unwrap();
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/milestone-3/slope-quicksave.json");
-    let (header, mut saved): (_, FieldCheckpoint) =
-        resonance_persistence::decode(&fs::read(fixture).unwrap(), &identity).unwrap();
-    saved.progress.event_flags.remove(&2000);
-    saved.progress.event_flags.remove(&2001);
+    let saved = school_checkpoint(&root);
+    let header = resonance_persistence::Header {
+        identity: Session::identity(&root).unwrap(),
+        label: "School".into(),
+        location: "School grounds".into(),
+        played_ticks: saved.played_ticks(),
+        saved_unix_seconds: 0,
+    };
     let bytes = resonance_persistence::encode(&header, &saved).unwrap();
     let resident = Resident::default();
     let mut session = finish(
         Pending::start(
             root.clone(),
-            Some(source_root.0.clone()),
+            Some(source_root.path().to_path_buf()),
             Some(bytes),
             &resident,
         )
@@ -420,14 +454,14 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
 
     let previous = session.fields[&332].clone();
     fs::write(
-        source_root.0.join("entry.sym"),
+        source_root.path().join("entry.sym"),
         source.replace("2000", "2001"),
     )
     .unwrap();
     let refreshed = finish(
         FieldPending::field(
             root.clone(),
-            Some(source_root.0.clone()),
+            Some(source_root.path().to_path_buf()),
             332,
             Some(previous.clone()),
             &resident,
@@ -446,14 +480,14 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
     assert!(!session.field.events.world.event_flags.contains(&2000));
 
     fs::write(
-        source_root.0.join("entry.sym"),
-        "use game::field; pub task run() { await field::notice(\"☃\"); }",
+        source_root.path().join("entry.sym"),
+        "script field; use game::field; pub task run() { await field::notice(\"☃\"); }",
     )
     .unwrap();
     let rejected = finish(
         FieldPending::field(
             root,
-            Some(source_root.0.clone()),
+            Some(source_root.path().to_path_buf()),
             332,
             Some(previous),
             &resident,
@@ -1105,18 +1139,10 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
 }
 
 #[test]
-#[ignore = "requires cooked field 332 and the captured slope quicksave; no output devices"]
+#[ignore = "requires cooked school grounds; no output devices"]
 fn moving_slope_checkpoint_survives_cold_and_warm_loads() {
-    use sha2::{Digest, Sha256};
-    let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = asset_root();
-    let bytes = std::fs::read(project.join("local/milestone-3/slope-quicksave.json")).unwrap();
-    assert_eq!(
-        format!("{:x}", Sha256::digest(&bytes)),
-        "a63b605494bc8e659bd3c901079f7122e62f8a0f7374560c3827ee686b4639ee"
-    );
-    let (_, saved): (_, FieldCheckpoint) =
-        resonance_persistence::decode(&bytes, &Session::identity(&root).unwrap()).unwrap();
+    let saved = school_checkpoint(&root);
     let mut cache = super::super::loading::Cache::default();
     let package = FieldPackage::prepare(&root, saved.map_id, &mut cache, || false).unwrap();
     let ground = resonance_game::field::navigation::WalkMesh::new(&package.assets.ground).unwrap();
@@ -1854,5 +1880,26 @@ fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result
             .contains(&65),
         "coastal discovery was not consumed"
     );
+    Ok(())
+}
+
+#[test]
+fn save_identity_tracks_shared_data_and_every_prepared_field() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path();
+    std::fs::create_dir(root.join("game"))?;
+    std::fs::create_dir(root.join("fields"))?;
+    std::fs::write(root.join("game/session-data.json"), b"session")?;
+    let initial = Session::identity(root)?;
+    assert_eq!(initial, Session::identity(root)?);
+    let manifest = root.join(manifest_path(511));
+    std::fs::write(&manifest, b"field inventory")?;
+    let added = Session::identity(root)?;
+    assert_ne!(initial, added);
+    std::fs::write(&manifest, b"changed inventory")?;
+    let changed = Session::identity(root)?;
+    assert_ne!(added, changed);
+    std::fs::write(root.join("game/session-data.json"), b"new session")?;
+    assert_ne!(changed, Session::identity(root)?);
     Ok(())
 }

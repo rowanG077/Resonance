@@ -81,29 +81,22 @@ impl Session {
     pub(super) fn identity(root: &Path) -> Result<resonance_persistence::Identity> {
         use sha2::{Digest, Sha256};
         let mut hash = Sha256::new();
-        hash.update(b"Resonance/GQSEAF/rev0/field-checkpoint/1");
+        hash.update(b"Resonance/field-checkpoint/2");
         hash.update(std::fs::read(root.join("game/session-data.json"))?);
-        // Schema 1's compatibility inputs stay fixed when new fields become
-        // playable. Each added package is independently checked on preparation;
-        // changing shared data or these original scripts still changes the identity.
-        for map in [5, 330, 332, 340] {
-            let path = resonance_content::field::metadata_path(map);
-            let field: FieldAssets = serde_json::from_slice(&std::fs::read(root.join(path))?)?;
-            field.validate()?;
-            ensure!(
-                field.map_id == map,
-                "save content has the wrong field binding"
-            );
-            let script = std::fs::read(root.join(&field.script.path))?;
-            ensure!(
-                format!("{:x}", Sha256::digest(&script)) == field.script.sha256,
-                "field {map} script identity differs"
-            );
+        // Inventories identify all prepared dependencies without reading media payloads.
+        for map in available_fields(root)? {
+            let path = if map == 3000 {
+                resonance_content::overworld::PACKAGE_PATH.to_owned()
+            } else {
+                manifest_path(map)
+            };
             hash.update(map.to_be_bytes());
-            hash.update(Sha256::digest(script));
+            hash.update(Sha256::digest(std::fs::read(root.join(path))?));
         }
-        let content = hash.finalize().into();
-        Ok(resonance_persistence::Identity { schema: 1, content })
+        Ok(resonance_persistence::Identity {
+            schema: 2,
+            content: hash.finalize().into(),
+        })
     }
 
     pub(super) fn load_prepared(
@@ -543,7 +536,7 @@ pub(super) fn initialize_checkpoint(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// Exclusive access makes replacement atomic: validate first, then cancel
 /// the old scene. A missing asset leaves the title usable for another attempt.
