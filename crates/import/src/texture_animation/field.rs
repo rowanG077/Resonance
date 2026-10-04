@@ -14,6 +14,7 @@ const THODA_STAIRS: u32 = 8;
 const THODA_PUZZLE: u32 = 9;
 const THODA_SEAL: u32 = 10;
 const ASGARD_CONVEYOR: u32 = 213;
+const SYLVARANT_BASE_HALL: u32 = 270;
 const MARTEL_SEAL: u32 = 307;
 const MANA_LAMPS: u32 = 362;
 const MANA_BRIDGES: u32 = 366;
@@ -78,6 +79,10 @@ fn flowing(actor: RenderValue, texture: u8, speed: f32) -> FieldTextureAnimation
 
 pub(crate) fn profiles() -> BTreeMap<u32, Vec<FieldTextureAnimation>> {
     let mut profiles = BTreeMap::from([
+        (
+            SYLVARANT_BASE_HALL,
+            vec![scroll(DETAILS, Setting(0), [-1. / 64., 0.])],
+        ),
         (
             ASGARD_CONVEYOR,
             vec![scroll(BACKGROUND, Setting(0), [-1. / 60., 0.])],
