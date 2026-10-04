@@ -588,11 +588,11 @@ impl NativeHost<'_> {
                     54 => actor
                         .enemy
                         .as_ref()
-                        .map_or(0, |enemy| i32::from(enemy.contact_cooldown)),
+                        .map_or(0, |enemy| i32::from(enemy.pause_ticks)),
                     56 => actor
                         .enemy
                         .as_ref()
-                        .map_or(0, |enemy| i32::from(enemy.pause_effect_mode)),
+                        .map_or(0, |enemy| reaction_code(enemy.reaction)),
                     41 | 48 | 50 => actor.properties.get(&a[1]).copied().unwrap_or(0),
                     42..=44 => actor
                         .properties
@@ -716,7 +716,7 @@ impl NativeHost<'_> {
                         51 => actor.shadow_alpha = a[2] as u8,
                         54 => {
                             if let Some(enemy) = &mut actor.enemy {
-                                enemy.contact_cooldown = a[2] as i16;
+                                enemy.pause_ticks = a[2] as i16;
                             }
                         }
                         56 => {
@@ -725,7 +725,15 @@ impl NativeHost<'_> {
                                     !matches!(a[2] as u8, 4 | 6),
                                     "enemy pause effect is not implemented",
                                 )?;
-                                enemy.pause_effect_mode = a[2] as u8;
+                                use crate::effect::StunEffect::*;
+                                enemy.reaction = match a[2] as u8 {
+                                    5 => Electric,
+                                    11 => TetheallaElectric,
+                                    13 => Lightning,
+                                    14 => Ice,
+                                    16 => Darkness,
+                                    _ => None,
+                                };
                             }
                         }
                         46 => actor.depth_write = a[2] & 1 == 0,
@@ -1364,5 +1372,17 @@ impl NativeHost<'_> {
         };
         handler(self, call, values, memory)
             .map_err(|e| format!("{call:?} ({:#04x}) {arguments:?}: {e}", call as u8))
+    }
+}
+
+fn reaction_code(effect: crate::effect::StunEffect) -> i32 {
+    use crate::effect::StunEffect::*;
+    match effect {
+        None => 0,
+        Electric => 5,
+        TetheallaElectric => 11,
+        Lightning => 13,
+        Ice => 14,
+        Darkness => 16,
     }
 }

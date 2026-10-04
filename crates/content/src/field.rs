@@ -506,3 +506,7 @@ impl crate::ScenePart {
         Ok(())
     }
 }
+
+/// Prepared local geometry used by field ring effects.
+pub const RING_BEAM_RESOURCE: u32 = LOCAL_MODEL_RESOURCES.start;
+pub const RING_BOMB_RESOURCE: u32 = LOCAL_MODEL_RESOURCES.start + 12;

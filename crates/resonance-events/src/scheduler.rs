@@ -108,7 +108,7 @@ pub struct EventRuntime {
     /// Diagnostic retained when the temporary playground abandons field scripts.
     pub exploration_error: Option<String>,
     program: Arc<Program>,
-    resources: Arc<ResourceLibrary>,
+    pub(crate) resources: Arc<ResourceLibrary>,
     memory: Memory,
     instances: Vec<Option<Instance>>,
     next_handle: i32,
@@ -407,6 +407,7 @@ impl EventRuntime {
         // The field supervisor keeps running during exploration. Free control
         // depends on event ownership, not whether the VM has any live stacks.
         !self.failed
+            && !self.world.ring.blocks_control()
             && self.world.input_enabled
             && !self.world.mapped_input_disabled
             && self.world.battle_request.is_none()
@@ -512,7 +513,7 @@ impl EventRuntime {
         let Some(enemy) = self.world.actors.get(&actor).and_then(|a| a.enemy.as_ref()) else {
             return Ok(false);
         };
-        if enemy.contact_cooldown != 0 || enemy.stun.is_some() {
+        if enemy.pause_ticks != 0 {
             return Ok(false);
         }
         let key = u32::from(enemy.event);
@@ -528,13 +529,36 @@ impl EventRuntime {
             .enemy
             .as_mut()
             .unwrap()
-            .contact_cooldown = 60;
+            .pause_ticks = 60;
         Ok(true)
     }
-    /// Ring hits call registry (0, -1), carrying an instance-local
-    /// actor context. The dungeon script decides which puzzle reacts to the hit.
-    pub fn ring_hit(&mut self, hit: crate::ring::Hit) -> Result<bool> {
-        self.start_foreground(0, crate::ring::CALLBACK, hit.event_actor())
+    pub(crate) fn queue_ring_callback(
+        &mut self,
+        hit: crate::ring::Hit,
+        secondary: bool,
+    ) -> Result<Option<crate::Operation>> {
+        let key = if secondary {
+            crate::ring::SECONDARY_CALLBACK
+        } else {
+            crate::ring::CALLBACK
+        };
+        let Some(pc) = self.program.event(0, key) else {
+            return Ok(None);
+        };
+        let entry = self
+            .instances
+            .iter_mut()
+            .find(|i| i.is_none())
+            .context("event pool exhausted")?;
+        let handle = self.next_handle;
+        self.next_handle = handle.checked_add(1).context("event handle overflow")?;
+        let completion = self.world.operations.begin().map_err(anyhow::Error::msg)?;
+        let mut instance = Instance::new(&self.program, pc, handle, Some(key))?;
+        instance.event_actor = hit.event_actor();
+        instance.callback = Some(Callback::Owned(completion.clone()));
+        *entry = Some(instance);
+        self.reconcile_control();
+        Ok(Some(completion))
     }
 
     /// Ordinary actor contact carries its own actor context, like ring hits.
@@ -702,6 +726,18 @@ impl EventRuntime {
         self.remove_cancelled_dialogue();
     }
     fn remove_cancelled_dialogue(&mut self) {
+        for entry in &mut self.instances {
+            if let Some(instance) = entry
+                && matches!(&instance.callback, Some(Callback::Owned(op)) if op.progress().outcome == Some(crate::Outcome::Cancelled))
+            {
+                if self.interaction == Some(instance.handle) {
+                    self.interaction = None;
+                    self.world.input_enabled = true;
+                    self.world.mapped_input_disabled = false;
+                }
+                *entry = None;
+            }
+        }
         self.world.reap_authored_resources();
         self.world.dialogue.retain(|_, dialogue| {
             dialogue.operation.progress().outcome != Some(crate::Outcome::Cancelled)
@@ -711,7 +747,10 @@ impl EventRuntime {
         });
     }
     fn task_error(&mut self, instance: &mut Instance, error: anyhow::Error) -> anyhow::Error {
-        if instance.program.authored().is_some() || self.tasks.contains(instance.handle) {
+        if instance.program.authored().is_some()
+            || instance.owned_callback()
+            || self.tasks.contains(instance.handle)
+        {
             let root = self.tasks.root(instance.handle);
             self.cancel_task_tree(root);
             instance.operations.cancel();
@@ -761,6 +800,8 @@ impl EventRuntime {
         }
     }
     pub fn cancel(&mut self) {
+        let mut ring = std::mem::take(&mut self.world.ring);
+        ring.cancel(&mut self.world);
         self.instances.iter_mut().for_each(|i| *i = None);
         self.tasks.clear();
         self.world.operations.cancel();
@@ -1132,6 +1173,7 @@ impl EventRuntime {
                     resolve(&prepared, update, id, actor, previous);
                 })
             })
+            .and_then(|()| self.step_ring())
             .and_then(|()| {
                 let colette_progress = self.memory.read(0x4c, symphonia_script::Width::S32)?;
                 self.world.step_eyes(&self.resources, colette_progress)
@@ -1142,6 +1184,10 @@ impl EventRuntime {
             })
             .and_then(|()| self.world.update_collision_attachments(&self.resources));
         self.failed = result.is_err();
+        if self.failed {
+            let mut ring = std::mem::take(&mut self.world.ring);
+            ring.cancel(&mut self.world);
+        }
         if let Some(party) = &mut self.world.party {
             party.travel.field_countdown = party.travel.field_countdown.saturating_sub(1);
             if !self.world.mapped_input_disabled {
@@ -1154,37 +1200,67 @@ impl EventRuntime {
                 party.travel.ring_timer = party.travel.ring_timer.saturating_sub(1);
             }
         }
-        self.world.reap_authored_resources();
+        self.remove_cancelled_dialogue();
         result
     }
+    /// Authored roots request control until released; their callbacks keep the
+    /// lease while running. Foreground scenario interactions retain priority.
+    fn reconcile_control(&mut self) {
+        let needs_control = |instance: &Instance| {
+            instance.owned_callback()
+                || (instance.program.authored().is_some()
+                    && self.tasks.root(instance.handle) == instance.handle
+                    && !self.tasks.control_released(instance.handle))
+        };
+        if let Some(owner) = self.interaction {
+            let authored = self.instances.iter().flatten().any(|i| {
+                i.handle == owner && (i.program.authored().is_some() || i.owned_callback())
+            });
+            let requested = self
+                .instances
+                .iter()
+                .flatten()
+                .any(|i| self.tasks.root(i.handle) == owner && needs_control(i));
+            if authored && !requested {
+                self.interaction = None;
+                self.world.input_enabled = true;
+            } else if authored {
+                self.world.input_enabled = false;
+            }
+        }
+        if self.interaction.is_none() && self.world.input_enabled {
+            self.interaction = self
+                .instances
+                .iter()
+                .flatten()
+                .find(|i| needs_control(i))
+                .map(|i| self.tasks.root(i.handle));
+            if self.interaction.is_some() {
+                self.world.input_enabled = false;
+            }
+        }
+    }
+
     fn execute(
         &mut self,
         initial_dispatch: bool,
         resolve_motion: &mut crate::native::MotionResolver<'_>,
     ) -> Result<()> {
-        // A single authored explosion emits 128 full particle records in one update.
-        const AUTHORED_BUDGET: u32 = 65_536;
-        // Earth collapses emit 300 particles with several randomized properties
-        // in one update. The instruction guard must allow these finite bursts.
+        const AUTHORED_BUDGET: u32 = 32_768;
+        // Imported scenes may issue a large finite batch of native particle calls.
         const LEGACY_BUDGET: u32 = 131_072;
         const UPDATE_BUDGET: u32 = LEGACY_BUDGET * 4;
+        self.reconcile_control();
         let mut update_budget = UPDATE_BUDGET;
         for slot in 0..self.instances.len() {
             let Some(mut instance) = self.instances[slot].take() else {
                 continue;
             };
-            // A task may return control while its effects continue. A later scenario
-            // callback waits for any intervening interaction before reclaiming it.
-            if instance.owned_callback() {
-                let root = self.tasks.root(instance.handle);
-                if self.interaction.is_none() && self.world.input_enabled {
-                    self.interaction = Some(root);
-                    self.world.input_enabled = false;
-                }
-                if self.interaction != Some(root) {
-                    self.instances[slot] = Some(instance);
-                    continue;
-                }
+            if instance.owned_callback()
+                && self.interaction != Some(self.tasks.root(instance.handle))
+            {
+                self.instances[slot] = Some(instance);
+                continue;
             }
             if instance.background.as_ref().is_some_and(|b| {
                 b.paused
@@ -1318,11 +1394,6 @@ impl EventRuntime {
                         .filter(|instance| instance.is_none())
                         .count()
                         .saturating_sub(1),
-                    trigger_available: !self
-                        .instances
-                        .iter()
-                        .flatten()
-                        .any(Instance::trigger_callback),
                 };
                 instance.vm.run(
                     &mut host,
@@ -1418,9 +1489,7 @@ impl EventRuntime {
             }
             for child in spawns {
                 // A parent that returned without joining has already cancelled this request.
-                if !matches!(child.target, crate::authored::SpawnTarget::Trigger { .. })
-                    && !self.tasks.contains(child.handle)
-                {
+                if !self.tasks.contains(child.handle) {
                     continue;
                 }
                 let entry = self
@@ -1438,27 +1507,10 @@ impl EventRuntime {
                         event_actor,
                         completion,
                     } => {
-                        // A free slot may precede the parent in this update's
-                        // traversal. Reserve input now, before the next update.
-                        if self.interaction.is_none() && self.world.input_enabled {
-                            self.interaction = Some(self.tasks.root(child.handle));
-                            self.world.input_enabled = false;
-                        }
                         let mut callback =
                             Instance::new(&self.program, entry, child.handle, Some(key))?;
                         callback.event_actor = event_actor;
                         callback.callback = Some(Callback::Owned(completion));
-                        callback
-                    }
-                    crate::authored::SpawnTarget::Trigger {
-                        entry,
-                        key,
-                        event_actor,
-                    } => {
-                        let mut callback =
-                            Instance::new(&self.program, entry, child.handle, Some(key))?;
-                        callback.event_actor = event_actor;
-                        callback.callback = Some(Callback::Trigger);
                         callback
                     }
                 });
@@ -1500,43 +1552,9 @@ impl EventRuntime {
                 spawned.background = Some(Background::default());
                 *entry = Some(spawned);
             }
+            self.reconcile_control();
             if self.world.blocked_by_movie() {
                 break;
-            }
-        }
-        // An earlier slot can be waiting when a later owner finishes this update.
-        // Transfer the lease before exposing an idle frame to player input.
-        if self.interaction.is_none()
-            && self.world.input_enabled
-            && let Some(owner) = self.instances.iter().flatten().find(|i| {
-                i.owned_callback()
-                    || (i.program.authored().is_some()
-                        && self.tasks.root(i.handle) == i.handle
-                        && !self.tasks.control_released(i.handle))
-            })
-        {
-            self.interaction = Some(self.tasks.root(owner.handle));
-            self.world.input_enabled = false;
-        }
-        // Explicit recovery can release an authored task's control lease, but
-        // never while its original scenario callback is still running.
-        if let Some(owner) = self.interaction
-            && self
-                .instances
-                .iter()
-                .flatten()
-                .any(|i| i.handle == owner && i.program.authored().is_some())
-        {
-            let callback = self
-                .instances
-                .iter()
-                .flatten()
-                .any(|i| i.owned_callback() && self.tasks.root(i.handle) == owner);
-            if self.tasks.control_released(owner) && !callback {
-                self.interaction = None;
-                self.world.input_enabled = true;
-            } else {
-                self.world.input_enabled = false;
             }
         }
         // Initialization precedes the first ordinary actor update. Later scripts

@@ -23,10 +23,12 @@ branches, receipt wording and acknowledgement. Native `Reward` and `Kind` ADTs k
 item IDs, currency and chest styles separate. Rust supplies target selection,
 validated handles, inventory operations, animation sampling and dialogue services.
 The existing event scheduler supplies suspension, cancellation and input ownership.
+The Rust ring controller owns casting, targeting, puzzle callbacks and recovery.
+It emits trails, impacts and pulses through the shared particle runtime.
 
 ```sh
 cargo run -p resonance-script -- check --host world scripts world::rules
-cargo run -p resonance-script -- check scripts field::treasure field::ring
+cargo run -p resonance-script -- check scripts field::treasure field::station
 ```
 
 These modules follow the same immutable cooking and preparation path as model

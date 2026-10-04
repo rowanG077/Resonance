@@ -521,3 +521,6 @@ pub struct ScriptAsset {
     pub path: String,
     pub sha256: String,
 }
+
+#[cfg(feature = "test-support")]
+pub mod test_support;

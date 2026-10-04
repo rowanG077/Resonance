@@ -172,42 +172,6 @@ pub(super) const fn register(
             |h, a, _| sound(h, a[0], 127),
         )
         .function(
-            "game::audio::sound_volume",
-            &[Type::I32, Type::I32],
-            None,
-            false,
-            |h, a, _| sound(h, a[0], a[1]),
-        )
-        .function(
-            "game::party::spend_tp",
-            &[ACTOR, Type::I32],
-            Some(Type::Bool),
-            false,
-            |h, a, _| {
-                let id = h.actor_id(a[0])?;
-                let cost = u16::try_from(a[1]).map_err(|_| "invalid TP cost")?;
-                let character = h
-                    .world
-                    .actors
-                    .get(&id)
-                    .ok_or("party actor is missing")?
-                    .resource;
-                let member = h
-                    .world
-                    .party
-                    .as_mut()
-                    .ok_or("party is missing")?
-                    .members
-                    .get_mut(character.wrapping_sub(1) as usize)
-                    .ok_or("actor is not a party member")?;
-                let Some(remaining) = member.tp.checked_sub(cost) else {
-                    return Ok(NativeResult::Continue(Some(0)));
-                };
-                member.tp = remaining;
-                Ok(NativeResult::Continue(Some(1)))
-            },
-        )
-        .function(
             "game::party::give_item",
             &[ITEM, Type::I32],
             Some(Type::Bool),

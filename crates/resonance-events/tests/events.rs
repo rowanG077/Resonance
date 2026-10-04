@@ -30,9 +30,14 @@ fn steps(events: &mut EventRuntime, count: u32) {
     }
 }
 
-fn interactive_effect(setup: &[u16], interaction: &[u16]) -> EventRuntime {
+fn controlled_world() -> GameWorld {
     let mut world = GameWorld::default();
     world.input_enabled = true;
+    world
+}
+
+fn interactive_effect(setup: &[u16], interaction: &[u16]) -> EventRuntime {
+    let world = controlled_world();
     runtime(program(setup, interaction), Default::default(), world)
 }
 
@@ -239,6 +244,58 @@ fn patrol_properties_update_enemy_movement() {
 }
 
 #[test]
+fn scenario_scripts_can_replace_a_projectile_stun_timer() {
+    for (effect, duration) in [
+        (effect::StunEffect::None, 240),
+        (effect::StunEffect::Electric, 420),
+        (effect::StunEffect::Lightning, 240),
+        (effect::StunEffect::Ice, 240),
+        (effect::StunEffect::Darkness, 240),
+        (effect::StunEffect::TetheallaElectric, 300),
+    ] {
+        for replacement in [0, -1] {
+            let main = script(&[
+                (
+                    Call::SpawnEnemyActor,
+                    &[90, 0, 0, 50, 0, 0, 0, 2, 4, 42, 1, 0, 1, 1, 600, 0],
+                ),
+                (Call::SetActorProperty, &[90, 54, -1]),
+            ]);
+            let child = script(&[(Call::SetActorProperty, &[90, 54, replacement])]);
+            let resources = enemy_resources();
+            let mut events = runtime(program(&main, &child), resources, GameWorld::default());
+            events.world.input_enabled = true;
+            let enemy = events
+                .world
+                .actors
+                .get_mut(&90)
+                .unwrap()
+                .enemy
+                .as_mut()
+                .unwrap();
+            enemy.pause_ticks = duration;
+            enemy.reaction = effect;
+            events.step().unwrap();
+            let enemy = events.world.actors[&90].enemy.as_ref().unwrap();
+            let remaining = enemy.pause_ticks;
+            assert!((duration - 1..=duration).contains(&remaining));
+            assert!(events.trigger(42, true).unwrap());
+            events.step().unwrap();
+            assert_eq!(
+                events.memory().read(0x20, Width::S32).unwrap(),
+                i32::from(remaining - 1)
+            );
+            for _ in 0..duration {
+                events.step().unwrap();
+            }
+            let enemy = events.world.actors[&90].enemy.as_ref().unwrap();
+            assert_eq!(enemy.pause_ticks, replacement as i16);
+            assert_eq!(enemy.stun_effect().is_some(), replacement != 0);
+        }
+    }
+}
+
+#[test]
 fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values() {
     for (value, expected) in [(-1, -1), (2, 2)] {
         let main = script(&[
@@ -264,23 +321,13 @@ fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values(
             steps(&mut events, 60);
             assert_eq!(events.world.actors[&90].position, initial);
             assert_eq!(
-                i32::from(
-                    events.world.actors[&90]
-                        .enemy
-                        .as_ref()
-                        .unwrap()
-                        .contact_cooldown
-                ),
+                i32::from(events.world.actors[&90].enemy.as_ref().unwrap().pause_ticks),
                 -1
             );
             assert!(!events.contact_enemy(90).unwrap());
         } else {
             assert_eq!(
-                events.world.actors[&90]
-                    .enemy
-                    .as_ref()
-                    .unwrap()
-                    .contact_cooldown,
+                events.world.actors[&90].enemy.as_ref().unwrap().pause_ticks,
                 0
             );
             assert!(events.contact_enemy(90).unwrap());
@@ -1175,8 +1222,7 @@ fn scenery_can_be_paused_in_its_creation_update_and_resumed_later() {
         (Call::SetActorAnimationFlags, &[6010, 2]),
     ]);
     let resume = script(&[(Call::SetActorAnimationFlags, &[6010, 0])]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+    let world = controlled_world();
     let mut events = runtime(program(&setup, &resume), resources, world);
     for _ in 0..300 {
         let animation = events.world.actors[&6010].animation.as_ref().unwrap();
@@ -1275,8 +1321,7 @@ fn world_exits_decode_landmarks_separately_from_field_positions() {
 #[test]
 fn landmark_entry_is_exclusive_and_supplies_the_native_direction_word() {
     let child = script(&[(Call::YieldCommand, &[0, 1])]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+    let world = controlled_world();
     let mut events = runtime(
         program_kind(&[0x20ff], &child, 1),
         ResourceLibrary::default(),
@@ -2449,8 +2494,7 @@ fn location_caption_expires_without_retaining_an_unrenderable_actor() {
 fn free_control_allows_the_field_supervisor_and_ambient_scripts() {
     let main = script(&[(Call::SpawnEvent, &[42]), (Call::YieldCommand, &[0, 3])]);
     let child = script(&[(Call::YieldCommand, &[0, 10])]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+    let world = controlled_world();
     let mut events = runtime(program(&main, &child), Default::default(), world);
     assert!(events.player_has_control());
     steps(&mut events, 4);
@@ -4387,8 +4431,7 @@ fn enemy_contact_uses_its_event_key_and_publishes_the_symbol_identity_once() {
         &[90, 0, 0, 50, 0, 0, 0, 2, 4, 42, 1, 0, 1, 1, 600, 0],
     )]);
     let child = script(&[(Call::SetEventBit, &[123]), (Call::YieldCommand, &[0, 2])]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+    let world = controlled_world();
     let resources = enemy_resources();
     let mut events = runtime(program_kind(&main, &child, 0), resources, world);
     assert!(events.contact_enemy(90).unwrap());
@@ -4452,8 +4495,7 @@ fn screen_copy_passes_are_independent_and_return_their_previous_depth() {
 fn ring_station_runs_its_interaction_and_keeps_glows_bounded() {
     let main = script(&[(Call::CreateRingStation, &[42, 0, 0, 0, 13, 1])]);
     let child = script(&[(Call::SetEventBit, &[123])]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+    let mut world = controlled_world();
     world.controlled_actor = 1;
     world.insert_actor(1, Actor::new(1, [0., -60., 0.]));
     let sources = std::collections::BTreeMap::from([(
@@ -4516,24 +4558,23 @@ fn ring_station_runs_its_interaction_and_keeps_glows_bounded() {
 }
 
 #[test]
-fn authored_ring_waits_for_the_scenario_callback_without_releasing_control() {
+fn authored_interaction_waits_for_the_scenario_callback_without_releasing_control() {
     let child = script(&[
         (Call::GetEventActor, &[]),
         (Call::EnableMappedInput, &[]),
         (Call::YieldCommand, &[0, 2]),
         (Call::GetEventActor, &[]),
     ]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+    let world = controlled_world();
     let mut events = runtime(
-        program_record(&[0x20ff], &child, 0, u32::MAX),
+        program_record(&[0x20ff], &child, 0, 102),
         Default::default(),
         world,
     );
     events.world.insert_actor(102, Actor::new(1, [0.; 3]));
     let actor = events.world.authored_actor(102).unwrap();
     events
-        .start_authored(authored_ring_task(), "test::main", &[actor])
+        .start_authored(interaction_task(), "test::main", &[actor])
         .unwrap();
     events.step().unwrap();
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 102);
@@ -4557,16 +4598,15 @@ fn released_task_callbacks_wait_for_control_and_hold_it_until_completion() {
         r#"
         script field;
         use game::field;
-        use game::ring;
-        use game::ring::Hit;
+        use game::actors;
         task recover() {
             await field::wait_ticks(2ticks);
             field::release_control();
         }
-        pub task main(delay: ticks) {
+        pub task main(actor: actors::Actor, delay: ticks) {
             let recovery = spawn recover();
             await field::wait_ticks(delay);
-            await ring::hit(Hit::Pulse);
+            await actors::interact(actor);
             await recovery;
             await field::wait_ticks(20ticks);
         }
@@ -4593,17 +4633,14 @@ fn released_task_callbacks_wait_for_control_and_hold_it_until_completion() {
         let mut events = runtime(
             // Main retires into a slot before the authored parent. Late callbacks
             // must reserve control even when their VM won't run until next update.
-            program_record(
-                &script(&[(Call::YieldCommand, &[0, 5])]),
-                &callback,
-                0,
-                u32::MAX,
-            ),
+            program_record(&script(&[(Call::YieldCommand, &[0, 5])]), &callback, 0, 102),
             Default::default(),
             world,
         );
+        events.world.insert_actor(102, Actor::new(1, [0.; 3]));
+        let actor = events.world.authored_actor(102).unwrap();
         let root = events
-            .start_authored(authored.clone(), "test::main", &[delay])
+            .start_authored(authored.clone(), "test::main", &[actor, delay])
             .unwrap();
         steps(&mut events, 3);
         if delay == 1 {
@@ -4644,7 +4681,7 @@ fn released_task_callbacks_wait_for_control_and_hold_it_until_completion() {
 }
 
 #[test]
-fn cancelling_an_authored_ring_task_cancels_its_legacy_dialogue_and_callback() {
+fn cancelling_an_interaction_task_cancels_its_legacy_dialogue_and_callback() {
     let child = script(&[
         (Call::DisableMappedInput, &[]),
         (Call::ConfigureDialogue, &[0, 4, -2, 4, 0, 0, 0, 1]),
@@ -4662,17 +4699,12 @@ fn cancelling_an_authored_ring_task_cancels_its_legacy_dialogue_and_callback() {
         ],
         ..Default::default()
     };
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
-    let mut events = runtime(
-        program_record(&[0x20ff], &child, 0, u32::MAX),
-        resources,
-        world,
-    );
+    let world = controlled_world();
+    let mut events = runtime(program_record(&[0x20ff], &child, 0, 102), resources, world);
     events.world.insert_actor(102, Actor::new(1, [0.; 3]));
     let actor = events.world.authored_actor(102).unwrap();
     let handle = events
-        .start_authored(authored_ring_task(), "test::main", &[actor])
+        .start_authored(interaction_task(), "test::main", &[actor])
         .unwrap();
     events.step().unwrap();
     let dialogue = events.world.dialogue[&0].operation.clone();
@@ -4688,18 +4720,17 @@ fn cancelling_an_authored_ring_task_cancels_its_legacy_dialogue_and_callback() {
 }
 
 #[test]
-fn ring_callback_errors_retire_the_authored_parent() {
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+fn interaction_errors_retire_the_authored_parent() {
+    let world = controlled_world();
     let mut events = runtime(
-        program_record(&[0x20ff], &[0x2076, 0x20ff], 0, u32::MAX),
+        program_record(&[0x20ff], &[0x2076, 0x20ff], 0, 102),
         Default::default(),
         world,
     );
     events.world.insert_actor(102, Actor::new(1, [0.; 3]));
     let actor = events.world.authored_actor(102).unwrap();
     events
-        .start_authored(authored_ring_task(), "test::main", &[actor])
+        .start_authored(interaction_task(), "test::main", &[actor])
         .unwrap();
     let error = format!("{:#}", events.step().unwrap_err());
     assert!(error.contains("unsupported native 0x76"), "{error}");
@@ -4707,23 +4738,20 @@ fn ring_callback_errors_retire_the_authored_parent() {
     assert!(!events.world.event_flags.contains(&43));
 }
 
-fn authored_ring_task() -> Arc<Program> {
+fn interaction_task() -> Arc<Program> {
     let sources = [(
         "test".into(),
         r#"
         script field;
         use game::actors;
-        use game::ring;
-        use game::ring::Hit;
         use game::story;
         use game::field;
         pub task main(actor: actors::Actor) {
-            await ring::hit(Hit::Actor(actor));
+            await actors::interact(actor);
             story::set_flag(43, true);
             await field::wait_ticks(2ticks);
             story::set_flag(44, true);
         }
-        pub task insufficient() { await ring::insufficient_tp(); }
     "#
         .into(),
     )]
@@ -4737,72 +4765,13 @@ fn authored_ring_task() -> Arc<Program> {
 }
 
 #[test]
-fn insufficient_mana_calls_its_distinct_callback_with_pulse_context() {
-    let child = script(&[
-        (Call::GetEventActor, &[]),
-        (Call::YieldCommand, &[0, 2]),
-        (Call::SetEventBit, &[90]),
-    ]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
-    let mut events = runtime(
-        program_record(&[0x20ff], &child, 0, (-9999_i32) as u32),
-        Default::default(),
-        world,
-    );
-    events
-        .start_authored(authored_ring_task(), "test::insufficient", &[])
-        .unwrap();
-    events.step().unwrap();
-    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), -31080);
-    assert!(!events.player_has_control());
-    steps(&mut events, 3);
-    assert!(events.world.event_flags.contains(&90));
-    assert!(events.player_has_control());
-}
-
-#[test]
-fn ring_callback_retains_its_actor_across_waits_and_unrelated_events() {
-    use ring::Hit;
-    // Martel's ring callback asks GetEventActor before selecting seal actor 102.
-    // The main event remains live and queries its own (empty) context meanwhile.
-    let main = script(&[(Call::YieldCommand, &[0, 2]), (Call::GetEventActor, &[])]);
-    let child = script(&[
-        (Call::GetEventActor, &[]),
-        (Call::YieldCommand, &[0, 4]),
-        (Call::GetEventActor, &[]),
-    ]);
-    for (hit, expected) in [(Hit::Actor(102), 102), (Hit::Pulse, -31080)] {
-        let mut world = GameWorld::default();
-        world.input_enabled = true;
-        let mut events = runtime(
-            program_record(&main, &child, 0, u32::MAX),
-            Default::default(),
-            world,
-        );
-        assert!(events.ring_hit(hit).unwrap());
-        assert!(!events.ring_hit(Hit::Actor(103)).unwrap());
-        events.step().unwrap();
-        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), expected);
-        events.step().unwrap();
-        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
-        assert!(!events.player_has_control());
-        steps(&mut events, 4);
-        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), expected);
-        assert!(events.player_has_control());
-    }
-}
-
-#[test]
-fn ring_callback_absence_preserves_control_and_ordinary_interactions_supply_their_actor() {
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+fn ordinary_interactions_supply_their_actor() {
+    let world = controlled_world();
     let mut events = runtime(
         program_kind(&[0x20ff], &script(&[(Call::GetEventActor, &[])]), 0),
         Default::default(),
         world,
     );
-    assert!(!events.ring_hit(ring::Hit::Actor(102)).unwrap());
     assert!(events.player_has_control());
     assert!(events.interact(42).unwrap());
     events.step().unwrap();

@@ -121,22 +121,13 @@ pub struct Enemy {
     /// Result of the field's most recent native sight query (property 49).
     pub alerted: bool,
     pub event_parameters: [i16; 2],
-    /// Native signed timer (property 54); negative values pause indefinitely.
-    pub contact_cooldown: i16,
-    /// Native property 56 selects the reaction while the pause timer is active.
-    pub pause_effect_mode: u8,
-    pub stun: Option<crate::effect::Stun>,
+    /// Shared contact/ring/script timer (property 54); negatives pause indefinitely.
+    pub pause_ticks: i16,
+    pub reaction: crate::effect::StunEffect,
 }
 impl Enemy {
     pub fn stun_effect(&self) -> Option<crate::effect::StunEffect> {
-        use crate::effect::StunEffect;
-        self.stun.map(|stun| stun.effect).or_else(|| {
-            (self.contact_cooldown != 0).then_some(match self.pause_effect_mode {
-                5 => StunEffect::Electric,
-                13 => StunEffect::Lightning,
-                _ => StunEffect::None,
-            })
-        })
+        (self.pause_ticks != 0).then_some(self.reaction)
     }
 }
 #[derive(Debug, Clone, Copy)]
@@ -562,10 +553,8 @@ impl Particle {
 }
 #[derive(Default)]
 pub struct GameWorld {
-    pub projectiles: BTreeMap<i32, crate::projectile::Projectile>,
-    pub(crate) effect_contexts: BTreeMap<i32, crate::effect::EffectContext>,
     pub(crate) authored_actors: BTreeMap<i32, i32>,
-    pub(crate) owned_poses: BTreeMap<i32, crate::projectile::OwnedPose>,
+    pub(crate) ring: crate::ring::Controller,
     pub(crate) fog_effects: BTreeMap<i32, crate::camera::FogEffect>,
     pub tick: u32,
     pub effect_tick: u32,
@@ -706,6 +695,13 @@ pub struct SceneDestination {
 }
 
 impl GameWorld {
+    pub(crate) fn remove_actor(&mut self, id: i32) {
+        self.actors.remove(&id);
+        self.billboards.retain(|_, p| p.owner != Some(id));
+        self.overlays.remove(&id);
+        self.emotes.remove(&id);
+    }
+
     /// Cinematic completion publishes another scene request. The source remains
     /// alive until the destination owner has prepared and accepted it.
     pub fn request_destination(&mut self, destination: SceneDestination) -> Result<(), String> {

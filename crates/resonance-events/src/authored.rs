@@ -11,18 +11,9 @@ use symphonia_script::{
 };
 use symphonia_script_vm::{Host, NativeBindings, NativeResult};
 mod actors;
-mod camera;
-mod controller;
-mod effects;
 mod exploration;
 mod memory;
-mod projectile;
-mod ring;
-mod visual;
 
-const fn field(name: &'static str, ty: Type) -> symphonia_script::authored::NativeField {
-    symphonia_script::authored::NativeField { name, ty }
-}
 const fn variant(
     name: &'static str,
     tag: i32,
@@ -127,11 +118,6 @@ pub(crate) enum SpawnTarget {
         event_actor: i16,
         completion: crate::Operation,
     },
-    Trigger {
-        entry: u32,
-        key: u32,
-        event_actor: i16,
-    },
 }
 
 pub fn native_declarations() -> Vec<NativeDeclaration> {
@@ -150,7 +136,6 @@ pub(crate) struct FieldHost<'a> {
     pub spawns: &'a mut Vec<Spawn>,
     pub next_handle: &'a mut i32,
     pub free_slots: usize,
-    pub trigger_available: bool,
 }
 
 impl Host for FieldHost<'_> {
@@ -248,12 +233,6 @@ impl Host for FieldHost<'_> {
                 },
             );
         let bindings = exploration::register(bindings);
-        let bindings = ring::register(bindings);
-        let bindings = projectile::register(bindings);
-        let bindings = visual::register(bindings);
-        let bindings = camera::register(bindings);
-        let bindings = controller::register(bindings);
-        let bindings = effects::register(bindings);
         let bindings = actors::register(bindings);
         memory::register(bindings)
     };
@@ -298,29 +277,6 @@ impl FieldHost<'_> {
         let handle = self.reserve_slot()?;
         self.tasks.register(self.handle, handle)?;
         Ok(handle)
-    }
-
-    fn start_trigger(&mut self, key: u32, event_actor: i16) -> Result<bool, String> {
-        if !self.trigger_available {
-            return Ok(false);
-        }
-        let Some(entry) = self
-            .scenario
-            .event(crate::world::TriggerKind::Touch as u32, key)
-        else {
-            return Ok(false);
-        };
-        let handle = self.reserve_slot()?;
-        self.spawns.push(Spawn {
-            handle,
-            target: SpawnTarget::Trigger {
-                entry,
-                key,
-                event_actor,
-            },
-        });
-        self.trigger_available = false;
-        Ok(true)
     }
 
     fn call_event(

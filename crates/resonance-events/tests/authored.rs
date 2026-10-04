@@ -389,7 +389,7 @@ fn authored_state_survives_field_retirement_without_retaining_a_vm() {
 }
 
 #[test]
-fn suspended_actor_handles_cannot_modify_a_replacement() {
+fn suspended_actor_handles_cannot_interact_with_a_replacement() {
     let program = compile(
         r#"
         use game::actors;
@@ -397,7 +397,7 @@ fn suspended_actor_handles_cannot_modify_a_replacement() {
         pub task main() {
             let actor = actors::controlled();
             await field::wait_ticks(1ticks);
-            actors::show(actor, false);
+            await actors::interact(actor);
         }
     "#,
     );

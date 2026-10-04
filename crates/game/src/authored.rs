@@ -137,7 +137,6 @@ pub(crate) fn prepare_resources(
 /// Built-in field tasks prepared together with the scene's cooked resources.
 pub struct FieldServices {
     pub treasure: Arc<PreparedEvent>,
-    pub ring: Arc<PreparedEvent>,
     pub memory_tutorial: Arc<PreparedEvent>,
     pub memory_unlock: Arc<PreparedEvent>,
     pub station: Arc<PreparedEvent>,
@@ -163,7 +162,6 @@ impl FieldServices {
         };
         Ok(Self {
             treasure: prepare("field::treasure", "open", &[0])?,
-            ring: prepare("field::ring", "activate", &[])?,
             memory_tutorial: prepare("field::memory", "tutorial", &[])?,
             memory_unlock: prepare("field::memory", "unlock", &[0])?,
             station: prepare("field::station", "interact", &[0])?,
