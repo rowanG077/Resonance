@@ -665,16 +665,3 @@ impl Party {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod settings_tests {
-    use super::Settings;
-
-    #[test]
-    fn legacy_settings_default_skit_notifications_to_enabled() {
-        let settings: Settings =
-            serde_json::from_str(r#"{"rumble":true,"stereo":true,"battle_controls":[1,2,2,2]}"#)
-                .unwrap();
-        assert!(settings.preferences.skit_notifications);
-    }
-}

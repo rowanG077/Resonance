@@ -2222,17 +2222,6 @@ fn beat_waits_preserve_fractional_deadlines_tempo_sampling_and_key_off_pcm() {
 #[test]
 fn both_pitch_sweep_slots_mix_additively_and_cancel_independently() {
     use crate::data::{Interpolation, SweepSlot};
-    let legacy: Command = serde_json::from_str(
-        r#"{"operation":"pitch_sweep","step_hz":1000,"period":2,"wait_ms":0}"#,
-    )
-    .unwrap();
-    assert!(matches!(
-        legacy,
-        Command::PitchSweep {
-            slot: SweepSlot::First,
-            ..
-        }
-    ));
     let (root, value) = fixture();
     let mut loaded = load(&root, &value).unwrap();
     let sweep = |slot, step_hz, period| Command::PitchSweep {

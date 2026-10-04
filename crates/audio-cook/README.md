@@ -36,7 +36,7 @@ local/global/controller operands. Paired controllers preserve 14-bit values,
 including fractional writes; LFO reads are read-only. RPN data entry, the second
 oscillator and unsupported switch/source-selection operations still fail explicitly.
 Physical sample commands retain their offsets; standard ADPCM playback
-ignores those offsets, matching the original loader and DSP setup.
+starts ADPCM playback at the beginning of the sample.
 Music setups retain their bank group, and note events retain typed program/drum
 or sound identities. The shared synthesizer uses them for source limits and voice
 stealing; diagnostic previews still reject slot exhaustion.

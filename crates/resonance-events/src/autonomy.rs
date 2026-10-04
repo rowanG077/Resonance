@@ -95,7 +95,7 @@ impl Autonomy {
         self.conversing = false;
         self.select(Activity::Select);
     }
-    /// A rejected floor probe requests a new direction on the next update.
+    /// A rejected floor probe requests a new decision on the next update.
     pub fn resolve_floor(&mut self, available: bool) {
         self.floor_available = available;
         if !available && !self.conversing {

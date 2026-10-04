@@ -41,7 +41,7 @@ struct SkeletonNode {
     /// One inherits the parent transform; other kinds use model space.
     transform_kind: u8,
     draw_priority: u8,
-    /// The constructor copies the high byte into the transform metadata.
+    /// Packed node flags; the high byte describes transform behavior.
     node_flags: u16,
     transform: Option<transform::Transform>,
 }

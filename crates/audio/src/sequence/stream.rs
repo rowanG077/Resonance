@@ -77,8 +77,8 @@ impl Stream {
     pub fn block(&mut self, controls: LiveControls) -> Result<Option<Vec<BusFrame>>> {
         self.block_envelope([controls; 5])
     }
-    /// Compatibility convenience for offline callers. Live mixing uses the
-    /// caller-owned buffer in `render_block`.
+    /// Collect one block for offline rendering. Live mixing writes directly
+    /// into the caller's buffer through `render_block`.
     pub fn block_envelope(&mut self, controls: [LiveControls; 5]) -> Result<Option<Vec<BusFrame>>> {
         let mut block = [[[0; 2]; 3]; 160];
         let len = self.render_block(controls, &mut block)?;

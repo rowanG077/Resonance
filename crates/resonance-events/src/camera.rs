@@ -185,7 +185,7 @@ impl EntryCamera {
 #[derive(Debug, Clone)]
 pub struct CameraRig {
     pub shake: Shake,
-    /// Presentation supplies its actual horizontal framing; scripts retain the original camera.
+    /// Presentation supplies its actual horizontal framing; scripts read the authored camera.
     pub view_aspect_ratio: f32,
     pub motion: Option<MotionCamera>,
     /// Native selector -1 edits the next field's entry camera, leaving this
@@ -343,7 +343,7 @@ impl CameraRig {
             // follow is disabled, without converting through Euler angles.
             camera.target = std::array::from_fn(|i| camera.position[i] + camera.look_offset[i]);
         }
-        // Original camera order is Rz * Rx * Ry, applied to (0, -distance, 0).
+        // Orbit rotation is Rz * Rx * Ry, applied to (0, -distance, 0).
         let [x, _, z] = self.angles.map(f32::to_radians);
         let orbit = [
             z.sin() * x.cos() * self.distance,

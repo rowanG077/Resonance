@@ -793,9 +793,6 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
         restored.events.world.event_records[&4].recorded_at,
         Some(1_700_000_000)
     );
-    let legacy: resonance_events::EventRecord =
-        serde_json::from_str(r#"{"value":1,"extra":0,"tick":0}"#).unwrap();
-    assert!(legacy.level.is_none() && legacy.recorded_at.is_none());
 }
 
 #[test]

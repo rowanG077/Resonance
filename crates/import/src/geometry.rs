@@ -62,8 +62,8 @@ pub(crate) struct MaterialRecipe {
     pub operations: Vec<MaterialOperation>,
 }
 
-/// Ordinary pass with the constructor-installed callback and no caller render-mode
-/// override. Lighting overlays and replacement callbacks require their own recipes.
+/// Ordinary material pass. Lighting overlays and explicit render-mode overrides
+/// require separate recipes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum MaterialContext {
