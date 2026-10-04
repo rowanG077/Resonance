@@ -182,7 +182,7 @@ fn fixture() -> Fixture {
             "effects/test.json",
             json!({"version":resonance_content::effect::FIELD_EFFECTS_VERSION,
             "palette":vec![[255;4];resonance_content::effect::FIELD_PALETTE_COLORS],
-            "sprites":([0,1,4,5,6,7,8,10,11,12,14,22,23,41,42,68,69].into_iter().map(|kind|(kind.to_string(),
+            "sprites":([0,1,4,5,6,7,8,10,11,12,14,22,23,41,42,52,53,54,68,69].into_iter().map(|kind|(kind.to_string(),
                 json!({"texture":"textures/shared.ktx2","uv":[0.,0.,1.,1.],"additive":kind>1}))).collect::<BTreeMap<_,_>>()),
             "air_refraction":{"texture":"textures/refraction.ktx2","uv":[0.,0.,1.,1.],"additive":false},
             "refraction":{"sprite":{"texture":"textures/refraction.ktx2","uv":[0.,0.,1.,1.],"additive":false},"displacement":[1.,1.]},
