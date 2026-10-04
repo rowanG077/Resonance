@@ -1,5 +1,7 @@
 //! Blend authored skeletal poses before script adjustments and secondary motion.
 mod binding;
+#[cfg(test)]
+mod camera_tests;
 mod frame;
 use super::field_view::{ActorPart, Art, State};
 use super::sparse_animation::affine::{Helper, Locals, Pose};
@@ -12,6 +14,7 @@ pub(super) struct Rig {
     /// At least one animated pose has been evaluated.
     pub(super) sampled: bool,
     bones: Vec<(Entity, Transform)>,
+    camera_facing: Vec<Entity>,
     previous: Vec<Frame>,
     from: Vec<Frame>,
     presented: Vec<Frame>,
@@ -37,11 +40,8 @@ pub(super) fn bind(
             continue;
         }
         let spec = &art.models[&part.resource][part.part].spec;
-        let bones =
-            super::sparse_animation::Binding::new(root, spec.bone_names.len(), &children, &nodes)
-                .expect("prepared animation skeleton must contain every bone")
-                .0;
-        let mut rig = Rig::new(bones);
+        let mut rig = Rig::from_scene(root, spec.bone_names.len(), &children, &nodes)
+            .expect("prepared animation skeleton must contain every bone");
         for clip in &art.models[&part.resource][part.part].clips {
             for track in &clips.get(clip).expect("prepared sparse clip").0.tracks {
                 rig.bind_channels[usize::from(track.bone)] = track.bind_channels.0;
@@ -134,6 +134,23 @@ pub(super) fn sample(
 }
 
 impl Rig {
+    fn from_scene(
+        root: Entity,
+        count: usize,
+        children: &Query<&Children>,
+        nodes: &Query<(&Transform, &bevy::gltf::GltfExtras)>,
+    ) -> anyhow::Result<Self> {
+        let bones = super::sparse_animation::Binding::new(root, count, children, nodes)?.0;
+        let mut rig = Self::new(bones);
+        for &(entity, _) in &rig.bones {
+            let extras: serde_json::Value = serde_json::from_str(&nodes.get(entity)?.1.value)?;
+            if extras["resonance_camera_facing"] == true {
+                rig.camera_facing.push(entity);
+            }
+        }
+        Ok(rig)
+    }
+
     pub(super) fn bind_scale(&self, entity: Entity) -> Option<Vec3> {
         self.bones
             .iter()
@@ -154,6 +171,7 @@ impl Rig {
             bind_channels: vec![frame::TRS; bones.len()],
             authored_channels: vec![0; bones.len()],
             bones,
+            camera_facing: Vec::new(),
             from: previous.clone(),
             presented: previous.clone(),
             binding_pose: Vec::new(),
@@ -239,6 +257,27 @@ impl Rig {
     }
 }
 
+/// fn_8006CEB0 rotates the local basis by the transposed view matrix, retaining
+/// its translation. Apply after blending so saved animation poses stay unrotated.
+pub(super) fn face_camera(
+    state: State,
+    rigs: Query<&Rig>,
+    mut nodes: Query<&mut Transform>,
+    mut affine: ResMut<Locals>,
+) {
+    let Some(camera) = &state.get().events.world.field_camera else {
+        return;
+    };
+    let rotation = super::field_view::camera_transform(camera).rotation;
+    for rig in &rigs {
+        for &entity in &rig.camera_facing {
+            if let Ok(mut transform) = nodes.get_mut(entity) {
+                affine.face_camera(entity, &mut transform, rotation);
+            }
+        }
+    }
+}
+
 pub(super) fn blend(
     state: State,
     art: Res<Art>,
@@ -280,6 +319,12 @@ pub(super) fn blend(
                     &clips,
                     actor,
                     world.tick,
+                    world
+                        .field_camera
+                        .as_ref()
+                        .map_or(Quat::IDENTITY, |camera| {
+                            super::field_view::camera_transform(camera).rotation
+                        }),
                 )
                 .expect("prepared binding poses must evaluate");
             }
@@ -350,6 +395,7 @@ mod tests {
             .spawn(Rig {
                 sampled: false,
                 bones: vec![(bone, rest)],
+                camera_facing: Vec::new(),
                 previous: vec![old.into()],
                 from: vec![old.into()],
                 presented: vec![old.into()],
@@ -420,6 +466,7 @@ mod tests {
             .spawn(Rig {
                 sampled: true,
                 bones: vec![(neck, Transform::IDENTITY), (head, held_head)],
+                camera_facing: Vec::new(),
                 previous: held.clone(),
                 from: held.clone(),
                 presented: held,
@@ -480,6 +527,7 @@ mod tests {
         world.spawn(Rig {
             sampled: false,
             bones: vec![(entity, authored)],
+            camera_facing: Vec::new(),
             previous: vec![authored.into()],
             from: vec![authored.into()],
             presented: vec![authored.into()],
