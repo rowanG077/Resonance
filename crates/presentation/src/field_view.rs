@@ -2052,8 +2052,11 @@ fn pose(
                 if animation.actor.resolve(&world.render_settings) != instance.actor {
                     continue;
                 }
-                let texture = animation.motion.texture.resolve(&world.render_settings);
-                let uv = animation.motion.offset(world.texture_animation_tick);
+                let texture = animation.texture.resolve(&world.render_settings);
+                let uv = animation.offset(
+                    world.texture_animation_tick,
+                    world.texture_animation_effect_tick,
+                );
                 for (stage, binding) in [&material.color, &material.multiply]
                     .into_iter()
                     .enumerate()

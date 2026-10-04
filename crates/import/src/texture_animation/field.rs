@@ -1,142 +1,161 @@
-//! Sample native field callbacks; their script-selected targets remain live.
-use crate::field_catalogue::NativeCallback;
-use anyhow::{Result, ensure};
-use resonance_content::{
-    TextureAnimation,
-    field::{FieldTextureAnimation, RenderValue},
+//! Field texture motion profiles. Speeds are UV units per simulation tick.
+use RenderValue::{Fixed, Setting, SettingOffset};
+use resonance_content::field::{
+    FieldTextureAnimation, FieldTextureWave, RenderValue, TextureClock, TextureMotion,
 };
 use std::collections::BTreeMap;
 
-pub(crate) fn read(executable: &[u8]) -> Result<BTreeMap<u32, Vec<FieldTextureAnimation>>> {
-    let value = |address| crate::read::f32(crate::dol::slice(executable, address, 4)?, 0);
-    let mut animations = BTreeMap::new();
-    for phase in crate::field_catalogue::read(executable)?.records {
-        let Some(callback) = phase.render_before_objects else {
-            continue;
-        };
-        if callback == NativeCallback::MANA_BRIDGES {
-            // fn_8003C924 scrolls two selected textures on each of three
-            // selected actors. Its accumulator is f32, but the step is f64.
-            let speed =
-                f64::from_be_bytes(crate::dol::slice(executable, 0x8035B378, 8)?.try_into()?);
-            let offsets = scroll(speed, 1)?;
-            let mut tracks = Vec::new();
-            for actor in 2..=4 {
-                for texture in 0..=1 {
-                    tracks.push(FieldTextureAnimation {
-                        actor: RenderValue::Setting(actor),
-                        motion: TextureAnimation {
-                            texture: RenderValue::Setting(texture),
-                            delay_ticks: 0,
-                            loop_start: 1,
-                            offsets: offsets.clone(),
-                        },
-                    });
-                }
-            }
-            animations.insert(phase.id as u32, tracks);
-            continue;
-        }
-        let (actor, texture, offsets, loop_start) = if callback == NativeCallback::CONVEYOR {
-            // fn_8003DE14: the main background's selected texture scrolls left.
-            (
-                RenderValue::Fixed(999_996),
-                RenderValue::Setting(0),
-                scroll(f64::from(value(0x8035B514)?), 0)?,
-                1,
-            )
-        } else if callback == NativeCallback::ACTOR_SCROLL {
-            // fn_8003D038: slot 0 selects an actor; its first texture scrolls up.
-            (
-                RenderValue::Setting(0),
-                RenderValue::Fixed(0),
-                scroll(f64::from(value(0x8035B3A8)?), 1)?,
-                1,
-            )
-        } else if callback == NativeCallback::MARTEL_SEAL {
-            // fn_800393F8 advances the third scenery layer's eight-frame atlas.
-            let interval = value(0x8035B368)?;
-            let frames = value(0x8035B350)?;
-            ensure!(
-                interval > 0. && interval.fract() == 0. && frames > 0. && frames.fract() == 0.,
-                "invalid field atlas timing"
-            );
-            let period = (interval * frames) as usize;
-            ensure!(period <= 36000, "field atlas period exceeds limit");
-            let step = value(0x8035B36C)?;
-            (
-                RenderValue::Fixed(999_998),
-                RenderValue::Setting(0),
-                (0..period)
-                    .map(|t| [0., (t / interval as usize) as f32 * step])
-                    .collect(),
-                0,
-            )
-        } else {
-            continue;
-        };
-        let motion = TextureAnimation {
-            texture,
-            delay_ticks: 0,
-            loop_start,
-            offsets,
-        };
-        motion.validate()?;
-        animations.insert(
-            phase.id as u32,
-            vec![FieldTextureAnimation { actor, motion }],
-        );
+const BACKGROUND: RenderValue = Fixed(999_996);
+const WATER: RenderValue = Fixed(999_997);
+const DETAILS: RenderValue = Fixed(999_998);
+const THODA_OUTSIDE: u32 = 6;
+const THODA_ENTRANCE: u32 = 7;
+const THODA_STAIRS: u32 = 8;
+const THODA_PUZZLE: u32 = 9;
+const THODA_SEAL: u32 = 10;
+const ASGARD_CONVEYOR: u32 = 213;
+const MARTEL_SEAL: u32 = 307;
+const MANA_LAMPS: u32 = 362;
+const MANA_BRIDGES: u32 = 366;
+const BALACRUF_WIND: u32 = 510;
+
+fn track(actor: RenderValue, texture: RenderValue, kind: TextureMotion) -> FieldTextureAnimation {
+    FieldTextureAnimation {
+        actor,
+        texture,
+        motion: kind,
+        clock: TextureClock::Field,
     }
-    Ok(animations)
+}
+fn scroll(actor: RenderValue, texture: RenderValue, velocity: [f32; 2]) -> FieldTextureAnimation {
+    track(
+        actor,
+        texture,
+        TextureMotion::Scroll {
+            velocity,
+            vertical_wave: None,
+        },
+    )
+}
+fn atlas(
+    actor: RenderValue,
+    texture: RenderValue,
+    frames: u32,
+    interval: u32,
+    horizontal: bool,
+) -> FieldTextureAnimation {
+    let step = 1. / frames as f32;
+    track(
+        actor,
+        texture,
+        TextureMotion::Atlas {
+            frames,
+            interval,
+            step: if horizontal { [step, 0.] } else { [0., step] },
+        },
+    )
+}
+fn water() -> FieldTextureAnimation {
+    FieldTextureAnimation {
+        actor: WATER,
+        texture: Setting(0),
+        clock: TextureClock::Effect,
+        motion: TextureMotion::Scroll {
+            velocity: [-0.00125; 2],
+            vertical_wave: Some(FieldTextureWave {
+                degrees_per_tick: 2.,
+                amplitude: -0.025,
+            }),
+        },
+    }
+}
+fn flowing(actor: RenderValue, texture: u8, speed: f32) -> FieldTextureAnimation {
+    FieldTextureAnimation {
+        clock: TextureClock::Effect,
+        ..scroll(actor, Setting(texture), [0., -speed])
+    }
 }
 
-fn scroll(speed: f64, axis: usize) -> Result<Vec<[f32; 2]>> {
-    ensure!(
-        speed.is_finite() && (1. / 36000. ..=1.).contains(&speed),
-        "invalid field scroll speed"
-    );
-    let mut offsets = vec![[0.; 2]];
-    let mut phase = 0.;
-    loop {
-        phase = (f64::from(phase) + speed) as f32;
-        let mut offset = [0.; 2];
-        offset[axis] = -phase;
-        offsets.push(offset);
-        ensure!(offsets.len() <= 36000, "field scroll period exceeds limit");
-        if phase > 1. {
-            break;
+pub(crate) fn profiles() -> BTreeMap<u32, Vec<FieldTextureAnimation>> {
+    let mut profiles = BTreeMap::from([
+        (
+            ASGARD_CONVEYOR,
+            vec![scroll(BACKGROUND, Setting(0), [-1. / 60., 0.])],
+        ),
+        (
+            BALACRUF_WIND,
+            vec![scroll(Setting(0), Fixed(0), [0., -0.01])],
+        ),
+        (MARTEL_SEAL, vec![atlas(DETAILS, Setting(0), 8, 7, false)]),
+        (MANA_LAMPS, vec![atlas(DETAILS, Setting(0), 5, 7, true)]),
+        (
+            MANA_BRIDGES,
+            (2..=4)
+                .flat_map(|actor| {
+                    (0..=1)
+                        .map(move |texture| scroll(Setting(actor), Setting(texture), [0., -0.002]))
+                })
+                .collect(),
+        ),
+    ]);
+    for map in [
+        THODA_OUTSIDE,
+        THODA_ENTRANCE,
+        THODA_STAIRS,
+        THODA_PUZZLE,
+        THODA_SEAL,
+    ] {
+        let mut tracks = vec![water()];
+        let lights: &[u8] = match map {
+            THODA_OUTSIDE => {
+                tracks.push(flowing(Setting(2), 3, 0.0025));
+                &[1, 4, 5]
+            }
+            THODA_PUZZLE => {
+                for (slot, speed) in [(1, 0.01), (2, 0.02), (3, 1. / 120.)] {
+                    tracks.push(flowing(DETAILS, slot, speed));
+                }
+                &[4, 5]
+            }
+            THODA_SEAL => {
+                tracks.extend([1, 2].map(|slot| flowing(DETAILS, slot, 0.01)));
+                &[3, 4]
+            }
+            _ => &[1, 2],
+        };
+        tracks.extend(
+            lights
+                .iter()
+                .map(|&slot| atlas(DETAILS, Setting(slot), 4, 15, false)),
+        );
+        if map == THODA_OUTSIDE {
+            tracks.extend(
+                (0..4).map(|offset| {
+                    atlas(SettingOffset { slot: 6, offset }, Setting(7), 4, 15, false)
+                }),
+            );
         }
+        profiles.insert(map, tracks);
     }
-    Ok(offsets)
+    profiles
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    #[ignore = "requires both original executable catalogues"]
-    fn mana_bridges_scroll_both_textures_on_all_three_scripted_actors() -> Result<()> {
-        let local = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
-        for disc in [1, 2] {
-            let executable = std::fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
-            let animations = read(&executable)?;
-            let tracks = animations.get(&366).expect("Mana bridge callback");
-            assert_eq!(tracks.len(), 6);
-            let settings = [(0, 7), (1, 11), (2, 6000), (3, 6001), (4, 6002)].into();
-            for (index, track) in tracks.iter().enumerate() {
-                track.motion.validate()?;
-                assert_eq!(track.actor.resolve(&settings), 6000 + index as i32 / 2);
-                assert_eq!(track.motion.texture.resolve(&settings), [7, 11][index % 2]);
-                assert_eq!(track.motion.offset(1), [0., -0.002]);
-                assert!((track.motion.offset(250)[1] + 0.5).abs() < 0.00001);
-                // The native f32 accumulator overshoots on update 501 and
-                // uploads that value before resetting. It skips zero on wrap.
-                assert_eq!(track.motion.offsets.len(), 502);
-                assert!(track.motion.offset(501)[1] < -1.);
-                assert_eq!(track.motion.offset(502), track.motion.offset(1));
+    fn profiles_are_valid_and_animate_on_their_selected_clock() -> anyhow::Result<()> {
+        let profiles = profiles();
+        for tracks in profiles.values() {
+            for track in tracks {
+                track.validate()?;
             }
         }
+        assert_eq!(profiles[&MANA_BRIDGES][0].offset(1000, 0), [0., -2.]);
+        let lamps = &profiles[&MANA_LAMPS][0];
+        assert_ne!(lamps.offset(7, 0), lamps.offset(0, 0));
+        assert_eq!(lamps.offset(35, 0), lamps.offset(0, 0));
+        assert_ne!(profiles[&THODA_OUTSIDE][0].offset(0, 100), [0.; 2]);
         Ok(())
     }
 }

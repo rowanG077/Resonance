@@ -811,6 +811,7 @@ impl EventRuntime {
         self.world.effect_tick = effect_tick;
         if self.world.render_settings.get(&128) == Some(&1) {
             self.world.texture_animation_tick += 1;
+            self.world.texture_animation_effect_tick = effect_tick;
         }
         if self
             .world
