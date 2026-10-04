@@ -1,4 +1,4 @@
-use super::{DESTINATIONS, Menu, State};
+use super::{DESTINATIONS, Menu, PAGE_SIZE, State};
 use bevy::{
     camera::visibility::RenderLayers,
     core_pipeline::tonemapping::Tonemapping,
@@ -11,7 +11,7 @@ use bevy::{
 const WIDTH: u32 = 584;
 const ROW_TOP: u32 = 90;
 const ROW_HEIGHT: u32 = 25;
-const FOOTER_TOP: u32 = ROW_TOP + ROW_HEIGHT * DESTINATIONS.len() as u32 + 10;
+const FOOTER_TOP: u32 = ROW_TOP + ROW_HEIGHT * PAGE_SIZE as u32 + 10;
 const HEIGHT: u32 = FOOTER_TOP + 90;
 const LAYER: usize = 28;
 
@@ -71,7 +71,7 @@ pub(super) fn row_at(cursor: Vec2, size: Vec2) -> Option<usize> {
         return None;
     }
     let row = ((point.y - ROW_TOP as f32) / ROW_HEIGHT as f32) as usize;
-    (row < DESTINATIONS.len()).then_some(row)
+    (row < PAGE_SIZE).then_some(row)
 }
 
 pub(super) fn update(
@@ -101,12 +101,12 @@ fn pixels(menu: &Menu) -> Vec<u8> {
     let white = [226, 235, 246, 255];
     let muted = [154, 174, 194, 255];
     let accent = [104, 223, 200, 255];
-    text(&mut rgba, 24, 20, "DUNGEONS AND SCENES", accent);
+    text(&mut rgba, 24, 20, "SYLVARANT LOCATIONS", accent);
     text(
         &mut rgba,
         24,
         45,
-        "FRESH PUZZLES - RING READY - BATTLES SKIPPED",
+        "TOWNS / STARTS / ENDS - BATTLES SKIPPED",
         white,
     );
     text(
@@ -116,8 +116,14 @@ fn pixels(menu: &Menu) -> Vec<u8> {
         "REPLACES CURRENT RUN. DISK SAVES UNCHANGED.",
         muted,
     );
-    for (index, destination) in DESTINATIONS.iter().enumerate() {
-        let top = ROW_TOP + index as u32 * ROW_HEIGHT;
+    for (row, destination) in DESTINATIONS
+        .iter()
+        .skip(menu.page_start())
+        .take(PAGE_SIZE)
+        .enumerate()
+    {
+        let index = menu.page_start() + row;
+        let top = ROW_TOP + row as u32 * ROW_HEIGHT;
         if index == menu.selected {
             for y in top..top + ROW_HEIGHT - 2 {
                 for x in 16..WIDTH - 16 {
@@ -132,11 +138,7 @@ fn pixels(menu: &Menu) -> Vec<u8> {
             &format!(
                 "{} {}  {}",
                 if index == menu.selected { ">" } else { " " },
-                if index < 10 {
-                    ((index + 1) % 10).to_string()
-                } else {
-                    " ".into()
-                },
+                (row + 1) % PAGE_SIZE,
                 destination.name
             ),
             white,
@@ -171,22 +173,34 @@ fn pixels(menu: &Menu) -> Vec<u8> {
             &mut rgba,
             24,
             FOOTER_TOP,
-            &format!("MAP {}", DESTINATIONS[menu.selected].map),
+            &format!(
+                "PAGE {}/{}  -  MAP {}",
+                menu.selected / PAGE_SIZE + 1,
+                DESTINATIONS.len().div_ceil(PAGE_SIZE),
+                DESTINATIONS[menu.selected].map
+            ),
             accent,
         );
         text(
             &mut rgba,
             24,
             FOOTER_TOP + 21,
-            "ARROWS CHOOSE - ENTER GO - OR CLICK A ROW",
+            "UP/DOWN CHOOSE - ENTER GO - OR CLICK",
             white,
         );
     }
     text(
         &mut rgba,
         24,
-        FOOTER_TOP + 56,
-        "1-0 JUMP   SHIFT TAB OR ESC CLOSE",
+        FOOTER_TOP + 42,
+        "LEFT/RIGHT OR PGUP/PGDN CHANGE PAGE",
+        muted,
+    );
+    text(
+        &mut rgba,
+        24,
+        FOOTER_TOP + 63,
+        "1-0 GO   SHIFT TAB OR ESC CLOSE",
         muted,
     );
     rgba

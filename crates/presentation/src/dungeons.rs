@@ -7,6 +7,8 @@ use bevy::prelude::*;
 use destinations::DESTINATIONS;
 pub(super) use destinations::Destination;
 
+const PAGE_SIZE: usize = 10;
+
 #[derive(Resource, Default)]
 pub(super) struct Menu {
     state: State,
@@ -29,6 +31,27 @@ pub(super) fn running(menu: Option<Res<Menu>>) -> bool {
 }
 
 impl Menu {
+    fn page_start(&self) -> usize {
+        self.selected / PAGE_SIZE * PAGE_SIZE
+    }
+
+    fn turn_page(&mut self, forward: bool) {
+        let pages = DESTINATIONS.len().div_ceil(PAGE_SIZE);
+        let page = self.selected / PAGE_SIZE;
+        let page = (page + if forward { 1 } else { pages - 1 }) % pages;
+        self.selected = (page * PAGE_SIZE + self.selected % PAGE_SIZE).min(DESTINATIONS.len() - 1);
+        self.state = State::Selecting;
+    }
+
+    fn select_row(&mut self, row: usize) -> bool {
+        let index = self.page_start() + row;
+        if row >= PAGE_SIZE || index >= DESTINATIONS.len() {
+            return false;
+        }
+        self.selected = index;
+        true
+    }
+
     pub(super) fn blocked(&self) -> bool {
         !matches!(self.state, State::Closed)
     }
@@ -140,10 +163,15 @@ fn controls(world: &mut World) {
             menu.selected = (menu.selected + 1) % DESTINATIONS.len();
             menu.state = State::Selecting;
         }
+        if keys.any_just_pressed([KeyCode::ArrowLeft, KeyCode::PageUp, KeyCode::KeyA]) {
+            menu.turn_page(false);
+        }
+        if keys.any_just_pressed([KeyCode::ArrowRight, KeyCode::PageDown, KeyCode::KeyD]) {
+            menu.turn_page(true);
+        }
         let mut choose = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space);
         if clicked && let Some(row) = row {
-            menu.selected = row;
-            choose = true;
+            choose |= menu.select_row(row);
         }
         if let Some(index) = [
             KeyCode::Digit1,
@@ -160,8 +188,7 @@ fn controls(world: &mut World) {
         .iter()
         .position(|key| keys.just_pressed(*key))
         {
-            menu.selected = index;
-            choose = true;
+            choose |= menu.select_row(index);
         }
         if choose {
             let options = world.resource::<super::RunOptions>();
@@ -198,6 +225,6 @@ fn activate(world: &mut World, candidate: new_game::Session) {
     let map = world.resource::<new_game::Session>().assets.map_id;
     for mut window in world.query::<&mut Window>().iter_mut(world) {
         window.title =
-            format!("Resonance — Dungeon test / map {map} — Shift+Tab: Dungeons / Tab: Party");
+            format!("Resonance — Field test / map {map} — Shift+Tab: Locations / Tab: Party");
     }
 }

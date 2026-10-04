@@ -101,18 +101,22 @@ clock. Simulation remains at 60000/1001 updates per second.
 | Pause movie | Space | — |
 | Performance overlay / snapshot | F3 / F4 | — |
 | Development quicksave / quickload | F5 / F9 | — |
-| Dungeon entrance selector | Shift+Tab | — |
+| Location test selector | Shift+Tab | — |
 
 Combat is not implemented yet. Replay testing skips battles as victories, without
 awarding loot, so the original field events can continue. Use
 `--skip-battles=false` to inspect pending battle requests instead. Unsupported
 field scripts still report errors during normal play.
 
-Press **Shift+Tab** at the title or during play to select a Sylvarant dungeon
-entrance. Choose with arrows and Enter, click a row, or press 1–0; Escape closes
-it. Each jump resets the run with fresh puzzle progress and skips battles. Martel
-starts before the golem introduction and ring pickup; later dungeons include the
+Press **Shift+Tab** at the title or during play to visit Sylvarant towns and dungeon
+start/end checkpoints. Up/Down selects a row; Left/Right or Page Up/Down changes
+pages. Press Enter, click a row, or use 1–0 for that page; Escape closes the menu.
+Each jump resets the run and skips battles. Dungeon starts have fresh puzzles;
+seal checkpoints have their puzzles solved and place you just before the final
+room. Martel starts before the ring pickup; later checkpoints include the
 Sorcerer's Ring. Disk saves are unchanged.
+At the Palmacosta Ranch end checkpoint, use the Radar ring to reveal the final
+teleporter, then interact with it.
 
 From the menu's bottom row, press Down to select the party. Field leader and
 formation order are saved independently; Escape cancels a pending exchange.
