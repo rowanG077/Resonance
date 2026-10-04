@@ -314,7 +314,18 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
         }
         let enemy = field.actor(id).enemy.as_ref().unwrap();
         assert!(enemy.pause_ticks > 0);
-        assert_eq!(enemy.pause_effect_mode, 5);
+        assert_eq!(
+            enemy.stun_effect(),
+            Some(resonance_events::effect::StunEffect::Electric)
+        );
+        assert!(
+            field
+                .events
+                .world
+                .billboards
+                .values()
+                .any(|spark| spark.alpha(field.events.tick()) > 0.)
+        );
         if id == 8001 {
             assert!(field.events.world.actors.contains_key(&401));
             assert!(!field.events.world.event_flags.contains(&154));

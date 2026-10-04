@@ -102,21 +102,21 @@ impl crate::GameWorld {
         let position = resources.attachment_point(&self.actors[&id], node, self.tick)?;
         const SPARK_LIFETIME: u32 = 9;
         let width = (16 + (self.random() & 15)) as f32;
-        // Native draw mode 8 uses the bottom half of the quad with the full UVs.
+        // Sparks extend downward from their attachment point.
         let height = (64 + (self.random() & 15)) as f32;
         let rotation = std::array::from_fn(|_| self.random() as f32);
         self.emit_billboard(BillboardEffect {
             recipe: ELECTRIC_SPARK_SPRITE,
             orientation: SpriteOrientation::World,
-            anchor: resonance_content::effect::VerticalAnchor::LowerHalf,
+            anchor: resonance_content::effect::VerticalAnchor::Top,
             palette: Some(2),
             born: self.tick,
             lifetime: SPARK_LIFETIME,
             position,
             rotation,
             size: [width, height],
-            rgba: [32, 32, 255, 255],
-            fade: Fade::tail(SPARK_LIFETIME),
+            rgba: [32, 32, 255, 15],
+            fade: Fade::Linear(0.),
             blend_mode: Some(1),
             ..Default::default()
         })?;
@@ -124,8 +124,6 @@ impl crate::GameWorld {
     }
 
     pub(crate) fn step_ring_stations(&mut self) -> Result<(), String> {
-        // fn_8007BF58 / fn_8007C964: the ring pedestal spins beneath four
-        // short-lived glows. Its script owns the selected ring power.
         let stations: Vec<_> = self
             .actors
             .values_mut()
@@ -328,7 +326,6 @@ impl CharacterLight {
             3 => self.position = LightPosition::Relative(value.map(|v| v as f32)),
             4 => self.position = LightPosition::World(value.map(|v| v as f32)),
             5 => {
-                // fn_8004F1AC rotates (0, -10000, 0) by Rx * Rz.
                 let (sx, cx) = (value[0] as f32).to_radians().sin_cos();
                 let (sz, cz) = (value[2] as f32).to_radians().sin_cos();
                 self.position =
@@ -410,7 +407,6 @@ pub(crate) enum BillboardController {
 #[derive(Debug, Clone, Copy)]
 pub enum Fade {
     Linear(f32),
-    /// fn_80086654's fixed-point light shaft: rise, then reverse its alpha step.
     RiseFall {
         rise_ticks: u32,
         step: f32,
