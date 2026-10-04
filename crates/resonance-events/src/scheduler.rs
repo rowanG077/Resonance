@@ -131,6 +131,28 @@ impl EventRuntime {
         self.world
             .select_party_member(&self.resources, i32::from(id))
     }
+    /// fn_8001A6FC replaces an incapacitated current actor, but otherwise
+    /// preserves an explicit script selection independently of the menu leader.
+    pub fn replace_incapacitated_field_leader(&mut self) -> Result<()> {
+        let Some(party) = self.world.party.as_mut() else {
+            return Ok(());
+        };
+        let current = usize::try_from(self.world.controlled_actor - 1)?;
+        if party.members[current].can_lead_field() {
+            return Ok(());
+        }
+        if let Some(id) = party
+            .formation
+            .iter()
+            .copied()
+            .find(|&id| party.members[usize::from(id - 1)].can_lead_field())
+        {
+            party.field_leader = id;
+            self.world
+                .select_party_member(&self.resources, i32::from(id))?;
+        }
+        Ok(())
+    }
     pub fn new(program: Arc<Program>, resources: Arc<ResourceLibrary>) -> Result<Self> {
         Self::with_state(program, resources, GameWorld::default(), Memory::default())
     }

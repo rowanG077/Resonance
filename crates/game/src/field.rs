@@ -402,8 +402,8 @@ impl FieldSession {
         {
             event.start(&mut self.events)?;
         }
-        if self.player_has_control() && self.events.world.party.is_some() {
-            self.events.restore_field_leader()?;
+        if self.player_has_control() {
+            self.events.replace_incapacitated_field_leader()?;
         }
         if self.active_skit.is_some() {
             return self.step_skit(input);
@@ -463,8 +463,11 @@ impl FieldSession {
                 self.menu = None;
                 shop.return_from_equipment();
             } else if menu.closed {
+                let leader_changed = menu.field_leader_changed();
                 self.menu = None;
-                self.events.restore_field_leader()?;
+                if leader_changed {
+                    self.events.restore_field_leader()?;
+                }
                 if let Some(operation) = self.menu_operation.take() {
                     operation.complete(Some(0)).map_err(anyhow::Error::msg)?;
                 } else {
@@ -508,7 +511,7 @@ impl FieldSession {
         }
         let at_circle = self.events.world.save_points.iter().any(|p| p.active);
         if (input.menu || input.interact && at_circle)
-            && let Ok(checkpoint) = self.checkpoint()
+            && let Ok(checkpoint) = self.player_menu_checkpoint()
         {
             let page = if input.menu {
                 crate::menu::Page::Main
