@@ -5,6 +5,8 @@ mod crafting;
 mod fog;
 #[path = "iselia_tests.rs"]
 mod iselia;
+#[path = "movement_tests.rs"]
+mod movement;
 use super::{destinations::Fixture, new_game};
 use anyhow::{Context, Result};
 use resonance_game::field::{FieldInput, FieldSession};

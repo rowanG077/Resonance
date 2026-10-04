@@ -19,8 +19,9 @@ impl Plane {
         }
     }
     pub fn expanded(mut self, half_size: [f32; 3]) -> Self {
+        // Rotated grid faces may differ by a few float ulps at a shared edge.
         self.distance += (0..3)
-            .map(|i| self.normal[i].abs() * half_size[i])
+            .map(|i| self.normal[i].abs() * (half_size[i] - 0.001).max(0.))
             .sum::<f32>();
         self
     }

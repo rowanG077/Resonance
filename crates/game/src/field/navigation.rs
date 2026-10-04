@@ -26,6 +26,7 @@ struct Solid {
     owner: u64,
     surface: u32,
     planes: Vec<Plane>,
+    body_planes: Option<Vec<Plane>>,
 }
 #[derive(Default)]
 pub(super) enum PlayerFall {
@@ -170,7 +171,12 @@ impl WalkMesh {
             ];
             let supported = self
                 .surface_within(target, |z, attributes| {
-                    (z - target[2]).abs() <= FLOOR_REACH && query.accepts(attributes)
+                    query.accepts(attributes)
+                        && if actor.instance == block.instance {
+                            z <= target[2] + MAX_STEP_HEIGHT
+                        } else {
+                            (z - target[2]).abs() <= FLOOR_REACH
+                        }
                 })
                 .is_some();
             let (low, high) = actor.collision_bounds();
@@ -182,7 +188,17 @@ impl WalkMesh {
                     solid.owner != block.instance
                         && solid.owner != player.instance
                         && query.accepts(solid.surface)
-                        && body_contact(solid.planes.iter().copied(), center, end, half_size)
+                        && body_contact(
+                            solid
+                                .body_planes
+                                .as_ref()
+                                .unwrap_or(&solid.planes)
+                                .iter()
+                                .copied(),
+                            center,
+                            end,
+                            half_size,
+                        )
                 })
         })
     }
@@ -208,10 +224,20 @@ impl WalkMesh {
                         .collision_triangles(group)
                         .map(Plane::triangle)
                         .collect();
+                    // Block solids include clearance for walking characters. A swept
+                    // body supplies its own clearance, so use the physical block faces.
+                    let body_planes = (actor.pushable() && !mesh.floors.is_empty()).then(|| {
+                        mesh.floors
+                            .iter()
+                            .flat_map(|group| actor.collision_triangles(group))
+                            .map(Plane::triangle)
+                            .collect()
+                    });
                     solids.push(Solid {
                         owner: actor.instance,
                         surface: group.surface,
                         planes,
+                        body_planes,
                     });
                 }
                 for group in &mesh.floors {

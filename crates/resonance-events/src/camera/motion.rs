@@ -1,6 +1,4 @@
 //! Scripted camera paths expressed as world-space motion and ordinary angles.
-use crate::Actor;
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct Tween<const N: usize> {
@@ -138,16 +136,18 @@ impl MotionCamera {
             _ => false,
         }
     }
-    pub(super) fn step(&mut self, actors: &BTreeMap<i32, Actor>) -> ([f32; 3], [f32; 3]) {
+    pub(super) fn step(
+        &mut self,
+        actor_position: impl Fn(i32) -> Option<[f32; 3]>,
+    ) -> ([f32; 3], [f32; 3]) {
         self.position.step();
         self.offset.step();
         self.angles.step();
         self.fov.step();
         let position = self.position.value.map(|v| v as f32);
         if self.mode == 0 {
-            if let Some(actor) = actors.get(&self.actor) {
-                self.target =
-                    std::array::from_fn(|i| actor.position[i] + self.offset.value[i] as f32);
+            if let Some(actor) = actor_position(self.actor) {
+                self.target = std::array::from_fn(|i| actor[i] + self.offset.value[i] as f32);
             }
         } else {
             let [x, y, z] = self.angles.value.map(f64::to_radians);
@@ -194,7 +194,7 @@ mod tests {
             fov: FovTween::new(23.),
             target: [0.; 3],
         };
-        let (_, target) = camera.step(&BTreeMap::new());
+        let (_, target) = camera.step(|_| None);
         for (a, b) in target.into_iter().zip([388.47153, -1197.9476, 138.]) {
             assert!((a - b).abs() < 0.001);
         }
