@@ -1,6 +1,9 @@
 #import bevy_pbr::forward_io::VertexOutput
 #import bevy_pbr::mesh_bindings::mesh
 #import resonance::surface_bindings::{surface_data, sample_primary, sample_secondary, sample_toon}
+#ifdef DISTANCE_FOG
+#import bevy_pbr::mesh_view_bindings::fog as view_fog
+#endif
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -64,15 +67,25 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // GX clamps after texture modulation and gain, before fog and alpha blending.
     color = vec4<f32>(clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), color.a);
 #endif
-    if material.fog_range.y != material.fog_range.x {
+    var fog_range = material.fog_range.xyz;
+    var fog_color = material.fog_color.rgb;
+#ifdef DISTANCE_FOG
+    // W selects camera fog for field geometry and participating effects.
+    // Overworld surfaces retain their own range and nonlinear exponent.
+    if material.fog_range.w != 0.0 {
+        fog_range = vec3<f32>(view_fog.be.xy, 2.0);
+        fog_color = view_fog.base_color.rgb;
+    }
+#endif
+    if fog_range.y != fog_range.x {
         let depth = 1.0 / in.position.w;
-        var fog = clamp((depth - material.fog_range.x)
-            / (material.fog_range.y - material.fog_range.x), 0.0, 1.0);
-        if material.fog_range.z > 0.0 {
+        var fog = clamp((depth - fog_range.x)
+            / (fog_range.y - fog_range.x), 0.0, 1.0);
+        if fog_range.z > 0.0 {
             // GX exponential curves operate on the clamped depth fraction.
-            fog = 1.0 - exp2(-8.0 * pow(fog, material.fog_range.z));
+            fog = 1.0 - exp2(-8.0 * pow(fog, fog_range.z));
         }
-        color = vec4<f32>(mix(color.rgb, material.fog_color.rgb, fog), color.a);
+        color = vec4<f32>(mix(color.rgb, fog_color, fog), color.a);
     }
     return color;
 }

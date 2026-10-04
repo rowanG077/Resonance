@@ -151,6 +151,8 @@ struct CaptureStart(Instant);
 #[derive(Resource)]
 struct Framebuffer(RenderTarget);
 #[derive(Component)]
+// Keep the view's pipeline key stable when a field starts or finishes fog.
+#[require(DistanceFog)]
 struct FieldCamera;
 #[derive(Resource, Default)]
 struct PendingInput {
