@@ -181,7 +181,7 @@ pub(crate) fn resolve(
                         opcode: *opcode,
                         value,
                     }),
-                    6 => {} // The original evaluates this expression without emitting text.
+                    6 => {} // Evaluate the expression for its side effects without emitting text.
                     _ => {
                         return Err(format!(
                             "message substitution {opcode:#x} is not implemented"

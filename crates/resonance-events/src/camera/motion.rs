@@ -63,9 +63,8 @@ impl<const N: usize> Tween<N> {
     }
 }
 
-/// The original zoom controller uses a fixed signed increment, including for a
-/// timed request, and stops within one degree. Position/angle paths have a
-/// separate frame counter and must still reach their timed endpoints.
+/// Zoom advances by a fixed signed increment and stops within one degree.
+/// Position and angle paths independently reach their requested timed endpoints.
 #[derive(Debug, Clone)]
 pub struct FovTween {
     pub value: f64,

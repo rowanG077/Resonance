@@ -25,7 +25,7 @@ pub(crate) fn cook_recipe(executable: &[u8], output: &Path) -> Result<Vec<String
     Ok(vec![path.into()])
 }
 
-/// The native decompressor accepts exactly one CAB member, regardless of its name.
+/// Effect texture archives contain one CAB member; its name is unused.
 pub(crate) fn textures(
     extracted: &Path,
     output: &Path,

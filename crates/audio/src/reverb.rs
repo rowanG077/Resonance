@@ -1,5 +1,5 @@
-//! Standard reverb from audio_filter_80150F20_whole.c (80150F20 / 80151530).
-//! Uses the original fused filter operations and two-block auxiliary latency.
+//! Stereo reverb with comb filters, diffusion and a delayed auxiliary return.
+//! Uses fused filter operations and two-block auxiliary latency.
 use anyhow::{Result, ensure};
 
 struct Delay {
@@ -139,8 +139,7 @@ impl StandardReverb {
             damping: 1.0 - (0.05 + 0.8 * damping.max(0.05)),
             wet,
             dry: 0.6 - wet,
-            // The original triple-buffered auxiliary bus returns two 160-frame
-            // blocks later (salBuildCommandList's (salAuxFrame + 1) % 3).
+            // The auxiliary bus returns two 160-frame blocks later.
             returned: vec![[0; 2]; 320],
             returned_at: 0,
         })

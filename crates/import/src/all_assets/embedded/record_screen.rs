@@ -123,7 +123,6 @@ fn read(executable: &[u8]) -> Result<Catalogue> {
                 .into_iter()
                 .enumerate()
                 .map(|(row, statistic)| {
-                    // 800AF3CC supplies these arguments; 800E9BB0 groups Gald.
                     let format = match statistic {
                         MaxPlayTime => Format::PlayTime,
                         MaxGald | TotalGaldUsed => Format::Gald,

@@ -28,7 +28,7 @@ pub struct State {
 
 /// Return the encoded bytes needed for `sample_count` samples in ordinary
 /// `GameCube` DSP-ADPCM.  The final partial frame uses two header/rounding bytes
-/// plus one byte per pair of nibbles, just as the native DSP address code does.
+/// plus one byte per pair of nibbles.
 #[must_use]
 pub fn encoded_size(sample_count: u32) -> usize {
     let full_frames = sample_count / 14;

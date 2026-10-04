@@ -845,7 +845,7 @@ impl<'a> Voice<'a> {
                         .clamp(0, 127 << 16) as u32
                 };
                 // Front/back ramps and selectors retain state; stereo and mono
-                // output use only the horizontal axis, as on the original mixer.
+                // output use only the horizontal axis.
                 let lfo = if self.lfo_to_tremolo {
                     self.lfo.value
                 } else {
