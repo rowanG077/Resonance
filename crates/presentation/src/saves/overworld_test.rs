@@ -160,6 +160,9 @@ pub fn run_overworld_field_probe(
     app.world_mut()
         .resource_mut::<crate::RunOptions>()
         .skip_battles = true;
+    app.world_mut()
+        .resource_mut::<crate::RunOptions>()
+        .allow_incomplete_scripts = true;
     let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     app.insert_resource(FieldProbe {
         landmark,

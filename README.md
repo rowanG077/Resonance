@@ -103,6 +103,11 @@ clock. Simulation remains at 60000/1001 updates per second.
 | Development quicksave / quickload | F5 / F9 | — |
 | Dungeon entrance selector | Shift+Tab | — |
 
+Combat is not implemented yet. Replay testing skips battles as victories, without
+awarding loot, so the original field events can continue. Use
+`--skip-battles=false` to inspect pending battle requests instead. Unsupported
+field scripts still report errors during normal play.
+
 Press **Shift+Tab** at the title or during play to select a Sylvarant dungeon
 entrance. Choose with arrows and Enter, click a row, or press 1–0; Escape closes
 it. Each jump resets the run with fresh puzzle progress and the Sorcerer's Ring,

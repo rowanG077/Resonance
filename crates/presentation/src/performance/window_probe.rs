@@ -83,6 +83,7 @@ fn run(
             boot_frame: None,
             skip_intro: true,
             skip_battles: false,
+            allow_incomplete_scripts: false,
             record_playthrough: None,
             record_title_ticks: 1000,
         },

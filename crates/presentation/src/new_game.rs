@@ -649,7 +649,7 @@ pub(super) fn activate(world: &mut World, session: Session) {
     );
 }
 
-/// This switch belongs to the temporary test, including fields reached from it.
+/// Replay testing resolves the pending encounter and resumes its original caller.
 pub(super) fn skip_test_battles(
     options: Res<RunOptions>,
     dungeons: Option<Res<super::dungeons::Menu>>,
@@ -658,7 +658,7 @@ pub(super) fn skip_test_battles(
     if (options.skip_battles || dungeons.is_some_and(|menu| menu.testing))
         && let Some(mut session) = session
     {
-        if options.skip_battles {
+        if options.allow_incomplete_scripts {
             session.field.allow_incomplete_scripts = true;
         }
         if let Err(error) = session.events_mut().world.skip_battle_as_victory() {

@@ -25,6 +25,7 @@ pub fn run_movie_probe(root: &Path, output: &Path, stalls: bool) -> Result<()> {
             boot_frame: None,
             skip_intro: false,
             skip_battles: false,
+            allow_incomplete_scripts: false,
             record_playthrough: None,
             record_title_ticks: 1000,
         },

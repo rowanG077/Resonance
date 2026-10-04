@@ -110,6 +110,8 @@ pub struct RunOptions {
     pub skip_intro: bool,
     /// Temporary exploration: resolve field and world battles as victories.
     pub skip_battles: bool,
+    /// Permit unsupported field scripts only in the disposable overworld playground.
+    pub allow_incomplete_scripts: bool,
     pub record_playthrough: Option<PathBuf>,
     pub record_title_ticks: u32,
 }
