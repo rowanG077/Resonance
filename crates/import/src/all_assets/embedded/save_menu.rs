@@ -1,7 +1,7 @@
 //! Save/load text, shared references and authored confirmation choices.
 use super::text::{TextPool, TextRef};
 use crate::{dol, read::u32 as word};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(test)]
@@ -68,14 +68,6 @@ pub(crate) struct Catalogue {
     format_card_choices: [CommonLabel; 3],
     corrupt_file_choices: [CommonLabel; 3],
     labels: BTreeMap<Label, TextRef>,
-    default_error_reference: DefaultErrorReference,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct DefaultErrorReference {
-    byte_offset: i16,
-    /// The default can address data beyond the common-message pointer table.
-    target_word: u32,
 }
 
 impl Catalogue {
@@ -261,16 +253,6 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
     ] {
         labels.insert(label, texts.required(executable, address)?);
     }
-    // Preserve the unresolved default without interpreting adjacent inline text as a pointer.
-    let instruction = word(dol::slice(executable, 0x800b5c00, 4)?, 0)?;
-    ensure!(
-        instruction >> 16 == 0x8004,
-        "unexpected save-menu default message lookup"
-    );
-    let byte_offset = instruction as i16;
-    let target = COMMON
-        .checked_add_signed(i32::from(byte_offset))
-        .context("save-menu default offset overflow")?;
     Ok(Catalogue {
         texts: texts.values,
         common,
@@ -278,10 +260,6 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
         format_card_choices: choices(CHOICES)?,
         corrupt_file_choices: choices(CHOICES + 4)?,
         labels,
-        default_error_reference: DefaultErrorReference {
-            byte_offset,
-            target_word: word(dol::slice(executable, target, 4)?, 0)?,
-        },
     })
 }
 
@@ -339,13 +317,10 @@ mod tests {
             );
             assert_eq!(restored.common[13].text, restored.common[15].text);
             assert_eq!(restored.common[14].text, restored.common[30].text);
-            assert_eq!(restored.default_error_reference.byte_offset, 164);
-            assert_eq!(restored.default_error_reference.target_word, 0x43686563);
 
             let no = word(dol::slice(&executable, COMMON + 5 * 4, 4)?, 0)?;
             for (address, replacement) in [
                 (CHOICES, vec![4]),
-                (0x800b5c00, 0x8004fffcu32.to_be_bytes().to_vec()),
                 (COMMON + 15 * 4, no.to_be_bytes().to_vec()),
             ] {
                 let source = dol::slice(&executable, address, replacement.len())?;
@@ -353,11 +328,6 @@ mod tests {
                 executable[offset..offset + replacement.len()].copy_from_slice(&replacement);
             }
             let changed = read(&executable)?;
-            assert_eq!(changed.default_error_reference.byte_offset, -4);
-            assert_eq!(
-                changed.default_error_reference.target_word,
-                word(dol::slice(&executable, COMMON - 4, 4)?, 0)?
-            );
             assert_eq!(changed.format_card_choices[0], CommonLabel::Yes);
             assert_eq!(changed.common[15].text, changed.common[5].text);
             assert_ne!(changed.common[13].text, changed.common[15].text);
