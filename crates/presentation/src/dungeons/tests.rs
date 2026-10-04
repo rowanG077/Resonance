@@ -1011,3 +1011,29 @@ fn martel_selector_starts_before_the_golem_scene_and_ring_pickup() -> Result<()>
     assert!(field.events.world.event_flags.contains(&207));
     Ok(())
 }
+
+#[test]
+#[ignore = "requires locally cooked Thoda seal; no devices"]
+fn thoda_seal_finishes_after_colette_releases_her_wings() -> Result<()> {
+    let mut field = configured(2, 10, |entry| {
+        entry
+            .persistent
+            .memory
+            .write(0xc4, symphonia_script::Width::S32, 13_000)?;
+        entry.position = [0.; 3];
+        entry.heading = 180.;
+        Ok(())
+    })?;
+    let mut wings = false;
+    let battles = replay(&mut field, |f| {
+        wings |= f
+            .events
+            .world
+            .actors
+            .get(&resonance_events::COLETTE_WINGS_ACTOR)
+            .is_some_and(|a| a.visible);
+        wings && f.player_has_control() && mission(f, 0xc4) == 21_000
+    })?;
+    assert!(battles > 0 && field.events.world.event_flags.contains(&201));
+    Ok(())
+}
