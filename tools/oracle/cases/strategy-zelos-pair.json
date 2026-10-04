@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Zelos Strategy choices, healing instructions, both ranged positions, active formation lanes and independent preset edits.",
-  "registration": "Controlled Rust fixture sets formation 1/2/3/6/4/5/7/8 in both ordinary checkpoint copies; story 2500, member statistics, skit history and source input prefix stay unchanged. Zelos occupies active slot four so his selected battle lane is visible. Source-observed ambient origins are applied once at native update 64. First menu presentation pairs native 76 with source VI 12; later inputs and images use source VI + 64 with no stalls or phase adjustments. Gates compare Strategy focus/option/list position, all nine current instruction triples, all three complete presets, formation, field leader and effect random state. Together with strategy-reserves-pair this covers every character, including the alternate Kratos roster. Consecutive description captures cover a settled change and interrupted fades in current and preset options. Gates also compare the retained outgoing description and the post-draw fade counter. All timing comes from ordinary menu updates.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/strategy-zelos-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "strategy-zelos-keyboard.json",
-    "sha256": "8d723467b33fdc93fad5edb69b203da0167373c97b8e1432d584a5803071d5f9"
+    "sha256": "2ba742cfa88f269ee26b8f68bb396bd53674c424e56e32661e6ea9a7c5460c85"
   },
   "dolphin": {
     "state": {
@@ -488,7 +488,6 @@
       "native": "zelos-formation",
       "dolphin_vi": 231,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -496,7 +495,6 @@
       "native": "zelos-actions",
       "dolphin_vi": 271,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -504,7 +502,6 @@
       "native": "zelos-skills",
       "dolphin_vi": 331,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -512,7 +509,6 @@
       "native": "description-single-0",
       "dolphin_vi": 351,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -520,7 +516,6 @@
       "native": "description-single-1",
       "dolphin_vi": 352,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -528,7 +523,6 @@
       "native": "description-single-2",
       "dolphin_vi": 353,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -536,7 +530,6 @@
       "native": "description-single-3",
       "dolphin_vi": 354,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -544,7 +537,6 @@
       "native": "description-single-4",
       "dolphin_vi": 355,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -552,7 +544,6 @@
       "native": "description-single-5",
       "dolphin_vi": 356,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -560,7 +551,6 @@
       "native": "description-single-6",
       "dolphin_vi": 357,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -568,7 +558,6 @@
       "native": "description-single-7",
       "dolphin_vi": 358,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -576,7 +565,6 @@
       "native": "description-single-8",
       "dolphin_vi": 359,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -584,7 +572,6 @@
       "native": "description-single-9",
       "dolphin_vi": 360,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -592,7 +579,6 @@
       "native": "description-single-10",
       "dolphin_vi": 361,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -600,7 +586,6 @@
       "native": "description-single-11",
       "dolphin_vi": 362,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -608,7 +593,6 @@
       "native": "description-single-12",
       "dolphin_vi": 363,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -616,7 +600,6 @@
       "native": "description-single-13",
       "dolphin_vi": 364,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -624,7 +607,6 @@
       "native": "description-single-14",
       "dolphin_vi": 365,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -632,7 +614,6 @@
       "native": "description-single-15",
       "dolphin_vi": 366,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -640,7 +621,6 @@
       "native": "description-single-16",
       "dolphin_vi": 367,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -648,7 +628,6 @@
       "native": "description-rapid-0",
       "dolphin_vi": 399,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -656,7 +635,6 @@
       "native": "description-rapid-1",
       "dolphin_vi": 400,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -664,7 +642,6 @@
       "native": "description-rapid-2",
       "dolphin_vi": 401,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -672,7 +649,6 @@
       "native": "description-rapid-3",
       "dolphin_vi": 402,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -680,7 +656,6 @@
       "native": "description-rapid-4",
       "dolphin_vi": 403,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -688,7 +663,6 @@
       "native": "description-rapid-5",
       "dolphin_vi": 404,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -696,7 +670,6 @@
       "native": "description-rapid-6",
       "dolphin_vi": 405,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -704,7 +677,6 @@
       "native": "description-rapid-7",
       "dolphin_vi": 406,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -712,7 +684,6 @@
       "native": "description-rapid-8",
       "dolphin_vi": 407,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -720,7 +691,6 @@
       "native": "description-rapid-9",
       "dolphin_vi": 408,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -728,7 +698,6 @@
       "native": "description-rapid-10",
       "dolphin_vi": 409,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -736,7 +705,6 @@
       "native": "description-rapid-11",
       "dolphin_vi": 410,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -744,7 +712,6 @@
       "native": "zelos-heal-preview",
       "dolphin_vi": 411,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -752,7 +719,6 @@
       "native": "description-rapid-13",
       "dolphin_vi": 412,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -760,7 +726,6 @@
       "native": "description-rapid-14",
       "dolphin_vi": 413,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -768,7 +733,6 @@
       "native": "description-rapid-15",
       "dolphin_vi": 414,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -776,7 +740,6 @@
       "native": "description-rapid-16",
       "dolphin_vi": 415,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -784,7 +747,6 @@
       "native": "zelos-heal",
       "dolphin_vi": 451,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -792,7 +754,6 @@
       "native": "zelos-positions",
       "dolphin_vi": 511,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -800,7 +761,6 @@
       "native": "zelos-ranged-skills",
       "dolphin_vi": 581,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -808,7 +768,6 @@
       "native": "zelos-ranged-magic",
       "dolphin_vi": 621,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -816,7 +775,6 @@
       "native": "zelos-ranged-formation",
       "dolphin_vi": 681,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -824,7 +782,6 @@
       "native": "zelos-frontlines",
       "dolphin_vi": 831,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -832,7 +789,6 @@
       "native": "zelos-front-formation",
       "dolphin_vi": 891,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -840,7 +796,6 @@
       "native": "guard-preset",
       "dolphin_vi": 951,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -848,7 +803,6 @@
       "native": "guard-heal",
       "dolphin_vi": 1051,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -856,7 +810,6 @@
       "native": "preset-description-0",
       "dolphin_vi": 1071,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -864,7 +817,6 @@
       "native": "preset-description-1",
       "dolphin_vi": 1072,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -872,7 +824,6 @@
       "native": "preset-description-2",
       "dolphin_vi": 1073,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -880,7 +831,6 @@
       "native": "preset-description-3",
       "dolphin_vi": 1074,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -888,7 +838,6 @@
       "native": "preset-description-4",
       "dolphin_vi": 1075,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -896,7 +845,6 @@
       "native": "preset-description-5",
       "dolphin_vi": 1076,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -904,7 +852,6 @@
       "native": "preset-description-6",
       "dolphin_vi": 1077,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -912,7 +859,6 @@
       "native": "preset-description-7",
       "dolphin_vi": 1078,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -920,7 +866,6 @@
       "native": "preset-description-8",
       "dolphin_vi": 1079,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -928,7 +873,6 @@
       "native": "preset-description-9",
       "dolphin_vi": 1080,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -936,7 +880,6 @@
       "native": "preset-description-10",
       "dolphin_vi": 1081,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -944,7 +887,6 @@
       "native": "preset-description-11",
       "dolphin_vi": 1082,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -952,7 +894,6 @@
       "native": "preset-description-12",
       "dolphin_vi": 1083,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -960,7 +901,6 @@
       "native": "preset-description-13",
       "dolphin_vi": 1084,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -968,7 +908,6 @@
       "native": "preset-description-14",
       "dolphin_vi": 1085,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -976,7 +915,6 @@
       "native": "preset-description-15",
       "dolphin_vi": 1086,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -984,7 +922,6 @@
       "native": "preset-description-16",
       "dolphin_vi": 1087,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -992,7 +929,6 @@
       "native": "guard-free-skills",
       "dolphin_vi": 1171,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -1000,7 +936,6 @@
       "native": "guard-formation",
       "dolphin_vi": 1211,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -1008,7 +943,6 @@
       "native": "current-unchanged",
       "dolphin_vi": 1271,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -1016,7 +950,6 @@
       "native": "current-heal-retained",
       "dolphin_vi": 1351,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -1024,7 +957,6 @@
       "native": "current-front-retained",
       "dolphin_vi": 1431,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     },
     {
@@ -1032,7 +964,6 @@
       "native": "current-final",
       "dolphin_vi": 1491,
       "party_state": true,
-      "effect_state": true,
       "strategy_state": true
     }
   ],

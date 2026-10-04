@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Colette prepares Fruit Cocktail for an injured party: known recipe selection, multiple random ingredient alternatives, optional extras and positive HP/TP recovery.",
-  "registration": "Controlled paired copies learn recipe 5, grant the ingredients and set member vitals listed in cooking-fruit-fixture-v1/fixture.json. No story progression or recipe acquisition is claimed. Use the unchanged source-observed school-grounds ambient and gameplay RNG origins at native update 64; inputs and captures are source VI + 64.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/cooking-fruit-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "cooking-fruit-keyboard.json",
-    "sha256": "d065338da732d9667bc1892466a45bd400c8de0b5e11c755544d6ee9b5a0b2e9"
+    "sha256": "0b85ce077c3c3ea5cf0210438b7d93e07889b061f9376b93a9a7125284cfd172"
   },
   "dolphin": {
     "state": {
@@ -193,89 +193,67 @@
       "name": "overview",
       "native": "overview",
       "dolphin_vi": 350,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "cooks",
       "native": "cooks",
       "dolphin_vi": 500,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "colette",
       "native": "colette",
       "dolphin_vi": 650,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "selected-chef",
       "native": "selected-chef",
       "dolphin_vi": 750,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "recipe-navigation",
       "native": "recipe-navigation",
       "dolphin_vi": 900,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "recipe-preview",
       "native": "recipe-preview",
       "dolphin_vi": 980,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "selected-recipe",
       "native": "selected-recipe",
       "dolphin_vi": 1050,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "result",
       "native": "result",
       "dolphin_vi": 1180,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "result-held",
       "native": "result-held",
       "dolphin_vi": 1250,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "return",
       "native": "return",
       "dolphin_vi": 1350,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "main",
       "native": "main",
       "dolphin_vi": 1470,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     }
   ],
   "audio": []

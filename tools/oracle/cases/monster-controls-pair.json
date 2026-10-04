@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Monster List preview controls: both rotation directions, both zoom directions and Start reset.",
-  "registration": "Uses the documented monster-fixture-v1 checkpoint pair. One preview origin at VI 470 aligns Torent's source-observed idle clock after the original disc load. All later poses advance naturally. C-stick inputs are held for 40 source polls (20 native updates). Full images and observed yaw/distance plus animation clocks are compared at native resolution.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/monster-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "monster-controls-keyboard.json",
-    "sha256": "0b4d1fc060d5f016a3250d4e4218ae412cd34af019d611eee9b5592726f43ffe"
+    "sha256": "7076060b831a0d9c32f5a7ad24c5a8b9117eec7c80caf58893be766d5a7080a3"
   },
   "dolphin": {
     "state": {

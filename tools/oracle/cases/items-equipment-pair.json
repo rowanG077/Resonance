@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Items equipment targets: equipped/better/worse/equal/unavailable portrait markers and animation, stat previews, weapon and armor swaps, two accessory slots and reserve equipping.",
-  "registration": "Controlled copies of tech-party-fixture-v1 grant Wooden Blade, Rapier, Shiden, Saint Rapier, Soft Leather, Chain Mail, Manji Seal, Emerald Ring and Faerie Ring. Equipment changes occur through Items input, including unavailable targets, equipped-item selection, equal-slash/different-thrust weapons, accessory replacement and reserve use. This tests menu behavior, not natural acquisition or battles. Marker captures are selected by the registered presentation clock, never image similarity. Native menu opens at update 40/source poll 20; later inputs use source poll/2 + 1, the observed input-processing VI. Capture updates and source VIs remain equal at unchanged tolerance 8/1%. Observations originally at VI/update 2630, 2710, 2790, 4070 and 4150 move both sides to the next actual presentation, one tick later. Down from the right-hand cell of a partial last row stays put; a later Right input selects the remaining left-hand item for the weaker-weapon preview. Consecutive observations check the final equipment popup closing into an empty category.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/items-equipment-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "items-equipment-keyboard.json",
-    "sha256": "31ea7b574cc0db8086f974a8eebe8b7876e798d0646d60db130e9a14583975ac"
+    "sha256": "5a34c6c120320251d7f894a57f6d1179aa00d4e8e58034579f97cd6e606e3a01"
   },
   "dolphin": {
     "state": {

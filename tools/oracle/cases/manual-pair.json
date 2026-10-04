@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Training Manual: learned chapter/topic selection, inline buttons, page bounds and return to chapter navigation.",
-  "registration": "Controlled manual-full-fixture-v1 grants item 73 and learns the 30 cooked manual topic flags in copies of matched checkpoints; other progress remains unchanged. Native menu opens at update 40; later inputs use source poll/2. Source video has no presentation at VI 1270, so chapter navigation is captured at the next timestamped presentation, VI 1271, in both engines. Registration uses timestamps, not image similarity. All frames compare whole images and chapter/topic/paragraph state.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/manual-full-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "manual-keyboard.json",
-    "sha256": "3be4d88c1e4e79fbf176433db4c81a97b61aa4e0dcbf75c42e8cb61fc00b812b"
+    "sha256": "2aa6ee5de97e7fc107019df7d54d7af1e44c8c920ed8974716762e65822e3e81"
   },
   "dolphin": {
     "state": {

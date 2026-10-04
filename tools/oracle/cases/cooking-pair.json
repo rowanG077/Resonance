@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Cooking: cook preview and cancellation, ingredient consumption, meal results, and return to the main menu.",
-  "registration": "Use the school-grounds party, inventory, scenario record and clocks observed in the paired Dolphin state. Native replay registers the existing skit notification and source session clock once at initialization. Input updates follow the declared poll-to-update mapping; frames are captured between input edges after menus settle. Compare whole frames without changing the existing image tolerance. Native E/Q map to the original C-stick down/up for recipe paging.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "cooking-keyboard.json",
-    "sha256": "2203935af2f5cb6be8d9dc45a6604e601b93389322aa7068e0b0628069a71b43"
+    "sha256": "3ad62ca52fb5d1c6c7a719123d5d331c61bca9924af0a70c6db2a2eb40dcbd09"
   },
   "dolphin": {
     "state": {
@@ -151,57 +151,49 @@
       "name": "overview",
       "native": "overview",
       "dolphin_vi": 350,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "cooks",
       "native": "cooks",
       "dolphin_vi": 500,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "colette",
       "native": "colette",
       "dolphin_vi": 650,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "cancel",
       "native": "cancel",
       "dolphin_vi": 750,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "result",
       "native": "result",
       "dolphin_vi": 900,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "result-held",
       "native": "result-held",
       "dolphin_vi": 950,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "return",
       "native": "return",
       "dolphin_vi": 1050,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "main",
       "native": "main",
       "dolphin_vi": 1200,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     }
   ],
   "audio": []

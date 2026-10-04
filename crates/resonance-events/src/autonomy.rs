@@ -337,18 +337,6 @@ fn heading(from: [f32; 3], to: [f32; 3]) -> f32 {
     (to[0] - from[0]).atan2(from[1] - to[1]).to_degrees()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ActorOrigin {
-    pub autonomy: Autonomy,
-    pub position: [f32; 3],
-    pub heading: f32,
-    pub target_heading: f32,
-    pub animation_slot: Option<u16>,
-    pub animation_sample: f32,
-    pub animation_repeat: bool,
-}
-
 #[cfg(test)]
 mod path_tests {
     use super::*;

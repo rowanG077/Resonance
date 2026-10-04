@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "U. Attack: four-player navigation, grey healing techniques, offensive alternatives, shared assignments and reopening.",
-  "registration": "Controlled inventory-fixture sets formation 1/2/3/4 and teaches Raine Photon (3:113), with original technique order checked against cooked data. Story 1403000 is applied to the initialized Dolphin field and to native at update 40 after the main menu opens. This tests menu behavior, not party recruitment, battle eligibility or later-story field initialization. Inputs after menu opening and images use source poll/2, with matching presentation clocks and saved shortcuts.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/unison-four-party-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "unison-four-party-keyboard.json",
-    "sha256": "cfc957fb917632443614f24cf8f8dca1c964919344a9d0b9aa564acce14233fa"
+    "sha256": "21085ca3003d6bceaa235da02e97706ae16aeb35352f70428661320e0ee8afde"
   },
   "dolphin": {
     "state": {

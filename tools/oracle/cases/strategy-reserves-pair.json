@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Strategy with eight members including Kratos: reserve rows, character-specific choices, current/preset edits, page bounds and ignored page input during setting edits.",
-  "registration": "Controlled Rust inventory-fixture copies set formation 1/2/3/4/5/7/8/9, preserving the original leader, story 2500, member statistics and source input prefix. This verifies menu behavior, not recruitment. Source-observed school-grounds ambient origins are applied once at native update 64. First menu presentation pairs native update 76 with source VI 12; later inputs and captures use source VI + 64, with no clock stalls or later adjustments. Strategy gates compare focus, visible list position, active option, all nine current instruction triples and all three complete presets. Field effects and party order remain checked throughout. Both copies mark skit 833 (The Pursuit of Strength) as already viewed. Its later-party availability predicate is unimplemented and outside this menu fixture; ordinary skit notifications remain enabled, and the production assertion is unchanged. Page controls are exercised in character focus and preset-character focus; setting focus must ignore them. Native previous/next-page keys correspond to the original C-stick up/down, not its shoulder-button shortcuts. Consecutive captures include both directions of row scrolling and input rejection during motion. The source scroll counter advances after drawing; state comparison maps the native visible pose to that observation.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/strategy-reserves-fixture-v2/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "strategy-reserves-keyboard.json",
-    "sha256": "44f93db808767ba4e8bb2a83900a914fa878a9ee9f4ce252893c44356419d266"
+    "sha256": "dc6281495fd607a4f5e096841053ef507ebe4def9b2e575b93ae4d221965e9f4"
   },
   "dolphin": {
     "state": {
@@ -663,424 +663,371 @@
       "native": "overview",
       "dolphin_vi": 115,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "fourth-member",
       "native": "fourth-member",
       "dolphin_vi": 235,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "raine-skills",
       "native": "raine-skills",
       "dolphin_vi": 320,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "support-preview",
       "native": "support-preview",
       "dolphin_vi": 401,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "support-committed",
       "native": "support-committed",
       "dolphin_vi": 435,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-0",
       "native": "scroll-down-0",
       "dolphin_vi": 471,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-1",
       "native": "scroll-down-1",
       "dolphin_vi": 472,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-2",
       "native": "scroll-down-2",
       "dolphin_vi": 473,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-3",
       "native": "scroll-down-3",
       "dolphin_vi": 474,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-4",
       "native": "scroll-down-4",
       "dolphin_vi": 475,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-5",
       "native": "scroll-down-5",
       "dolphin_vi": 476,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-6",
       "native": "scroll-down-6",
       "dolphin_vi": 477,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-7",
       "native": "scroll-down-7",
       "dolphin_vi": 478,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-8",
       "native": "scroll-down-8",
       "dolphin_vi": 479,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-9",
       "native": "scroll-down-9",
       "dolphin_vi": 480,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-down-10",
       "native": "scroll-down-10",
       "dolphin_vi": 481,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "sheena-selected",
       "native": "sheena-selected",
       "dolphin_vi": 490,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "sheena-skills",
       "native": "sheena-skills",
       "dolphin_vi": 590,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "sheena-position",
       "native": "sheena-position",
       "dolphin_vi": 690,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "presea-selected",
       "native": "presea-selected",
       "dolphin_vi": 770,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "presea-skills",
       "native": "presea-skills",
       "dolphin_vi": 870,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "presea-position",
       "native": "presea-position",
       "dolphin_vi": 970,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "regal-selected",
       "native": "regal-selected",
       "dolphin_vi": 1050,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "regal-skills",
       "native": "regal-skills",
       "dolphin_vi": 1150,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "regal-position",
       "native": "regal-position",
       "dolphin_vi": 1250,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "kratos-selected",
       "native": "kratos-selected",
       "dolphin_vi": 1330,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "kratos-skills",
       "native": "kratos-skills",
       "dolphin_vi": 1430,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "kratos-position",
       "native": "kratos-position",
       "dolphin_vi": 1530,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "last-member-bound",
       "native": "last-member-bound",
       "dolphin_vi": 1610,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "presets",
       "native": "presets",
       "dolphin_vi": 1650,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "guard-reserve",
       "native": "guard-reserve",
       "dolphin_vi": 1710,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "guard-reserve-skills",
       "native": "guard-reserve-skills",
       "dolphin_vi": 1790,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "guard-reserve-preview",
       "native": "guard-reserve-preview",
       "dolphin_vi": 1830,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "guard-reserve-changed",
       "native": "guard-reserve-changed",
       "dolphin_vi": 1870,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "current-retained",
       "native": "current-retained",
       "dolphin_vi": 1950,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "last-page-bound",
       "native": "last-page-bound",
       "dolphin_vi": 1991,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "first-page",
       "native": "first-page",
       "dolphin_vi": 2031,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "first-page-bound",
       "native": "first-page-bound",
       "dolphin_vi": 2071,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "last-page",
       "native": "last-page",
       "dolphin_vi": 2111,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "setting-page-ignored",
       "native": "setting-page-ignored",
       "dolphin_vi": 2191,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "preset-first-page",
       "native": "preset-first-page",
       "dolphin_vi": 2351,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "preset-last-page",
       "native": "preset-last-page",
       "dolphin_vi": 2391,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-0",
       "native": "scroll-up-0",
       "dolphin_vi": 2501,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-1",
       "native": "scroll-up-1",
       "dolphin_vi": 2502,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-2",
       "native": "scroll-up-2",
       "dolphin_vi": 2503,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-3",
       "native": "scroll-up-3",
       "dolphin_vi": 2504,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-4",
       "native": "scroll-up-4",
       "dolphin_vi": 2505,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-5",
       "native": "scroll-up-5",
       "dolphin_vi": 2506,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-6",
       "native": "scroll-up-6",
       "dolphin_vi": 2507,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-7",
       "native": "scroll-up-7",
       "dolphin_vi": 2508,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-8",
       "native": "scroll-up-8",
       "dolphin_vi": 2509,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-9",
       "native": "scroll-up-9",
       "dolphin_vi": 2510,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "scroll-up-10",
       "native": "scroll-up-10",
       "dolphin_vi": 2511,
       "strategy_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     }
   ],
   "audio": []

@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Post-Frank school grounds: memory circle, keyboard walking and return",
-  "registration": "Both checkpoints are field 332, story 2500, after the memory-circle tutorial, at the observed player position and heading. Native update zero follows ordinary field initialization. Wait 1397 native updates with no input before the registered initial frame: the timed skit notification and Save prompt finish appearing, and the shared blink and spark rotation counter low seven bits match Dolphin (native tick 20271, source counter 37551). At that frame, register scenery loops 0/2/12 at cooked samples 76/1076/76, the memory circle at 115.2978515625, and the fifteen observed memory-circle spark births in the replay's ambient origin. Normal keyboard input and animation rates drive all subsequent frames. Native update 1397 pairs with Dolphin VI 0 / dump 1; subsequent dumps use native update - 1396. A native update spans two Dolphin controller polls; stick displacement 32 requests walking. These origins belong to the replay, never the quicksave payload. The active-circle region isolates the effect footprint; the full-frame gate covers the overlapping actor. The outdoor audio window uses explicit channel-DC normalization and records raw PCM diagnostics.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/paired-school-grounds.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "school-grounds-keyboard.json",
-    "sha256": "d75f4c4b00c34a3865c5296e67c40a3f9fc59e232d14789d9f84259a03360c9f"
+    "sha256": "3ccfe022c6712af640b2f4dacc66a1c9468d9f78713a7a1781925bb0c702a269"
   },
   "dolphin": {
     "state": {
@@ -92,13 +92,7 @@
           130,
           45
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "walk-left",
@@ -120,13 +114,7 @@
           130,
           45
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "left-end",
@@ -148,13 +136,7 @@
           130,
           45
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "idle",
@@ -176,13 +158,7 @@
           130,
           45
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "save-fade-start",
@@ -204,13 +180,7 @@
           130,
           45
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "save-fade-middle",
@@ -232,13 +202,7 @@
           130,
           45
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "save-fade-end",
@@ -260,13 +224,7 @@
           130,
           45
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "save-gone",
@@ -288,13 +246,7 @@
           130,
           45
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "walk-right",
@@ -310,13 +262,7 @@
           215,
           30
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     },
     {
       "name": "right-end",
@@ -350,13 +296,7 @@
           125,
           125
         ]
-      ],
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      ]
     }
   ],
   "audio": []

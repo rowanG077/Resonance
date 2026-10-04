@@ -1,14 +1,6 @@
 {
   "version": 1,
   "updates": 2457,
-  "ambient_origin": {
-    "update": 2237,
-    "samples": {
-      "999980": 52,
-      "999996": 52,
-      "999998": 252
-    }
-  },
   "inputs": [
     {
       "update": 2248,

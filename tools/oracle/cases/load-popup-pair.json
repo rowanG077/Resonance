@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Load confirmation opening, settled cursor cycle and dismissal; empty-load error feedback.",
-  "registration": "The source starts at a populated Save list; native creates its own slot from the ordinary field checkpoint using keyboard input. Native Main opens on Tech at update 680; Left at 740 selects System, matching source Left at poll 460. Left wraps from the first item to the last; otherwise it selects the previous item. Remove the stale native Down at 710, which selected Items and made Left select Synopsis. Native System closes from updates 831 through 838, Main slides through 848, and Load bank is published at 849; bank confirmation at 869 remains unchanged. Register confirmation opening at native update 1013 and source VI 611; both menu clocks have phase 21 modulo 24. Dismiss after 32 updates, then capture the complete fade and returned list. The populated-menu savestate creates an unused startup video header; select contiguous video segment 1, whose presentation queue begins two VIs before the memory-observation origin (video_first_vi = -2). The opening alpha 32 at observed VI 611 is presented at video timestamp tick 613, and dismissal alpha 223 at VI 643 at timestamp tick 645; this single offset applies to every compared frame. All segment hashes remain in capture.json. Every frame checks the whole image and logical/displayed popup state. The opaque popup additionally has a tight region; randomized HP/TP and recorded play times differ in the underlying slot card, so translucent/absent popup crops would also measure those fixture differences. The separate save-popup case checks all fade phases with a tight region over identical empty-slot content. Audio remains file-only. Select the next empty slot and confirm; eight consecutive frames must retain the list without a popup. Set the shared UI presentation origin once to 38992: observed source VI 611 has UI clock 40005 and pairs native update 1013. Every one of this case's 56 frame observations yields the same source-UI-minus-native-update constant. The runtime already used the shared UI clock before the first cleanup; the former fixture registered only the local menu clock. No per-frame clock adjustment, capture movement, source substitution or relaxed gate is applied.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/paired-school-grounds.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "load-popup-keyboard.json",
-    "sha256": "5917eed734ac954ce33d261c85e9632b32b969f08b95ab9a5579bff783ec276a"
+    "sha256": "95a83635af6829369f17b89b82d9c8bec751a44682b8caa20488465a6a60d4da"
   },
   "dolphin": {
     "state": {

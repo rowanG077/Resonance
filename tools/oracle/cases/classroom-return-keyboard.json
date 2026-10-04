@@ -1,30 +1,6 @@
 {
   "version": 1,
   "updates": 3337,
-  "presentation_origin": 31775,
-  "presentation_pauses": [
-    {"start": 2378, "end": 2393}
-  ],
-  "effect_pauses": [
-    {"start": 2412, "end": 2427},
-    {"start": 3092, "end": 3121}
-  ],
-  "ambient_origin": {
-    "update": 2237,
-    "effect_tick": 34012,
-    "samples": {
-      "999980": 52,
-      "999996": 52,
-      "999998": 252
-    },
-    "skit": {
-      "id": 600,
-      "control_ticks": 4557,
-      "remaining": 783,
-      "opacity": 255,
-      "text_opacity": 255
-    }
-  },
   "inputs": [
     {
       "update": 2248,

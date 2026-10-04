@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "EX Skill transitions: outer entry, closing and reopening, independent gem/stat preview slides and swaps, confirmation fade, retained gem/skill/compound help, and all prior compound settled samples.",
-  "registration": "Reuses the silent ex-compound-paired-v4/dolphin recording and unchanged ex-compound-fixture-v1 checkpoints. Native update 64 is source VI 0 with the complete equipment-transitions-keyboard ambient origin: actors, autonomy, eyes, animation samples, effects, RNG, background script waits, save sparks and skit prompt. All 5040 memory observations satisfy UI clock = 38084 + VI and effect clock = 37551 + VI, with contiguous VIs and no clock holds. Native presentation/session origins are 38020/34519; effect tick at update 64 is 37551. No replay waits, removed waits, presentation/effect advances or animation overrides are added. Initial Y first presents Main at source VI 12; later input edges use source poll/2 + 1, mapped to native VI + 64 with release on the following update. EX first appears at VI 343 and remains the child page through VI 4742; reopening first appears at VI 4903. Dense ranges retain all 22 settled samples from ex-compounds-pair. The 218 selected images use unchanged whole-image tolerances, party_state and effect_clock_state throughout, and existing ex_state during the active EX intervals. Every ex_state dependency is present in every source memory row. Timestamped 60000/1001 Hz video starts at VI 0 and ends at VI 5038; requested absent VIs 413, 416, 419, 422, 425, 664, 667 are excluded, without shifting inputs or neighboring comparisons. Existing settled replacements VI 2311,3591,3671,4631 remain unchanged. The recording lacks effect RNG and new EX preview/help/popup observations, so no missing transient phases are inferred or fabricated: these transitions are checked visually, with navigation, inventory, EX selections, compounds and statistics checked by the existing helper. It includes the Max gem swap and compact choices, but no lower-left row scrolling, C-stick paging, GemList cancellation or early input during preview transitions; those behaviors remain outside this recording.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/ex-compound-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "ex-transitions-keyboard.json",
-    "sha256": "919c862d1adbad0b260b7e3d6dd92bae0d50247100968e5045244d48fd9176e7"
+    "sha256": "48518fdddab24a3a1d86710cba09bf56855cb37ee06fd7410caddab241a6f029"
   },
   "dolphin": {
     "state": {
@@ -487,113 +487,97 @@
       "name": "origin",
       "native": "origin-0",
       "dolphin_vi": 0,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "main-first-pose",
       "native": "main-first-pose",
       "dolphin_vi": 12,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "main-open",
       "native": "main-open",
       "dolphin_vi": 21,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-0",
       "native": "ex-enter-0",
       "dolphin_vi": 331,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-1",
       "native": "ex-enter-1",
       "dolphin_vi": 332,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-2",
       "native": "ex-enter-2",
       "dolphin_vi": 333,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-3",
       "native": "ex-enter-3",
       "dolphin_vi": 334,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-4",
       "native": "ex-enter-4",
       "dolphin_vi": 335,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-5",
       "native": "ex-enter-5",
       "dolphin_vi": 336,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-6",
       "native": "ex-enter-6",
       "dolphin_vi": 337,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-7",
       "native": "ex-enter-7",
       "dolphin_vi": 338,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-8",
       "native": "ex-enter-8",
       "dolphin_vi": 339,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-9",
       "native": "ex-enter-9",
       "dolphin_vi": 340,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-10",
       "native": "ex-enter-10",
       "dolphin_vi": 341,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-11",
       "native": "ex-enter-11",
       "dolphin_vi": 342,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-enter-12",
       "native": "ex-enter-12",
       "dolphin_vi": 343,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -601,7 +585,6 @@
       "native": "ex-enter-13",
       "dolphin_vi": 344,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -609,7 +592,6 @@
       "native": "ex-enter-14",
       "dolphin_vi": 345,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -617,7 +599,6 @@
       "native": "ex-enter-15",
       "dolphin_vi": 346,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -625,7 +606,6 @@
       "native": "ex-enter-16",
       "dolphin_vi": 347,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -633,7 +613,6 @@
       "native": "ex-enter-17",
       "dolphin_vi": 348,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -641,7 +620,6 @@
       "native": "ex-enter-18",
       "dolphin_vi": 349,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -649,7 +627,6 @@
       "native": "ex-enter-19",
       "dolphin_vi": 350,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -657,7 +634,6 @@
       "native": "ex-enter-20",
       "dolphin_vi": 351,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -665,7 +641,6 @@
       "native": "ex-enter-21",
       "dolphin_vi": 352,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -673,7 +648,6 @@
       "native": "ex-enter-22",
       "dolphin_vi": 353,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -681,7 +655,6 @@
       "native": "ex-enter-23",
       "dolphin_vi": 354,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -689,7 +662,6 @@
       "native": "vi-390",
       "dolphin_vi": 390,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -697,7 +669,6 @@
       "native": "gem-preview-open-0",
       "dolphin_vi": 411,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -705,7 +676,6 @@
       "native": "gem-preview-open-1",
       "dolphin_vi": 412,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -713,7 +683,6 @@
       "native": "gem-preview-open-3",
       "dolphin_vi": 414,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -721,7 +690,6 @@
       "native": "gem-preview-open-4",
       "dolphin_vi": 415,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -729,7 +697,6 @@
       "native": "gem-preview-open-6",
       "dolphin_vi": 417,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -737,7 +704,6 @@
       "native": "gem-preview-open-7",
       "dolphin_vi": 418,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -745,7 +711,6 @@
       "native": "gem-preview-open-9",
       "dolphin_vi": 420,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -753,7 +718,6 @@
       "native": "gem-preview-open-10",
       "dolphin_vi": 421,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -761,7 +725,6 @@
       "native": "gem-preview-open-12",
       "dolphin_vi": 423,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -769,7 +732,6 @@
       "native": "gem-preview-open-13",
       "dolphin_vi": 424,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -777,7 +739,6 @@
       "native": "gem-preview-open-15",
       "dolphin_vi": 426,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -785,7 +746,6 @@
       "native": "gem-preview-open-16",
       "dolphin_vi": 427,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -793,7 +753,6 @@
       "native": "gem-popup-0",
       "dolphin_vi": 491,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -801,7 +760,6 @@
       "native": "gem-popup-1",
       "dolphin_vi": 492,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -809,7 +767,6 @@
       "native": "gem-popup-2",
       "dolphin_vi": 493,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -817,7 +774,6 @@
       "native": "gem-popup-3",
       "dolphin_vi": 494,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -825,7 +781,6 @@
       "native": "gem-popup-4",
       "dolphin_vi": 495,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -833,7 +788,6 @@
       "native": "gem-popup-5",
       "dolphin_vi": 496,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -841,7 +795,6 @@
       "native": "gem-popup-6",
       "dolphin_vi": 497,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -849,7 +802,6 @@
       "native": "gem-popup-7",
       "dolphin_vi": 498,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -857,7 +809,6 @@
       "native": "gem-popup-8",
       "dolphin_vi": 499,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -865,7 +816,6 @@
       "native": "gem-popup-9",
       "dolphin_vi": 500,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -873,7 +823,6 @@
       "native": "gem-preview-swap-0",
       "dolphin_vi": 571,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -881,7 +830,6 @@
       "native": "gem-preview-swap-1",
       "dolphin_vi": 572,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -889,7 +837,6 @@
       "native": "gem-preview-swap-2",
       "dolphin_vi": 573,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -897,7 +844,6 @@
       "native": "gem-preview-swap-3",
       "dolphin_vi": 574,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -905,7 +851,6 @@
       "native": "gem-preview-swap-4",
       "dolphin_vi": 575,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -913,7 +858,6 @@
       "native": "gem-preview-swap-5",
       "dolphin_vi": 576,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -921,7 +865,6 @@
       "native": "gem-preview-swap-6",
       "dolphin_vi": 577,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -929,7 +872,6 @@
       "native": "gem-preview-swap-7",
       "dolphin_vi": 578,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -937,7 +879,6 @@
       "native": "gem-preview-swap-8",
       "dolphin_vi": 579,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -945,7 +886,6 @@
       "native": "gem-preview-swap-9",
       "dolphin_vi": 580,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -953,7 +893,6 @@
       "native": "gem-preview-swap-10",
       "dolphin_vi": 581,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -961,7 +900,6 @@
       "native": "gem-preview-swap-11",
       "dolphin_vi": 582,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -969,7 +907,6 @@
       "native": "gem-preview-swap-12",
       "dolphin_vi": 583,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -977,7 +914,6 @@
       "native": "gem-preview-swap-13",
       "dolphin_vi": 584,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -985,7 +921,6 @@
       "native": "gem-preview-swap-14",
       "dolphin_vi": 585,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -993,7 +928,6 @@
       "native": "gem-preview-swap-15",
       "dolphin_vi": 586,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1001,7 +935,6 @@
       "native": "gem-preview-swap-16",
       "dolphin_vi": 587,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1009,7 +942,6 @@
       "native": "skill-preview-close-0",
       "dolphin_vi": 651,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1017,7 +949,6 @@
       "native": "skill-preview-close-1",
       "dolphin_vi": 652,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1025,7 +956,6 @@
       "native": "skill-preview-close-2",
       "dolphin_vi": 653,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1033,7 +963,6 @@
       "native": "skill-preview-close-3",
       "dolphin_vi": 654,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1041,7 +970,6 @@
       "native": "skill-preview-close-4",
       "dolphin_vi": 655,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1049,7 +977,6 @@
       "native": "skill-preview-close-5",
       "dolphin_vi": 656,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1057,7 +984,6 @@
       "native": "skill-preview-close-6",
       "dolphin_vi": 657,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1065,7 +991,6 @@
       "native": "skill-preview-close-7",
       "dolphin_vi": 658,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1073,7 +998,6 @@
       "native": "skill-preview-close-8",
       "dolphin_vi": 659,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1081,7 +1005,6 @@
       "native": "skill-preview-close-9",
       "dolphin_vi": 660,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1089,7 +1012,6 @@
       "native": "skill-preview-close-10",
       "dolphin_vi": 661,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1097,7 +1019,6 @@
       "native": "skill-preview-close-11",
       "dolphin_vi": 662,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1105,7 +1026,6 @@
       "native": "skill-preview-close-12",
       "dolphin_vi": 663,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1113,7 +1033,6 @@
       "native": "skill-preview-close-14",
       "dolphin_vi": 665,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1121,7 +1040,6 @@
       "native": "skill-preview-close-15",
       "dolphin_vi": 666,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1129,7 +1047,6 @@
       "native": "max-gem-help-0",
       "dolphin_vi": 1131,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1137,7 +1054,6 @@
       "native": "max-gem-help-7",
       "dolphin_vi": 1138,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1145,7 +1061,6 @@
       "native": "max-gem-help-15",
       "dolphin_vi": 1146,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1153,7 +1068,6 @@
       "native": "max-gem-popup-0",
       "dolphin_vi": 1211,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1161,7 +1075,6 @@
       "native": "max-gem-popup-1",
       "dolphin_vi": 1212,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1169,7 +1082,6 @@
       "native": "max-gem-popup-2",
       "dolphin_vi": 1213,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1177,7 +1089,6 @@
       "native": "max-gem-popup-3",
       "dolphin_vi": 1214,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1185,7 +1096,6 @@
       "native": "max-gem-popup-4",
       "dolphin_vi": 1215,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1193,7 +1103,6 @@
       "native": "max-gem-popup-5",
       "dolphin_vi": 1216,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1201,7 +1110,6 @@
       "native": "max-gem-popup-6",
       "dolphin_vi": 1217,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1209,7 +1117,6 @@
       "native": "max-gem-popup-7",
       "dolphin_vi": 1218,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1217,7 +1124,6 @@
       "native": "max-gem-popup-8",
       "dolphin_vi": 1219,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1225,7 +1131,6 @@
       "native": "max-gem-popup-9",
       "dolphin_vi": 1220,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1233,7 +1138,6 @@
       "native": "max-gem-popup-10",
       "dolphin_vi": 1221,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1241,7 +1145,6 @@
       "native": "max-gem-popup-11",
       "dolphin_vi": 1222,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1249,7 +1152,6 @@
       "native": "max-gem-popup-12",
       "dolphin_vi": 1223,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1257,7 +1159,6 @@
       "native": "max-gem-popup-13",
       "dolphin_vi": 1224,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1265,7 +1166,6 @@
       "native": "max-gem-popup-14",
       "dolphin_vi": 1225,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1273,7 +1173,6 @@
       "native": "max-gem-popup-15",
       "dolphin_vi": 1226,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1281,7 +1180,6 @@
       "native": "max-gem-popup-16",
       "dolphin_vi": 1227,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1289,7 +1187,6 @@
       "native": "max-preview-swap-0",
       "dolphin_vi": 1291,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1297,7 +1194,6 @@
       "native": "max-preview-swap-1",
       "dolphin_vi": 1292,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1305,7 +1201,6 @@
       "native": "max-preview-swap-2",
       "dolphin_vi": 1293,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1313,7 +1208,6 @@
       "native": "max-preview-swap-3",
       "dolphin_vi": 1294,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1321,7 +1215,6 @@
       "native": "max-preview-swap-4",
       "dolphin_vi": 1295,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1329,7 +1222,6 @@
       "native": "max-preview-swap-5",
       "dolphin_vi": 1296,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1337,7 +1229,6 @@
       "native": "max-preview-swap-6",
       "dolphin_vi": 1297,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1345,7 +1236,6 @@
       "native": "max-preview-swap-7",
       "dolphin_vi": 1298,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1353,7 +1243,6 @@
       "native": "max-preview-swap-8",
       "dolphin_vi": 1299,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1361,7 +1250,6 @@
       "native": "max-preview-swap-9",
       "dolphin_vi": 1300,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1369,7 +1257,6 @@
       "native": "max-preview-swap-10",
       "dolphin_vi": 1301,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1377,7 +1264,6 @@
       "native": "max-preview-swap-11",
       "dolphin_vi": 1302,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1385,7 +1271,6 @@
       "native": "max-preview-swap-12",
       "dolphin_vi": 1303,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1393,7 +1278,6 @@
       "native": "max-preview-swap-13",
       "dolphin_vi": 1304,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1401,7 +1285,6 @@
       "native": "max-preview-swap-14",
       "dolphin_vi": 1305,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1409,7 +1292,6 @@
       "native": "max-preview-swap-15",
       "dolphin_vi": 1306,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1417,7 +1299,6 @@
       "native": "max-preview-swap-16",
       "dolphin_vi": 1307,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1425,7 +1306,6 @@
       "native": "vi-1430",
       "dolphin_vi": 1430,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1433,7 +1313,6 @@
       "native": "vi-1510",
       "dolphin_vi": 1510,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1441,7 +1320,6 @@
       "native": "compound-help-0",
       "dolphin_vi": 1531,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1449,7 +1327,6 @@
       "native": "compound-help-1",
       "dolphin_vi": 1532,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1457,7 +1334,6 @@
       "native": "compound-help-2",
       "dolphin_vi": 1533,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1465,7 +1341,6 @@
       "native": "compound-help-3",
       "dolphin_vi": 1534,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1473,7 +1348,6 @@
       "native": "compound-help-4",
       "dolphin_vi": 1535,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1481,7 +1355,6 @@
       "native": "compound-help-5",
       "dolphin_vi": 1536,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1489,7 +1362,6 @@
       "native": "compound-help-6",
       "dolphin_vi": 1537,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1497,7 +1369,6 @@
       "native": "compound-help-7",
       "dolphin_vi": 1538,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1505,7 +1376,6 @@
       "native": "compound-help-8",
       "dolphin_vi": 1539,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1513,7 +1383,6 @@
       "native": "compound-help-9",
       "dolphin_vi": 1540,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1521,7 +1390,6 @@
       "native": "compound-help-10",
       "dolphin_vi": 1541,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1529,7 +1397,6 @@
       "native": "compound-help-11",
       "dolphin_vi": 1542,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1537,7 +1404,6 @@
       "native": "compound-help-12",
       "dolphin_vi": 1543,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1545,7 +1411,6 @@
       "native": "compound-help-13",
       "dolphin_vi": 1544,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1553,7 +1418,6 @@
       "native": "compound-help-14",
       "dolphin_vi": 1545,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1561,7 +1425,6 @@
       "native": "compound-help-15",
       "dolphin_vi": 1546,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1569,7 +1432,6 @@
       "native": "compound-help-16",
       "dolphin_vi": 1547,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1577,7 +1439,6 @@
       "native": "vi-1590",
       "dolphin_vi": 1590,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1585,7 +1446,6 @@
       "native": "vi-1670",
       "dolphin_vi": 1670,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1593,7 +1453,6 @@
       "native": "vi-2230",
       "dolphin_vi": 2230,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1601,7 +1460,6 @@
       "native": "vi-2311",
       "dolphin_vi": 2311,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1609,7 +1467,6 @@
       "native": "vi-2470",
       "dolphin_vi": 2470,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1617,7 +1474,6 @@
       "native": "vi-3030",
       "dolphin_vi": 3030,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1625,7 +1481,6 @@
       "native": "vi-3270",
       "dolphin_vi": 3270,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1633,7 +1488,6 @@
       "native": "vi-3350",
       "dolphin_vi": 3350,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1641,7 +1495,6 @@
       "native": "vi-3510",
       "dolphin_vi": 3510,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1649,7 +1502,6 @@
       "native": "vi-3591",
       "dolphin_vi": 3591,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1657,7 +1509,6 @@
       "native": "vi-3671",
       "dolphin_vi": 3671,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1665,7 +1516,6 @@
       "native": "vi-3750",
       "dolphin_vi": 3750,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1673,7 +1523,6 @@
       "native": "skill-preview-open-0",
       "dolphin_vi": 4011,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1681,7 +1530,6 @@
       "native": "skill-preview-open-1",
       "dolphin_vi": 4012,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1689,7 +1537,6 @@
       "native": "skill-preview-open-2",
       "dolphin_vi": 4013,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1697,7 +1544,6 @@
       "native": "skill-preview-open-3",
       "dolphin_vi": 4014,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1705,7 +1551,6 @@
       "native": "skill-preview-open-4",
       "dolphin_vi": 4015,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1713,7 +1558,6 @@
       "native": "skill-preview-open-5",
       "dolphin_vi": 4016,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1721,7 +1565,6 @@
       "native": "skill-preview-open-6",
       "dolphin_vi": 4017,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1729,7 +1572,6 @@
       "native": "skill-preview-open-7",
       "dolphin_vi": 4018,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1737,7 +1579,6 @@
       "native": "skill-preview-open-8",
       "dolphin_vi": 4019,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1745,7 +1586,6 @@
       "native": "skill-preview-open-9",
       "dolphin_vi": 4020,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1753,7 +1593,6 @@
       "native": "skill-preview-open-10",
       "dolphin_vi": 4021,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1761,7 +1600,6 @@
       "native": "skill-preview-open-11",
       "dolphin_vi": 4022,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1769,7 +1607,6 @@
       "native": "skill-preview-open-12",
       "dolphin_vi": 4023,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1777,7 +1614,6 @@
       "native": "vi-4150",
       "dolphin_vi": 4150,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1785,7 +1621,6 @@
       "native": "vi-4230",
       "dolphin_vi": 4230,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1793,7 +1628,6 @@
       "native": "vi-4310",
       "dolphin_vi": 4310,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1801,7 +1635,6 @@
       "native": "vi-4470",
       "dolphin_vi": 4470,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1809,7 +1642,6 @@
       "native": "vi-4550",
       "dolphin_vi": 4550,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1817,7 +1649,6 @@
       "native": "vi-4631",
       "dolphin_vi": 4631,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1825,7 +1656,6 @@
       "native": "ex-close-0",
       "dolphin_vi": 4731,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1833,7 +1663,6 @@
       "native": "ex-close-1",
       "dolphin_vi": 4732,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1841,7 +1670,6 @@
       "native": "ex-close-2",
       "dolphin_vi": 4733,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1849,7 +1677,6 @@
       "native": "ex-close-3",
       "dolphin_vi": 4734,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1857,7 +1684,6 @@
       "native": "ex-close-4",
       "dolphin_vi": 4735,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1865,7 +1691,6 @@
       "native": "ex-close-5",
       "dolphin_vi": 4736,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1873,7 +1698,6 @@
       "native": "ex-close-6",
       "dolphin_vi": 4737,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1881,7 +1705,6 @@
       "native": "ex-close-7",
       "dolphin_vi": 4738,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1889,7 +1712,6 @@
       "native": "ex-close-8",
       "dolphin_vi": 4739,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1897,7 +1719,6 @@
       "native": "ex-close-9",
       "dolphin_vi": 4740,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1905,7 +1726,6 @@
       "native": "ex-close-10",
       "dolphin_vi": 4741,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -1913,183 +1733,157 @@
       "native": "ex-close-11",
       "dolphin_vi": 4742,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
       "name": "ex-close-12",
       "native": "ex-close-12",
       "dolphin_vi": 4743,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-13",
       "native": "ex-close-13",
       "dolphin_vi": 4744,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-14",
       "native": "ex-close-14",
       "dolphin_vi": 4745,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-15",
       "native": "ex-close-15",
       "dolphin_vi": 4746,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-16",
       "native": "ex-close-16",
       "dolphin_vi": 4747,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-17",
       "native": "ex-close-17",
       "dolphin_vi": 4748,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-18",
       "native": "ex-close-18",
       "dolphin_vi": 4749,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-19",
       "native": "ex-close-19",
       "dolphin_vi": 4750,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-20",
       "native": "ex-close-20",
       "dolphin_vi": 4751,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-21",
       "native": "ex-close-21",
       "dolphin_vi": 4752,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-22",
       "native": "ex-close-22",
       "dolphin_vi": 4753,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-close-23",
       "native": "ex-close-23",
       "dolphin_vi": 4754,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-0",
       "native": "ex-reopen-0",
       "dolphin_vi": 4891,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-1",
       "native": "ex-reopen-1",
       "dolphin_vi": 4892,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-2",
       "native": "ex-reopen-2",
       "dolphin_vi": 4893,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-3",
       "native": "ex-reopen-3",
       "dolphin_vi": 4894,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-4",
       "native": "ex-reopen-4",
       "dolphin_vi": 4895,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-5",
       "native": "ex-reopen-5",
       "dolphin_vi": 4896,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-6",
       "native": "ex-reopen-6",
       "dolphin_vi": 4897,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-7",
       "native": "ex-reopen-7",
       "dolphin_vi": 4898,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-8",
       "native": "ex-reopen-8",
       "dolphin_vi": 4899,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-9",
       "native": "ex-reopen-9",
       "dolphin_vi": 4900,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-10",
       "native": "ex-reopen-10",
       "dolphin_vi": 4901,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-11",
       "native": "ex-reopen-11",
       "dolphin_vi": 4902,
-      "party_state": true,
-      "effect_clock_state": true
+      "party_state": true
     },
     {
       "name": "ex-reopen-12",
       "native": "ex-reopen-12",
       "dolphin_vi": 4903,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2097,7 +1891,6 @@
       "native": "ex-reopen-13",
       "dolphin_vi": 4904,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2105,7 +1898,6 @@
       "native": "ex-reopen-14",
       "dolphin_vi": 4905,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2113,7 +1905,6 @@
       "native": "ex-reopen-15",
       "dolphin_vi": 4906,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2121,7 +1912,6 @@
       "native": "ex-reopen-16",
       "dolphin_vi": 4907,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2129,7 +1919,6 @@
       "native": "ex-reopen-17",
       "dolphin_vi": 4908,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2137,7 +1926,6 @@
       "native": "ex-reopen-18",
       "dolphin_vi": 4909,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2145,7 +1933,6 @@
       "native": "ex-reopen-19",
       "dolphin_vi": 4910,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2153,7 +1940,6 @@
       "native": "ex-reopen-20",
       "dolphin_vi": 4911,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2161,7 +1947,6 @@
       "native": "ex-reopen-21",
       "dolphin_vi": 4912,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2169,7 +1954,6 @@
       "native": "ex-reopen-22",
       "dolphin_vi": 4913,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2177,7 +1961,6 @@
       "native": "ex-reopen-23",
       "dolphin_vi": 4914,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     },
     {
@@ -2185,7 +1968,6 @@
       "native": "vi-4950",
       "dolphin_vi": 4950,
       "party_state": true,
-      "effect_clock_state": true,
       "ex_state": true
     }
   ],

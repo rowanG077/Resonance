@@ -369,7 +369,6 @@ pub(super) struct ActorPart {
     instance: u64,
     pub(super) resource: u32,
     pub(super) part: usize,
-    pub(super) creation: Option<resonance_events::ActorCreation>,
     pub(super) pass: u8,
     materials: Vec<Handle<TitleSurface>>,
     pub(super) prepared: bool,
@@ -992,7 +991,7 @@ fn ui(
         // A streamed actor's bind pose is not the dialogue attachment pose.
         // Sample this tick's animation before retaining the attachment height.
         .filter(|(_, part, rig, _)| part.part == 0 && rig.sampled)
-        .filter_map(|(root, part, rig, secondary)| {
+        .filter_map(|(root, part, _, _)| {
             children
                 .iter_descendants(root)
                 .find(|&entity| {
@@ -1001,17 +1000,10 @@ fn ui(
                         .is_ok_and(|name| name.as_str().starts_with("Bone_atama"))
                 })
                 .and_then(|entity| {
-                    secondary
-                        .and_then(|secondary| {
-                            secondary.binding_attachment(entity, state.get().events.tick())
-                        })
-                        .or_else(|| rig.binding_attachment(entity, &transforms))
-                        .or_else(|| {
-                            transforms
-                                .compute_global_transform(entity)
-                                .ok()
-                                .map(|transform| transform.translation())
-                        })
+                    transforms
+                        .compute_global_transform(entity)
+                        .ok()
+                        .map(|pose| pose.translation())
                 })
                 .map(|position| (part.actor, position))
         })
@@ -1803,9 +1795,6 @@ fn instances(
                             instance: actor.instance,
                             resource: actor.resource,
                             part: index,
-                            creation: actor
-                                .creation
-                                .filter(|p| p.tick == session.get().events.tick()),
                             pass,
                             materials,
                             prepared: false,

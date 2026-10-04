@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Colette cooks for three injured party members: select and retain the chef, consume ingredients, restore HP/TP, train only the selected cook, and retain results on return.",
-  "registration": "Controlled copies set the three active members to HP 1 / TP 1 with no conditions. The shared school-grounds registration supplies the independently observed ambient actors, effects and RNG after 64 native preparation updates. Subsequent native inputs/captures are source VI + 64; menu entry is native update 76 / source VI 12. No source poses or executable fragments enter the runtime.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/cooking-injured-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "cooking-injured-keyboard.json",
-    "sha256": "5d3b522c83b3bd31b878f1e7a6b26604b8e2a6dc07f8d02e7c1d81e02874be17"
+    "sha256": "d510702c0427a7a9885c41890c478895f05fa230132631a7bfc9b2ff0bdbe015"
   },
   "dolphin": {
     "state": {
@@ -151,65 +151,49 @@
       "name": "overview",
       "native": "overview",
       "dolphin_vi": 350,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "cooks",
       "native": "cooks",
       "dolphin_vi": 500,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "colette",
       "native": "colette",
       "dolphin_vi": 650,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "selected-chef",
       "native": "selected-chef",
       "dolphin_vi": 750,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "result",
       "native": "result",
       "dolphin_vi": 900,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "result-held",
       "native": "result-held",
       "dolphin_vi": 950,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "return",
       "native": "return",
       "dolphin_vi": 1050,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "main",
       "native": "main",
       "dolphin_vi": 1200,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     }
   ],
   "audio": []

@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Genis house ordinary entry and return at story2500.",
-  "registration": "The doorstep state was reached by ordinary source movement and completing the one-time Genis reminder; event flags are31/204/374 and cooking275 is clear. Both saves start free control at exactly the observed pose and camera. Native update64 is sourceVI0, input edges are sourcepoll/2+1 plus64. At the first capture, the source-verified settled live camera origin restores fractional angles[330.875,0,38.875] and distance1669.00048828125 while desired saved angles[330,0,38] remain unchanged; the truncated orbit easing retains this fraction indefinitely. Source loading duration is not simulated; only settled arrivals are sampled. Indoor/outdoor field animation restarts are deliberately not adjusted after entry, so the initial run can reveal any remaining visual registration or runtime gap without relaxing image/pose gates. Complete timeline normalization now uses native_update = 64 + source_vi - collapsed loading VIs. Inclusive source loading intervals: 113..128, 285..304. This same mapping applies to all input edges, captures, expected states and replay duration; source target VIs, key order and all strict gates are unchanged. The source UI advances through loading, so presentation_advances restores those skipped UI ticks once at each first retained update; field effects receive no extra ticks. Original video confirms black presentation or absent output during these blocking loads. Actor clearing, field initialization, placement and RNG draws at completion are preserved as semantic setup work, not falsely described as immutable memory. No idle, dialogue or visible animation ticks are removed. Full source interval evidence and old/new pins are in timeline-provenance.json.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/iselia-expansion/genis-native-source-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "genis-roundtrip-keyboard.json",
-    "sha256": "2db5a41b18dfb16d15fa54eabe6135fd151dbe5072c79d8121d246da9b521b6c"
+    "sha256": "62094b2127ba8daa10fc083deaaf797f291ddba229089d5163add9c549873349"
   },
   "dolphin": {
     "state": {

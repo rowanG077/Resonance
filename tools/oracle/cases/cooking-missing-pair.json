@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Discard every Bread through the Items menu, then reject cooking without ingredients from both header selections. Verify notices, dismissal, retained selection and unchanged cooking progress.",
-  "registration": "Use the school-grounds party, inventory, scenario record and clocks observed in the paired Dolphin state. Native replay registers the existing skit notification and source session clock once at initialization. Input updates follow the declared poll-to-update mapping; frames are captured between input edges after menus settle. Compare whole frames without changing the existing image tolerance. Native E/Q map to the original C-stick down/up for recipe paging. The UI clock starts at the observed source value 38084. Discard confirmation starts at No; the first acceptance declines, then Up explicitly selects Yes for each deletion.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "cooking-missing-keyboard.json",
-    "sha256": "f7e4eecb71dd3b3e25cccf665ae97cd27872c93524804801cd93a163bdcd4f98"
+    "sha256": "350fffabf8ed27f328a4acaeac1ddff4aa26d1772b6b6bfe7479c70cc02e770e"
   },
   "dolphin": {
     "state": {
@@ -306,107 +306,93 @@
       "native": "items",
       "dolphin_vi": 160,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "bread",
       "native": "bread",
       "dolphin_vi": 350,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "confirm-no",
       "native": "confirm-no",
       "dolphin_vi": 390,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "declined",
       "native": "declined",
       "dolphin_vi": 430,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "confirm-yes",
       "native": "confirm-yes",
       "dolphin_vi": 480,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "discard-one",
       "native": "discard-one",
       "dolphin_vi": 510,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "discard-two",
       "native": "discard-two",
       "dolphin_vi": 630,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "discard-last",
       "native": "discard-last",
       "dolphin_vi": 750,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "empty",
       "native": "empty",
       "dolphin_vi": 790,
       "cooking_state": true,
-      "inventory_state": true,
-      "gameplay_random_state": true
+      "inventory_state": true
     },
     {
       "name": "no-ingredients",
       "native": "no-ingredients",
       "dolphin_vi": 1070,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "missing",
       "native": "missing",
       "dolphin_vi": 1180,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "missing-held",
       "native": "missing-held",
       "dolphin_vi": 1240,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "dismissed",
       "native": "dismissed",
       "dolphin_vi": 1300,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     },
     {
       "name": "missing-recipe-header",
       "native": "missing-recipe-header",
       "dolphin_vi": 1410,
-      "cooking_state": true,
-      "gameplay_random_state": true
+      "cooking_state": true
     }
   ],
   "audio": []

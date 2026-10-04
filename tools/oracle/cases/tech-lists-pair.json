@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Tech long lists: manual and two-column AI paging, final-row bounds, retained shortcut selections, header navigation and confirmed/cancelled forgetting of related techniques.",
-  "registration": "Controlled tech-lists-fixture-v1 grants Lloyd techniques 2-12 and Genis 67-80 in matching native/source copies, including learned and AI flags. The source table ordering is preserved. Story remains 2500; the menu opens at native update 40 and subsequent inputs/images use source poll/2 with the existing presentation and session origins. This checks menu state, not natural technique acquisition.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/tech-lists-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "tech-lists-keyboard.json",
-    "sha256": "bbe4e93deb6cebe271106a751f8182dd3dda040bdc4be61720865d9ec2b538cc"
+    "sha256": "5bb550751a9e3fbf00f278047c8229b77c9e45dead720beab38cdb2aa76e81e8"
   },
   "dolphin": {
     "state": {

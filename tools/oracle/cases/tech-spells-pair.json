@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Tech field spells: four-member target selection, healing, revival and rejected casts.",
-  "registration": "Controlled fixture uses formation 1/2/3/4, teaches Raine Resurrection (3:121), sets Lloyd to 1 HP and Colette to 0 HP with the knockout condition, and preserves all other party values. These changes are checked against starting Dolphin vitals and written to matching test copies. Story remains 2500. Menu opens at native update 40; subsequent inputs/images use source poll/2 with presentation/session origins registered from the starting state. The v2 fixture preserves matching AI enable flags when granting learned spells.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/tech-spells-fixture-v2/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "tech-spells-keyboard.json",
-    "sha256": "990a85563591e6264fb3d2e5739a383235ace002c4a677bc9f6c60249d95d054"
+    "sha256": "466096cf6ec563d343d7faab065550c5d7e7fae2819e56ae6783f9e43fe8e80c"
   },
   "dolphin": {
     "state": {

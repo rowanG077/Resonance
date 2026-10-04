@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Tech save-point TP costs: equip Faerie Ring and Personal through the menus, then heal/revive/cast for 1 TP.",
-  "registration": "Controlled fixture extends tech-groups-fixture-v1 with one Faerie Ring and Raine at 4 TP. The replay equips the ring through Equip, checks the normal reduced costs, equips a level-two EX gem and selects Personal through EX Skills, then tests healing, revival, group healing, knockout rejection and zero-TP rejection. Both starts are at the activated save point; its source flag is read directly. Story remains 2500. Menu opens at native update 40; later input/image times use source poll/2 and the established presentation/session origins. Fixture grants are made by the Rust fixture tool; equipment and EX choices are actual replayed menu actions. Native update and source VI 1750→1751, 1830→1831, 4550→4551 move together to the next observed video presentation; the clock origin and tolerance are unchanged.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/tech-personal-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "tech-personal-keyboard.json",
-    "sha256": "ea10a77ba3333bd6b7df09c0f3efb24f74eb35add778fb9d7610575688a571ca"
+    "sha256": "b82f47fb02f48807235c6a2eb134ad759066be806597079d1b6ec53227cbb130"
   },
   "dolphin": {
     "state": {

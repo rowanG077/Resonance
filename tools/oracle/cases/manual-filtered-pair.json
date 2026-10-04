@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Training Manual: a partially learned manual hides locked chapters and topics without breaking navigation.",
-  "registration": "Controlled manual-filtered-fixture-v1 grants item 73 and only topic flags 104 (Movement), 108 (Targeting) and 114 (Status Effects) in matched checkpoint copies. Other progress is unchanged. Native menu opens at update 40; all subsequent inputs and captures follow source poll/2. Whole images and exact chapter/topic/paragraph state test gaps in learned topics, chapter filtering, single-topic and single-paragraph bounds, and wraparound.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/manual-filtered-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "manual-filtered-keyboard.json",
-    "sha256": "aeeb7db71abe35bf9bbd895ca7f23e894f9b4ef7f0fd11299adabbe7804e5908"
+    "sha256": "bbb366906322998dbadf8e6032fdb0205a1c5823a838687de486e99e59a98fc3"
   },
   "dolphin": {
     "state": {

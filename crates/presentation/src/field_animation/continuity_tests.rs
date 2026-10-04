@@ -1,4 +1,4 @@
-//! Original sparse scene clips must preserve bones that lose their controller.
+//! Sparse scene clips must preserve bones that lose their controller.
 use super::*;
 use resonance_content::{
     animation::{Motion, Skeleton},
@@ -48,7 +48,7 @@ fn triet_barrier_stays_raised_between_its_open_and_close_animations() -> anyhow:
             rig.authored_channels.fill(0);
             let poses = rig.sample_tracks(&motion, frame as f32)?;
             for (i, mut pose) in poses {
-                rig.blend_bone(i, &mut pose, 1., false, true);
+                rig.blend_bone(i, &mut pose, 1., true);
             }
             if slot == 84 {
                 assert_eq!(

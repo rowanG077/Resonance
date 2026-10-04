@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Items single-target picker: two-column party layout, reserve navigation and healing, condition portraits, rejection, item exhaustion, revival and petrification cure.",
-  "registration": "Controlled fixture grants one Panacea Bottle to matched copies of tech-conditions-fixture-v1. The five-member formation and artificial combined statuses test the target layout and portrait priority, not recruitment or natural damage. Every use runs through ordinary menu input. Inventory state checks every item count, all nine members' vitals, conditions and equipment, target, focus, row and scroll; images remain full-frame at tolerance 8 and 1%. Menu opens at native update 40 and source poll 20; subsequent inputs and observations use source poll/2 with the existing clock origins. Settled captures do not test popup fades, group-item previews or equipment overlays. The revival observation moves native update and source VI together from 1750 to the next recorded presentation at 1751; clock origins and acceptance tolerances are unchanged.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/items-targets-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "items-targets-keyboard.json",
-    "sha256": "6e9d4b98038a7a22f53cfe9bd0581b1d20ced19bdfb7ceba7665eb22663ee8fa"
+    "sha256": "4e8ff709714acc0037a34fb21728cdc84da4f4c2154177ec14f8e3340eafe4fa"
   },
   "dolphin": {
     "state": {

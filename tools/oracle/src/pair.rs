@@ -1,5 +1,4 @@
 //! One invocation verifies fixtures, replays both engines, and runs named gates.
-mod resource_waits;
 use super::*;
 use serde_json::{Value, json};
 use std::{
@@ -14,13 +13,11 @@ struct Pair {
     version: u32,
     revision: u8,
     description: String,
-    /// Explain semantic equivalence and animation/audio origin registration.
+    /// Explain the checkpoint and input alignment for this comparison.
     registration: String,
     disc_sha256: String,
     native_save: Fixture,
     native_replay: Fixture,
-    #[serde(default)]
-    resource_wait_source: Option<resource_waits::Source>,
     dolphin: Dolphin,
     start: Start,
     replay: ReplayCase,
@@ -87,16 +84,6 @@ struct Frame {
     /// Compare Synopsis navigation, visible entries and their saved metadata.
     #[serde(default)]
     synopsis_state: bool,
-    /// Effect phase and random stream continue independently of field animation.
-    #[serde(default)]
-    effect_state: bool,
-    /// Clock-only check for older recordings without effect RNG observations.
-    #[serde(default)]
-    effect_clock_state: bool,
-    #[serde(default)]
-    eye_actors: Vec<i32>,
-    #[serde(default)]
-    ambient_actors: Vec<i32>,
     /// Compare Start's party display and the primary/secondary Status page.
     #[serde(default)]
     statistics_state: bool,
@@ -139,21 +126,12 @@ struct Frame {
     /// Compare persistent cooking choices, training, inventory and party vitals.
     #[serde(default)]
     cooking_state: bool,
-    /// Compare gameplay draws from a source-verified MT19937 origin.
-    #[serde(default)]
-    gameplay_random_state: bool,
-    /// Source particle-pool slots containing field poison puffs.
-    #[serde(default)]
-    poison_particles: Option<Vec<u16>>,
     /// Compare the visible paralysis symbol's atlas frame, including menu pauses.
     #[serde(default)]
     paralysis_state: bool,
     /// Compare the main menu's slide/fade phase; a removed menu is fully faded.
     #[serde(default)]
     main_menu_state: bool,
-    /// Native actor to observed controller prefix; cooked samples use two ticks per frame.
-    #[serde(default)]
-    ambient_animations: BTreeMap<i32, String>,
     #[serde(default)]
     regions: Vec<[u32; 4]>,
     /// Exclude only the original Figurine Book's DVD transfer notice/bar.
@@ -209,7 +187,6 @@ pub(super) fn run(
     let native_spec: Value = serde_json::from_slice(&fs::read(&replay)?)?;
     let source_script = append_dtm(&pair.replay, &fs::read(&prefix)?, pair.dolphin.start_poll)?;
     let input_hash = format!("{:x}", Sha256::digest(&source_script));
-    resource_waits::verify(&pair, base, &native_spec, &input_hash)?;
     let reference = references.dolphin.map(Path::canonicalize).transpose()?;
     let native_reference = references.native.map(Path::canonicalize).transpose()?;
     if let Some(path) = &reference {
@@ -298,219 +275,6 @@ pub(super) fn run(
         &output.join("state.log"),
     )?;
     let observed: Value = serde_json::from_slice(&fs::read(output.join("source-state.json"))?)?;
-    if let Some(prompt) = native_spec["ambient_origin"].get("action_prompt") {
-        verify_action_prompt_origin(prompt, &observed)?;
-    }
-    if let Some(camera) = native_spec["ambient_origin"].get("camera") {
-        let saved: Value = serde_json::from_slice(&fs::read(&save)?)?;
-        verify_camera_origin(camera, &observed, &saved["state"]["camera"])?;
-    }
-    if let Some(actors) = native_spec["ambient_origin"]["actors"].as_object() {
-        for (id, origin) in actors {
-            let id: i64 = id.parse()?;
-            let actor = std::iter::once(&observed["controlled_actor"])
-                .chain(
-                    observed["actors"]
-                        .as_array()
-                        .context("missing source actors")?,
-                )
-                .find(|a| a["id"].as_i64() == Some(id))
-                .context("ambient origin actor is missing")?;
-            let ai = &actor["autonomy"];
-            let behavior = match ai["kind"].as_u64() {
-                Some(0) => "stationary",
-                Some(1) => "wander",
-                Some(2) => "wander_near_home",
-                Some(4) => "watch_player",
-                Some(5) => "approach_player",
-                Some(10) => "player",
-                Some(12) => "chase_player",
-                _ => anyhow::bail!("unsupported source ambient behavior"),
-            };
-            let state = actor["behavior"]
-                .as_u64()
-                .context("missing source behavior")? as u32;
-            let expected = json!({"behavior":behavior,"speed":ai["speed"],"home":ai["home"],
-                "radius":ai["radius"],"conversing":false,
-                "activity":ambient_activity(state)?,"initialized":state & 0x8000 != 0,
-                "remaining":ai["timer"],"floor_available":ai["floor_attributes"] != 0});
-            ensure!(
-                same_values(&origin["autonomy"], &expected)
-                    && ai["override"] == 65535
-                    && same_values(&origin["position"], &actor["position"])
-                    && same_values(&origin["heading"], &actor["heading_current"])
-                    && same_values(&origin["target_heading"], &actor["heading_target"]),
-                "ambient origin differs from source actor {id}"
-            );
-            if let Some(slot) = origin["animation_slot"].as_u64() {
-                ensure!(
-                    (actor["script_animation_slots"]
-                        .as_array()
-                        .context("missing scripted animation slots")?
-                        .contains(&json!(slot))
-                        || slot == if state & 0x3fff == 2 { 36 } else { 12 })
-                        && origin["animation_repeat"].as_bool()
-                            == actor["animation_tracks"][0]["flags"]
-                                .as_u64()
-                                .map(|v| v & 8 == 0)
-                        && origin["animation_sample"].as_f64()
-                            == actor["animation_tracks"][0]["time"]
-                                .as_f64()
-                                .map(|v| v * 2.),
-                    "ambient origin differs from source actor {id}'s animation"
-                );
-            } else {
-                ensure!(
-                    origin["animation_slot"].is_null()
-                        && actor["resource_address"] == "801e73e0"
-                        && origin["animation_sample"] == 0
-                        && origin["animation_repeat"] == false,
-                    "only a source scene locator can omit an animation origin"
-                );
-            }
-        }
-    }
-    if let Some(eyes) = native_spec["ambient_origin"]["eyes"].as_object() {
-        for (id, origin) in eyes {
-            let id: i64 = id.parse()?;
-            let actor = std::iter::once(&observed["controlled_actor"])
-                .chain(
-                    observed["actors"]
-                        .as_array()
-                        .context("missing source actors")?,
-                )
-                .find(|actor| actor["id"].as_i64() == Some(id))
-                .context("eye origin actor is missing from the source")?;
-            let bytes = actor["appearance_channels"]
-                .as_array()
-                .context("missing eye state")?;
-            let word = |start, length| -> Result<u32> {
-                bytes
-                    .get(start..start + length)
-                    .context("truncated eye state")?
-                    .iter()
-                    .try_fold(0, |word, byte| {
-                        Ok(word << 8 | u32::try_from(byte.as_u64().context("invalid eye state")?)?)
-                    })
-            };
-            ensure!(
-                *origin == observed_blink(&observed["blink_sequence"], word(0, 4)?, word(4, 2)?)?,
-                "eye origin differs from the source blink phase"
-            );
-        }
-    }
-    let effect_tick = native_spec["ambient_origin"]["effect_tick"].as_u64();
-    if let Some(random) = native_spec["ambient_origin"].get("gameplay_random") {
-        ensure!(
-            random == &observed["gameplay_random"],
-            "gameplay random origin differs from the source state"
-        );
-    }
-    ensure!(
-        !pair.frames.iter().any(|frame| frame.gameplay_random_state)
-            || native_spec["ambient_origin"]
-                .get("gameplay_random")
-                .is_some(),
-        "gameplay random comparison requires an observed origin"
-    );
-    if let Some(seed) = native_spec["ambient_origin"]["random_state"].as_u64() {
-        ensure!(
-            Some(seed) == observed["random_state"].as_u64(),
-            "random origin differs from the source state"
-        );
-    }
-    if let Some(tick) = effect_tick {
-        ensure!(
-            Some(tick) == observed["title"]["presentation_counter"].as_u64(),
-            "effect origin differs from the source draw counter"
-        );
-    }
-    if let Some(sparks) = native_spec["ambient_origin"]["save_sparks"].as_array() {
-        verify_spark_origin(sparks, &observed, effect_tick)?;
-    }
-    if let Some(puffs) = native_spec["ambient_origin"]["poison_puffs"].as_array() {
-        let source = observed["particles"]
-            .as_array()
-            .context("missing particle observations")?;
-        let source = source
-            .iter()
-            .filter(|p| p["recipe_address"] == "8020a4e4")
-            .map(|p| {
-                json!({"age":20 - p["timer"].as_u64().unwrap(),"position":p["position"],
-                "size":p["size"][0],"speed_sixteenths":p["velocity"][2].as_f64().unwrap() * 16.})
-            })
-            .collect::<Vec<_>>();
-        ensure!(
-            same_values(&json!(puffs), &json!(source)),
-            "poison origin differs from the source particles"
-        );
-    }
-    if let Some(leaves) = native_spec["ambient_origin"]["flutters"].as_array() {
-        let particles: Vec<_> = observed["particles"]
-            .as_array()
-            .context("missing source particles")?
-            .iter()
-            .filter(|p| p["callback_address"] == "80086fc4")
-            .collect();
-        ensure!(
-            leaves.len() == particles.len(),
-            "leaf origin count differs from source"
-        );
-        for (leaf, particle) in leaves.iter().zip(particles) {
-            let timer = particle["timer"].as_u64().context("missing leaf timer")?;
-            let expected = json!({"kind":25,"age":149u64.checked_sub(timer).context("leaf timer exceeds script lifetime")?,
-                "lifetime":150,"position":particle["position"],"size":particle["size"][0],"rgba":particle["rgba"],
-                "motion":{"rotation":particle["rotation"],"fall_speed":particle["velocity"][2],
-                    "spin":0.2,"heading":particle["angular_velocity"][1],"turn_after":particle["size_delta"]}});
-            ensure!(
-                particle["recipe_address"] == "8020a584"
-                    && particle["rgba"][3] == 255
-                    && same_values(leaf, &expected),
-                "leaf origin differs from observed motion"
-            );
-        }
-    }
-    if let Some(waits) = native_spec["ambient_origin"]["background_waits"].as_array() {
-        let entries = observed["script_entries"]
-            .as_array()
-            .context("missing source script registry")?;
-        let instances = observed["script_instances"]
-            .as_array()
-            .context("missing source script instances")?;
-        for wait in waits {
-            let pc = wait["pc"].as_u64().context("missing ambient wait PC")?;
-            let entry = entries
-                .iter()
-                .filter(|e| e["pc"].as_u64().is_some_and(|p| p <= pc))
-                .max_by_key(|e| e["pc"].as_u64())
-                .context("ambient wait has no source entry")?;
-            ensure!(
-                entry["kind"] == 2 && entry["key"] == wait["key"],
-                "ambient wait is outside its source event"
-            );
-            let matches: Vec<_> = instances
-                .iter()
-                .filter(|i| i["kind"] == 4 && i["pc"] == wait["pc"])
-                .collect();
-            ensure!(
-                matches.len() == 1,
-                "ambient wait source is missing or ambiguous"
-            );
-            let source = matches[0];
-            ensure!(
-                source["wait_mode"] == 0
-                    && source["wait_value"].as_u64().and_then(|n| n.checked_add(1))
-                        == wait["remaining"].as_u64()
-                    && source["flags"]
-                        == if wait["require_control"] == true {
-                            64
-                        } else {
-                            0
-                        },
-                "ambient wait differs from source timer or control gate"
-            );
-        }
-    }
     ensure!(
         observed["movie"]["input_count"].as_u64() == Some(u64::from(pair.dolphin.start_poll)),
         "Dolphin input origin differs from the manifest"
@@ -618,28 +382,6 @@ pub(super) fn run(
             .arg("--xvfb");
         if pair.frames.iter().any(|f| f.synopsis_state) {
             command.arg("--watch-synopsis");
-        }
-        let actors: std::collections::BTreeSet<_> = pair
-            .frames
-            .iter()
-            .flat_map(|f| f.eye_actors.iter().chain(&f.ambient_actors))
-            .collect();
-        ensure!(actors.len() <= 8, "too many observed actors");
-        for actor in actors {
-            command.arg("--watch-actor").arg(actor.to_string());
-        }
-        let particles: BTreeSet<_> = pair
-            .frames
-            .iter()
-            .filter_map(|f| f.poison_particles.as_ref())
-            .flatten()
-            .collect();
-        ensure!(
-            particles.len() <= 4 && particles.iter().all(|&&slot| slot < 2048),
-            "too many or invalid particle slots"
-        );
-        for slot in particles {
-            command.arg("--watch-particle").arg(slot.to_string());
         }
         if let Some(first_vi) = pair.dolphin.video_first_vi {
             let last_vi = i64::from(pair.frames.iter().map(|f| f.dolphin_vi).max().unwrap());
@@ -807,11 +549,6 @@ pub(super) fn run(
         let tech = (frame.tech_state || frame.tech_navigation_state)
             .then(|| tech_state(native_state, source_state, frame.tech_state))
             .transpose()?;
-        let poison = frame
-            .poison_particles
-            .as_ref()
-            .map(|slots| poison_state(native_state, source_state, slots))
-            .transpose()?;
         let paralysis = frame
             .paralysis_state
             .then(|| -> Result<_> {
@@ -856,94 +593,10 @@ pub(super) fn run(
                 Ok(json!({"passed":actual == expected,"native":actual,"source":expected}))
             })
             .transpose()?;
-        let gameplay_random = frame
-            .gameplay_random_state
-            .then(|| -> Result<_> {
-                let pointer = observed_word(source_state, "gameplay_random_pointer")
-                    .context("missing gameplay random pointer")?;
-                let remaining = observed_word(source_state, "gameplay_random_remaining")
-                    .context("missing gameplay random cursor")?;
-                let index = if remaining == u64::from(u32::MAX) {
-                    624
-                } else {
-                    ensure!(
-                        (0x802ce560..=0x802cef20).contains(&pointer) && pointer % 4 == 0,
-                        "invalid source gameplay random pointer"
-                    );
-                    let index = (pointer - 0x802ce560) / 4;
-                    ensure!(
-                        remaining == 624 - index,
-                        "inconsistent source gameplay random cursor"
-                    );
-                    index
-                };
-                let actual = native_state["gameplay_random_index"]
-                    .as_u64()
-                    .context("missing native gameplay random cursor")?;
-                Ok(json!({"passed":actual == index,"native":actual,"source":index}))
-            })
-            .transpose()?;
-        let effects = (frame.effect_state || frame.effect_clock_state).then(|| -> Result<_> {
-            let mut actual = json!({"clock":native_state["effect_counter"]});
-            let mut expected = json!({"clock":observed_word(source_state, "presentation_counter").context("missing source effect clock")?});
-            if frame.effect_state {
-                actual["random_state"] = native_state["random_state"].clone();
-                expected["random_state"] = json!(observed_word(source_state, "random_state").context("missing source random state")?);
-            }
-            Ok(json!({"passed":actual == expected,"native":actual,"source":expected}))
-        }).transpose()?;
-        let ambient = frame
-            .ambient_animations
-            .iter()
-            .map(|(actor, prefix)| -> Result<_> {
-                let actual = &native_state["ambient_animations"][actor.to_string()];
-                let sample_error = (actual["sample"]
-                    .as_f64()
-                    .context("missing ambient sample")?
-                    - 2. * observed_float(source_state, &format!("{prefix}_time_bits"))?)
-                .abs();
-                let rate_error = (actual["rate"].as_f64().context("missing ambient rate")?
-                    - 2. * observed_float(source_state, &format!("{prefix}_speed_bits"))?)
-                .abs();
-                Ok(
-                    json!({"actor":actor,"sample_error":sample_error,"rate_error":rate_error,
-                "passed":sample_error <= 0.01 && rate_error <= 0.01}),
-                )
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let eyes = frame.eye_actors.iter().map(|actor| -> Result<_> {
-            ensure!(observed_actor_id(source_state, *actor)? == i64::from(*actor),
-                "observed eye actor slot was reused");
-            let word = |suffix| -> Result<u32> {
-                Ok(u32::try_from(observed_word(source_state, &format!("actor_{actor}_{suffix}")).context("missing eye observation")?)?)
-            };
-            let expected = observed_blink(&observed["blink_sequence"], word("eye_mode_word")?, word("eye_mouth_mode_word")? >> 16)?;
-            let actual = &native_state["eyes"][actor.to_string()];
-            Ok(json!({"actor":actor,"native":actual,"source":expected,"passed":*actual == expected}))
-        }).collect::<Result<Vec<_>>>()?;
-        let actors = frame.ambient_actors.iter().map(|id| -> Result<_> {
-            ensure!(observed_actor_id(source_state, *id)? == i64::from(*id),
-                "observed ambient actor slot was reused");
-            let word = |suffix| -> Result<u32> {
-                Ok(u32::try_from(observed_word(source_state, &format!("actor_{id}_{suffix}"))
-                    .context("missing ambient actor observation")?)?)
-            };
-            let state = word("behavior_word")? & 0xffff;
-            let expected = json!({"activity":ambient_activity(state)?,"initialized":state & 0x8000 != 0,
-                "remaining":word("decision_timer")? as i32,"floor_available":word("floor_attributes")? != 0});
-            let actual = &native_state["actors"][id.to_string()];
-            let position_error = vector_error(&actual["position"], source_state, &format!("actor_{id}"))?;
-            let heading_error = (actual["heading"].as_f64().context("missing ambient heading")?
-                - observed_float(source_state, &format!("actor_{id}_heading_bits"))? + 180.).rem_euclid(360.) - 180.;
-            let decision = matching_fields(&actual["autonomy"], &expected);
-            Ok(json!({"actor":id,"source":expected,"native":actual,"position_error":position_error,
-                "heading_error":heading_error.abs(),"passed":decision && position_error <= 0.01 && heading_error.abs() <= 0.01}))
-        }).collect::<Result<Vec<_>>>()?;
         let mut gates = json!({
             "save_prompt":save,"action_prompt":action,"skit_prompt":skit,
             "slot_confirmation":menu,"audio_settings":audio_settings,"tech":tech,
-            "gameplay_random":gameplay_random,"poison_puffs":poison,"paralysis":paralysis,
-            "main_menu":main_menu,"effects":effects
+            "paralysis":paralysis,"main_menu":main_menu
         });
         type CompareState = fn(&Value, &Value) -> Result<Value>;
         for (name, enabled, compare) in [
@@ -984,16 +637,12 @@ pub(super) fn run(
                 .unwrap()
                 .values()
                 .all(|gate| gate.is_null() || gate["passed"] == true)
-            && ambient.iter().all(|a| a["passed"] == true)
-            && eyes.iter().all(|a| a["passed"] == true)
-            && actors.iter().all(|a| a["passed"] == true)
             && location["passed"] == true;
         passed &= good;
         let mut state = json!({"name":frame.name,"dolphin_vi":frame.dolphin_vi,
             "location":location,
             "position_error":position_error,"camera_position_error":camera_position_error,
             "camera_target_error":camera_target_error,"heading_error":heading_error,
-            "eyes":eyes,"actors":actors,"ambient_animations":ambient,
             "tolerance":0.01,"passed":good});
         let Value::Object(gates) = gates else {
             unreachable!()
@@ -1203,9 +852,6 @@ fn verify_frame_observations(frame: &Frame, source: &Value) -> Result<()> {
         Ok(())
     };
     require("presentation_counter")?;
-    if frame.effect_state {
-        require("random_state")?;
-    }
     if frame.tech_state {
         require("field_save_point_word")?;
     }
@@ -1402,31 +1048,6 @@ fn verify_frame_observations(frame: &Frame, source: &Value) -> Result<()> {
             require(&format!("controller_{character}_status_word"))?;
         }
     }
-    for (actors, suffixes) in [
-        (
-            &frame.eye_actors,
-            &["eye_mode_word", "eye_mouth_mode_word"][..],
-        ),
-        (
-            &frame.ambient_actors,
-            &[
-                "behavior_word",
-                "decision_timer",
-                "floor_attributes",
-                "x_bits",
-                "y_bits",
-                "z_bits",
-                "heading_bits",
-            ][..],
-        ),
-    ] {
-        for actor in actors {
-            observed_actor_id(source, *actor)?;
-            for suffix in suffixes {
-                require(&format!("actor_{actor}_{suffix}"))?;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -1464,13 +1085,6 @@ fn observed_word(source: &Value, key: &str) -> Result<u64> {
         .with_context(|| format!("missing {key}"))
 }
 
-fn observed_actor_id(source: &Value, actor: i32) -> Result<i64> {
-    let key = format!("actor_{actor}_id");
-    source[&key]
-        .as_i64()
-        .with_context(|| format!("missing actor identity observation {key}"))
-}
-
 fn matching_fields(actual: &Value, expected: &Value) -> bool {
     expected
         .as_object()
@@ -1495,40 +1109,6 @@ fn same_values(a: &Value, b: &Value) -> bool {
     }
 }
 
-fn ambient_activity(state: u32) -> Result<&'static str> {
-    Ok(match state & 0x3fff {
-        0 => "select",
-        1 => "idle",
-        2 => "walk",
-        _ => anyhow::bail!("source actor is not running an ambient activity"),
-    })
-}
-
-fn observed_blink(sequence: &Value, mode: u32, timer: u32) -> Result<Value> {
-    let rows = sequence
-        .as_array()
-        .context("missing source blink sequence")?;
-    let index = (mode >> 16 & 255) as usize;
-    ensure!(
-        mode >> 24 == 129 && (mode >> 8 & 255) != 255 && index < rows.len(),
-        "source actor is not running the blink sequence"
-    );
-    let lengths = rows
-        .iter()
-        .map(|row| row["ticks"].as_u64().context("missing blink duration"))
-        .collect::<Result<Vec<_>>>()?;
-    ensure!(
-        u64::from(timer) < lengths[index],
-        "source blink timer exceeds its frame"
-    );
-    let tick = lengths[..index].iter().sum::<u64>() + u64::from(timer);
-    let frame = &rows[if timer == 0 {
-        (index + rows.len() - 1) % rows.len()
-    } else {
-        index
-    }]["frame"];
-    Ok(json!({"tick":tick,"frame":frame}))
-}
 fn synopsis_state(native: &Value, source: &Value) -> Result<Value> {
     let word = |key: &str| -> Result<u32> {
         Ok(observed_word(source, key)
@@ -2148,50 +1728,6 @@ fn observed_inventory(source: &Value) -> Result<Value> {
         }
     }
     Ok(serde_json::to_value(counts)?)
-}
-
-fn poison_state(native: &Value, source: &Value, slots: &[u16]) -> Result<Value> {
-    let mut expected = Vec::new();
-    for slot in slots {
-        let prefix = format!("particle_{slot}");
-        let word = |suffix: &str| -> Result<u64> {
-            observed_word(source, &format!("{prefix}_{suffix}"))
-                .context("missing poison particle observation")
-        };
-        let timer = word("timer_flags")? >> 16;
-        if timer == 65535 || word("recipe")? != 0x8020a4e4 {
-            continue;
-        }
-        ensure!(
-            timer <= 20 && word("rgba")? == 0x0d3f04ff,
-            "unexpected poison particle state"
-        );
-        let size = observed_float(source, &format!("{prefix}_size_x_bits"))?;
-        ensure!(
-            size == observed_float(source, &format!("{prefix}_size_y_bits"))?,
-            "non-square poison particle"
-        );
-        expected.push(json!({"age":20 - timer,"size":size,
-            "speed_sixteenths":observed_float(source, &format!("{prefix}_fall_bits"))? * 16.,
-            "position":[observed_float(source, &format!("{prefix}_x_bits"))?,
-                observed_float(source, &format!("{prefix}_y_bits"))?,
-                observed_float(source, &format!("{prefix}_z_bits"))?]}));
-    }
-    let actual = native["poison_puffs"]
-        .as_array()
-        .context("missing native poison particles")?;
-    let passed = expected.len() == actual.len()
-        && expected.iter().zip(actual).all(|(e, a)| {
-            ["age", "size", "speed_sixteenths"]
-                .iter()
-                .all(|key| same_values(&e[key], &a[key]))
-                && (0..3).all(|axis| {
-                    a["position"][axis]
-                        .as_f64()
-                        .is_some_and(|v| (v - e["position"][axis].as_f64().unwrap()).abs() <= 0.001)
-                })
-        });
-    Ok(json!({"expected":expected,"actual":actual,"passed":passed}))
 }
 
 fn cooking_state(native: &Value, source: &Value) -> Result<Value> {
@@ -2827,109 +2363,6 @@ fn observed_float(state: &Value, key: &str) -> Result<f64> {
     Ok(f64::from(value))
 }
 
-fn verify_action_prompt_origin(origin: &Value, source: &Value) -> Result<()> {
-    let presentation = &source["field_presentation"];
-    let scene = observed_word(presentation, "scene_flags")?;
-    let control = observed_word(presentation, "control_flags")?;
-    ensure!(
-        scene >> 24 == 0 && scene & 0x7f == 7 && control >> 24 == 0,
-        "action hint origin requires active source field control"
-    );
-    let id = observed_word(origin, "id")?;
-    let opacity = observed_word(origin, "opacity")?;
-    let remaining = observed_word(origin, "remaining")?;
-    ensure!(
-        (1..=u64::from(u8::MAX)).contains(&id)
-            && (1..=255).contains(&opacity)
-            && (1..30).contains(&remaining)
-            && *origin == source["action_prompt"],
-        "action hint origin differs from observed source state"
-    );
-    Ok(())
-}
-
-fn verify_camera_origin(origin: &Value, source: &Value, saved: &Value) -> Result<()> {
-    let camera = &source["field_camera"];
-    ensure!(
-        camera["position_settled"] == true && camera["target_settled"] == true,
-        "camera origin requires an observed settled view"
-    );
-    ensure!(
-        origin.is_object()
-            && camera["oracle_origin"].is_object()
-            && same_values(origin, &camera["oracle_origin"])
-            && saved.is_object()
-            && same_values(&origin["settings"], saved),
-        "camera origin differs from observed pose or saved desired settings"
-    );
-    Ok(())
-}
-
-/// Reconstruct visible birth parameters from particles observed after drawing.
-fn verify_spark_origin(sparks: &[Value], source: &Value, effect_tick: Option<u64>) -> Result<()> {
-    let points: Vec<_> = source["actors"]
-        .as_array()
-        .context("missing source actors")?
-        .iter()
-        .filter(|a| a["draw_callback"] == "8000e720")
-        .collect();
-    ensure!(
-        points.len() == 1 || (points.is_empty() && sparks.is_empty()),
-        "spark registration requires one observed emitter unless both are absent"
-    );
-    let particles: Vec<_> = source["particles"]
-        .as_array()
-        .context("missing source particles")?
-        .iter()
-        .filter(|p| p["recipe_address"] == "8020a4d8")
-        .collect();
-    ensure!(
-        sparks.len() == particles.len(),
-        "spark origin count differs from source"
-    );
-    for (spark, particle) in sparks.iter().zip(particles) {
-        // MemoryWatcher samples after the presentation. Its observed timer is
-        // one update newer than the image age reconstructed for the replay.
-        let age = 59
-            - particle["timer"]
-                .as_i64()
-                .context("missing particle timer")?;
-        let speed = particle["velocity"][2]
-            .as_f64()
-            .context("missing spark speed")?;
-        let size = particle["size"][0].as_f64().context("missing spark size")?;
-        let center = &points[0]["position"];
-        let position = &particle["position"];
-        let x = position[0].as_f64().context("missing spark x")?
-            - center[0].as_f64().context("missing emitter x")?;
-        let y = position[1].as_f64().context("missing spark y")?
-            - center[1].as_f64().context("missing emitter y")?;
-        ensure!(
-            (0..=60).contains(&age)
-                && x.fract() == 0.
-                && y.fract() == 0.
-                && size.fract() == 0.
-                && (speed * 8.).fract() == 0.
-                && position[2].as_f64().context("missing spark z")?
-                    == center[2].as_f64().context("missing emitter z")? + (age + 1) as f64 * speed,
-            "source spark does not follow the rising-particle recipe"
-        );
-        ensure!(
-            *spark
-                == json!({"save_point":0,"age":age,"offset":[x as i32,y as i32],
-            "size":size as u8,"speed_eighths":(speed * 8.) as u8}),
-            "spark origin differs from independently observed birth parameters"
-        );
-        if let Some(tick) = effect_tick {
-            let rotation = ((tick as u32).wrapping_sub(age as u32) & 127) + age as u32 + 1;
-            ensure!(
-                particle["rotation"][2].as_f64() == Some(f64::from(rotation)),
-                "source spark rotation differs from the running effect clock"
-            );
-        }
-    }
-    Ok(())
-}
 fn slot_confirmation(native: &Value, source: &Value, animated: bool) -> Result<Value> {
     let word = |key: &str| -> Result<u32> {
         Ok(u32::try_from(
@@ -3176,78 +2609,6 @@ mod tests {
     }
 
     #[test]
-    fn action_hint_origins_require_exact_observations_and_field_control() {
-        let origin = json!({"id":2,"opacity":255,"remaining":29});
-        let source = json!({"action_prompt":origin,
-            "field_presentation":{"scene_flags":0x87,"control_flags":0}});
-        assert!(verify_action_prompt_origin(&origin, &source).is_ok());
-        for (key, value) in [("id", 1), ("opacity", 254), ("remaining", 28)] {
-            let mut changed = origin.clone();
-            changed[key] = json!(value);
-            assert!(verify_action_prompt_origin(&changed, &source).is_err());
-            let mut missing = source.clone();
-            missing["action_prompt"]
-                .as_object_mut()
-                .unwrap()
-                .remove(key);
-            assert!(verify_action_prompt_origin(&origin, &missing).is_err());
-        }
-        for (key, value) in [
-            ("scene_flags", 0x01000087),
-            ("scene_flags", 0x8b),
-            ("control_flags", 0x01000000),
-        ] {
-            let mut inactive = source.clone();
-            inactive["field_presentation"][key] = json!(value);
-            assert!(verify_action_prompt_origin(&origin, &inactive).is_err());
-        }
-        assert!(verify_action_prompt_origin(&origin, &json!({"action_prompt":origin})).is_err());
-    }
-
-    #[test]
-    fn camera_origins_require_settled_observations_and_unchanged_settings() {
-        let settings = json!({"angles":[330,0,38],"distance":1669});
-        let origin = json!({"settings":settings,"angles":[330.875,0,38.875],
-            "distance":1669.00048828125,"position":[-1940,378,965],"target":[-2855,1513,153]});
-        let mut source = json!({"field_camera":{"position_settled":true,
-            "target_settled":true,"oracle_origin":origin}});
-        assert!(verify_camera_origin(&origin, &source, &settings).is_ok());
-        assert!(verify_camera_origin(&origin, &json!({}), &settings).is_err());
-        source["field_camera"]["position_settled"] = json!(false);
-        assert!(verify_camera_origin(&origin, &source, &settings).is_err());
-        source["field_camera"]["position_settled"] = json!(true);
-        let mut changed = origin.clone();
-        changed["angles"][0] = json!(330);
-        assert!(verify_camera_origin(&changed, &source, &settings).is_err());
-        changed = settings.clone();
-        changed["distance"] = json!(1670);
-        assert!(verify_camera_origin(&origin, &source, &changed).is_err());
-    }
-
-    #[test]
-    fn spark_origins_verify_empty_fields_and_preserve_particle_evidence() {
-        let empty = json!({"actors":[],"particles":[]});
-        assert!(verify_spark_origin(&[], &empty, Some(10)).is_ok());
-        assert!(verify_spark_origin(&[], &json!({"actors":[]}), Some(10)).is_err());
-        let spark = json!({"save_point":0,"age":1,"offset":[0,0],"size":20,"speed_eighths":8});
-        assert!(verify_spark_origin(std::slice::from_ref(&spark), &empty, Some(10)).is_err());
-        let mut source = json!({"actors":[],"particles":[{
-            "recipe_address":"8020a4d8","timer":58,"velocity":[0,0,1],
-            "size":[20,20],"position":[0,0,2],"rotation":[0,0,11]
-        }]});
-        assert!(verify_spark_origin(&[], &source, Some(10)).is_err());
-        let emitter = json!({"draw_callback":"8000e720","position":[0,0,0]});
-        source["actors"] = json!([emitter]);
-        assert!(verify_spark_origin(std::slice::from_ref(&spark), &source, Some(10)).is_ok());
-        source["particles"][0]["position"][2] = json!(3);
-        assert!(verify_spark_origin(&[spark], &source, Some(10)).is_err());
-        source["particles"] = json!([]);
-        assert!(verify_spark_origin(&[], &source, Some(10)).is_ok());
-        source["actors"] = json!([emitter, emitter]);
-        assert!(verify_spark_origin(&[], &source, Some(10)).is_err());
-    }
-
-    #[test]
     fn legacy_save_point_alias_requires_the_same_raw_word() {
         let mut capture = json!({"memory_watch":{"locations":{
             "8035a73c":"field_control_flags_word"
@@ -3421,7 +2782,6 @@ mod tests {
     fn reused_observations_require_every_requested_transition_word() {
         let mut frame: Frame = serde_json::from_value(json!({
             "name":"opening", "native":"opening", "dolphin_vi":183,
-            "effect_clock_state":true,
         }))
         .unwrap();
         let mut source = json!({"presentation_counter":37734});
@@ -3446,14 +2806,6 @@ mod tests {
                 .contains("field_control_flags_word")
         );
         frame.skit_prompt = false;
-        frame.effect_state = true;
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("random_state")
-        );
-        source["random_state"] = json!(42);
         frame.tech_navigation_state = true;
         source["ui_clock"] = json!(38267);
         for offset in (0..=0x20).step_by(4) {
@@ -3501,20 +2853,6 @@ mod tests {
         source["tech_3_choices_0_word"] = json!(0);
         assert!(verify_frame_observations(&frame, &source).is_ok());
         frame.tech_navigation_state = false;
-        frame.eye_actors.push(211);
-        assert!(
-            verify_frame_observations(&frame, &source)
-                .unwrap_err()
-                .to_string()
-                .contains("missing actor identity observation actor_211_id")
-        );
-        source["actor_211_id"] = json!(-1);
-        source["actor_211_eye_mode_word"] = json!(0);
-        source["actor_211_eye_mouth_mode_word"] = json!(0);
-        // A recorded, reused slot is a separate comparison failure.
-        assert!(verify_frame_observations(&frame, &source).is_ok());
-        assert_eq!(observed_actor_id(&source, 211).unwrap(), -1);
-        frame.eye_actors.clear();
         frame.inventory_state = true;
         for offset in [0x00, 0x10, 0x14, 0x18, 0x1c, 0x24, 0x28, 0x30] {
             source[format!("inventory_menu_{offset:02x}_word")] = json!(0);

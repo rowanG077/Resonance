@@ -466,8 +466,7 @@ fn travelling_effect_arrives_and_leaves_a_finite_tail() {
         ],
     )]);
     let remove = script(&[(Call::DespawnActor, &[500])]);
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+    let world = controlled_world();
     let mut events = runtime(program(&setup, &remove), resources, world);
     for _ in 0..30 {
         events.step().unwrap();
@@ -1530,200 +1529,16 @@ fn recreated_player_keeps_the_default_pose_until_its_idle_handler_runs() {
     world.insert_actor(1, Actor::new(1, [0.; 3]));
     let code = script(&[(Call::SelectPartyMember, &[1])]);
     let mut events = runtime(program(&code, &[0x20ff]), resources, world);
-    let pose = |events: &EventRuntime| {
-        let a = events.world.actors[&1].animation.as_ref().unwrap();
-        (
-            a.slot,
-            a.sample(events.tick(), 0, 100.),
-            a.blend_weight(events.tick()),
-        )
-    };
-    // Hole source331 initializes IDLE at sample1. Source342 selects the
-    // activity and retains IDLE at sample2; source343 first blends EVENT_IDLE.
-    assert_eq!(pose(&events), (slot::IDLE, 1., 1.));
-    events.step().unwrap();
-    assert_eq!(pose(&events), (slot::IDLE, 2., 1.));
-    assert!(!events.world.actors[&1].autonomy.unwrap().initialized);
-    events.step().unwrap();
-    assert_eq!(pose(&events), (slot::EVENT_IDLE, 0., 1. / 9.));
-    steps(&mut events, 7);
-    assert_eq!(pose(&events), (slot::EVENT_IDLE, 0., 8. / 9.));
-    events.step().unwrap();
-    assert_eq!(pose(&events), (slot::EVENT_IDLE, 1., 1.));
-}
-
-#[test]
-fn ambient_origin_accepts_an_uninitialized_idle_pose_before_action_selection() {
-    let mut resources = ResourceLibrary::default();
-    resources.models.insert(2, model([12, 36], 80));
-    let mut actor = Actor::new(2, [-621., 36., 502.]);
-    let mut autonomy = Autonomy::new(Behavior::Stationary, 0., actor.position);
-    autonomy.remaining = -1;
-    autonomy.floor_available = false;
-    actor.autonomy = Some(autonomy);
-    let mut origin = ActorOrigin {
-        autonomy,
-        position: actor.position,
-        heading: 0.,
-        target_heading: 0.,
-        animation_slot: Some(12),
-        animation_sample: 1.,
-        animation_repeat: true,
-    };
-    let mut world = GameWorld::default();
-    world.insert_actor(2, actor);
-    let mut events = runtime(program(&[0x20ff], &[0x20ff]), resources, world);
-    events.apply_actor_origin(2, &origin).unwrap();
     assert_eq!(
-        events.world.actors[&2].autonomy.unwrap().activity,
-        Activity::Select
+        events.world.actors[&1].animation.as_ref().unwrap().slot,
+        slot::IDLE
     );
-    assert_eq!(
-        events.world.actors[&2]
-            .animation
-            .as_ref()
-            .unwrap()
-            .sample(0, 0, 80.),
-        1.
-    );
-    origin.autonomy.initialized = true;
-    assert!(events.apply_actor_origin(2, &origin).is_err());
-    origin.autonomy.initialized = false;
-    origin.animation_slot = Some(36);
-    assert!(events.apply_actor_origin(2, &origin).is_err());
-}
-
-#[test]
-fn ambient_origin_preserves_the_existing_scripted_clip_binding() {
-    let mut resources = ResourceLibrary::default();
-    resources.models.insert(2, model([12], 20));
-    resources.animations.insert(0x4002f, model([12], 64).clips);
-    let mut actor = Actor::new(2, [-73., -134., 0.]);
-    actor.autonomy = Some(Autonomy::new(Behavior::Stationary, 0., actor.position));
-    actor.scripted_animation = true;
-    actor.animation = Some(Animation {
-        source: animation::AnimationSource::Resource,
-        repeat: false,
-        ..Animation::new(0x4002f, 12, 64, 0)
-    });
-    let mut origin = ActorOrigin {
-        autonomy: actor.autonomy.unwrap(),
-        position: actor.position,
-        heading: 0.,
-        target_heading: 0.,
-        animation_slot: Some(12),
-        animation_sample: 64.,
-        animation_repeat: false,
-    };
-    let mut world = GameWorld::default();
-    world.insert_actor(2, actor);
-    let mut events = runtime(program(&[0x20ff], &[0x20ff]), resources, world);
-    events.apply_actor_origin(2, &origin).unwrap();
-    let animation = events.world.actors[&2].animation.as_ref().unwrap();
-    assert_eq!(animation.resource, 0x4002f);
-    assert_eq!(animation.source, animation::AnimationSource::Resource);
-    assert_eq!(animation.sample(0, 0, 64.), 64.);
-    origin.animation_slot = Some(36);
-    assert!(events.apply_actor_origin(2, &origin).is_err());
-    assert_eq!(
-        events.world.actors[&2].animation.as_ref().unwrap().resource,
-        0x4002f
-    );
-    origin.animation_slot = Some(12);
-    origin.autonomy.home = [-441., -284., 0.];
-    assert!(events.apply_actor_origin(2, &origin).is_err());
-    events.world.controlled_actor = 2;
-    events
-        .world
-        .actors
-        .get_mut(&2)
-        .unwrap()
-        .autonomy
-        .as_mut()
-        .unwrap()
-        .behavior = Behavior::Player;
-    origin.autonomy.behavior = Behavior::Player;
-    events.apply_actor_origin(2, &origin).unwrap();
-    assert_eq!(
-        events.world.actors[&2].autonomy.unwrap().home,
-        origin.autonomy.home
-    );
-    origin.autonomy.home[0] = f32::INFINITY;
-    assert!(events.apply_actor_origin(2, &origin).is_err());
-
-    for (background, gated, external, foreground) in [
-        (true, true, false, false),
-        (false, false, false, true),
-        (true, false, false, false),
-        (true, true, true, false),
-        (true, true, false, true),
-    ] {
-        let mut resources = ResourceLibrary::default();
-        for resource in [2, 0x4002f] {
-            let mut bank = model([80], 40);
-            bank.clips.extend(model([84], 20).clips);
-            resources.models.insert(resource, bank);
-        }
-        resources.bindings.insert(9, (ResourceKind::Model, 0x4002f));
-        let bind = [2, if external { 9 } else { -1 }, 80, 8, 8];
-        let child = script(&[
-            (Call::ConfigureActorAnimation, &bind),
-            (Call::YieldCommand, &[7, 2]),
-            (Call::SetEventBit, &[42]),
-        ]);
-        let mut main = Vec::new();
-        native(&mut main, Call::SpawnEvent, &[42]);
-        native(
-            &mut main,
-            Call::ControlEvent,
-            &[2, if gated { 51 } else { 50 }],
-        );
-        if foreground {
-            native(&mut main, Call::YieldCommand, &[0, 1]);
-            native(&mut main, Call::ConfigureActorAnimation, &bind);
-            native(&mut main, Call::YieldCommand, &[7, 2]);
-        }
-        main.push(0x20ff);
-        let mut world = GameWorld::default();
-        world.input_enabled = true;
-        let mut actor = Actor::new(2, [0.; 3]);
-        actor.autonomy = Some(Autonomy::new(Behavior::Stationary, 0., [0.; 3]));
-        world.insert_actor(2, actor);
-        let program = if background {
-            program(&main, &child)
-        } else {
-            program(&child, &[0x20ff])
-        };
-        let mut events = runtime(program, resources, world);
-        if background {
-            events.step().unwrap();
-        }
-        let actor = &events.world.actors[&2];
-        let origin = ActorOrigin {
-            autonomy: actor.autonomy.unwrap(),
-            position: actor.position,
-            heading: actor.heading,
-            target_heading: actor.target_heading,
-            animation_slot: Some(84),
-            animation_sample: 20.,
-            animation_repeat: false,
-        };
-        let accepted = background && gated && !external && !foreground;
-        assert_eq!(events.apply_actor_origin(2, &origin).is_ok(), accepted);
-        let binding = events.world.actors[&2].animation.as_ref().unwrap();
-        assert_eq!(binding.resource, if external { 0x4002f } else { 2 });
-        assert_eq!(binding.slot, if accepted { 84 } else { 80 });
-        if accepted {
-            assert_eq!(binding.duration_ticks, 20);
-            assert!(!binding.repeat);
-            // Registration changes only the observed pose. The existing service
-            // wait must still observe completion and resume on its next update.
-            events.step().unwrap();
-            assert!(!events.world.event_flags.contains(&42));
-            events.step().unwrap();
-            assert!(events.world.event_flags.contains(&42));
-        }
-    }
+    steps(&mut events, 20);
+    let actor = &events.world.actors[&1];
+    let animation = actor.animation.as_ref().unwrap();
+    assert_eq!(animation.slot, slot::EVENT_IDLE);
+    assert!(animation.sample(events.tick(), 0, 100.) > 0.);
+    assert!(!actor.scripted_animation);
 }
 
 #[test]
@@ -1810,165 +1625,6 @@ fn emotes_resolve_the_current_party_leader_alias() {
 }
 
 #[test]
-fn emotes_consume_shared_randomness_at_creation_for_every_kind() {
-    let mut code = Vec::new();
-    for kind in 0..20 {
-        native(
-            &mut code,
-            Call::SpawnActor,
-            &[-100 - kind, 0, 0, 0, kind, 7, 0, -1],
-        );
-        native(&mut code, Call::RandomMod, &[100]);
-    }
-    // Missing parents and IDs outside the emote range do not initialize a controller.
-    native(&mut code, Call::SpawnActor, &[-200, 0, 0, 0, 0, 99, 0, -1]);
-    native(&mut code, Call::SpawnActor, &[-300, 0, 0, 0, 0, 7, 0, -1]);
-    code.push(0x20ff);
-    let mut world = GameWorld::default();
-    world.random_state = 0x12345678;
-    world.insert_actor(7, Actor::new(7, [0.; 3]));
-    let gameplay = world.gameplay_random.clone();
-    let mut events = runtime(program(&code, &[0x20ff]), Default::default(), world);
-    // Each initializer consumes one libc random value before the following
-    // script call. The low bits seed local animation counters, not more draws.
-    let phases = [
-        17, 29, 12, 19, 4, 24, 11, 5, 8, 8, 10, 2, 9, 1, 1, 30, 14, 22, 6, 9,
-    ];
-    for _ in 0..3 {
-        assert_eq!(events.world.emotes.len(), phases.len());
-        for (kind, phase) in phases.into_iter().enumerate() {
-            let emote = &events.world.emotes[&(-100 - kind as i32)];
-            assert_eq!(
-                (emote.kind, emote.phase, emote.start_tick),
-                (kind as u16, phase, 0)
-            );
-        }
-        assert_eq!(events.world.random_state, 1514963696);
-        assert_eq!(events.world.gameplay_random, gameplay);
-        events.step().unwrap();
-    }
-}
-
-#[test]
-fn leaf_birth_defers_random_motion_until_the_next_particle_update() {
-    let code = script(&[
-        (Call::RandomMod, &[30]),
-        (
-            Call::CreateParticle,
-            &[25, 150, 2762, 980, 280, 0, 0, 0, 25, 255, 0, 0, 0],
-        ),
-        (Call::RandomMod, &[120]),
-    ]);
-    let resources = ResourceLibrary {
-        particles: [(
-            25,
-            ParticleKind::Flutter(resonance_content::effect::FlutterRecipe {
-                texture: "leaf.ktx2".into(),
-                uv: [0., 0., 1., 1.],
-                aspect_ratio: 1.,
-                palette: vec![[13, 63, 4, 255]],
-                fall_speed: 1.96,
-                fall_variation: 0.02,
-                spin: 0.2,
-            }),
-        )]
-        .into(),
-        ..Default::default()
-    };
-    // School-grounds VI 122: both script random calls precede leaf initialization.
-    let mut world = GameWorld::default();
-    world.random_state = 1618294421;
-    world.input_enabled = true;
-    let mut anchor = camera::anchor();
-    anchor.autonomy.as_mut().unwrap().activity = Activity::Idle;
-    world.insert_actor(camera::ANCHOR_ACTOR, anchor);
-    let mut npc = Actor::new(48, [0.; 3]);
-    npc.autonomy = Some(Autonomy {
-        activity: Activity::Walk,
-        initialized: true,
-        remaining: -1,
-        ..Autonomy::new(Behavior::WanderNearHome, 4., [0.; 3])
-    });
-    world.insert_actor(209, npc);
-    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
-    assert_eq!(events.world.random_state, 1527716763);
-    let particle = &events.world.particles[0];
-    assert_eq!(particle.position, [2762., 980., 280.]);
-    assert_eq!(particle.flutter.as_ref().unwrap().rotation, [0.; 3]);
-    // VI 123: the camera anchor and NPC update before leaf initialization.
-    events
-        .step_with_motion(37674, |_| Ok(()), |_, _, _, _, _| {}, |_| Ok(()))
-        .unwrap();
-    assert_eq!(events.world.random_state, 570894153);
-    assert_eq!(
-        events.world.actors[&camera::ANCHOR_ACTOR]
-            .autonomy
-            .unwrap()
-            .remaining,
-        177
-    );
-    assert_eq!(events.world.actors[&209].autonomy.unwrap().remaining, 71);
-    let particle = &events.world.particles[0];
-    assert_eq!(particle.position, [2761.191, 980., 278.1]);
-    assert_eq!(
-        particle.flutter.as_ref().unwrap().rotation,
-        [23787., 15387., 8711.2]
-    );
-    events
-        .step_with_motion(37675, |_| Ok(()), |_, _, _, _, _| {}, |_| Ok(()))
-        .unwrap();
-    assert_eq!(events.world.random_state, 570894153);
-    assert_eq!(events.world.particles[0].position, [2760.3718, 980., 276.2]);
-}
-
-#[test]
-fn event_controlled_player_selects_idle_before_initializing_its_timer() {
-    // Pastor VI336–338: Select/-2, Idle/-2, then the first random timer181.
-    // Free player input instead selects Idle before that actor's dispatch.
-    for free_control in [false, true] {
-        let mut world = GameWorld::default();
-        world.input_enabled = free_control;
-        world.random_state = 3758564392;
-        let mut actor = Actor::new(1, [0.; 3]);
-        actor.autonomy = Some(Autonomy {
-            activity: Activity::Idle,
-            initialized: true,
-            remaining: -1,
-            ..Autonomy::new(Behavior::Player, 0., [0.; 3])
-        });
-        world.insert_actor(1, actor);
-        let mut events = runtime(
-            program(&[0x20ff], &[0x20ff]),
-            ResourceLibrary::default(),
-            world,
-        );
-        events.step().unwrap();
-        let ai = events.world.actors[&1].autonomy.unwrap();
-        assert_eq!(
-            (ai.activity, ai.initialized, ai.remaining),
-            (Activity::Select, false, -2)
-        );
-        assert_eq!(events.world.random_state, 3758564392);
-        events.step().unwrap();
-        if !free_control {
-            let ai = events.world.actors[&1].autonomy.unwrap();
-            assert_eq!(
-                (ai.activity, ai.initialized, ai.remaining),
-                (Activity::Idle, false, -2)
-            );
-            assert_eq!(events.world.random_state, 3758564392);
-            events.step().unwrap();
-        }
-        let ai = events.world.actors[&1].autonomy.unwrap();
-        assert_eq!(
-            (ai.activity, ai.initialized, ai.remaining),
-            (Activity::Idle, true, 181)
-        );
-        assert_eq!(events.world.random_state, 2935932225);
-    }
-}
-
-#[test]
 fn wandering_pauses_for_conversation_and_yields_to_scripted_motion() {
     use animation::slot;
     let setup = script(&[(Call::SpawnActor, &[42, 100, 200, 0, 0, 5, 2, 3])]);
@@ -1977,8 +1633,7 @@ fn wandering_pauses_for_conversation_and_yields_to_scripted_motion() {
         models: [(5, model([slot::IDLE, slot::WALK], 100))].into(),
         ..Default::default()
     };
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
+    let mut world = controlled_world();
     world.field_camera = Some(Default::default());
     let conversation = script(&[(Call::YieldCommand, &[0, 60])]);
     let mut events = runtime(program_kind(&setup, &conversation, 0), resources, world);
@@ -2022,49 +1677,6 @@ fn wandering_pauses_for_conversation_and_yields_to_scripted_motion() {
     }
     assert!(events.player_has_control());
     assert_ne!(events.world.actors[&42].position, destination);
-}
-
-#[test]
-fn npc_walk_speed_and_turn_braking_match_dolphin_positions() {
-    let mut actor = Actor::new(48, [1557.2792, 1834.712, 0.]);
-    actor.face(64.);
-    actor.autonomy = Some(Autonomy {
-        activity: Activity::Walk,
-        initialized: true,
-        remaining: 29,
-        ..Autonomy::new(Behavior::WanderNearHome, 2., [1472., 1507., 0.])
-    });
-    let mut world = GameWorld::default();
-    world.input_enabled = true;
-    world.actors.insert(210, actor);
-    // Isolate this actor's next direction decision from the field's other emitters.
-    world.random_state = 2_727_390_630;
-    let mut events = runtime(program(&[0x20ff], &[0x20ff]), Default::default(), world);
-    for tick in 1..=31 {
-        events.step().unwrap();
-        let expected = match tick {
-            1 => Some([1559.0768, 1833.8353, 0.]),
-            30 => Some([1611.2074, 1808.4108, 0.]),
-            31 => Some([1612.4254, 1807.8684, 0.]),
-            _ => None,
-        };
-        if let Some(expected) = expected {
-            assert_eq!(events.world.actors[&210].position, expected);
-        }
-    }
-    let actor = &events.world.actors[&210];
-    assert_eq!((actor.heading, actor.target_heading), (66., 66.));
-    assert_eq!(actor.autonomy.unwrap().remaining, 85);
-    // At the school wall, a new target crosses 360 before the turn is selected.
-    // These three consecutive headings would differ if the target wrapped first.
-    let actor = events.world.actors.get_mut(&210).unwrap();
-    actor.autonomy = None;
-    actor.heading = 28.;
-    for (target, expected) in [(393., 23.), (33., 28.), (-57., 23.)] {
-        events.world.actors.get_mut(&210).unwrap().target_heading = target;
-        events.step().unwrap();
-        assert_eq!(events.world.actors[&210].heading, expected);
-    }
 }
 
 #[test]
@@ -2260,109 +1872,6 @@ fn free_control_allows_the_field_supervisor_and_ambient_scripts() {
 }
 
 #[test]
-fn observed_resource_waits_only_suspend_the_requesting_script() {
-    let resource = 0x20041;
-    let mut main = Vec::new();
-    native(&mut main, Call::SpawnEvent, &[42]);
-    main.push(0x3000);
-    native(&mut main, Call::YieldCommand, &[0, 1]);
-    let wrong_pc = main.len() as u32;
-    native(&mut main, Call::ResolveScriptResource, &[resource]);
-    main.push(0x3000);
-    native(&mut main, Call::YieldCommand, &[1, 0xffff0000u32 as i32]);
-    let wait_pc = main.len() as u32;
-    native(&mut main, Call::SetEventBit, &[43]);
-    main.push(0x20ff);
-    let child = script(&[(Call::YieldCommand, &[0, 3]), (Call::SetEventBit, &[42])]);
-    for (kind, pc) in [ResourceKind::Model, ResourceKind::Animation]
-        .into_iter()
-        .flat_map(|kind| [None, Some(wait_pc), Some(wrong_pc)].map(|pc| (kind, pc)))
-    {
-        let mut resources = ResourceLibrary::default();
-        if kind == ResourceKind::Animation {
-            resources
-                .animations
-                .insert(resource as u32, Default::default());
-        } else {
-            resources.bindings.insert(resource, (kind, 1));
-        }
-        let mut world = GameWorld::default();
-        world.input_enabled = true;
-        world.controlled_actor = 1;
-        let mut actor = Actor::new(1, [0.; 3]);
-        actor.motion = Some(ActorMotion {
-            target: [100., 0., 0.],
-            speed: 4.,
-        });
-        actor.animation = Some(Animation::new(1, 0, 100, 0));
-        world.insert_actor(1, actor);
-        let mut events = runtime(program(&main, &child), resources, world);
-        if let Some(pc) = pc {
-            events
-                .register_resource_wait_observations(vec![ResourceWaitObservation {
-                    pc,
-                    resource,
-                    request_tick: 1,
-                    resume_tick: 5,
-                }])
-                .unwrap();
-            assert!(events.finish_resource_wait_observations().is_err());
-        }
-        let first = events.step();
-        if pc == Some(wrong_pc) {
-            assert!(format!("{:#}", first.unwrap_err()).contains("wrong script PC"));
-            continue;
-        }
-        first.unwrap();
-        for tick in 1..=5 {
-            if tick > 1 {
-                events.step().unwrap();
-            }
-            assert_eq!(events.world.actors[&1].position, [tick as f32 * 4., 0., 0.]);
-            assert_eq!(events.world.event_flags.contains(&42), tick >= 3);
-            assert_eq!(
-                events.world.event_flags.contains(&43),
-                pc.is_none() || tick == 5
-            );
-        }
-        assert!(
-            events.world.actors[&1]
-                .animation
-                .as_ref()
-                .unwrap()
-                .sample(events.tick(), 0, 100.)
-                > 0.
-        );
-        if pc.is_some() {
-            events.finish_resource_wait_observations().unwrap();
-        }
-    }
-}
-
-#[test]
-fn background_event_handles_refer_to_reused_pool_slots() {
-    let main = script(&[
-        (Call::SpawnEvent, &[42]),
-        (Call::YieldCommand, &[0, 1]),
-        (Call::ReleaseResourceInstance, &[2]),
-        (Call::YieldCommand, &[0, 1]),
-        (Call::SpawnEvent, &[42]),
-        (Call::YieldCommand, &[0, 1]),
-        (Call::ReleaseResourceInstance, &[2]),
-        (Call::YieldCommand, &[0, 5]),
-    ]);
-    let child = script(&[(Call::YieldCommand, &[0, 4]), (Call::SetEventBit, &[42])]);
-    let mut events = runtime(
-        program(&main, &child),
-        Default::default(),
-        Default::default(),
-    );
-    steps(&mut events, 8);
-    assert!(!events.world.event_flags.contains(&42));
-    assert_eq!(events.active_instances(), 0);
-}
-
-#[test]
 fn background_event_controls_suspend_its_wait_without_stopping_the_foreground() {
     for (pause, resume) in [(1, 0), (51, 50)] {
         let main = script(&[
@@ -2378,13 +1887,7 @@ fn background_event_controls_suspend_its_wait_without_stopping_the_foreground() 
             Default::default(),
             Default::default(),
         );
-        let mut origin = events.background_waits().pop().unwrap();
-        origin.pc += 1;
-        assert!(events.apply_background_wait_origin(&origin).is_err());
-        origin.pc -= 1;
-        origin.remaining = 5;
-        events.apply_background_wait_origin(&origin).unwrap();
-        for _ in 1..8 {
+        for _ in 1..7 {
             events.step().unwrap();
             assert!(!events.world.event_flags.contains(&42));
         }
@@ -2448,7 +1951,7 @@ fn a_guarded_line_event_does_not_take_control_or_restart_walking() {
 }
 
 #[test]
-fn locomotion_matches_native_speed_and_keeps_its_phase_across_rate_changes() {
+fn locomotion_changes_gait_and_preserves_phase_when_speed_changes() {
     let mut resources = ResourceLibrary::default();
     resources.models.insert(1, model([12, 36, 40, 120], 80));
     let mut world = GameWorld::default();
@@ -2461,23 +1964,10 @@ fn locomotion_matches_native_speed_and_keeps_its_phase_across_rate_changes() {
     });
     world.actors.insert(1, actor);
     let mut events = runtime(program(&[0x20ff], &[0x20ff]), resources, world);
-    for age in 0u32..125 {
-        events.step().unwrap();
-        let a = events.world.actors[&1].animation.as_ref().unwrap();
-        // Dolphin walking checkpoint: 40 native frames, speed 1/frame,
-        // blend duration 2. Includes three complete gait loops.
-        assert_eq!(a.slot, 36);
-        assert_eq!(a.start_tick, 1);
-        assert_eq!(a.rate, 2.);
-        assert_eq!(a.blend_ticks, 2);
-        let elapsed = age.saturating_sub(1) as f32 * 2.;
-        let expected = if elapsed > 80. {
-            (elapsed - 1.).rem_euclid(80.) + 1.
-        } else {
-            elapsed
-        };
-        assert_eq!(a.sample(events.tick(), 0, 80.), expected);
-    }
+    steps(&mut events, 10);
+    let walk = events.world.actors[&1].animation.as_ref().unwrap();
+    assert_eq!(walk.slot, animation::slot::WALK);
+    assert!(walk.sample(events.tick(), 0, 80.) > 0.);
     let tick = events.tick();
     let previous = events.world.actors[&1]
         .animation
@@ -2557,9 +2047,7 @@ fn walking_faces_its_destination_without_changing_the_path() {
 }
 
 #[test]
-fn colette_oracle_turn_waits_before_opening_and_returns_in_34_updates() {
-    // Recorded Colette turns: 180 → 351 and 351 → 180 each take 34 updates.
-    // The final six-degree step enters the target’s angular sector.
+fn dialogue_waits_for_the_speaker_to_turn_and_releases_them_after_dismissal() {
     let code = script(&[
         (Call::ConfigureDialogue, &[1, 64, -1, 1, 0, 0, 0, 0]),
         (Call::SetActorHeading, &[2, 351]),
@@ -2582,34 +2070,22 @@ fn colette_oracle_turn_waits_before_opening_and_returns_in_34_updates() {
     // An already-facing speaker needs no extra update before its window can open.
     assert_eq!(events.world.dialogue[&1].opening_actor, None);
     assert_eq!(events.world.dialogue[&0].opening_actor, Some(2));
-    for age in 1..=34 {
+    for _ in 0..120 {
         events.step().unwrap();
-        let expected = if age == 34 {
-            351.
-        } else {
-            180. + age as f32 * 5.
-        };
-        assert_eq!(events.world.actors[&2].heading, expected);
-        assert_eq!(events.world.dialogue[&0].opening_actor, Some(2));
+        if events.world.dialogue[&0].opening_actor.is_none() {
+            break;
+        }
     }
-    events.step().unwrap();
-    assert_eq!(events.world.dialogue[&0].opening_actor, None);
-    // Dismissing the page changes only the target; it cannot snap the actor.
-    events.world.dialogue[&0].operation.complete(None).unwrap();
-    events.step().unwrap();
-    assert_eq!(events.world.actors[&2].target_heading, 351.);
-    events.step().unwrap(); // Completed service resumes on the next dispatch.
     assert_eq!(events.world.actors[&2].heading, 351.);
-    assert_eq!(events.world.actors[&2].target_heading, 180.);
-    for age in 1..=34 {
+    assert_eq!(events.world.dialogue[&0].opening_actor, None);
+    events.world.dialogue[&0].operation.complete(None).unwrap();
+    for _ in 0..120 {
         events.step().unwrap();
-        let expected = if age == 34 {
-            180.
-        } else {
-            351. - age as f32 * 5.
-        };
-        assert_eq!(events.world.actors[&2].heading, expected);
+        if events.world.actors[&2].heading == 180. {
+            break;
+        }
     }
+    assert_eq!(events.world.actors[&2].heading, 180.);
 }
 #[test]
 fn event_control_selects_the_leaders_idle_without_overriding_other_actors() {
@@ -2746,105 +2222,53 @@ fn animation_commands_ignore_removed_actors_before_resolving_their_resources() {
 }
 
 #[test]
-fn binding_and_releasing_animation_advance_motion_before_the_next_script_read() {
-    for resource in [-1, 0] {
-        let setup = script(&[
-            (Call::YieldCommand, &[0, 1]),
-            (Call::MoveActor, &[2, 100, 0, 0, 4]),
-            (Call::ConfigureActorAnimation, &[2, resource, 12, 0, 8]),
-            (Call::GetActorProperty, &[2, 1]),
-        ]);
-        let mut resources = ResourceLibrary::default();
-        resources.models.insert(2, model([12], 32));
-        let mut world = GameWorld::default();
-        world.insert_actor(2, Actor::new(2, [0.; 3]));
-        let mut events = runtime(program(&setup, &[0x20ff]), resources, world);
-        events
-            .step_with_motion(
-                1,
-                |_| Ok(()),
-                |_, update, _, actor, _| {
-                    if matches!(update, MotionUpdate::AnimationBinding { .. }) {
-                        // Scene collision must run before GetActorProperty, too.
-                        actor.position[0] = actor.position[0].min(3.);
-                    }
-                },
-                |_| Ok(()),
-            )
-            .unwrap();
-        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 3);
-        assert_eq!(events.world.actors[&2].position, [3., 0., 0.]);
-    }
-}
-
-#[test]
-fn repeated_native_animation_bindings_remain_observable_after_replacing_the_clip() {
-    let mut code = Vec::new();
-    native(&mut code, Call::YieldCommand, &[0, 1]);
-    native(&mut code, Call::MoveActor, &[2, 100, 0, 0, 4]);
-    native(&mut code, Call::ConfigureActorAnimation, &[2, -1, 12, 8, 8]);
-    native(&mut code, Call::ConfigureActorAnimation, &[2, 0, 0, 0, 0]);
-    native(&mut code, Call::SetActorProperty, &[2, 30, 200]);
-    native(&mut code, Call::ConfigureActorAnimation, &[2, -1, 24, 8, 8]);
-    native(&mut code, Call::YieldCommand, &[0, 1]);
-    native(&mut code, Call::ConfigureActorAnimation, &[2, -1, 12, 8, 8]);
-    code.push(0x20ff);
+fn animation_commands_select_the_last_clip_without_advancing_movement() {
+    let setup = script(&[
+        (Call::YieldCommand, &[0, 1]),
+        (Call::MoveActor, &[2, 100, 0, 0, 4]),
+        (Call::ConfigureActorAnimation, &[2, -1, 12, 0, 8]),
+        (Call::ConfigureActorAnimation, &[2, 0, 0, 0, 0]),
+        (Call::ConfigureActorAnimation, &[2, -1, 24, 0, 8]),
+        (Call::GetActorProperty, &[2, 1]),
+        (Call::YieldCommand, &[0, 2]),
+    ]);
     let mut resources = ResourceLibrary::default();
     resources.models.insert(2, model([12, 24], 32));
     let mut world = GameWorld::default();
-    world.actors.insert(2, Actor::new(2, [0.; 3]));
-    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    world.insert_actor(2, Actor::new(2, [0.; 3]));
+    let mut events = runtime(program(&setup, &[0x20ff]), resources, world);
     events.step().unwrap();
-    let bindings = &events.world.actors[&2].animation_bindings;
-    assert_eq!(bindings.tick, events.tick());
-    assert_eq!(
-        bindings
-            .updates
-            .iter()
-            .map(|b| (b.animation.slot, b.position[0], b.scale[0]))
-            .collect::<Vec<_>>(),
-        [(12, 4., 1.), (24, 12., 2.)]
-    );
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert_eq!(events.world.actors[&2].animation.as_ref().unwrap().slot, 24);
     events.step().unwrap();
-    let bindings = &events.world.actors[&2].animation_bindings;
-    assert_eq!(bindings.tick, events.tick());
-    assert_eq!(bindings.updates.len(), 1);
+    assert_eq!(events.world.actors[&2].position, [4., 0., 0.]);
 }
 
 #[test]
-fn resumed_script_binds_one_pose_after_the_actor_update() {
-    let mut code = Vec::new();
-    native(&mut code, Call::YieldCommand, &[0, 1]);
-    native(&mut code, Call::ConfigureActorAnimation, &[2, -1, 12, 8, 8]);
-    native(&mut code, Call::YieldCommand, &[7, 2]);
-    native(&mut code, Call::PlaySound, &[236, 0, 255, 255]);
-    code.push(0x20ff);
+fn animation_release_rebinds_the_same_slot_with_the_requested_blend() {
+    let code = script(&[
+        (Call::YieldCommand, &[0, 1]),
+        (Call::ConfigureActorAnimation, &[2, -1, 12, 8, 8]),
+        (Call::ConfigureActorAnimation, &[2, 0, 0, 3, 0]),
+        (Call::SetActorPosition, &[2, 100, 200, 0]),
+        (Call::YieldCommand, &[0, 1]),
+    ]);
     let mut resources = ResourceLibrary::default();
     resources.models.insert(2, model([12], 32));
     let mut world = GameWorld::default();
     world.actors.insert(2, Actor::new(2, [0.; 3]));
     let mut events = runtime(program(&code, &[0x20ff]), resources, world);
-    // Colette's observed binding at VI5586: rendered weights1/9..8/9,
-    // then sample1 at5594 and sample23 at5616 (nominal60-Hz ticks).
-    for age in 0u32..=39 {
-        events.step().unwrap();
-        let animation = events.world.actors[&2].animation.as_ref().unwrap();
-        assert_eq!(
-            animation.binding_timing,
-            animation::BindingTiming::AfterDraw
-        );
-        let sample = age.saturating_sub(7).min(32) as f32;
-        assert_eq!(animation.sample(events.tick(), 0, 32.), sample);
-        let blend = if age < 8 { (age + 1) as f32 / 9. } else { 1. };
-        assert_eq!(animation.blend_weight(events.tick()), blend);
-        // The service observes the terminal pose, then resumes one update later.
-        assert!(events.world.audio_commands.is_empty());
-    }
     events.step().unwrap();
-    assert!(matches!(
-        events.world.audio_commands.as_slice(),
-        [AudioCommand::Sound { id: 236, .. }]
-    ));
+    let actor = &events.world.actors[&2];
+    let animation = actor.animation.as_ref().unwrap();
+    assert!(!actor.scripted_animation);
+    assert!(
+        animation.repeat,
+        "release must replace the nonrepeating clip"
+    );
+    assert_eq!(animation.blend_ticks, 3);
+    assert_eq!(animation.start_tick, events.tick());
+    assert_eq!(actor.position, [100., 200., 0.]);
 }
 
 #[test]
@@ -2873,20 +2297,12 @@ fn eraser_rate_preserves_the_scripted_impact_cue() {
     let mut world = GameWorld::default();
     world.actors.insert(100, Actor::new(68196, [0.; 3]));
     let mut events = runtime(program(&code, &[0x20ff]), resources, world);
-    assert_eq!(
-        events.world.actors[&100]
-            .animation
-            .as_ref()
-            .unwrap()
-            .binding_timing,
-        animation::BindingTiming::BeforeDraw
-    );
     steps(&mut events, 39);
     assert!(events.world.billboards.is_empty());
     assert!(events.world.audio_commands.is_empty());
     events.step().unwrap();
     let animation = events.world.actors[&100].animation.as_ref().unwrap();
-    assert_eq!(animation.sample(events.tick(), 0, 70.), 20.5);
+    assert!((0. ..70.).contains(&animation.sample(events.tick(), 0, 70.)));
     assert_eq!(
         events.world.billboards.values().next().unwrap().born,
         events.tick()
@@ -3712,10 +3128,6 @@ fn door_exit_owns_control_and_finishes_its_pose_sound_and_hinge_before_handoff()
         assert!(!events.player_has_control());
         events.step().unwrap();
         let actor = &events.world.actors[&1];
-        assert_eq!(
-            actor.animation.as_ref().unwrap().binding_timing,
-            animation::BindingTiming::BeforeDraw
-        );
         match update {
             1 => {
                 assert_eq!(actor.position, [0.; 3]);

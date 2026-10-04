@@ -26,6 +26,18 @@ impl std::ops::DerefMut for Scene {
     }
 }
 impl Scene {
+    fn actor(&self, id: i32) -> &resonance_events::Actor {
+        &self.events.world.actors[&id]
+    }
+    fn actor_mut(&mut self, id: i32) -> &mut resonance_events::Actor {
+        self.events.world.actors.get_mut(&id).unwrap()
+    }
+    fn party(&self) -> &resonance_events::party::Party {
+        self.events.world.party.as_ref().unwrap()
+    }
+    fn party_mut(&mut self) -> &mut resonance_events::party::Party {
+        self.events.world.party.as_mut().unwrap()
+    }
     fn step(&mut self, input: FieldInput) -> Result<()> {
         self.field.step(input)?;
         self.audio.step(&mut self.field)
@@ -203,7 +215,7 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
     // Controlled approach to the exit, then ordinary movement through its
     // opening door and transition. This does not replay the cell escape.
     let player = field.events.world.controlled_actor;
-    let actor = field.events.world.actors.get_mut(&player).unwrap();
+    let actor = field.actor_mut(player);
     actor.position = [2252., 1000., 0.];
     actor.face(180.);
     until(
@@ -232,25 +244,21 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
                 .any(|effect| effect.recipe == 42)
     })?;
     assert_eq!(
-        field.events.world.actors[&3004]
-            .enemy
-            .as_ref()
-            .unwrap()
-            .stun_effect(),
+        field.actor(3004).enemy.as_ref().unwrap().stun_effect(),
         Some(resonance_events::effect::StunEffect::Electric)
     );
     advance_until(&mut field, |field| {
         field.player_has_control() && mission(field, 0x40) == 1_105_100
     })?;
     let player = field.events.world.controlled_actor;
-    let before = field.events.world.actors[&player].position;
+    let before = field.actor(player).position;
     for _ in 0..10 {
         field.step(FieldInput {
             direction: [0., -1.],
             ..Default::default()
         })?;
     }
-    let after = field.events.world.actors[&player].position;
+    let after = field.actor(player).position;
     assert!(
         (after[0] - before[0]).hypot(after[1] - before[1]) > 20.,
         "player must be able to walk after the guards' scene"
@@ -272,14 +280,8 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
     use resonance_events::ring::{ElectricOrbKind, SorcerersRing};
     let mut field = enter(Fixture::GuardEntrance, 268, Some(1_105_100))?;
     advance_until(&mut field, FieldSession::player_has_control)?;
-    field
-        .events
-        .world
-        .party
-        .as_mut()
-        .unwrap()
-        .travel
-        .sorcerers_ring = SorcerersRing::ElectricOrb(ElectricOrbKind::Sylvarant);
+    field.party_mut().travel.sorcerers_ring =
+        SorcerersRing::ElectricOrb(ElectricOrbKind::Sylvarant);
     // Fix the approach geometry without supplying a stun or changing the
     // puzzle's polling events. Ring hits must supply the charge.
     for (id, x) in [(8001, -1000.), (8002, 1000.)] {
@@ -300,7 +302,7 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
     assert!(field.events.world.actors.contains_key(&200));
     for (id, x) in [(8001, -1000.), (8002, 1000.)] {
         let player = field.events.world.controlled_actor;
-        let actor = field.events.world.actors.get_mut(&player).unwrap();
+        let actor = field.actor_mut(player);
         actor.position = [x, 1300., 0.];
         actor.face(0.);
         field.step(FieldInput {
@@ -310,7 +312,7 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
         for _ in 0..60 {
             field.step(FieldInput::default())?;
         }
-        let enemy = field.events.world.actors[&id].enemy.as_ref().unwrap();
+        let enemy = field.actor(id).enemy.as_ref().unwrap();
         assert!(enemy.pause_ticks > 0);
         assert_eq!(enemy.pause_effect_mode, 5);
         if id == 8001 {
@@ -334,7 +336,7 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
             .any(|trigger| trigger.key == 7010)
     );
     let player = field.events.world.controlled_actor;
-    field.events.world.actors.get_mut(&player).unwrap().position = [-1000., 1500., 0.];
+    field.actor_mut(player).position = [-1000., 1500., 0.];
     for tick in 0..600 {
         let camera = field.events.world.field_camera.as_ref().unwrap();
         let angle = (-(camera.target[0] - camera.position[0])
@@ -407,16 +409,7 @@ fn asgard_kvar_preparation_can_restore_a_party_with_empty_slots() -> Result<()> 
         field.events.world.field_transition.as_ref().unwrap().map,
         211
     );
-    assert!(
-        !field
-            .events
-            .world
-            .party
-            .as_ref()
-            .unwrap()
-            .formation
-            .is_empty()
-    );
+    assert!(!field.party().formation.is_empty());
     Ok(())
 }
 
@@ -434,7 +427,7 @@ fn rheaird_rider_finishes_his_seated_pose_blend_while_attached() -> Result<()> {
         })
     })?;
     ticks(&mut field, 60, FieldInput::default())?;
-    let lloyd = &field.events.world.actors[&1];
+    let lloyd = &field.actor(1);
     assert_eq!(lloyd.position, [0.; 3]); // Local to the Rheaird's seat.
     assert_eq!(lloyd.attachment.as_ref().unwrap().actor, 210);
     assert!(
@@ -449,9 +442,9 @@ fn rheaird_rider_finishes_his_seated_pose_blend_while_attached() -> Result<()> {
             .blend_weight(field.events.tick()),
         1.
     );
-    field.events.world.actors.get_mut(&210).unwrap().position = [0., -1_000_000., 0.];
+    field.actor_mut(210).position = [0., -1_000_000., 0.];
     field.step(FieldInput::default())?;
-    assert!(field.events.world.actors[&1].animation_culled);
+    assert!(field.actor(1).animation_culled);
     Ok(())
 }
 
@@ -472,13 +465,6 @@ fn rheaird_crash_runs_the_debris_effect_and_restores_control() -> Result<()> {
         field.player_has_control() && mission(field, 0x40) == 10_001_000
     })?;
     assert!(field.events.exploration_error.is_none());
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires locally cooked fields; no devices"]
-fn mana_selector_plays_the_opening_mechanism_scene() -> Result<()> {
-    mana_intro()?;
     Ok(())
 }
 
@@ -574,7 +560,7 @@ fn mana_reunion_restores_both_groups_with_empty_slots() -> Result<()> {
     advance_until(&mut field, |field| {
         field.player_has_control() && mission(field, 0xcc) == 13_600
     })?;
-    let party = field.events.world.party.as_ref().unwrap();
+    let party = field.party();
     for id in [1, 2, 3, 4, 9] {
         assert!(
             party.formation.contains(&id),
@@ -690,23 +676,23 @@ fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
             actor.path.next = 0;
             actor.path.points[0] = target;
         };
-        configure(field.events.world.actors.get_mut(&id).unwrap());
+        configure(field.actor_mut(id));
         for _ in 0..150 {
             field.step(FieldInput::default())?;
         }
-        let stopped = field.events.world.actors[&id].position;
+        let stopped = field.actor(id).position;
         assert!(
             stopped[1] > start[1] && stopped[1] < boundary,
             "map {map}: enemy crossed the authored doorway boundary: {stopped:?}"
         );
-        let actor = field.events.world.actors.get_mut(&id).unwrap();
+        let actor = field.actor_mut(id);
         actor.enemy = None;
         configure(actor);
         for _ in 0..150 {
             field.step(FieldInput::default())?;
         }
         assert!(
-            field.events.world.actors[&id].position[1] > target_y - 10.,
+            field.actor(id).position[1] > target_y - 10.,
             "ordinary actors must retain access to the doorway"
         );
     }
@@ -728,7 +714,7 @@ fn iselia_damage_spheres_keep_moving() -> Result<()> {
         for _ in 0..1200 {
             field.step(FieldInput::default())?;
             for (i, (min, max)) in bounds.iter_mut().enumerate() {
-                let actor = &field.events.world.actors[&(first + i as i32)];
+                let actor = field.actor(first + i as i32);
                 for axis in 0..2 {
                     min[axis] = min[axis].min(actor.position[axis]);
                     max[axis] = max[axis].max(actor.position[axis]);
@@ -754,7 +740,7 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
     let player = field.events.world.controlled_actor;
     // Controlled approaches isolate the native choice and treasure service without
     // claiming the intervening route through this multi-level room.
-    let actor = field.events.world.actors.get_mut(&player).unwrap();
+    let actor = field.actor_mut(player);
     actor.position = [1600., -500., 300.];
     actor.face(0.);
     actor.motion = None;
@@ -783,17 +769,8 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
     assert!(!field.events.world.choices[&0].operation.is_pending());
 
     const REWARD: u16 = 390;
-    let count = field
-        .events
-        .world
-        .party
-        .as_ref()
-        .unwrap()
-        .items
-        .get(&REWARD)
-        .copied()
-        .unwrap_or(0);
-    let actor = field.events.world.actors.get_mut(&player).unwrap();
+    let count = field.party().items.get(&REWARD).copied().unwrap_or(0);
+    let actor = field.actor_mut(player);
     actor.position = [364., -852., 0.];
     actor.face(180.);
     actor.motion = None;
@@ -807,27 +784,14 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
         field.events.world.choices.is_empty(),
         "choice cursor leaked into the chest notice"
     );
-    assert_eq!(
-        field.events.world.party.as_ref().unwrap().items[&REWARD],
-        count + 1
-    );
+    assert_eq!(field.party().items[&REWARD], count + 1);
     field.step(FieldInput {
         interact: true,
         ..Default::default()
     })?;
     ticks(&mut field, 30, FieldInput::default())?;
     assert!(field.player_has_control());
-    assert!(
-        field
-            .events
-            .world
-            .party
-            .as_ref()
-            .unwrap()
-            .travel
-            .opened_treasures
-            .contains(&157)
-    );
+    assert!(field.party().travel.opened_treasures.contains(&157));
     Ok(())
 }
 
@@ -837,7 +801,7 @@ fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
     let mut field = enter(Fixture::Iselia, 193, Some(20_307_000))?;
     replay(&mut field, |f| f.events.world.field_transition.is_some())?;
     assert_eq!(field.story_progress()?, 20_308_000);
-    let party = field.events.world.party.as_ref().unwrap();
+    let party = field.party();
     assert_eq!(party.formation.len(), 8);
     assert!(party.formation.iter().all(|id| *id != 0));
     assert_eq!(party.field_leader, 1);
@@ -857,11 +821,11 @@ fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
     let mut field = enter(Fixture::FireSeal, 219, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     // This chest is a scripted model actor, so its animation drives the lid.
-    let chest = field.events.world.actors[&8300].clone();
+    let chest = field.actor(8300).clone();
     assert_eq!(chest.position, [-4126., 1764., 15.]);
     assert!(chest.collidable);
     let player = field.events.world.controlled_actor;
-    let radius = chest.radius + field.events.world.actors[&player].radius;
+    let radius = chest.radius + field.actor(player).radius;
     let start = [
         chest.position[0] + 160.,
         chest.position[1],
@@ -869,15 +833,15 @@ fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
     ];
     field.events.world.field_camera = None;
     for enabled in [true, false] {
-        field.events.world.actors.get_mut(&8300).unwrap().collidable = enabled;
-        field.events.world.actors.get_mut(&player).unwrap().position = start;
+        field.actor_mut(8300).collidable = enabled;
+        field.actor_mut(player).position = start;
         for _ in 0..80 {
             field.step(FieldInput {
                 direction: [-1., 0.],
                 ..Default::default()
             })?;
         }
-        let position = field.events.world.actors[&player].position;
+        let position = field.actor(player).position;
         if enabled {
             assert!(position[0] >= chest.position[0] + radius, "{position:?}");
             assert!(position[0] < start[0], "player never approached the chest");
@@ -913,25 +877,11 @@ fn triet_memory_circle_replaces_sealed_geometry_when_unlocked() -> Result<()> {
         }
     };
     check(&field, "LIVE_");
-    assert_eq!(
-        field.events.world.actors[&id]
-            .animation
-            .as_ref()
-            .unwrap()
-            .rate,
-        0.
-    );
+    assert_eq!(field.actor(id).animation.as_ref().unwrap().rate, 0.);
     field.events.world.event_flags.insert(flag);
     field.step(FieldInput::default())?;
     check(&field, "HID_");
-    assert!(
-        field.events.world.actors[&id]
-            .animation
-            .as_ref()
-            .unwrap()
-            .rate
-            > 0.
-    );
+    assert!(field.actor(id).animation.as_ref().unwrap().rate > 0.);
     Ok(())
 }
 
@@ -1041,17 +991,10 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
         (100, 152, SorcerersRing::Water),
     ] {
         assert!(!field.events.world.event_flags.contains(&flag));
-        let center = field.events.world.actors[&target].position;
-        field
-            .events
-            .world
-            .party
-            .as_mut()
-            .unwrap()
-            .travel
-            .sorcerers_ring = ring;
+        let center = field.actor(target).position;
+        field.party_mut().travel.sorcerers_ring = ring;
         let player = field.events.world.controlled_actor;
-        let actor = field.events.world.actors.get_mut(&player).unwrap();
+        let actor = field.actor_mut(player);
         if target == 100 {
             actor.position = [center[0], center[1] - 300., 0.];
             // Approach from the front, through the cup's invisible talk marker.
@@ -1094,7 +1037,7 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
 #[ignore = "requires locally cooked Iselia fields; no devices"]
 fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> {
     let mut field = enter(Fixture::Martel, 332, Some(2500))?;
-    field.events.world.party.as_mut().unwrap().formation = vec![1, 2, 3];
+    field.party_mut().formation = vec![1, 2, 3];
     advance_until(&mut field, FieldSession::player_has_control)?;
     assert!(field.events.trigger(2002, false)?);
     // The field requests two tutorial encounters. Supply victory explicitly;
@@ -1121,7 +1064,7 @@ fn martel_selector_starts_before_the_golem_scene_and_ring_pickup() -> Result<()>
     let mut field = enter(Fixture::Martel, 308, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     assert_eq!(field.story_progress()?, 104_000);
-    let party = field.events.world.party.as_ref().unwrap();
+    let party = field.party();
     assert!(!party.items.contains_key(&resonance_events::ring::ITEM));
     assert_eq!(
         party.travel.sorcerers_ring,
@@ -1268,13 +1211,13 @@ fn mana_enemies_respect_closed_bridge_barriers() -> Result<()> {
         if open {
             field.events.world.actors.remove(&800);
         }
-        let actor = field.events.world.actors.get_mut(&enemy).unwrap();
+        let actor = field.actor_mut(enemy);
         actor.position = start;
         actor.autonomy = None;
         actor.collidable = false;
         actor.motion = Some(resonance_events::ActorMotion { target, speed: 4. });
         ticks(&mut field, 100, FieldInput::default())?;
-        let x = field.events.world.actors[&enemy].position[0];
+        let x = field.actor(enemy).position[0];
         if open {
             assert!(
                 (x - target[0]).abs() < 1.,
@@ -1287,5 +1230,35 @@ fn mana_enemies_respect_closed_bridge_barriers() -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked Triet town; no devices"]
+fn triet_genis_returns_to_idle_after_getup() -> Result<()> {
+    let mut field = configured(Fixture::FireSeal, 485, |entry| {
+        entry
+            .persistent
+            .memory
+            .write(0x40, symphonia_script::Width::S32, 1_306_000)?;
+        entry.persistent.event_flags.insert(1749);
+        Ok(())
+    })?;
+    let (mut getup, mut released) = (false, false);
+    replay(&mut field, |f| {
+        if let Some(actor) = f.events.world.actors.get(&3) {
+            getup |= actor
+                .animation
+                .as_ref()
+                .is_some_and(|a| a.resource == 66057);
+            released |= getup
+                && !actor.scripted_animation
+                && actor
+                    .animation
+                    .as_ref()
+                    .is_some_and(|a| a.resource == 3 && a.blend_ticks > 0);
+        }
+        released && f.player_has_control()
+    })?;
     Ok(())
 }

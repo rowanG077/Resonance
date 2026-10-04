@@ -46,8 +46,6 @@ pub struct Actor {
     /// Replacing an actor invalidates its retained presentation instance.
     pub instance: u64,
     pub(crate) authored_handle: Option<i32>,
-    /// Constructor pose, before subsequent script commands reposition the actor.
-    pub creation: Option<ActorCreation>,
     pub resource: u32,
     pub position: [f32; 3],
     pub(crate) visual_lift: Option<crate::projectile::VisualLift>,
@@ -62,7 +60,6 @@ pub struct Actor {
     pub animation: Option<Animation>,
     /// Independent scenery motion layers, sampled over its base animation.
     pub scenery_animations: BTreeMap<i8, Animation>,
-    pub animation_bindings: crate::animation::AnimationBindings,
     pub properties: BTreeMap<i32, i32>,
     pub heading: f32,
     pub target_heading: f32,
@@ -129,12 +126,6 @@ impl Enemy {
     pub fn stun_effect(&self) -> Option<crate::effect::StunEffect> {
         (self.pause_ticks != 0).then_some(self.reaction)
     }
-}
-#[derive(Debug, Clone, Copy)]
-pub struct ActorCreation {
-    pub tick: u32,
-    pub position: [f32; 3],
-    pub heading: f32,
 }
 impl Actor {
     fn scale_percent(&self) -> [i32; 3] {
@@ -289,7 +280,6 @@ impl Actor {
             operation: None,
             instance: 0,
             authored_handle: None,
-            creation: None,
             resource,
             position,
             visual_lift: None,
@@ -300,7 +290,6 @@ impl Actor {
             blend: None,
             animation: None,
             scenery_animations: BTreeMap::new(),
-            animation_bindings: Default::default(),
             properties: BTreeMap::new(),
             heading: 0.,
             target_heading: 0.,
@@ -409,15 +398,6 @@ impl Actor {
 pub struct ActorMotion {
     pub target: [f32; 3],
     pub speed: f32,
-}
-/// Animation commands evaluate movement in place, between script instructions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MotionUpdate {
-    Frame,
-    AnimationBinding {
-        event_paused: bool,
-        input_enabled: bool,
-    },
 }
 #[derive(Debug, Clone)]
 pub struct Attachment {
@@ -634,7 +614,6 @@ pub struct GameWorld {
     pub battle_request: Option<crate::battle::Request>,
     /// Overworld bottles count movement updates; their scene owns that clock.
     pub external_encounter_clock: bool,
-    pub(crate) pending_animation_bindings: std::collections::BTreeSet<i32>,
     pub(crate) loaded_resources: BTreeMap<i32, (crate::ResourceKind, u32)>,
     pub(crate) operations: crate::operation::OperationScope,
     pub(crate) next_particle: i32,
@@ -1006,11 +985,6 @@ impl GameWorld {
         self.next_actor_instance += 1;
         actor.instance = self.next_actor_instance;
         actor.authored_handle = None;
-        actor.creation = Some(ActorCreation {
-            tick: self.tick,
-            position: actor.position,
-            heading: actor.appearance.fixed_heading.unwrap_or(actor.heading),
-        });
         if !self.actor_order.contains(&id) {
             self.actor_order.push(id);
         }

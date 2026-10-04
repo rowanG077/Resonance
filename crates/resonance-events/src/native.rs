@@ -19,7 +19,6 @@ mod skit;
 mod wait;
 
 pub(crate) struct EventCommand {
-    /// One-based pool slot, matching the original reusable VM pointers.
     pub handle: i32,
     pub action: EventAction,
 }
@@ -30,11 +29,8 @@ pub(crate) enum EventAction {
     Release,
 }
 
-pub(crate) type MotionResolver<'a> = dyn FnMut(crate::MotionUpdate, i32, &mut Actor, [f32; 3]) + 'a;
-
 pub(crate) struct NativeHost<'a> {
     pub world: &'a mut GameWorld,
-    pub resolve_motion: &'a mut MotionResolver<'a>,
     pub resources: &'a ResourceLibrary,
     pub program: &'a Program,
     pub event_actor: i16,
@@ -42,8 +38,6 @@ pub(crate) struct NativeHost<'a> {
     pub events: &'a mut Vec<EventCommand>,
     pub free_slots: u32,
     pub wait: &'a mut Option<Wait>,
-    pub resource_waits: Option<&'a std::collections::VecDeque<crate::ResourceWaitObservation>>,
-    pub resource_wait: &'a mut Option<crate::ResourceWaitObservation>,
 }
 fn require(ok: bool, what: &str) -> Result<(), String> {
     if ok { Ok(()) } else { Err(what.into()) }
@@ -88,26 +82,6 @@ fn sprite_property(
     Some(previous)
 }
 impl NativeHost<'_> {
-    // fn_8004C628 invokes the actor immediately, including when clearing an
-    // override. Resolve movement before the next script instruction observes it.
-    fn update_bound_actor(&mut self, id: i32) {
-        let actor = self.world.actors.get_mut(&id).unwrap();
-        let previous = actor.position;
-        actor.step_motion();
-        (self.resolve_motion)(
-            crate::MotionUpdate::AnimationBinding {
-                event_paused: self.world.mapped_input_disabled,
-                input_enabled: self.world.input_enabled,
-            },
-            id,
-            actor,
-            previous,
-        );
-        actor.step_heading(
-            self.world.input_enabled && id == self.world.controlled_actor,
-            actor.motion.is_some() || actor.position[..2] != previous[..2],
-        );
-    }
     fn yield_update(&mut self) -> Result<NativeResult, String> {
         *self.wait = Some(Wait::Tick(
             self.world
@@ -652,8 +626,6 @@ impl NativeHost<'_> {
                         19 => {
                             actor.properties.insert(19, a[2] & 1);
                             if actor.pushable() {
-                                // fn_8001A6FC selects the block controller and
-                                // its contact radius when property 19 is set.
                                 actor.radius = 50.;
                             }
                         }
@@ -953,8 +925,6 @@ impl NativeHost<'_> {
                     .as_ref()
                     .map_or(255., |f| f.before_update(self.world.tick));
                 if a[0] == 4 {
-                    // fn_8004E260 -> fn_80018928: keep a captured scene at 255,
-                    // reducing its opacity by 256/duration after each draw.
                     let duration = if a[1] == 0 { 10 } else { a[1] as u32 };
                     self.world.scene_dissolve = Some(crate::world::SceneDissolve {
                         start_tick: self.world.tick,
@@ -993,10 +963,27 @@ impl NativeHost<'_> {
                 if a[1] == 0 {
                     if let Some(actor) = self.world.actors.get_mut(&a[0]) {
                         actor.scripted_animation = false;
-                        // Releasing the override does not erase the evaluated model pose.
-                        // Attachment reads remain valid until locomotion selects its clip.
                     }
-                    self.update_bound_actor(a[0]);
+                    let actor = self.world.actors.get_mut(&a[0]).unwrap();
+                    if let Some(model) = self.resources.model(actor.resource) {
+                        let dialogue = self.world.dialogue.values().any(|d| d.operation.is_pending()
+                            && matches!(d.anchor, crate::dialogue::DialogueAnchor::Actor(speaker) if speaker == a[0]));
+                        actor.select_automatic_animation(
+                            model,
+                            self.world.tick,
+                            crate::animation::Locomotion {
+                                movement_speed: actor.motion.as_ref().map(|m| m.speed),
+                                walking: false,
+                                turn: actor.turn_direction(),
+                                dialogue,
+                                event_controlled: !self.world.input_enabled
+                                    && a[0] == self.world.controlled_actor,
+                                player_controlled: self.world.input_enabled
+                                    && a[0] == self.world.controlled_actor,
+                                release: Some(a[3]),
+                            },
+                        );
+                    }
                     return Ok(NativeResult::Continue(None));
                 }
                 let resolved = if a[1] == -1 {
@@ -1042,18 +1029,6 @@ impl NativeHost<'_> {
                     ..Animation::new(resource, slot, clips[&slot].duration_ticks, self.world.tick)
                 });
                 actor.scripted_animation = true;
-                self.world.pending_animation_bindings.insert(a[0]);
-                self.update_bound_actor(a[0]);
-                let size = if a[0] == self.world.controlled_actor {
-                    self.world.player_size.model_scale()
-                } else {
-                    1.
-                };
-                self.world
-                    .actors
-                    .get_mut(&a[0])
-                    .unwrap()
-                    .record_animation_binding(self.world.tick, size);
             }
             NativeCall::PlayCameraTrack => {
                 require(a[1..] == [0, 0], "camera playback mode is not implemented")?;
@@ -1076,14 +1051,10 @@ impl NativeHost<'_> {
                     self.resolve(a[5], ResourceKind::Model)?
                 };
                 require(self.world.actors.len() < 4096, "actor limit exceeded")?;
-                // fn_80059838 allocates a fresh object even when its script key
-                // is already in use. Setters keep addressing the first object.
                 let key = self.world.scene_actor_key(a[0])?;
                 if key != a[0] {
                     self.world.duplicate_actors.insert(key, a[0]);
                 }
-                // fn_80059838 initializes the model immediately. Following calls
-                // can pause it before the first scheduler update (Thoda's rocks).
                 let model = self.resources.model(resource);
                 let animation = model
                     .and_then(|model| model.clips.get(&slot::IDLE))
@@ -1101,8 +1072,6 @@ impl NativeHost<'_> {
                         casts_shadow: false,
                         visible: !locator,
                         interaction_anchor: locator,
-                        // fn_8001A6FC hides optional "kk" geometry for these
-                        // constructors too, including Mana's remote Lloyd.
                         appearance: crate::Appearance {
                             hidden_nodes: model.map(|m| m.hidden_nodes.clone()).unwrap_or_default(),
                             ..Default::default()
@@ -1135,7 +1104,6 @@ impl NativeHost<'_> {
                 return Ok(NativeResult::Suspend);
             }
             NativeCall::TransformActorNode => {
-                // fn_8004568C's rotation branch is used by authored doorway hinges.
                 if a[2] == -1 {
                     return Ok(NativeResult::Continue(None));
                 }
