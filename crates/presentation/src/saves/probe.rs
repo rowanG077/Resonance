@@ -75,6 +75,7 @@ pub(super) fn app_with_saves(
             silent: true,
             skip_intro: true,
             skip_battles: false,
+            allow_incomplete_scripts: false,
             tick: None,
             presentation_start: None,
             selected: 0,

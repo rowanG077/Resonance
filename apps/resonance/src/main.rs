@@ -22,6 +22,9 @@ struct Args {
     /// Temporary playground: start above Sylvarant on unlocked Rheairds.
     #[arg(long, conflicts_with_all = ["record_music", "record_playthrough", "replay"])]
     test_overworld: bool,
+    /// Resolve battles as victories for replay testing until combat is implemented.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    skip_battles: bool,
     /// Fixed render resolution for this session (default 640x480); restart to change it.
     #[arg(long, conflicts_with_all = ["capture", "record_music", "record_playthrough", "replay"])]
     resolution: Option<resonance_presentation::Resolution>,
@@ -118,7 +121,8 @@ fn main() -> anyhow::Result<()> {
             movie_frame: args.movie_frame,
             boot_frame: args.boot_frame,
             skip_intro: args.skip_intro,
-            skip_battles: args.test_overworld,
+            skip_battles: args.skip_battles || args.test_overworld,
+            allow_incomplete_scripts: args.test_overworld,
             record_playthrough: args.record_playthrough,
             record_title_ticks: args.record_title_ticks,
         },

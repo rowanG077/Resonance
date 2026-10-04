@@ -951,3 +951,28 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires locally cooked Iselia fields; no devices"]
+fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> {
+    let mut field = enter(0, 332, Some(2500))?;
+    field.events.world.party.as_mut().unwrap().formation = vec![1, 2, 3];
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    assert!(field.events.trigger(2002, false)?);
+    // The field requests two tutorial encounters. Supply victory explicitly;
+    // this checks the field continuation, not an implemented combat runner.
+    for formation in [1, 2] {
+        advance_until(&mut field, |field| {
+            field.events.world.battle_request.is_some()
+        })?;
+        let request = field.events.world.battle_request.as_ref().unwrap();
+        assert_eq!(
+            request.setup.encounter,
+            resonance_events::battle::Encounter::Formation(formation)
+        );
+        skip_battle(&mut field)?;
+    }
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    assert!(field.events.exploration_error.is_none());
+    Ok(())
+}
