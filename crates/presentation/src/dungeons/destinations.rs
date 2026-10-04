@@ -5,6 +5,21 @@ use resonance_game::field::FieldEntry;
 use std::{collections::BTreeSet, sync::Arc};
 use symphonia_script::Width;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Fixture {
+    Martel,
+    FireSeal,
+    WaterSeal,
+    AirSeal,
+    Mana,
+    Iselia,
+    Palmacosta,
+    Asgard,
+    GuardEntrance,
+    Generator,
+    Wings,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct Destination {
     pub name: &'static str,
@@ -35,84 +50,102 @@ enum Mission {
 
 const PARTY: [u8; 5] = [1, 2, 3, 4, 9];
 
+impl Fixture {
+    pub(super) const fn destination(self) -> Destination {
+        match self {
+            Self::Martel => Destination {
+                name: "TEMPLE OF MARTEL",
+                map: 307,
+                position: [1., 194., 0.],
+                heading: 180.,
+                progress: Progress::MartelEntrance,
+            },
+            Self::FireSeal => Destination {
+                name: "TRIET RUINS - FIRE SEAL",
+                map: 219,
+                position: [-265., -4., 15.],
+                heading: 272.,
+                progress: Progress::Story(1_302_000),
+            },
+            Self::WaterSeal => Destination {
+                name: "THODA GEYSER - WATER SEAL",
+                map: 7,
+                position: [21., 67., 0.],
+                heading: 188.,
+                progress: Progress::AfterFireSeal(Mission::Thoda, 12_000),
+            },
+            Self::AirSeal => Destination {
+                name: "BALACRUF MAUSOLEUM - AIR SEAL",
+                map: 508,
+                position: [8., 222., 0.],
+                heading: 180.,
+                progress: Progress::AfterFireSeal(Mission::Balacruf, 11_000),
+            },
+            Self::Mana => Destination {
+                name: "TOWER OF MANA",
+                map: 362,
+                position: [-9., -46., -3.],
+                heading: 180.,
+                progress: Progress::AfterFireSeal(Mission::Mana, 1000),
+            },
+            Self::Iselia => Destination {
+                name: "ISELIA HUMAN RANCH",
+                map: 194,
+                position: [679., -3369., 0.],
+                heading: 180.,
+                progress: Progress::IseliaInfiltration,
+            },
+            Self::Palmacosta => Destination {
+                name: "PALMACOSTA HUMAN RANCH",
+                map: 201,
+                position: [10., -498., 0.],
+                heading: 180.,
+                progress: Progress::AfterFireSeal(Mission::Palmacosta, 1200),
+            },
+            Self::Asgard => Destination {
+                name: "ASGARD HUMAN RANCH",
+                map: 213,
+                position: [285., -218., 49.],
+                heading: 270.,
+                progress: Progress::AfterFireSeal(Mission::Asgard, 3010),
+            },
+            Self::GuardEntrance => Destination {
+                name: "SYLVARANT BASE - GUARD ENTRANCE",
+                map: 267,
+                position: [-744., 441., -49.],
+                heading: 0.,
+                progress: Progress::Story(1_101_000),
+            },
+            Self::Generator => Destination {
+                name: "SYLVARANT BASE - GENERATOR WING",
+                map: 279,
+                position: [-1084., 1472., 0.],
+                heading: 90.,
+                progress: Progress::AfterSalvation(2_403_000),
+            },
+            Self::Wings => Destination {
+                name: "COLETTE'S FIRST WINGS",
+                map: 221,
+                position: [0., 0., 0.],
+                heading: 0.,
+                progress: Progress::Story(1_302_000),
+            },
+        }
+    }
+}
+
 pub(super) const DESTINATIONS: [Destination; 11] = [
-    Destination {
-        name: "TEMPLE OF MARTEL",
-        map: 307,
-        position: [1., 194., 0.],
-        heading: 180.,
-        progress: Progress::MartelEntrance,
-    },
-    Destination {
-        name: "TRIET RUINS - FIRE SEAL",
-        map: 219,
-        position: [-265., -4., 15.],
-        heading: 272.,
-        progress: Progress::Story(1_302_000),
-    },
-    Destination {
-        name: "THODA GEYSER - WATER SEAL",
-        map: 7,
-        position: [21., 67., 0.],
-        heading: 188.,
-        progress: Progress::AfterFireSeal(Mission::Thoda, 12_000),
-    },
-    Destination {
-        name: "BALACRUF MAUSOLEUM - AIR SEAL",
-        map: 508,
-        position: [8., 222., 0.],
-        heading: 180.,
-        progress: Progress::AfterFireSeal(Mission::Balacruf, 11_000),
-    },
-    Destination {
-        name: "TOWER OF MANA",
-        map: 362,
-        position: [-9., -46., -3.],
-        heading: 180.,
-        progress: Progress::AfterFireSeal(Mission::Mana, 1000),
-    },
-    Destination {
-        name: "ISELIA HUMAN RANCH",
-        map: 194,
-        position: [679., -3369., 0.],
-        heading: 180.,
-        progress: Progress::IseliaInfiltration,
-    },
-    Destination {
-        name: "PALMACOSTA HUMAN RANCH",
-        map: 201,
-        position: [10., -498., 0.],
-        heading: 180.,
-        progress: Progress::AfterFireSeal(Mission::Palmacosta, 1200),
-    },
-    Destination {
-        name: "ASGARD HUMAN RANCH",
-        map: 213,
-        position: [285., -218., 49.],
-        heading: 270.,
-        progress: Progress::AfterFireSeal(Mission::Asgard, 3010),
-    },
-    Destination {
-        name: "SYLVARANT BASE - GUARD ENTRANCE",
-        map: 267,
-        position: [-744., 441., -49.],
-        heading: 0.,
-        progress: Progress::Story(1_101_000),
-    },
-    Destination {
-        name: "SYLVARANT BASE - GENERATOR WING",
-        map: 279,
-        position: [-1084., 1472., 0.],
-        heading: 90.,
-        progress: Progress::AfterSalvation(2_403_000),
-    },
-    Destination {
-        name: "COLETTE'S FIRST WINGS",
-        map: 221,
-        position: [0., 0., 0.],
-        heading: 0.,
-        progress: Progress::Story(1_302_000),
-    },
+    Fixture::Martel.destination(),
+    Fixture::FireSeal.destination(),
+    Fixture::WaterSeal.destination(),
+    Fixture::AirSeal.destination(),
+    Fixture::Mana.destination(),
+    Fixture::Iselia.destination(),
+    Fixture::Palmacosta.destination(),
+    Fixture::Asgard.destination(),
+    Fixture::GuardEntrance.destination(),
+    Fixture::Generator.destination(),
+    Fixture::Wings.destination(),
 ];
 
 impl Destination {
