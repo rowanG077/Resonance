@@ -184,7 +184,7 @@ pub(super) fn pipeline(
         depth_stencil: Some(DepthStencilState {
             format: TextureFormat::Depth32Float,
             depth_write_enabled: Some(false),
-            // Native capture models use LESS with depth writes disabled (reverse-Z here).
+            // Captured meshes test scene depth without occluding later transparent layers.
             depth_compare: Some(CompareFunction::Greater),
             stencil: default(),
             bias: default(),

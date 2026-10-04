@@ -202,7 +202,7 @@ fn fixture() -> Fixture {
     let mut actor_part = part.clone();
     actor_part["mesh"] = json!("fields/test/optional.glb");
     let field = json!({"version":resonance_content::field::FIELD_VERSION,"map_id":123,"source_sha256":hash,"doors":[],"overlays":{},"unbound_geometry":[],"resource_catalogue":null,
-        "blink":{"frames":[0],"initial_tick":0,"initial_spread":1},
+        "blink":{"frames":[0]},
         "script":{"path":"fields/test/events.ssb","sha256":files["fields/test/events.ssb"]},
         "messages":"fields/test/messages.json", "parts":[part],
         "actors":[{"resource":700,"parts":[actor_part],"hidden_nodes":[0],"collision":{"floors":[],"solids":[]}}],

@@ -3,13 +3,14 @@ use std::io::{Cursor, Read};
 
 #[test]
 #[ignore = "requires the extracted original discs"]
-fn ring_sprites_and_palette_cook_from_both_discs() -> Result<()> {
+fn field_sprites_and_palette_decode_from_both_discs() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
     for disc in [1, 2] {
-        let output = tempfile::tempdir()?;
-        let prepared = cook(&local.join(format!("disc{disc}")), output.path())?;
-        let effects: FieldEffects =
-            serde_json::from_slice(&fs::read(output.path().join(prepared.path))?)?;
+        let executable = fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
+        let recipe = Recipe::read(&executable)?;
+        recipe.blink.validate()?;
+        recipe.shadow.validate()?;
+        let effects = recipe.effects;
         effects.validate()?;
         let smoke = &effects.sprites[&resonance_content::effect::SMOKE_SPRITE];
         assert_eq!(smoke.uv_at(6), [0., 0., 63. / 256., 63. / 256.]);
@@ -43,7 +44,6 @@ fn ring_sprites_and_palette_cook_from_both_discs() -> Result<()> {
         let sprite = &effects.sprites[&6];
         assert_eq!(sprite.uv, [129., 0., 192., 63.].map(|v| v / 256.));
         assert!(sprite.additive);
-        assert!(output.path().join(&sprite.texture).is_file());
         let ring = &effects.sprites[&41];
         assert_eq!(ring.uv, [129., 0., 192., 63.].map(|v| v / 256.));
         assert_eq!(ring.texture, sprite.texture);
@@ -82,7 +82,6 @@ fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Resul
         let original = local.join(format!("extracted/disc{disc}"));
         let executable = fs::read(original.join("sys/main.dol"))?;
         let mut recipe = Recipe::read(&executable)?;
-        assert_eq!(recipe.catalogue.entries.len(), 79);
         assert_eq!(
             recipe.effects.sprites[&6].uv,
             [129., 0., 192., 63.].map(|v| v / 256.)

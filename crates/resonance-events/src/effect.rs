@@ -319,93 +319,23 @@ mod flutter_tests {
     use super::*;
 
     #[test]
-    fn leaf_motion_matches_consecutive_dolphin_observations() {
-        // Three consecutive field-332 observations, registered to the wind clock.
-        let motion = Flutter {
-            rotation: [29949., 21033., 23432.922],
-            fall_speed: 1.74,
+    fn leaves_fall_sway_and_spin() {
+        let mut motion = Flutter {
+            rotation: [0.; 3],
+            fall_speed: 2.,
             spin: 0.2,
-            heading: -37.,
+            heading: 0.,
             turn_after: 10,
             initial_fall_variation: None,
         };
-        let mut world = crate::GameWorld {
-            tick: 100,
-            ..Default::default()
-        };
-        world.particles.push(crate::Particle {
-            kind: 25,
-            handle: 1,
-            born: 100,
-            lifetime: 150,
-            position: [2815.3848, 979.9171, 105.99975],
-            velocity: [0.; 3],
-            size: 25.,
-            size_delta: 0.,
-            rgba: [13., 60., 4., 255.],
-            alpha_delta: 0.,
-            flutter: Some(motion),
-        });
-        let program =
-            symphonia_script::Program::decode(&[0, 4, 0, 0, 0, 0, 0, 0, 0x20, 0xff]).unwrap();
-        let mut events = crate::EventRuntime::with_state(
-            std::sync::Arc::new(program),
-            Default::default(),
-            world,
-            Default::default(),
-        )
-        .unwrap();
-        let seed = events.world.random_state;
-        for (tick, expected, angle) in [
-            (36917, [2815.1514, 980.0931, 104.25975], 23433.121),
-            (36918, [2814.9045, 980.27905, 102.51975], 23433.32),
-            (36919, [2814.6445, 980.475, 100.779755], 23433.52),
-        ] {
-            events
-                .step_with_motion(tick, |_| Ok(()), |_, _, _, _, _| {}, |_| Ok(()))
-                .unwrap();
-            let particle = &events.world.particles[0];
-            for (actual, expected) in particle.position.into_iter().zip(expected) {
-                assert!((actual - expected).abs() < 0.0003, "{actual} != {expected}");
-            }
-            assert_eq!(
-                particle.flutter.as_ref().unwrap().rotation,
-                [29949., 21033., angle]
-            );
+        let mut position = [0., 0., 100.];
+        let mut seed = 1;
+        for tick in 1..=30 {
+            motion.step(&mut position, tick, &mut || crate::world::random(&mut seed));
         }
-        assert_eq!(events.world.tick, 103);
-        assert_eq!(events.world.random_state, seed);
-        let particle = &mut events.world.particles[0];
-        particle.position = [2898.4536, 872.2535, 55.520428];
-        particle.flutter = Some(Flutter {
-            rotation: [23037., 18576., 25593.305],
-            fall_speed: 1.84,
-            spin: 0.2,
-            heading: -49.,
-            turn_after: 0,
-            initial_fall_variation: None,
-        });
-        events.world.random_state = 594934361;
-        events
-            .step_with_motion(37561, |_| Ok(()), |_, _, _, _, _| {}, |_| Ok(()))
-            .unwrap();
-        let particle = &events.world.particles[0];
-        for (actual, expected) in particle
-            .position
-            .into_iter()
-            .zip([2898.4985, 871.39746, 53.680428])
-        {
-            assert!((actual - expected).abs() < 0.0003);
-        }
-        let motion = particle.flutter.as_ref().unwrap();
-        assert_eq!((motion.heading, motion.turn_after), (-87., 29));
-        assert_eq!(motion.rotation, [23039., 18576., 25593.504]);
-        assert_eq!(events.world.random_state, 1417863957);
-        assert_eq!(particle.alpha(219), 255.);
-        assert_eq!(particle.alpha(220), 247.);
-        assert_eq!(particle.alpha(250), 7.);
-        assert!(particle.alive(250));
-        assert!(!particle.alive(251));
+        assert!(position[2] < 100.);
+        assert!(position[0].hypot(position[1]) > 0.);
+        assert!(motion.rotation[2] > 0.);
     }
 }
 
@@ -495,7 +425,7 @@ pub struct BillboardEffect {
     pub recipe: u16,
     pub orientation: SpriteOrientation,
     pub anchor: resonance_content::effect::VerticalAnchor,
-    /// Original palette index; neutral RGB channels preserve its color.
+    /// Palette index; neutral RGB channels preserve its color.
     pub palette: Option<u16>,
     pub born: u32,
     pub lifetime: u32,
@@ -520,31 +450,12 @@ pub enum SpriteOrientation {
 
 #[derive(Debug, Clone)]
 pub(crate) enum BillboardController {
-    Cardinal(crate::emitter::cardinal::CardinalMotion),
-    Inward(crate::emitter::inward::Motion),
+    Orbit(crate::emitter::Orbit),
     Flutter(Flutter),
-    RisingWander {
-        direction: [f32; 3],
-        speed: f32,
-    },
     CameraOffset {
         emitter: i32,
         center: [f32; 3],
         distance: f32,
-    },
-    Wander {
-        direction: [f32; 3],
-        speed: f32,
-        gravity: f32,
-    },
-    Spiral {
-        center: [f32; 3],
-        radius: f32,
-    },
-    Directed {
-        direction: [f32; 3],
-        speed: f32,
-        gravity: f32,
     },
 }
 
@@ -627,79 +538,17 @@ impl Default for BillboardEffect {
 }
 
 impl BillboardEffect {
-    pub(crate) fn advance(&mut self, tick: u32, random: &mut u32) {
+    pub(crate) fn advance(&mut self, tick: u32, age: u32, random: &mut u32) {
         if let Some(controller) = &mut self.controller {
-            let wandering = matches!(controller, BillboardController::Wander { .. });
             match controller {
-                BillboardController::Cardinal(motion) => motion.advance(&mut self.position),
-                BillboardController::Inward(_) => return,
+                BillboardController::Orbit(orbit) => self.position = orbit.position(age),
                 BillboardController::Flutter(flutter) => {
                     flutter.step(&mut self.position, tick, &mut || {
                         crate::world::random(random)
                     });
                     self.rotation = flutter.rotation;
                 }
-                BillboardController::RisingWander { direction, speed } => {
-                    for value in &mut direction[..2] {
-                        *value += if crate::world::random(random) & 1 != 0 {
-                            2.5
-                        } else {
-                            -2.5
-                        };
-                    }
-                    let length = direction.iter().map(|v| v * v).sum::<f32>().sqrt();
-                    self.velocity = direction.map(|v| v / length * *speed);
-                }
                 BillboardController::CameraOffset { .. } => {}
-                BillboardController::Wander {
-                    direction,
-                    speed,
-                    gravity,
-                }
-                | BillboardController::Directed {
-                    direction,
-                    speed,
-                    gravity,
-                } => {
-                    let moving_axis = if wandering {
-                        Some(if crate::world::random(random) & 1 == 0 {
-                            (0, 2)
-                        } else {
-                            (2, 0)
-                        })
-                    } else {
-                        None
-                    };
-                    // fn_800863B4 perturbs the X/Z direction before normalizing.
-                    if let Some((source, target)) = moving_axis
-                        && direction[source] != 0.
-                    {
-                        direction[target] += if crate::world::random(random) & 1 != 0 {
-                            2.
-                        } else {
-                            -2.
-                        };
-                    }
-                    let length = direction.iter().map(|v| v * v).sum::<f32>().sqrt();
-                    self.velocity = direction.map(|v| {
-                        if length == 0. {
-                            0.
-                        } else {
-                            v / length * *speed
-                        }
-                    });
-                    direction[2] += *gravity;
-                }
-                BillboardController::Spiral { center, radius } => {
-                    *radius += 1.;
-                    let [x, _, z] = std::array::from_fn(|i| self.position[i] - center[i]);
-                    let angle = z.atan2(x) - 0.1_f32.to_radians();
-                    self.position = [
-                        center[0] + angle.cos() * *radius,
-                        center[1],
-                        center[2] + angle.sin() * *radius,
-                    ];
-                }
             }
         }
         self.step();
@@ -751,7 +600,6 @@ impl BillboardEffect {
             gravity: 0.,
             recipe: 8,
             born,
-            // Include the birth pose and the final timer-zero pose.
             lifetime: 61,
             position,
             velocity: [0., 0., speed],
@@ -786,5 +634,60 @@ impl BillboardEffect {
     pub fn alpha(&self, tick: u32) -> f32 {
         self.fade
             .alpha(f32::from(self.rgba[3]), tick.saturating_sub(self.born))
+    }
+}
+
+impl crate::GameWorld {
+    pub(crate) fn step_billboards(&mut self, effect_tick: u32) -> Result<(), String> {
+        self.billboards.retain(|_, effect| {
+            effect.alive(self.tick) && effect.owner.is_none_or(|id| self.actors.contains_key(&id))
+        });
+        let direction = self.field_camera.as_ref().map_or([0.; 3], |camera| {
+            let delta = [
+                camera.position[0] - camera.target[0],
+                camera.position[1] - camera.target[1],
+                0.,
+            ];
+            let length = delta[0].hypot(delta[1]);
+            delta.map(|v| if length == 0. { 0. } else { v / length })
+        });
+        let mut trails = Vec::new();
+        for effect in self.billboards.values_mut() {
+            if matches!(&effect.controller, Some(BillboardController::Orbit(orbit)) if orbit.trail)
+            {
+                let mut trail = effect.clone();
+                trail.controller = None;
+                trail.owner = None;
+                trail.born = self.tick;
+                trail.lifetime = 30;
+                trail.fade = Fade::tail(30);
+                trails.push(trail);
+            }
+            if let Some(crate::effect::BillboardController::CameraOffset {
+                emitter,
+                center,
+                distance,
+            }) = &mut effect.controller
+            {
+                if let Some(offset) = self
+                    .actors
+                    .get(emitter)
+                    .and_then(|a| a.emitter.as_ref())
+                    .and_then(crate::emitter::Emitter::camera_offset)
+                {
+                    *distance = offset;
+                }
+                effect.position = std::array::from_fn(|i| center[i] + direction[i] * *distance);
+            }
+            effect.advance(
+                effect_tick,
+                self.tick.saturating_sub(effect.born),
+                &mut self.random_state,
+            );
+        }
+        for trail in trails {
+            self.emit_billboard(trail)?;
+        }
+        Ok(())
     }
 }

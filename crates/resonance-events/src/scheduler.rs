@@ -919,59 +919,9 @@ impl EventRuntime {
         self.world.update_collision_attachments(&self.resources)?;
         let prepared = prepare(self)?;
         self.world.step_ambient_sound();
-        self.world.billboards.retain(|_, effect| {
-            effect.alive(self.world.tick)
-                && effect
-                    .owner
-                    .is_none_or(|id| self.world.actors.contains_key(&id))
-        });
-        let direction = self.world.field_camera.as_ref().map_or([0.; 3], |camera| {
-            let delta = [
-                camera.position[0] - camera.target[0],
-                camera.position[1] - camera.target[1],
-                0.,
-            ];
-            let length = delta[0].hypot(delta[1]);
-            delta.map(|v| if length == 0. { 0. } else { v / length })
-        });
-        let camera_direction = self
-            .world
-            .field_camera
-            .as_ref()
-            .map_or([0., -1., 0.], |camera| {
-                std::array::from_fn(|i| camera.position[i] - camera.target[i])
-            });
-        let mut trails = Vec::new();
-        for effect in self.world.billboards.values_mut() {
-            effect.advance_inward_trail(
-                camera_direction,
-                self.world.tick,
-                &mut self.world.random_state,
-                &mut trails,
-            );
-            if let Some(crate::effect::BillboardController::CameraOffset {
-                emitter,
-                center,
-                distance,
-            }) = &mut effect.controller
-            {
-                if let Some(crate::emitter::Emitter::Veil(veil)) = self
-                    .world
-                    .actors
-                    .get(emitter)
-                    .and_then(|a| a.emitter.as_ref())
-                {
-                    *distance = veil.distance();
-                }
-                effect.position = std::array::from_fn(|i| center[i] + direction[i] * *distance);
-            }
-            effect.advance(effect_tick, &mut self.world.random_state);
-        }
-        for trail in trails {
-            self.world
-                .emit_billboard(trail)
-                .map_err(anyhow::Error::msg)?;
-        }
+        self.world
+            .step_billboards(effect_tick)
+            .map_err(anyhow::Error::msg)?;
         let player_position = self
             .world
             .actors
@@ -1127,9 +1077,7 @@ impl EventRuntime {
         self.world.update_collision_attachments(&self.resources)?;
         self.world.step_enemy_sources();
         self.world.step_model_particles();
-        self.world
-            .step_emitters(effect_tick)
-            .map_err(anyhow::Error::msg)?;
+        self.world.step_emitters().map_err(anyhow::Error::msg)?;
         services(self)?;
         self.world
             .step_ring_stations()

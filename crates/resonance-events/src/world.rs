@@ -1055,6 +1055,12 @@ pub(crate) fn random(state: &mut u32) -> u32 {
     (*state >> 16) & 0x7fff
 }
 
+/// Uniform sample in [0, 1); the scene generator returns 15 random bits.
+pub(crate) fn random_unit(state: &mut u32) -> f32 {
+    const SAMPLE_COUNT: u32 = 1 << 15;
+    random(state) as f32 / SAMPLE_COUNT as f32
+}
+
 #[derive(Debug, Clone)]
 pub struct Fade {
     pub start_tick: u32,
