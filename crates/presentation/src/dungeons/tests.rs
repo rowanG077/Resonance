@@ -139,7 +139,7 @@ fn advance_until(field: &mut FieldSession, ready: impl Fn(&FieldSession) -> bool
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn martel_golem_battle_creates_a_pushable_block() -> Result<()> {
-    let mut field = enter(0, 308, None)?;
+    let mut field = enter(0, 308, Some(107_000))?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     let golem = *field
         .events
@@ -977,5 +977,37 @@ fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> 
     }
     advance_until(&mut field, FieldSession::player_has_control)?;
     assert!(field.events.exploration_error.is_none());
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked Martel fields; no devices"]
+fn martel_selector_starts_before_the_golem_scene_and_ring_pickup() -> Result<()> {
+    let mut field = enter(0, 308, None)?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    assert_eq!(field.story_progress()?, 104_000);
+    let party = field.events.world.party.as_ref().unwrap();
+    assert!(!party.items.contains_key(&resonance_events::ring::ITEM));
+    assert_eq!(
+        party.travel.sorcerers_ring,
+        resonance_events::ring::SorcerersRing::Disabled
+    );
+    let ring = field
+        .events
+        .world
+        .actors
+        .get(&106)
+        .context("ring on the altar")?;
+    assert!(ring.visible && !ring.appearance.model_hidden);
+    assert_eq!(ring.resource, (-1_179_645_i32) as u32);
+    assert_eq!(ring.position, [-890., 1080., -260.]);
+    assert!(field.events.trigger(1014, false)?);
+    advance_until(&mut field, |field| {
+        field.events.world.battle_request.is_some()
+    })?;
+    skip_battle(&mut field)?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    assert_eq!(field.story_progress()?, 105_000);
+    assert!(field.events.world.event_flags.contains(&207));
     Ok(())
 }

@@ -16,6 +16,7 @@ pub(crate) struct Destination {
 
 #[derive(Clone, Copy)]
 enum Progress {
+    MartelEntrance,
     Story(i32),
     AfterSalvation(i32),
     AfterFireSeal(Mission, i32),
@@ -40,7 +41,7 @@ pub(super) const DESTINATIONS: [Destination; 11] = [
         map: 307,
         position: [1., 194., 0.],
         heading: 180.,
-        progress: Progress::Story(107_000),
+        progress: Progress::MartelEntrance,
     },
     Destination {
         name: "TRIET RUINS - FIRE SEAL",
@@ -131,6 +132,16 @@ impl Destination {
             ..Default::default()
         };
         let story = match self.progress {
+            Progress::MartelEntrance => {
+                // HOL_D02 introduces the golem at 104000 and removes the
+                // altar ring at 107000. Let its original events grant the ring.
+                let party = persistent.party.as_mut().unwrap();
+                party.formation = vec![1, 2, 3, 9];
+                party.travel.saved_formation = party.formation.clone();
+                party.travel.sorcerers_ring = resonance_events::ring::SorcerersRing::Disabled;
+                party.items.remove(&resonance_events::ring::ITEM);
+                104_000
+            }
             Progress::Story(story) => story,
             Progress::AfterSalvation(story) => {
                 persistent.memory.write(0x4c, Width::S32, 1000)?;
