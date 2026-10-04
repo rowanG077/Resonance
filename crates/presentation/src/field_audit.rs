@@ -242,7 +242,6 @@ mod tests {
             resonance_events::Emote {
                 actor: 1,
                 kind: 4,
-                phase: 0,
                 offset: [0.; 3],
                 start_tick: 0,
                 duration: None,

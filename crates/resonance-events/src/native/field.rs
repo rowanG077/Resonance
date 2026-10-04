@@ -1236,15 +1236,11 @@ impl NativeHost<'_> {
                     if (-299..=-100).contains(&a[0]) && self.world.actors.contains_key(&target) {
                         require((0..=19).contains(&a[4]), "unknown emote recipe")?;
                         require(self.world.emotes.len() < 200, "emote limit exceeded")?;
-                        // Every controller initializes immediately, even when its
-                        // animation does not use the random phase.
-                        let phase = (self.world.random() & 31) as u8;
                         self.world.emotes.insert(
                             a[0],
                             Emote {
                                 actor: target,
                                 kind: a[4] as u16,
-                                phase,
                                 offset: [a[1] as f32, a[2] as f32, a[3] as f32],
                                 start_tick: self.world.tick,
                                 duration: (a[7] != -1).then_some(a[7].max(0) as u32),
