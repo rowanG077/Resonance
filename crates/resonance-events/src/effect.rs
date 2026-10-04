@@ -368,6 +368,8 @@ pub struct BillboardEffect {
     pub field_lighting: bool,
     pub field_fog: bool,
     pub recipe: u16,
+    /// Optional scene texture resource and image index.
+    pub texture: Option<(u32, u8)>,
     pub orientation: SpriteOrientation,
     pub anchor: resonance_content::effect::VerticalAnchor,
     /// Palette index; neutral RGB channels preserve its color.
@@ -460,6 +462,7 @@ impl Default for BillboardEffect {
             field_lighting: false,
             field_fog: true,
             recipe: 0,
+            texture: None,
             orientation: SpriteOrientation::Camera,
             anchor: resonance_content::effect::VerticalAnchor::Center,
             palette: None,
@@ -510,6 +513,7 @@ impl BillboardEffect {
             acceleration: None,
             gravity: 0.,
             recipe: 10,
+            texture: None,
             born,
             lifetime: 21,
             position,
@@ -543,6 +547,7 @@ impl BillboardEffect {
             acceleration: None,
             gravity: 0.,
             recipe: 8,
+            texture: None,
             born,
             lifetime: 61,
             position,
@@ -603,8 +608,13 @@ impl crate::GameWorld {
                 trail.controller = None;
                 trail.owner = None;
                 trail.born = self.tick;
-                trail.lifetime = 30;
-                trail.fade = Fade::tail(30);
+                trail.lifetime = 12;
+                trail.rgba[3] /= 3;
+                trail.size_delta = -trail.size[0] / trail.lifetime as f32;
+                trail.fade = Fade::Proportional {
+                    after: 0,
+                    lifetime: trail.lifetime,
+                };
                 trails.push(trail);
             }
             if let Some(crate::effect::BillboardController::CameraOffset {

@@ -613,6 +613,7 @@ pub struct GameWorld {
     pub damage_numbers: crate::field_damage::DamageNumbers,
     pub paralysis: Option<crate::effect::Paralysis>,
     pub billboards: BTreeMap<i32, crate::effect::BillboardEffect>,
+    pub effect_textures: BTreeMap<u8, (u32, u8)>,
     pub model_particles: BTreeMap<i32, crate::model_particle::ModelParticle>,
     pub refractions: BTreeMap<i32, crate::effect::RefractionPulse>,
     pub random_state: u32,
@@ -967,6 +968,14 @@ impl GameWorld {
                     return true;
                 }
                 particle.owner = None;
+                if preserve {
+                    let age = self.tick.saturating_sub(particle.born);
+                    particle.lifetime = particle.lifetime.min(age + 40);
+                    particle.fade = crate::effect::Fade::Proportional {
+                        after: age,
+                        lifetime: particle.lifetime,
+                    };
+                }
                 preserve
             });
             self.refractions.retain(|_, particle| {

@@ -1448,3 +1448,48 @@ fn triet_genis_returns_to_idle_after_getup() -> Result<()> {
     })?;
     Ok(())
 }
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn story_scenes_reach_their_next_stage() -> Result<()> {
+    for (map, before, after, trigger) in [
+        (347, 1_305_000, 1_402_000, Some(3003)),
+        (276, 1_107_000, 1_108_000, None),
+        (535, 2_302_000, 2_303_000, None),
+    ] {
+        let mut field = configured(Fixture::FireSeal, map, |entry| {
+            entry
+                .persistent
+                .memory
+                .write(0x40, symphonia_script::Width::S32, before)?;
+            entry.position = [0.; 3];
+            Ok(())
+        })?;
+        if let Some(trigger) = trigger {
+            advance_until(&mut field, FieldSession::player_has_control)?;
+            assert!(field.events.trigger(trigger, false)?);
+        }
+        until(&mut field, dialogue_input(), |f| {
+            skip_battle(f)?;
+            if let Some(movie) = &f.events.world.movie
+                && movie.operation.is_pending()
+            {
+                movie.operation.complete(None).map_err(anyhow::Error::msg)?;
+            }
+            Ok(f.story_progress()? >= after)
+        })
+        .with_context(|| format!("scene {map}"))?;
+        if map == 276 {
+            let party = field.events.world.party.as_ref().unwrap();
+            assert_eq!(
+                (party.members[1].ex_gems[0], party.members[1].ex_skills[0]),
+                (1, 1)
+            );
+            assert_eq!(
+                (party.members[8].ex_gems[0], party.members[8].ex_skills[0]),
+                (1, 5)
+            );
+        }
+    }
+    Ok(())
+}

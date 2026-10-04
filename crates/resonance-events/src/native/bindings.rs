@@ -50,6 +50,9 @@ impl Host for NativeHost<'_> {
         LearnTitle(1) -> () = party;
         GetTitle(2) -> i32 = party;
         SetCharacterCostume(2) -> i32 = party;
+        SetCharacterName(2) -> () = party;
+        ConfigureExGem(4) -> () = party;
+        BindEffectTexture(3) -> () = field;
         SetActorOrientation(3) -> () = field;
         EquipItem(2) -> () = party;
         GetEquippedItem(2) -> i32 = party;
@@ -169,6 +172,7 @@ impl Host for NativeHost<'_> {
         SpawnInteractionActor(8) -> () = dispatch;
         FindActorNode(2) -> i32 = dispatch;
         ReadCoordinateRegister(1) -> i32 = dispatch;
+        ReadActorLocalOffset(9) -> () = dispatch;
         ReadActorOffset(5) -> () = dispatch;
         StartBattle(12) -> i32 = request_battle;
         Unknown37(3) -> i32 = request_battle;

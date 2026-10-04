@@ -607,6 +607,90 @@ fn rheaird_crash_debris_moves_without_spinning_and_expires() {
 }
 
 #[test]
+fn stopped_seal_emitter_stops_spawning_and_despawn_clears_its_particles() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(13, 8, &[35, 35, 25, 10, 25, 600, 180]),
+    )]);
+    let stop = script(&[(Call::SetActorProperty, &[500, 33, 1])]);
+    let mut events = interactive_effect(&setup, &stop);
+    steps(&mut events, 30);
+    assert!(!events.world.billboards.is_empty());
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    let stopped = events.tick();
+    steps(&mut events, 30);
+    assert!(events.world.billboards.values().all(|p| p.born <= stopped));
+    events.world.actors.remove(&500);
+    events.step().unwrap();
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
+fn angel_lights_converge_and_leave_no_permanent_trails() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(38, 10, &[101, 500, 8, 300, 75]),
+    )]);
+    let mut events = interactive_effect(&setup, &[0x20ff]);
+    events.step().unwrap();
+    let (&id, light) = events.world.billboards.iter().next().unwrap();
+    let distance = |p: [f32; 3]| p.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let start = distance(light.position);
+    steps(&mut events, 20);
+    assert!(distance(events.world.billboards[&id].position) < start * 0.7);
+    steps(&mut events, 100);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
+fn descending_seal_lights_reach_the_receiving_character() {
+    let mut args = emitter(31, -2, &[33, 500, 300, 1, 10, 50, 50, 255, -15, 20]);
+    args[1..4].copy_from_slice(&[200, 300, 1200]);
+    let mut world = controlled_world();
+    world.insert_actor(2, Actor::new(2, [200., 300., 0.]));
+    let mut events = runtime(
+        program(&script(&[(Call::CreateEffectEmitter, &args)]), &[0x20ff]),
+        Default::default(),
+        world,
+    );
+    steps(&mut events, 130);
+    let center = events.world.actors[&500].position;
+    assert_eq!(&center[..2], &[200., 300.]);
+    assert!(center[2] > 0. && center[2] < resonance_events::ACTOR_CONTACT_HEIGHT);
+}
+
+#[test]
+fn remiel_rays_travel_toward_the_orb_in_both_transformations() {
+    for (preset, parameters, center) in [
+        (27, vec![33, 1500, -30, 1000, 150], [0., 0., 0.]),
+        (28, vec![33, 100], [0., -100., 0.]),
+    ] {
+        let mut events = interactive_effect(
+            &script(&[(Call::CreateEffectEmitter, &emitter(preset, 0, &parameters))]),
+            &[0x20ff],
+        );
+        events.step().unwrap();
+        let (&id, ray) = events
+            .world
+            .billboards
+            .iter()
+            .find(|(_, p)| p.owner == Some(500))
+            .unwrap();
+        let distance = |p: [f32; 3]| {
+            (0..3)
+                .map(|i| (p[i] - center[i]).powi(2))
+                .sum::<f32>()
+                .sqrt()
+        };
+        let start = distance(ray.position);
+        assert!(start > 50.);
+        steps(&mut events, 30);
+        assert!(distance(events.world.billboards[&id].position) < start * 0.6);
+    }
+}
+
+#[test]
 fn seal_releases_visible_particles_and_removal_cleans_them_up() {
     let setup = script(&[(
         Call::CreateEffectEmitter,

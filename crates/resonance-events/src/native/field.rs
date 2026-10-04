@@ -631,8 +631,27 @@ impl NativeHost<'_> {
                 value = Some(0);
             }
             NativeCall::CreateEffectEmitter => {
-                let emitter = crate::emitter::Emitter::from_native(a)?;
-                let resource = if a[4] == 0 {
+                let mut emitter = crate::emitter::Emitter::from_native(a)?;
+                // The descending seal lights gather into the character beneath them.
+                if a[5] == 31
+                    && let Some(recipient) = self
+                        .world
+                        .actors
+                        .values()
+                        .filter(|actor| (1..=9).contains(&actor.resource))
+                        .min_by(|left, right| {
+                            let distance = |actor: &Actor| {
+                                (actor.position[0] - a[1] as f32)
+                                    .hypot(actor.position[1] - a[2] as f32)
+                            };
+                            distance(left).total_cmp(&distance(right))
+                        })
+                {
+                    let mut target = recipient.position;
+                    target[2] += crate::ACTOR_CONTACT_HEIGHT * 2. / 3.;
+                    emitter.aim_at(target);
+                }
+                let resource = if a[4] == 0 || a[5] == 47 {
                     0
                 } else {
                     self.resolve(a[4], ResourceKind::Model)?
@@ -651,6 +670,16 @@ impl NativeHost<'_> {
                 actor.properties.insert(5, a[7]);
                 self.world.insert_actor(a[0], actor);
             }
+            NativeCall::BindEffectTexture => {
+                require(
+                    (0..8).contains(&a[0]) && (0..256).contains(&a[2]),
+                    "invalid effect texture binding",
+                )?;
+                let resource = self.resolve(a[1], ResourceKind::Overlay)?;
+                self.world
+                    .effect_textures
+                    .insert(a[0] as u8, (resource, a[2] as u8));
+            }
             NativeCall::CreateEffectObject | NativeCall::CreateParticle => {
                 const GLOW: i32 = crate::effect::GLOW_SPRITE as i32;
                 const SMOKE: i32 = resonance_content::effect::SMOKE_SPRITE as i32;
@@ -663,6 +692,7 @@ impl NativeHost<'_> {
                 const RING: i32 = crate::effect::RING_SPRITE as i32;
                 const CAMERA_RIPPLE: i32 = 27;
                 const WORLD_RIPPLE: i32 = 28;
+                const EXPANDING_GLOW: i32 = 32;
                 const SPINNING_STAR: i32 = crate::effect::SPINNING_STAR_SPRITE as i32;
                 const STAR: i32 = crate::effect::STAR_SPRITE as i32;
                 const SEAL_SPARK: i32 = 69;
@@ -671,7 +701,7 @@ impl NativeHost<'_> {
                 const DEBRIS_LAST: i32 = 54;
                 const STAR_ROTATION: f32 = 45.;
                 const ELECTRIC_SPARK: i32 = crate::effect::ELECTRIC_SPARK_SPRITE as i32;
-                const SPRITE_14: i32 = 14;
+                const ELECTRIC_ARC: i32 = crate::effect::ELECTRIC_ARC_SPRITE as i32;
                 const STREAK_ASPECT: f32 = 6.;
                 let directed = op == NativeCall::CreateEffectObject;
                 let offset = usize::from(directed);
@@ -718,70 +748,40 @@ impl NativeHost<'_> {
                     })?;
                     return Ok(NativeResult::Continue(Some(handle)));
                 }
-                // The smoke atlas is a nonrepeating 56-update animation.
+                let supported = match a[0] {
+                    STATION_GLOW => !directed,
+                    GLOW | SMOKE | EXPANDING_GLOW | STREAK | SEAL_SPARK | FALLING_SPARK => directed,
+                    CAMERA_DISC
+                    | CAMERA_RING
+                    | WORLD_GLOW
+                    | ORB
+                    | RING
+                    | STAR
+                    | SPINNING_STAR
+                    | ELECTRIC_SPARK
+                    | ELECTRIC_ARC
+                    | DEBRIS_FIRST..=DEBRIS_LAST => true,
+                    _ => false,
+                };
                 require(
-                    (if directed {
-                        matches!(
-                            a[0],
-                            GLOW | SMOKE
-                                | STREAK
-                                | ORB
-                                | CAMERA_DISC
-                                | CAMERA_RING
-                                | RING
-                                | WORLD_GLOW
-                                | STAR
-                                | SEAL_SPARK
-                                | FALLING_SPARK
-                                | SPINNING_STAR
-                                | ELECTRIC_SPARK
-                                | SPRITE_14
-                                | DEBRIS_FIRST..=DEBRIS_LAST
-                        )
-                    } else {
-                        matches!(
-                            a[0],
-                            STATION_GLOW
-                                | CAMERA_DISC
-                                | CAMERA_RING
-                                | WORLD_GLOW
-                                | ORB
-                                | RING
-                                | STAR
-                                | SPINNING_STAR
-                                | ELECTRIC_SPARK
-                                | SPRITE_14
-                                | DEBRIS_FIRST..=DEBRIS_LAST
-                        )
-                    }) && (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32)
-                        .contains(&palette)
+                    supported
+                        && (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32)
+                            .contains(&palette)
                         && (!directed
                             || matches!(a[0], WORLD_GLOW | SPINNING_STAR)
                             || parameter == 0),
                     "effect recipe is not implemented",
                 )?;
-                let direction = if a[0] == SPINNING_STAR {
-                    parameter as f32
-                } else if matches!(
-                    a[0],
-                    STREAK
-                        | ORB
-                        | STATION_GLOW
-                        | CAMERA_DISC
-                        | CAMERA_RING
-                        | WORLD_GLOW
-                        | RING
-                        | STAR
-                        | SEAL_SPARK
-                        | FALLING_SPARK
-                        | ELECTRIC_SPARK
-                        | DEBRIS_FIRST..=DEBRIS_LAST
-                ) {
-                    0.
-                } else if self.world.effect_tick & 1 == 0 {
-                    -3.
-                } else {
-                    3.
+                let spin = match a[0] {
+                    SPINNING_STAR => parameter as f32,
+                    GLOW | SMOKE | EXPANDING_GLOW | ELECTRIC_ARC => {
+                        if self.world.effect_tick & 1 == 0 {
+                            -3.
+                        } else {
+                            3.
+                        }
+                    }
+                    _ => 0.,
                 };
                 let velocity = [a[5] as f32, a[6] as f32, a[7] as f32];
                 let length = velocity.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -799,6 +799,9 @@ impl NativeHost<'_> {
                     None
                 };
                 let handle = self.world.emit_billboard(crate::effect::BillboardEffect {
+                    texture: u8::try_from(a[0] - CAMERA_RING)
+                        .ok()
+                        .and_then(|slot| self.world.effect_textures.get(&slot).copied()),
                     field_lighting: true,
                     orientation: if matches!(a[0], WORLD_GLOW | RING | FALLING_SPARK) {
                         crate::effect::SpriteOrientation::World
@@ -806,17 +809,17 @@ impl NativeHost<'_> {
                         crate::effect::SpriteOrientation::Camera
                     },
                     palette: Some(palette as u16),
-                    controller: flutter
-                        .clone()
-                        .map(crate::effect::BillboardController::Flutter),
                     // Native recipes 5/6/40 share their atlas; only facing differs.
-                    recipe: if matches!(a[0], CAMERA_DISC | CAMERA_RING) {
+                    recipe: if a[0] == EXPANDING_GLOW {
+                        crate::effect::ORB_SPRITE as i32
+                    } else if matches!(a[0], CAMERA_DISC | CAMERA_RING) {
                         WORLD_GLOW
                     } else if a[0] == FALLING_SPARK {
                         68
                     } else {
                         a[0]
                     } as u16,
+                    size_delta: if a[0] == EXPANDING_GLOW { 6. } else { 0. },
                     born: self.world.tick,
                     lifetime: lifetime.min(
                         if a[0] as u16 == resonance_content::effect::SMOKE_SPRITE {
@@ -831,7 +834,7 @@ impl NativeHost<'_> {
                     } else {
                         velocity
                     },
-                    rotation: flutter.map_or(
+                    rotation: flutter.as_ref().map_or(
                         [
                             0.,
                             0.,
@@ -845,6 +848,7 @@ impl NativeHost<'_> {
                         ],
                         |flutter| flutter.rotation,
                     ),
+                    controller: flutter.map(crate::effect::BillboardController::Flutter),
                     angular_velocity: [
                         if a[0] == WORLD_GLOW {
                             parameter as f32
@@ -852,7 +856,7 @@ impl NativeHost<'_> {
                             0.
                         },
                         0.,
-                        direction,
+                        spin,
                     ],
                     size: [
                         size as f32,

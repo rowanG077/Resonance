@@ -34,6 +34,7 @@ pub(super) struct Artwork {
     particles: BTreeMap<i32, (FlutterRecipe, usize)>,
     shadow: (resonance_content::field::ContactShadow, usize),
     sprite_modes: BTreeMap<(u16, u8, bool), usize>,
+    texture_modes: BTreeMap<(u32, u8, u8, bool), usize>,
     additive: Vec<bool>,
     subtractive: Vec<bool>,
     fog: Vec<bool>,
@@ -110,6 +111,26 @@ impl Artwork {
                 }
             }
         }
+        let mut texture_modes = BTreeMap::new();
+        for (&resource, path) in &field.overlays {
+            let overlay: resonance_content::effect::OverlayArt = if let Some(files) = files {
+                files.json(path)?
+            } else {
+                serde_json::from_slice(&fs::read(root.join(path))?)?
+            };
+            for (image, texture) in overlay.textures.iter().enumerate() {
+                for mode in 0..3 {
+                    for field_fog in [true, false] {
+                        texture_modes
+                            .insert((resource as u32, image as u8, mode, field_fog), paths.len());
+                        paths.push(texture.images[0].path.clone());
+                        additive.push(mode == 1);
+                        subtractive.push(mode == 2);
+                        fog.push(field_fog);
+                    }
+                }
+            }
+        }
         let textures: Vec<_> = paths
             .iter()
             .enumerate()
@@ -153,6 +174,7 @@ impl Artwork {
             layers,
             particles,
             sprite_modes,
+            texture_modes,
             shadow,
             additive,
             subtractive,
@@ -411,12 +433,22 @@ pub(super) fn render(
             .blend_mode
             .filter(|mode| *mode < 3)
             .unwrap_or(u8::from(recipe.additive));
-        let batch = art.sprite_modes[&(effect.recipe, mode, effect.field_fog)];
+        let (batch, uv) = if let Some((resource, image)) = effect.texture {
+            (
+                art.texture_modes[&(resource, image, mode, effect.field_fog)],
+                [0., 0., 1., 1.],
+            )
+        } else {
+            (
+                art.sprite_modes[&(effect.recipe, mode, effect.field_fog)],
+                recipe.uv_at(world.tick.saturating_sub(effect.born)),
+            )
+        };
         batches[batch].anchored_sprite(
             Vec3::from_array(effect.position),
             rotation,
             effect.size,
-            recipe.uv_at(world.tick.saturating_sub(effect.born)),
+            uv,
             [
                 rgb[0],
                 rgb[1],

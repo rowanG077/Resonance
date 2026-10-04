@@ -5,7 +5,7 @@ use crate::effect::{Fade, SpriteOrientation};
 impl Settings {
     pub(super) fn decode(recipe: i32, v: [i32; 10]) -> Result<Self, String> {
         let mut s = Settings::default();
-        use crate::effect::{CAMERA_DISC_SPRITE, GLOW_SPRITE};
+        use crate::effect::GLOW_SPRITE;
         use resonance_content::effect::{STREAK_SPRITE, VerticalAnchor};
         s.sprite.field_lighting = true;
         let alpha = |value: i32| value.clamp(0, 255) as u8;
@@ -67,7 +67,12 @@ impl Settings {
                     54 => &[10, 7, 68],
                     _ => &[10],
                 };
-                s.sprite.fade = Fade::Linear(-1.);
+                s.sprite.rgba[3] = alpha(v[6]);
+                s.sprite.lifetime = if v[7] > 0 { v[7] as u32 } else { 255 };
+                s.sprite.fade = Fade::Proportional {
+                    after: 0,
+                    lifetime: s.sprite.lifetime,
+                };
 
                 s.palette = Some(v[0]);
                 s.radius = [v[1] as f32; 2];
@@ -157,6 +162,8 @@ impl Settings {
                 s.sprite.lifetime = 60;
             }
             24 => {
+                s.images = &[resonance_content::effect::SMOKE_SPRITE];
+                s.sprite.lifetime = resonance_content::effect::SMOKE_UPDATES;
                 s.palette = Some(33);
                 s.filled = true;
                 s.sprite.rgba = [48, 48, 48, 255];
@@ -171,6 +178,22 @@ impl Settings {
                 s.size_variation = v[6] as f32;
                 s.sprite.rgba[3] = alpha(v[7]);
                 s.sprite.fade = Fade::Linear(v[9] as f32);
+            }
+            48 => {
+                s.palette = Some(v[0]);
+                s.radius = [v[1] as f32; 2];
+                s.count = count(v[2])?;
+                s.interval = count(v[3])?;
+                s.sprite.size = [v[4] as f32; 2];
+                s.size_variation = v[5] as f32;
+                s.sprite.rgba[3] = alpha(v[6]);
+                s.sprite.position[2] = v[7] as f32 * 0.5;
+                s.sprite.field_lighting = v[8] != 0;
+                s.sprite.lifetime = duration(v[9])?;
+                s.sprite.fade = Fade::tail(s.sprite.lifetime);
+                s.filled = true;
+                s.speed_scale = 0.01;
+                s.owned = true;
             }
             26 => {
                 s.images = &[STREAK_SPRITE];
@@ -192,32 +215,44 @@ impl Settings {
             }
             27 | 28 => {
                 let mut glow = particle([0.; 3], 0, 0, 180);
-                glow.recipe = CAMERA_DISC_SPRITE;
                 glow.size = [1.; 2];
                 glow.size_delta = 3.;
-                glow.rgba[3] = 100;
+                glow.recipe = crate::effect::ORB_SPRITE;
+                glow.rgba[3] = 64;
                 glow.field_lighting = true;
                 glow.fade = Fade::Proportional {
                     after: 0,
                     lifetime: glow.lifetime,
                 };
-                s.sprite.size = [15.; 2];
-                s.sprite.lifetime = 60;
+                s.images = &[STREAK_SPRITE];
+                s.converge = true;
+                s.owned = true;
+                s.sprite.orientation = SpriteOrientation::World;
+                s.sprite.size = [
+                    6.,
+                    if recipe == 27 {
+                        v[4].max(1) as f32
+                    } else {
+                        60.
+                    },
+                ];
+                s.sprite.rgba[3] = 96;
+                s.sprite.lifetime = if recipe == 27 { 50 } else { 60 };
                 s.sprite.fade = Fade::Proportional {
-                    after: 0,
-                    lifetime: 60,
+                    after: s.sprite.lifetime * 2 / 3,
+                    lifetime: s.sprite.lifetime,
                 };
                 s.palette = Some(v[0]);
                 if recipe == 27 {
-                    s.count = 100;
+                    s.count = 32;
                     s.limit = Some(s.count);
-                    glow.size = [v[1] as f32; 2];
-                    glow.size_delta = v[2] as f32;
+                    glow.size = [v[4].max(1) as f32; 2];
+                    glow.size_delta = v[2] as f32 / 10.;
                     s.radius = [v[3] as f32; 2];
                     s.radial_speed = -s.radius[0] / s.sprite.lifetime as f32;
                 } else {
                     s.radius = [100.; 2];
-                    s.radial_speed = 2.;
+                    s.radial_speed = -s.radius[0] / s.sprite.lifetime as f32;
                     s.interval = 4;
                     s.camera_offset = Some(v[1] as f32);
                 }

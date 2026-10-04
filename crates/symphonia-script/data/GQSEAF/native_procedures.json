@@ -1208,18 +1208,19 @@
     },
     {
       "opcode": 127,
-      "name": "native_7f",
+      "name": "read_actor_local_offset",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7",
-        "arg8"
-      ]
+        "space",
+        "actor",
+        "angle",
+        "x",
+        "y",
+        "z",
+        "pitch",
+        "yaw",
+        "roll"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 128,
@@ -1232,13 +1233,14 @@
     },
     {
       "opcode": 129,
-      "name": "native_81",
+      "name": "configure_ex_gem",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3"
-      ]
+        "character",
+        "slot",
+        "level",
+        "skill"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 130,
@@ -1337,11 +1339,12 @@
     },
     {
       "opcode": 141,
-      "name": "native_8d",
+      "name": "set_character_name",
       "arguments": [
-        "arg0",
-        "arg1"
-      ]
+        "character",
+        "message"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 142,
@@ -2102,12 +2105,13 @@
     },
     {
       "opcode": 210,
-      "name": "native_d2",
+      "name": "bind_effect_texture",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
-      ]
+        "slot",
+        "resource",
+        "image"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 211,
