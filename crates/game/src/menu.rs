@@ -203,6 +203,7 @@ pub struct Menu {
     pub cooking: cooking::Cooking,
     pub customize: customize::Customize,
     party_changed: bool,
+    initial_field_leader: Option<u8>,
     pub play_time: crate::clock::PlayTime,
     pub page: Page,
     pub selected: usize,
@@ -274,6 +275,7 @@ impl Menu {
             cooking: Default::default(),
             customize: Default::default(),
             party_changed: false,
+            initial_field_leader: checkpoint.as_ref().map(|c| c.progress.party.field_leader),
             play_time: Default::default(),
             page,
             selected: 0,
@@ -397,6 +399,12 @@ impl Menu {
             let progress = &self.checkpoint.as_ref().unwrap().progress;
             (progress.party.clone(), progress.gameplay_random.clone())
         })
+    }
+    pub(crate) fn field_leader_changed(&self) -> bool {
+        self.checkpoint
+            .as_ref()
+            .map(|c| c.progress.party.field_leader)
+            != self.initial_field_leader
     }
     pub(crate) fn set_play_time(&mut self, time: crate::clock::PlayTime) {
         self.play_time = time;

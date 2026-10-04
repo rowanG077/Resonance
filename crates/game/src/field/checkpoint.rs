@@ -19,6 +19,15 @@ pub struct FieldCheckpoint {
 }
 impl FieldSession {
     pub fn checkpoint(&self) -> Result<FieldCheckpoint> {
+        let checkpoint = self.player_menu_checkpoint()?;
+        ensure!(
+            checkpoint.camera.is_some(),
+            "quicksave requires the ordinary player-follow camera"
+        );
+        Ok(checkpoint)
+    }
+
+    pub(super) fn player_menu_checkpoint(&self) -> Result<FieldCheckpoint> {
         ensure!(
             self.authored_entry.is_none(),
             "quicksave unavailable before an authored entry event"
@@ -68,8 +77,8 @@ impl FieldSession {
         self.menu_checkpoint()
     }
 
-    /// Menus can edit party progress while a script owns the field. Only
-    /// checkpoint() applies the additional restrictions for a restartable save.
+    /// Script-opened menus can edit party progress while an event owns the field.
+    /// The player menu and quicksave apply their additional restrictions above.
     pub(super) fn menu_checkpoint(&self) -> Result<FieldCheckpoint> {
         let world = &self.events.world;
         let actor = world
@@ -87,14 +96,14 @@ impl FieldSession {
             map_id: self.map_id,
             position: actor.position,
             heading: actor.heading.rem_euclid(360.),
-            camera: Some(
-                world
-                    .field_camera
-                    .as_ref()
-                    .context("field camera is missing")?
-                    .settings(world.controlled_actor)
-                    .map_err(anyhow::Error::msg)?,
-            ),
+            // Fixed event cameras do not prevent party management. Only the
+            // restartable checkpoint requires a restorable follow camera.
+            camera: world
+                .field_camera
+                .as_ref()
+                .context("field camera is missing")?
+                .settings(world.controlled_actor)
+                .ok(),
             progress: self.events.save_progress()?,
             played_ticks: Some(self.play_time.total()),
         })

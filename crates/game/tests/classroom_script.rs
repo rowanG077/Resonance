@@ -11,9 +11,19 @@ use std::{fs, sync::Arc};
 
 fn classroom(mut entry: FieldEntry) -> FieldSession {
     let root = asset_root();
+    // This device-free fixture acknowledges playback in skip_movie(). It must
+    // still bind the opening movie just like a prepared field package does.
+    cooked::<resonance_content::MovieAsset>("movies/1.json")
+        .validate()
+        .unwrap();
+    entry.available_movies.insert(1);
     entry.menu_data = Some(Arc::new(cooked("game/menu-data.json")));
     entry.text = Arc::new(cooked("game/text.json"));
     let assets: FieldAssets = cooked("fields/map-340.json");
+    entry.attachments = resonance_game::field::attachments::prepare(&assets, |path| {
+        Ok(fs::read(root.join(path))?.into())
+    })
+    .unwrap();
     FieldSession::enter(
         &fs::read(root.join(&assets.script.path)).unwrap(),
         cooked(&assets.messages),
@@ -3928,5 +3938,93 @@ fn original_classroom_reaches_control_walks_and_runs_every_child_conversation() 
     assert!(
         saw_curly_quote,
         "reported curly-quote conversation was not exercised"
+    );
+}
+
+#[test]
+#[ignore = "requires locally cooked Asgard fields and menus; no devices"]
+fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
+    let root = asset_root();
+    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let assets: FieldAssets = cooked("fields/map-211.json");
+    let mut party = Party::new(&data, Default::default()).unwrap();
+    party.formation = vec![1, 2, 9, 4, 3, 5];
+    party.travel.saved_formation = party.formation.clone();
+    let mut persistent = PersistentState {
+        party: Some(party),
+        ..Default::default()
+    };
+    for (address, value) in [(0x40, 4_000_000), (0x4c, 1), (0xe0, 3100)] {
+        persistent
+            .memory
+            .write(address, symphonia_script::Width::S32, value)
+            .unwrap();
+    }
+    for (index, id) in [1_u16, 2, 9, 4, 3, 5].into_iter().enumerate() {
+        let slot = index % 3;
+        for (offset, set) in [index >= 3, slot & 2 != 0, slot & 1 != 0]
+            .into_iter()
+            .enumerate()
+        {
+            if set {
+                persistent.event_flags.insert(150 + id * 3 + offset as u16);
+            }
+        }
+    }
+    let mut field = FieldSession::enter(
+        &fs::read(root.join(&assets.script.path)).unwrap(),
+        cooked(&assets.messages),
+        &assets,
+        FieldEntry {
+            data: Some(data),
+            menu_data: Some(Arc::new(cooked("game/menu-data.json"))),
+            text: Arc::new(cooked("game/text.json")),
+            persistent,
+            position: [0., -1500., -100.],
+            available_fields: (0..600).collect(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    for tick in 0..7200 {
+        field
+            .step(FieldInput {
+                interact: tick % 2 == 0,
+                accelerate_dialogue: true,
+                ..Default::default()
+            })
+            .unwrap();
+        if field.player_has_control() && field.story_progress().unwrap() == 4_000_000 {
+            break;
+        }
+    }
+    assert_eq!(
+        field
+            .events
+            .memory()
+            .read(0xe0, symphonia_script::Width::S32)
+            .unwrap(),
+        3110
+    );
+    assert_eq!(field.events.world.controlled_actor, 4);
+    for _ in 0..60 {
+        field.step(Default::default()).unwrap();
+    }
+    assert_eq!(
+        field.events.world.controlled_actor, 4,
+        "the script-selected Raine must remain playable"
+    );
+    assert!(
+        field.checkpoint().is_err(),
+        "this fixed camera is not a quicksave camera"
+    );
+    press(&mut field, OpenMenu);
+    assert!(field.menu.is_some());
+    press(&mut field, Cancel);
+    assert!(field.menu.is_none());
+    assert!(field.player_has_control());
+    assert_eq!(
+        field.events.world.controlled_actor, 4,
+        "closing an unchanged menu preserves Raine"
     );
 }
