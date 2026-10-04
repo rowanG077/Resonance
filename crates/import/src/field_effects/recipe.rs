@@ -85,8 +85,6 @@ fn effects(executable: &[u8]) -> Result<FieldEffects<Atlas>> {
         paralysis: EmoteTrack {
             anchor: dol::text(executable, 0x8017A498)?,
             missing_anchor_offset: [0.; 3],
-            rotation: resonance_content::effect::EmoteRotation::Fixed,
-            phase_count: 1,
             intro: Vec::new(),
             cycle: [16., 0.]
                 .into_iter()
@@ -124,7 +122,7 @@ fn effects(executable: &[u8]) -> Result<FieldEffects<Atlas>> {
             displacement: [value(0x801E3828)? * 2., value(0x801E3838)? * 2.],
         },
         air_refraction: sprite(9)?,
-        emotes: emotes::read(executable)?,
+        emotes: emotes::tracks(),
         // Each mouth frame lasts duration + 1 updates; 0xFD loops the sequence.
         // The dialogue player enables the sequence during text reveal and speech.
         mouth_cycle: {

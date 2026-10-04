@@ -105,7 +105,7 @@ pub struct FieldEffects<Image = String> {
     pub mouth_cycle: Vec<u8>,
 }
 pub const SMOKE_SPRITE: u16 = 1;
-pub const FIELD_EFFECTS_VERSION: u32 = 9;
+pub const FIELD_EFFECTS_VERSION: u32 = 10;
 pub const STREAK_SPRITE: u16 = 23;
 pub const SMOKE_UPDATES: u32 = 56;
 
@@ -181,34 +181,8 @@ pub struct EmoteTrack {
     /// Added to logical actor position when the named model node is absent.
     /// Sprite offsets already include their ordinary height above the anchor.
     pub missing_anchor_offset: [f32; 3],
-    pub rotation: EmoteRotation,
-    /// Frames are interleaved by the controller's initial random phase.
-    #[serde(default = "single_phase")]
-    pub phase_count: u8,
     pub intro: Vec<Vec<Sprite>>,
     pub cycle: Vec<Vec<Sprite>>,
-}
-
-/// Rotation can follow the shared effect clock independently of a sprite's age.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(tag = "clock", rename_all = "snake_case")]
-pub enum EmoteRotation {
-    Fixed,
-    GlobalTick { degrees_per_tick: u16 },
-}
-impl EmoteRotation {
-    pub fn angle(self, tick: u32) -> f32 {
-        match self {
-            Self::Fixed => 0.,
-            Self::GlobalTick { degrees_per_tick } => {
-                // The authored angle is a signed 16-bit degree value.
-                tick.wrapping_mul(u32::from(degrees_per_tick)) as i16 as f32
-            }
-        }
-    }
-}
-fn single_phase() -> u8 {
-    1
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -293,16 +267,7 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
             ensure!(
                 !track.anchor.is_empty()
                     && track.missing_anchor_offset.iter().all(|v| v.is_finite())
-                    && (1..=32).contains(&track.phase_count)
                     && !track.cycle.is_empty()
-                    && track
-                        .intro
-                        .len()
-                        .is_multiple_of(usize::from(track.phase_count))
-                    && track
-                        .cycle
-                        .len()
-                        .is_multiple_of(usize::from(track.phase_count))
                     && track.intro.len() + track.cycle.len() <= 4096,
                 "invalid emote track"
             );
@@ -326,67 +291,11 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
     }
 }
 impl EmoteTrack {
-    pub fn frame_with_phase(&self, age: usize, phase: u8) -> &[Sprite] {
-        let phases = usize::from(self.phase_count);
-        let phase = usize::from(phase) % phases;
-        let intro = self.intro.len() / phases;
-        if age < intro {
-            &self.intro[age * phases + phase]
+    pub fn frame(&self, age: usize) -> &[Sprite] {
+        if age < self.intro.len() {
+            &self.intro[age]
         } else {
-            &self.cycle[((age - intro) % (self.cycle.len() / phases)) * phases + phase]
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn emote_phase_variants_preserve_age_and_sprite_defaults() {
-        let data = serde_json::json!({
-            "anchor":"head", "missing_anchor_offset":[0.,0.,128.],
-            "rotation":{"clock":"fixed"}, "intro":[[]], "cycle":[[{
-                "offset":[0.,0.,0.], "size":[3.,3.], "uv":[0.,0.,1.,1.], "rotation":0.
-            }]]
-        });
-        let mut track: EmoteTrack = serde_json::from_value(data).unwrap();
-        assert!(track.frame_with_phase(0, 0).is_empty());
-        assert_eq!(track.frame_with_phase(1, 31)[0].alpha, 255);
-        assert!(matches!(
-            track.frame_with_phase(1, 0)[0].vertical_anchor,
-            VerticalAnchor::Center
-        ));
-
-        let mut alternate = track.cycle[0].clone();
-        alternate[0].alpha = 30;
-        track.phase_count = 2;
-        track.intro = vec![Vec::new(); 2];
-        track
-            .cycle
-            .extend([alternate.clone(), alternate, track.cycle[0].clone()]);
-        assert!(track.frame_with_phase(0, 1).is_empty());
-        assert_eq!(track.frame_with_phase(1, 0)[0].alpha, 255);
-        assert_eq!(track.frame_with_phase(1, 31)[0].alpha, 30);
-        assert_eq!(track.frame_with_phase(2, 0)[0].alpha, 30);
-        assert_eq!(track.frame_with_phase(3, 0)[0].alpha, 255);
-    }
-
-    #[test]
-    fn global_emote_rotation_preserves_signed_angle_wrap() {
-        let rotation = EmoteRotation::GlobalTick {
-            degrees_per_tick: 4,
-        };
-        for (tick, angle) in [
-            (0, 0.),
-            (90, 360.),
-            (8191, 32764.),
-            (8192, -32768.),
-            (16384, 0.),
-            (u32::MAX, -4.),
-        ] {
-            assert_eq!(rotation.angle(tick), angle);
-            assert_eq!(EmoteRotation::Fixed.angle(tick), 0.);
+            &self.cycle[(age - self.intro.len()) % self.cycle.len()]
         }
     }
 }

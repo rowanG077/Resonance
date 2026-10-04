@@ -768,8 +768,6 @@ pub struct EventRecord {
 pub struct Emote {
     pub actor: i32,
     pub kind: u16,
-    /// Low five bits of the shared visual random draw at creation.
-    pub phase: u8,
     pub offset: [f32; 3],
     pub start_tick: u32,
     pub duration: Option<u32>,

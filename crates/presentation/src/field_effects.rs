@@ -438,7 +438,6 @@ pub(super) fn render(
             emote.actor,
             art.spec.emotes.get(&emote.kind),
             world.tick.saturating_sub(emote.start_tick) as usize,
-            emote.phase,
             emote.offset,
             EMOTES,
         )
@@ -449,16 +448,15 @@ pub(super) fn render(
             symbol.actor,
             Some(&art.spec.paralysis),
             usize::from(symbol.frame),
-            0,
             [0.; 3],
             STATUS,
         )
     });
-    for (request, actor, track, age, phase, offset, layer) in emotes.chain(paralysis) {
+    for (request, actor, track, age, offset, layer) in emotes.chain(paralysis) {
         let Some(track) = track else {
             continue;
         };
-        let sprites = track.frame_with_phase(age, phase);
+        let sprites = track.frame(age);
         if sprites.is_empty() {
             applied.ack(request);
             continue;
@@ -479,11 +477,7 @@ pub(super) fn render(
         for sprite in sprites {
             let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
             let center = anchor + side * x + forward * y + Vec3::Z * z;
-            // Snap emote centers to whole world units; keep their rotated vertices
-            // and the independently moving dust particles at full precision.
-            let center = center.trunc();
-            let angle = sprite.rotation + track.rotation.angle(state.get().effect_clock.tick());
-            let rotation = camera.rotation * Quat::from_rotation_z(angle.to_radians());
+            let rotation = camera.rotation * Quat::from_rotation_z(sprite.rotation.to_radians());
             batches[layer].anchored_sprite(
                 center,
                 rotation,
@@ -562,8 +556,6 @@ mod tests {
             let track = EmoteTrack {
                 anchor: "Bone_atama".into(),
                 missing_anchor_offset: offset,
-                rotation: resonance_content::effect::EmoteRotation::Fixed,
-                phase_count: 1,
                 intro: Vec::new(),
                 cycle: vec![Vec::new()],
             };
