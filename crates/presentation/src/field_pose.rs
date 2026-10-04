@@ -188,7 +188,7 @@ fn rotate_bone(
         pose.rotation = rotation;
         affine.set(entity, transform, Pose::Trs(pose));
     } else if [x, y, z] != [0.; 3] {
-        affine.rotate(entity, transform, rotation);
+        affine.rotate_local(entity, transform, rotation);
     }
 }
 

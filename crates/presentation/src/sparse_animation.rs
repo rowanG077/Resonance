@@ -182,6 +182,35 @@ mod tests {
     use bevy::ecs::system::RunSystemOnce;
 
     #[test]
+    fn joint_twist_uses_the_bind_axes_without_moving_its_origin() {
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        let mut transform = Transform::from_xyz(4., 5., 6.)
+            .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2));
+        let mut locals = affine::Locals::default();
+        for affine_pose in [false, true] {
+            let rest = transform;
+            if affine_pose {
+                locals.set(
+                    entity,
+                    &mut transform,
+                    affine::Pose::Affine(rest.compute_affine()),
+                );
+            }
+            locals.rotate_local(entity, &mut transform, Quat::from_rotation_x(0.5));
+            let pose = locals.get(entity, transform).global();
+            assert!(pose.translation().abs_diff_eq(rest.translation, 0.00001));
+            assert!(
+                pose.affine()
+                    .transform_vector3(Vec3::X)
+                    .abs_diff_eq(Vec3::Z, 0.00001)
+            );
+            transform = rest;
+            locals = affine::Locals::default();
+        }
+    }
+
+    #[test]
     fn indexed_binding_keeps_distinct_bones_with_repeated_names() {
         let mut world = World::new();
         let root = world.spawn_empty().id();

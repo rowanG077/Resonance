@@ -102,6 +102,21 @@ impl Locals {
         self.rotate(entity, transform, camera);
     }
 
+    /// Joint adjustments follow the joint's own axes, including its bind rotation.
+    pub fn rotate_local(&mut self, entity: Entity, transform: &mut Transform, delta: Quat) {
+        let pose = match self.get(entity, *transform) {
+            Pose::Trs(mut value) => {
+                value.rotation *= delta;
+                value.into()
+            }
+            Pose::Affine(mut value) => {
+                value.matrix3 *= bevy::math::Mat3A::from_quat(delta);
+                Pose::Affine(value)
+            }
+        };
+        self.set(entity, transform, pose);
+    }
+
     pub fn scale(&mut self, entity: Entity, transform: &mut Transform, scale: Vec3) {
         let pose = match self.get(entity, *transform) {
             Pose::Trs(value) => value.with_scale(scale).into(),

@@ -2007,8 +2007,9 @@ fn pose(
                     applied.ack(Request::Mouth(instance.actor));
                 }
                 if channels.costume == Some(binding.texture) {
-                    // Initial costume variants for the party.
+                    const CRUXIS_CRYSTAL_RECEIVED: u16 = 24;
                     let frame = match actor.resource {
+                        2 if world.event_flags.contains(&CRUXIS_CRYSTAL_RECEIVED) => 0,
                         2..=4 => 3,
                         7 => 1,
                         _ => 0,
