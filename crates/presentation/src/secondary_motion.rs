@@ -329,11 +329,8 @@ impl Rig {
                     .chains
                     .iter()
                     .any(|(chain, _)| chain.joints.last().is_some_and(|tip| tip.node == node));
-                // fn_80069088 writes the model's world matrices directly.
-                // A collapsed actor/ancestor cannot be inverted to recover a
-                // local pose, and a singular TRS cannot be decomposed either.
-                // A terminal override also leaves its authored local unchanged.
                 let pose = if terminal
+                    || helper.has_world_translation(bone.entity)
                     || parent.affine().matrix3.determinant() == 0.
                     || world.affine().matrix3.determinant() == 0.
                 {
@@ -856,8 +853,6 @@ mod tests {
             Transform::from_xyz(4., 5., 120.).with_rotation(Quat::from_rotation_x(0.6)),
         );
         let mut driven = driven_pose(authored, actor_scale, false);
-        // fn_80069088 copies the actor scale, not the lengths of the rotated
-        // world axes. Its simulated rotation must survive the parent inverse.
         assert_eq!(driven.scale, actor_scale);
         driven.translation += Vec3::new(1., -2., 3.);
         driven.rotation *= Quat::from_rotation_y(0.2);

@@ -65,6 +65,17 @@ pub(super) fn bones(
             }
             continue;
         }
+        if actor
+            .appearance
+            .bone_adjustments
+            .values()
+            .any(|a| a.translation.is_some())
+            && let Some(rig) = rig
+        {
+            for bone in (0..).map_while(|i| rig.bone_at(i)) {
+                affine.translation_boundary(bone);
+            }
+        }
         for (&slot, adjustment) in &actor.appearance.bone_adjustments {
             let entity = match &adjustment.bone {
                 resonance_events::BoneTarget::Index(index) => {
@@ -93,9 +104,6 @@ pub(super) fn bones(
     }
 }
 
-/// Native fn_8012ABFC draws the outline with the primary model's indexed
-/// matrices. Its bone names may differ (the Desian guard uses ns_/mo5_), so
-/// independently binding the same named clip leaves parts of its hull at rest.
 pub(super) fn outlines(
     art: Res<super::field_view::Art>,
     actors: Query<(&ActorPart, &super::field_animation::Rig)>,
@@ -160,11 +168,7 @@ pub(super) fn adjust_bone(
         );
     }
     if adjustment.translation.is_some() {
-        affine.translate(
-            entity,
-            transform,
-            Vec3::from_array(adjustment.translation(tick)),
-        );
+        affine.translate(entity, Vec3::from_array(adjustment.translation(tick)));
     }
 }
 
