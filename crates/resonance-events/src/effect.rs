@@ -36,9 +36,13 @@ impl StunEffect {
         Self::TetheallaElectric,
     ];
 
-    pub fn tint(self) -> Option<[u8; 3]> {
+    pub fn tint(self, tick: u32) -> Option<[u8; 3]> {
         match self {
-            Self::Electric => Some([128; 3]),
+            Self::Electric => Some(if tick % 10 < 5 {
+                [128; 3]
+            } else {
+                [80, 64, 160]
+            }),
             Self::None | Self::Lightning | Self::Ice | Self::Darkness | Self::TetheallaElectric => {
                 Some([40, 40, 255])
             }
@@ -109,13 +113,13 @@ impl crate::GameWorld {
             recipe: ELECTRIC_SPARK_SPRITE,
             orientation: SpriteOrientation::World,
             anchor: resonance_content::effect::VerticalAnchor::Top,
-            palette: Some(2),
+            palette: None,
             born: self.tick,
             lifetime: SPARK_LIFETIME,
             position,
             rotation,
             size: [width, height],
-            rgba: [32, 32, 255, 15],
+            rgba: [96, 112, 160, 192],
             fade: Fade::Linear(0.),
             blend_mode: Some(1),
             ..Default::default()

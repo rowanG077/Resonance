@@ -32,6 +32,10 @@ enum Kind {
     Gathering {
         delay: i32,
     },
+    Glow {
+        palette: i32,
+        size: i32,
+    },
     Charge {
         palette: i32,
         radius: i32,
@@ -108,21 +112,21 @@ impl Emitter {
     }
     pub(crate) fn camera_offset(&self) -> Option<f32> {
         if let Kind::Stream(stream) = &self.kind {
-            stream.camera_offset()
+            stream.camera_offset
         } else {
             None
         }
     }
     pub(crate) fn preserves_particles_on_despawn(&self) -> bool {
         match &self.kind {
-            Kind::Stream(stream) => stream.preserves_particles(),
+            Kind::Stream(stream) => stream.preserve_particles,
             Kind::Inward { clear, .. } => *clear != 1,
             _ => false,
         }
     }
     fn step(
         &mut self,
-        owner: i32,
+        (owner, center): (i32, [f32; 3]),
         actor: &mut Actor,
         born: u32,
         camera: [f32; 3],
@@ -131,7 +135,6 @@ impl Emitter {
     ) -> Result<(), String> {
         let tick = self.age;
         let mut stage = self.stage;
-        let center = actor.position;
         let speed = actor.properties.get(&SPEED_PROPERTY).copied().unwrap_or(0) as f32;
         let out = &mut output.particles;
         match &mut self.kind {
@@ -139,17 +142,7 @@ impl Emitter {
                 const START: u8 = 0;
                 const EMIT: u8 = 1;
                 if matches!(stage, START | EMIT) {
-                    stream.particles(
-                        owner,
-                        center,
-                        camera,
-                        &actor.properties,
-                        actor.blend,
-                        born,
-                        tick,
-                        random,
-                        out,
-                    )?;
+                    stream.particles(owner, center, camera, actor, born, tick, random, out);
                     stage = EMIT;
                 }
             }
@@ -248,6 +241,13 @@ impl Emitter {
                     stage = DONE;
                 }
             }
+            Kind::Glow { palette, size } => {
+                let mut glow = particle(center, born, *palette as u16, 1);
+                let pulse = 1. + 0.15 * (self.age as f32 * std::f32::consts::TAU / 40.).sin();
+                glow.size = [*size as f32 * pulse; 2];
+                glow.field_lighting = false;
+                out.push(glow);
+            }
             Kind::Charge {
                 palette: color,
                 radius,
@@ -256,11 +256,15 @@ impl Emitter {
                     let mut glow = particle(center, born, *color as u16, 1);
                     glow.owner = Some(owner);
                     glow.size = [*radius as f32 * 2.; 2];
-                    glow.rgba[3] = 160;
-                    out.push(glow.clone());
-                    glow.recipe = crate::effect::ELECTRIC_ARC_SPRITE;
-                    glow.size = [*radius as f32 * 3.; 2];
-                    glow.rotation[2] = crate::world::random_unit(random) * 360.;
+                    glow.field_lighting = false;
+                    let mut arc = glow.clone();
+                    arc.recipe = crate::effect::ELECTRIC_ARC_SPRITE;
+                    arc.size = [*radius as f32 * 3.; 2];
+                    arc.rotation[2] = crate::world::random_unit(random) * 360.;
+                    arc.lifetime = 2;
+                    out.push(arc);
+                    glow.palette = None;
+                    glow.rgba = [128, 128, 128, 255];
                     out.push(glow);
                 }
             }
@@ -447,10 +451,11 @@ impl Emitter {
                 const DONE: u8 = 3;
                 if stage == CONTRACT && tick.is_multiple_of(*interval as u32) {
                     let radius = (*radius as f32 - self.age as f32 * 4. / *interval as f32).max(0.);
-                    for arm in 0..4 {
+                    const RED_WHITE_BLUE_CYAN: [u16; 4] = [35, 33, 34, 38];
+                    for (arm, color) in RED_WHITE_BLUE_CYAN.into_iter().enumerate() {
                         let angle = (self.age as f32 * *angular_step as f32 + arm as f32 * 90.)
                             .to_radians();
-                        let mut p = particle(center, born, *color as u16, *life as u32 + 1);
+                        let mut p = particle(center, born, color, *life as u32 + 1);
                         p.position[0] += angle.cos() * radius;
                         p.position[1] += angle.sin() * radius;
                         p.size = [*width as f32, *height as f32];
@@ -569,12 +574,27 @@ struct Births {
     shake: Option<f32>,
 }
 impl GameWorld {
-    pub(crate) fn step_emitters(&mut self) -> Result<(), String> {
+    pub(crate) fn step_emitters(
+        &mut self,
+        resources: &crate::ResourceLibrary,
+    ) -> Result<(), String> {
         let mut output = Births::default();
         let camera = self.field_camera.as_ref().map_or([0., -1., 0.], |c| {
             std::array::from_fn(|i| c.position[i] - c.target[i])
         });
         for &id in &self.actor_order {
+            let Some(actor) = self.actors.get(&id) else {
+                continue;
+            };
+            if actor.emitter.is_none() {
+                continue;
+            }
+            let center = if actor.attachment.is_some() {
+                self.attached_position(resources, id)
+                    .map_err(|e| e.to_string())?
+            } else {
+                actor.position
+            };
             let Some(actor) = self
                 .actors
                 .get_mut(&id)
@@ -586,7 +606,7 @@ impl GameWorld {
                 continue;
             };
             let result = emitter.step(
-                id,
+                (id, center),
                 actor,
                 self.tick,
                 camera,

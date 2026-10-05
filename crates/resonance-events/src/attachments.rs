@@ -48,24 +48,26 @@ impl Frames<'_> {
 }
 
 impl GameWorld {
-    pub(crate) fn attached_model_position(
+    pub(crate) fn attached_position(
         &self,
         resources: &ResourceLibrary,
         id: i32,
     ) -> Result<[f32; 3]> {
         let actor = &self.actors[&id];
-        let name = resources
-            .model(actor.resource)
-            .and_then(|model| model.names.first())
-            .context("attached model root is missing")?;
         let root = Frames {
             world: self,
             resources,
             roots: BTreeMap::new(),
         }
         .root(id, 0)?;
-        let model = multiply(root, resources.bone_matrix(actor, name, self.tick)?);
-        Ok(model[3][..3].try_into().unwrap())
+        let frame = match resources
+            .model(actor.resource)
+            .and_then(|model| model.names.first())
+        {
+            Some(name) => multiply(root, resources.bone_matrix(actor, name, self.tick)?),
+            None => root,
+        };
+        Ok(frame[3][..3].try_into().unwrap())
     }
 
     pub(crate) fn attachment_parent(
