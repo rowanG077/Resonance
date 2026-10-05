@@ -169,37 +169,42 @@ impl WalkMesh {
                 actor.position[1] + delta[1],
                 actor.position[2],
             ];
-            let supported = self
-                .surface_within(target, |z, attributes| {
-                    query.accepts(attributes)
-                        && if actor.instance == block.instance {
-                            z <= target[2] + MAX_STEP_HEIGHT
-                        } else {
-                            (z - target[2]).abs() <= FLOOR_REACH
-                        }
-                })
-                .is_some();
+            let support = self.surface_within(target, |z, attributes| {
+                query.accepts(attributes)
+                    && if actor.instance == block.instance {
+                        z <= target[2] + MAX_STEP_HEIGHT
+                    } else {
+                        (z - target[2]).abs() <= FLOOR_REACH
+                    }
+            });
+            let Some(support) = support else {
+                return false;
+            };
             let (low, high) = actor.collision_bounds();
-            let center = std::array::from_fn(|i| (low[i] + high[i]) * 0.5);
+            let mut center = std::array::from_fn(|i| (low[i] + high[i]) * 0.5);
+            if actor.instance != block.instance {
+                // The player's floor can be slightly below a supporting block.
+                // Keep ordinary step clearance while pushing across that edge.
+                center[2] += (support.height - target[2]).clamp(0., MAX_STEP_HEIGHT);
+            }
             let half_size = std::array::from_fn(|i| (high[i] - low[i]) * 0.5);
             let end = [center[0] + delta[0], center[1] + delta[1], center[2]];
-            supported
-                && !self.solids.iter().any(|solid| {
-                    solid.owner != block.instance
-                        && solid.owner != player.instance
-                        && query.accepts(solid.surface)
-                        && body_contact(
-                            solid
-                                .body_planes
-                                .as_ref()
-                                .unwrap_or(&solid.planes)
-                                .iter()
-                                .copied(),
-                            center,
-                            end,
-                            half_size,
-                        )
-                })
+            !self.solids.iter().any(|solid| {
+                solid.owner != block.instance
+                    && solid.owner != player.instance
+                    && query.accepts(solid.surface)
+                    && body_contact(
+                        solid
+                            .body_planes
+                            .as_ref()
+                            .unwrap_or(&solid.planes)
+                            .iter()
+                            .copied(),
+                        center,
+                        end,
+                        half_size,
+                    )
+            })
         })
     }
 

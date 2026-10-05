@@ -483,25 +483,16 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
     advance_until(&mut field, FieldSession::player_has_control)?;
     field.party_mut().travel.sorcerers_ring =
         SorcerersRing::ElectricOrb(ElectricOrbKind::Sylvarant);
-    // Fix the approach geometry without supplying a stun or changing the
-    // puzzle's polling events. Ring hits must supply the charge.
-    for (id, x) in [(8001, -1000.), (8002, 1000.)] {
-        let drone = field
-            .events
-            .world
-            .actors
-            .get_mut(&id)
-            .context("puzzle drone")?;
-        drone.position = [x, 1000., 0.];
-        let enemy = drone.enemy.as_mut().unwrap();
-        enemy.normal_speed = 0.;
-        enemy.alert_speed = 0.;
-        enemy.sight_distance = 0.;
-    }
-    ticks(&mut field, 30, FieldInput::default())?;
     assert!(!field.events.world.event_flags.contains(&154));
     assert!(field.events.world.actors.contains_key(&200));
     for (id, x) in [(8001, -1000.), (8002, 1000.)] {
+        let drone = field.actor_mut(id);
+        drone.position = [x, 900., 0.];
+        drone.face(180.);
+        let ai = drone.autonomy.as_mut().unwrap();
+        ai.activity = resonance_events::Activity::Walk;
+        ai.initialized = true;
+        ai.remaining = 500;
         let player = field.events.world.controlled_actor;
         let actor = field.actor_mut(player);
         actor.position = [x, 1300., 0.];
@@ -536,8 +527,19 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
         field.events.world.event_flags.contains(&154),
         "both electrified panels must open the door"
     );
-    advance_until(&mut field, |field| {
-        field.player_has_control() && !field.events.world.actors.contains_key(&200)
+    let mut previous = [field.actor(8001).position, field.actor(8002).position];
+    until(&mut field, dialogue_input(), |field| {
+        for (id, before) in [8001, 8002].into_iter().zip(&mut previous) {
+            let actor = &field.events.world.actors[&id];
+            let enemy = actor.enemy.as_ref().unwrap();
+            let distance = (actor.position[0] - before[0]).hypot(actor.position[1] - before[1]);
+            anyhow::ensure!(
+                distance <= enemy.alert_speed.max(enemy.normal_speed) + 1.,
+                "drone {id} jumped {distance} while opening the door"
+            );
+            *before = actor.position;
+        }
+        Ok(field.player_has_control() && !field.events.world.actors.contains_key(&200))
     })?;
     assert!(
         field
@@ -1519,3 +1521,32 @@ fn story_scenes_reach_their_next_stage() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn first_fire_bridge_returns_control() -> Result<()> {
+    let mut field = enter(Fixture::FireSeal, 220, Some(1_302_000))?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    let position = field.actor(5020).position;
+    field.actor_mut(1).position = [position[0], position[1] + 250., position[2] - 70.];
+    field.actor_mut(1).face(0.);
+    field.step(FieldInput {
+        alternate: true,
+        ..Default::default()
+    })?;
+    until(&mut field, dialogue_input(), |f| {
+        Ok(f.events.world.event_flags.contains(&232) && f.player_has_control())
+    })?;
+    assert!(field.player_has_control());
+    assert_eq!(
+        field
+            .events
+            .world
+            .fade
+            .as_ref()
+            .map_or(0., |f| f.alpha(field.events.tick())),
+        0.
+    );
+    Ok(())
+}
+

@@ -63,3 +63,41 @@ fn forest_cliff_jumps_reach_each_ledge() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn stacked_martel_block_can_be_pushed_and_pulled() -> Result<()> {
+    let mut field = enter(Fixture::Martel, 308, Some(107_000))?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    let mut upper = field.actor(5003).clone();
+    upper.position = [-890., -925., -700.];
+    upper.properties.insert(19, 1);
+    upper.properties.insert(17, 20);
+    upper.radius = 50.;
+    field.events.world.insert_actor(6000, upper);
+    ticks(&mut field, 30, FieldInput::default())?;
+    let start = field.actor(6000).position;
+    field.actor_mut(1).position = [start[0], start[1] - 125., start[2]];
+    field.actor_mut(1).face(180.);
+    field.step(FieldInput {
+        interact: true,
+        ..Default::default()
+    })?;
+    for sign in [1., -1.] {
+        let before = field.actor(6000).position[1];
+        for _ in 0..50 {
+            let camera = field.events.world.field_camera.as_ref().unwrap();
+            let angle = -(camera.target[0] - camera.position[0])
+                .atan2(camera.target[1] - camera.position[1]);
+            field.step(FieldInput {
+                held_buttons: [resonance_events::input::Button::Accept]
+                    .into_iter()
+                    .collect(),
+                direction: [sign * angle.sin(), sign * angle.cos()],
+                ..Default::default()
+            })?;
+        }
+        assert!((field.actor(6000).position[1] - before) * sign > 100.);
+    }
+    Ok(())
+}

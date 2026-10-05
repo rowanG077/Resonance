@@ -137,7 +137,7 @@ impl Actor {
         };
         if let Some(enemy) = &mut self.enemy {
             if enemy.pause_ticks != 0 && self.motion.is_none() {
-                if enemy.pause_ticks > 0 {
+                if free_control && enemy.pause_ticks > 0 {
                     enemy.pause_ticks -= 1;
                 }
                 intent.paused = true;
@@ -376,6 +376,14 @@ mod path_tests {
         let before = actor.position;
         actor.step_autonomy(false, false, None, &mut random);
         assert_eq!(actor.position, before);
+        actor.enemy.as_mut().unwrap().pause_ticks = 60;
+        for _ in 0..120 {
+            actor.step_autonomy(false, false, None, &mut random);
+        }
+        assert_eq!(actor.position, before);
+        assert_eq!(actor.enemy.as_ref().unwrap().pause_ticks, 60);
+        actor.step_autonomy(true, false, None, &mut random);
+        assert_eq!(actor.enemy.as_ref().unwrap().pause_ticks, 59);
     }
 
     #[test]
