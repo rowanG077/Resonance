@@ -1,0 +1,709 @@
+{
+  "event": {"id": "charm", "title": "A charm for the grove", "duration": 40, "growth": 0.78, "start": 246.5},
+  "actors": [
+    [
+      {
+        "id": "sheena",
+        "t": 0,
+        "x": 1100,
+        "y": 552,
+        "pose": "walk",
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      },
+      {
+        "id": "sheena",
+        "t": 5.6,
+        "x": 584,
+        "y": 532,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      },
+      {
+        "id": "sheena",
+        "t": 6,
+        "x": 584,
+        "y": 532,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 1}
+      },
+      {
+        "id": "sheena",
+        "t": 6.6,
+        "x": 584,
+        "y": 532,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 1}
+      },
+      {
+        "id": "sheena",
+        "t": 6.9,
+        "x": 584,
+        "y": 532,
+        "pose": "walk",
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      },
+      {
+        "id": "sheena",
+        "t": 8,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      },
+      {
+        "id": "sheena",
+        "t": 8.5,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 1}
+      },
+      {
+        "id": "sheena",
+        "t": 9.2,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 2}
+      },
+      {
+        "id": "sheena",
+        "t": 9.8,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 3}
+      },
+      {
+        "id": "sheena",
+        "t": 10.25,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 2}
+      },
+      {
+        "id": "sheena",
+        "t": 10.7,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 3}
+      },
+      {
+        "id": "sheena",
+        "t": 11.2,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 2}
+      },
+      {
+        "id": "sheena",
+        "t": 11.6,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 3}
+      },
+      {
+        "id": "sheena",
+        "t": 12,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "held": true,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 2}
+      },
+      {
+        "id": "sheena",
+        "t": 12.4,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 2}
+      },
+      {
+        "id": "sheena",
+        "t": 13,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 4}
+      },
+      {
+        "id": "sheena",
+        "t": 13.6,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "stance": "holding",
+        "clip": {"name": "ritual", "index": 0}
+      },
+      {
+        "id": "sheena",
+        "t": 14,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "pose": "walk",
+        "face": -1,
+        "heading": 1,
+        "side": true
+      },
+      {"id": "sheena", "t": 15.2, "x": 584, "y": 535, "face": -1, "heading": 1, "side": true},
+      {
+        "id": "sheena",
+        "t": 15.6,
+        "x": 584,
+        "y": 535,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 4}
+      },
+      {
+        "id": "sheena",
+        "t": 16.3,
+        "x": 584,
+        "y": 535,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 5}
+      },
+      {
+        "id": "sheena",
+        "t": 17.2,
+        "x": 584,
+        "y": 535,
+        "face": -1,
+        "heading": -1,
+        "lean": 6,
+        "side": true,
+        "clip": {"name": "ritual", "index": 5}
+      },
+      {
+        "id": "sheena",
+        "t": 20.5,
+        "x": 584,
+        "y": 535,
+        "face": -1,
+        "heading": -1,
+        "lean": 6,
+        "side": true,
+        "clip": {"name": "ritual", "index": 5}
+      },
+      {
+        "id": "sheena",
+        "t": 21.6,
+        "x": 584,
+        "y": 535,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 5}
+      },
+      {
+        "id": "sheena",
+        "t": 22.4,
+        "x": 584,
+        "y": 535,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 4}
+      },
+      {
+        "id": "sheena",
+        "t": 23,
+        "x": 584,
+        "y": 535,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 0}
+      },
+      {"id": "sheena", "t": 23.7, "x": 584, "y": 535, "pose": "walk", "face": -1, "heading": -1, "side": true},
+      {
+        "id": "sheena",
+        "t": 24.8,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 2}
+      },
+      {
+        "id": "sheena",
+        "t": 25.6,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 2}
+      },
+      {
+        "id": "sheena",
+        "t": 26.2,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 4}
+      },
+      {
+        "id": "sheena",
+        "t": 26.9,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "face": -1,
+        "heading": -1,
+        "side": true,
+        "clip": {"name": "ritual", "index": 0}
+      },
+      {"id": "sheena", "t": 27.8, "x": 509.9674646, "y": 507.1236723, "face": -1, "heading": -1, "side": true},
+      {"id": "sheena", "t": 28.2, "x": 509.9674646, "y": 507.1236723, "face": -1, "heading": -1, "side": true},
+      {
+        "id": "sheena",
+        "t": 29,
+        "x": 509.9674646,
+        "y": 507.1236723,
+        "pose": "walk",
+        "face": -1,
+        "heading": 1,
+        "side": true
+      },
+      {"id": "sheena", "t": 39, "x": 1100, "y": 552, "pose": "walk", "face": -1, "heading": 1, "side": true},
+      {"id": "sheena", "t": 40, "x": 1100, "y": 552, "pose": "walk", "face": -1, "heading": 1, "side": true}
+    ]
+  ],
+  "props": [
+    [
+      {
+        "id": "sheena-charm-cord",
+        "type": "charm-cord",
+        "layer": "back",
+        "t": 0,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [0, 0]},
+        "x": 505.71746460265825,
+        "y": 470.62367229719007,
+        "visible": false,
+        "face": 1
+      },
+      {
+        "id": "sheena-charm-cord",
+        "type": "charm-cord",
+        "layer": "back",
+        "t": 9.2,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [0, 0]},
+        "x": 505.71746460265825,
+        "y": 470.62367229719007,
+        "visible": true,
+        "face": 1
+      },
+      {
+        "id": "sheena-charm-cord",
+        "type": "charm-cord",
+        "layer": "back",
+        "t": 10.25,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [0, 0]},
+        "x": 505.71746460265825,
+        "y": 470.62367229719007,
+        "visible": true,
+        "wrapped": 0.45,
+        "face": 1
+      },
+      {
+        "id": "sheena-charm-cord",
+        "type": "charm-cord",
+        "layer": "back",
+        "t": 11.2,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [0, 0]},
+        "x": 505.71746460265825,
+        "y": 470.62367229719007,
+        "visible": true,
+        "wrapped": 0.8,
+        "face": 1
+      },
+      {
+        "id": "sheena-charm-cord",
+        "type": "charm-cord",
+        "layer": "back",
+        "t": 12,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [0, 0]},
+        "x": 505.71746460265825,
+        "y": 470.62367229719007,
+        "visible": true,
+        "wrapped": 1,
+        "face": 1
+      },
+      {
+        "id": "sheena-charm-cord",
+        "type": "charm-cord",
+        "layer": "back",
+        "t": 40,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [0, 0]},
+        "x": 505.71746460265825,
+        "y": 470.62367229719007,
+        "visible": true,
+        "wrapped": 1,
+        "face": 1
+      }
+    ],
+    [
+      {
+        "id": "sheena-paper-seal",
+        "type": "paper-charm",
+        "layer": "front",
+        "scale": 0.75,
+        "t": 0,
+        "attach": "sheena",
+        "x": 0,
+        "y": 0,
+        "grip": "right",
+        "visible": true,
+        "face": 1
+      },
+      {
+        "id": "sheena-paper-seal",
+        "type": "paper-charm",
+        "layer": "back",
+        "scale": 0.75,
+        "t": 12.4,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [-8, 1]},
+        "face": 1
+      },
+      {
+        "id": "sheena-paper-seal",
+        "type": "paper-charm",
+        "layer": "back",
+        "scale": 0.75,
+        "t": 14.8,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true,
+        "angle": -2,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [-8, 1]},
+        "face": 1
+      },
+      {
+        "id": "sheena-paper-seal",
+        "type": "paper-charm",
+        "layer": "back",
+        "scale": 0.75,
+        "t": 16.1,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true,
+        "angle": 1,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [-8, 1]},
+        "face": 1
+      },
+      {
+        "id": "sheena-paper-seal",
+        "type": "paper-charm",
+        "layer": "back",
+        "scale": 0.75,
+        "t": 19,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true,
+        "angle": -1.5,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [-8, 1]},
+        "face": 1
+      },
+      {
+        "id": "sheena-paper-seal",
+        "type": "paper-charm",
+        "layer": "back",
+        "scale": 0.75,
+        "t": 21,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [-8, 1]},
+        "face": 1
+      },
+      {
+        "id": "sheena-paper-seal",
+        "type": "paper-charm",
+        "layer": "back",
+        "scale": 0.75,
+        "t": 40,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [-8, 1]},
+        "face": 1
+      }
+    ],
+    [
+      {
+        "id": "charm-mana-0",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 0,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": false
+      },
+      {
+        "id": "charm-mana-0",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 17.6,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true
+      },
+      {
+        "id": "charm-mana-0",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 17.900000000000002,
+        "x": 484.7174646,
+        "y": 466.6236723,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "charm-mana-0",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 18.75,
+        "x": 494.7174646,
+        "y": 452.6236723,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "charm-mana-0",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 19.700000000000003,
+        "x": 487.2174646,
+        "y": 438.6236723,
+        "visible": true
+      },
+      {
+        "id": "charm-mana-0",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 19.75,
+        "x": 487.2174646,
+        "y": 438.6236723,
+        "visible": false
+      },
+      {
+        "id": "charm-mana-0",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 40,
+        "x": 487.2174646,
+        "y": 438.6236723,
+        "visible": false
+      }
+    ],
+    [
+      {
+        "id": "charm-mana-1",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 0,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": false
+      },
+      {
+        "id": "charm-mana-1",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 18.35,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true
+      },
+      {
+        "id": "charm-mana-1",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 18.650000000000002,
+        "x": 496.7174646,
+        "y": 466.6236723,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "charm-mana-1",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 19.5,
+        "x": 482.7174646,
+        "y": 452.6236723,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "charm-mana-1",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 20.450000000000003,
+        "x": 493.2174646,
+        "y": 438.6236723,
+        "visible": true
+      },
+      {
+        "id": "charm-mana-1",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 20.5,
+        "x": 493.2174646,
+        "y": 438.6236723,
+        "visible": false
+      },
+      {
+        "id": "charm-mana-1",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 40,
+        "x": 493.2174646,
+        "y": 438.6236723,
+        "visible": false
+      }
+    ],
+    [
+      {
+        "id": "charm-mana-2",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 0,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": false
+      },
+      {
+        "id": "charm-mana-2",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 19.1,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true
+      },
+      {
+        "id": "charm-mana-2",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 19.400000000000002,
+        "x": 487.7174646,
+        "y": 466.6236723,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "charm-mana-2",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 20.25,
+        "x": 491.7174646,
+        "y": 452.6236723,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "charm-mana-2",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 21.200000000000003,
+        "x": 488.7174646,
+        "y": 438.6236723,
+        "visible": true
+      },
+      {
+        "id": "charm-mana-2",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 21.25,
+        "x": 488.7174646,
+        "y": 438.6236723,
+        "visible": false
+      },
+      {
+        "id": "charm-mana-2",
+        "type": "mana-spark",
+        "layer": "front",
+        "t": 40,
+        "x": 488.7174646,
+        "y": 438.6236723,
+        "visible": false
+      }
+    ]
+  ]
+}

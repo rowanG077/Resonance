@@ -4571,6 +4571,16 @@ name = "resonance-script-content"
 version = "0.1.0"
 
 [[package]]
+name = "resonance-yggdrasil"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "ron"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

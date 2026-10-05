@@ -1,0 +1,211 @@
+{
+  "origin": [256, 251],
+  "bark_texture": "tree/bark/trunk",
+  "timing": {
+    "twig_duration": 0.065,
+    "twig_finish_by": 0.94,
+    "crown_delay": 0.38,
+    "crown_delay_variation": 0.07,
+    "crown_opening": 0.24,
+    "full_crown_base": 0.8,
+    "full_crown_tip_weight": 0.22,
+    "shoot_opening": [0.025, 0.055],
+    "blade_opening": 0.3,
+    "blade_opening_variation": 0.13
+  },
+  "branches": [
+    {
+      "id": "trunk",
+      "parent": null,
+      "attach": 0,
+      "birth": 0,
+      "end": 0.68,
+      "width": 25,
+      "points": [[0, 0], [-6, -36], [-2, -64], [7, -100], [-2, -137], [3, -176]],
+      "initial": 17
+    },
+    {
+      "id": "root-west",
+      "parent": "trunk",
+      "attach": 0,
+      "birth": 0.04,
+      "end": 0.86,
+      "width": 12,
+      "points": [[0, 0], [-14, -3], [-33, 1], [-55, 4], [-68, 5]],
+      "kind": "root"
+    },
+    {
+      "id": "root-east",
+      "parent": "trunk",
+      "attach": 0,
+      "birth": 0.07,
+      "end": 0.91,
+      "width": 11,
+      "points": [[0, 0], [15, -4], [36, 0], [55, 3], [67, 5]],
+      "kind": "root"
+    },
+    {
+      "id": "root-front-left",
+      "parent": "trunk",
+      "attach": 0,
+      "birth": 0.16,
+      "end": 0.97,
+      "width": 8,
+      "points": [[0, 0], [-8, 3], [-23, 6], [-35, 10]],
+      "kind": "root"
+    },
+    {
+      "id": "root-front-right",
+      "parent": "trunk",
+      "attach": 0,
+      "birth": 0.21,
+      "end": 1,
+      "width": 7,
+      "points": [[0, 0], [6, 3], [18, 7], [30, 9]],
+      "kind": "root"
+    },
+    {
+      "id": "root-back",
+      "parent": "trunk",
+      "attach": 0,
+      "birth": 0.12,
+      "end": 0.88,
+      "width": 8,
+      "points": [[0, 0], [-19, -6], [-36, -4], [-49, -2]],
+      "kind": "root"
+    },
+    {
+      "id": "lower-west",
+      "parent": "trunk",
+      "attach": 36,
+      "birth": 0.105,
+      "end": 0.72,
+      "width": 15,
+      "points": [[0, 0], [-28, -18], [-56, -39], [-91, -47], [-128, -65]]
+    },
+    {
+      "id": "lower-east",
+      "parent": "trunk",
+      "attach": 46,
+      "birth": 0.15,
+      "end": 0.75,
+      "width": 14,
+      "points": [[0, 0], [27, -19], [58, -38], [96, -42], [136, -60]]
+    },
+    {
+      "id": "middle-west",
+      "parent": "trunk",
+      "attach": 72,
+      "birth": 0.235,
+      "end": 0.78,
+      "width": 12,
+      "points": [[0, 0], [-27, -24], [-54, -43], [-83, -69], [-104, -91]]
+    },
+    {
+      "id": "middle-east",
+      "parent": "trunk",
+      "attach": 84,
+      "birth": 0.275,
+      "end": 0.8,
+      "width": 11,
+      "points": [[0, 0], [27, -21], [56, -37], [81, -60], [102, -81]]
+    },
+    {
+      "id": "upper-west",
+      "parent": "trunk",
+      "attach": 112,
+      "birth": 0.395,
+      "end": 0.84,
+      "width": 9,
+      "points": [[0, 0], [-17, -27], [-41, -46], [-64, -65]]
+    },
+    {
+      "id": "upper-east",
+      "parent": "trunk",
+      "attach": 125,
+      "birth": 0.44,
+      "end": 0.86,
+      "width": 8,
+      "points": [[0, 0], [18, -24], [42, -40], [67, -59]]
+    },
+    {
+      "id": "crest-west",
+      "parent": "trunk",
+      "attach": 147,
+      "birth": 0.525,
+      "end": 0.88,
+      "width": 6,
+      "points": [[0, 0], [-12, -19], [-29, -31], [-40, -47]]
+    },
+    {
+      "id": "crest-east",
+      "parent": "trunk",
+      "attach": 158,
+      "birth": 0.57,
+      "end": 0.9,
+      "width": 5,
+      "points": [[0, 0], [14, -13], [25, -28], [34, -39]]
+    },
+    {
+      "id": "crown-leader",
+      "parent": "trunk",
+      "birth": 0.695,
+      "end": 0.92,
+      "width": 5,
+      "points": [[0, 0], [0, -12], [-6, -24], [0, -38]],
+      "at_tip": true
+    },
+    {
+      "id": "west-flute",
+      "parent": "trunk",
+      "attach": 0,
+      "birth": 0.12,
+      "end": 0.73,
+      "width": 10,
+      "points": [[0, 0], [-13, -20], [-16, -45], [-4, -70], [-2, -90]],
+      "kind": "ridge"
+    },
+    {
+      "id": "east-flute",
+      "parent": "trunk",
+      "attach": 0,
+      "birth": 0.17,
+      "end": 0.78,
+      "width": 9,
+      "points": [[0, 0], [13, -18], [10, -37], [1, -57], [9, -78]],
+      "kind": "ridge"
+    }
+  ],
+  "crown": [
+    {"y": 40, "x": [246, 270]},
+    {"y": 60, "x": [217, 242, 268, 293]},
+    {"y": 81, "x": [185, 211, 238, 265, 292, 320]},
+    {"y": 103, "x": [157, 183, 210, 237, 264, 291, 319, 346]},
+    {"y": 126, "x": [132, 158, 184, 210, 238, 266, 294, 321, 349, 376]},
+    {"y": 148, "x": [109, 135, 161, 187, 213, 240, 269, 296, 323, 351, 378, 402]},
+    {"y": 171, "x": [94, 120, 146, 172, 198, 222, 293, 318, 345, 373, 400, 422]},
+    {"y": 191, "x": [96, 122, 148, 175, 201, 310, 337, 364, 391, 419]},
+    {"y": 207, "x": [122, 149, 177, 204, 309, 336, 365, 392]},
+    {"y": 171, "x": [239, 271]},
+    {"y": 191, "x": [225, 253, 287]},
+    {"y": 207, "x": [230, 263, 292]}
+  ],
+  "shoots": [
+    {"image": "tree/foliage/shoots/01", "pivot": [4, 6]},
+    {"image": "tree/foliage/shoots/02", "pivot": [1, 6]},
+    {"image": "tree/foliage/shoots/03", "pivot": [1, 5]},
+    {"image": "tree/foliage/shoots/04", "pivot": [0, 4]}
+  ],
+  "shoot_sides": [{"image": "tree/foliage/shoots/01", "pivot": [4, 6]}, {"image": "tree/foliage/shoots/03", "pivot": [1, 5]}],
+  "canopies": [
+    {"image": "tree/crowns/01", "pivot": [24, 39]},
+    {"image": "tree/crowns/02", "pivot": [29, 35]},
+    {"image": "tree/crowns/03", "pivot": [19, 39]},
+    {"image": "tree/crowns/04", "pivot": [20, 38]},
+    {"image": "tree/crowns/05", "pivot": [27, 39]},
+    {"image": "tree/crowns/06", "pivot": [25, 39]},
+    {"image": "tree/crowns/07", "pivot": [27, 39]},
+    {"image": "tree/crowns/08", "pivot": [20, 39]}
+  ],
+  "palette": "tree/foliage/palette"
+}

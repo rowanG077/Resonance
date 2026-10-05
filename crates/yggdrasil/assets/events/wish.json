@@ -1,0 +1,237 @@
+{
+  "event": {"id": "wish", "title": "A quiet wish", "duration": 29, "growth": 0.87, "start": 289.5},
+  "actors": [
+    [
+      {"id": "colette", "t": 0, "x": -75, "y": 550, "pose": "walk", "face": 1, "heading": 1, "side": true},
+      {"id": "colette", "t": 5.2, "x": 450, "y": 543, "face": 1, "heading": 1, "side": true},
+      {"id": "colette", "t": 5.35, "x": 450, "y": 543, "face": 1, "heading": 1, "side": true},
+      {
+        "id": "colette",
+        "t": 5.75,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 0,
+        "clip": {"name": "wish", "index": 0}
+      },
+      {
+        "id": "colette",
+        "t": 5.9,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 0}
+      },
+      {
+        "id": "colette",
+        "t": 6.9,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 5}
+      },
+      {
+        "id": "colette",
+        "t": 7.3,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 1}
+      },
+      {
+        "id": "colette",
+        "t": 7.8,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 2}
+      },
+      {
+        "id": "colette",
+        "t": 8.9,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 3}
+      },
+      {
+        "id": "colette",
+        "t": 14.3,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 3}
+      },
+      {
+        "id": "colette",
+        "t": 14.8,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 2}
+      },
+      {
+        "id": "colette",
+        "t": 15.5,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 4}
+      },
+      {
+        "id": "colette",
+        "t": 21.6,
+        "x": 450,
+        "y": 543,
+        "face": 1,
+        "heading": 1,
+        "clip": {"name": "wish", "index": 4}
+      },
+      {
+        "id": "colette",
+        "t": 22.5,
+        "x": 450,
+        "y": 543,
+        "face": -1,
+        "lean": -3,
+        "clip": {"name": "wish", "index": 4}
+      },
+      {
+        "id": "colette",
+        "t": 28,
+        "x": -75,
+        "y": 550,
+        "face": -1,
+        "lean": -3,
+        "clip": {"name": "wish", "index": 4}
+      },
+      {
+        "id": "colette",
+        "t": 29,
+        "x": -75,
+        "y": 550,
+        "face": -1,
+        "lean": -3,
+        "clip": {"name": "wish", "index": 4}
+      }
+    ]
+  ],
+  "props": [
+    [
+      {
+        "id": "colette-wish-light",
+        "type": "mana-spark",
+        "emissive": true,
+        "layer": "front",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "attach": "colette",
+        "x": 0,
+        "y": 0,
+        "visible": false
+      },
+      {
+        "id": "colette-wish-light",
+        "type": "mana-spark",
+        "emissive": true,
+        "layer": "front",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 16.2,
+        "attach": "colette",
+        "x": 0,
+        "y": 0,
+        "visible": true,
+        "strength": 0.2
+      },
+      {
+        "id": "colette-wish-light",
+        "type": "mana-spark",
+        "emissive": true,
+        "layer": "front",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 17.4,
+        "attach": "colette",
+        "x": 0,
+        "y": 0,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "colette-wish-light",
+        "type": "mana-spark",
+        "emissive": true,
+        "layer": "front",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 18.3,
+        "x": 450,
+        "y": 515.25,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "colette-wish-light",
+        "type": "mana-spark",
+        "emissive": true,
+        "layer": "front",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 19.6,
+        "x": 491,
+        "y": 492,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "colette-wish-light",
+        "type": "mana-spark",
+        "emissive": true,
+        "layer": "front",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 21.1,
+        "x": 500,
+        "y": 457,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "colette-wish-light",
+        "type": "mana-spark",
+        "emissive": true,
+        "layer": "front",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 23,
+        "x": 513,
+        "y": 413,
+        "visible": true,
+        "strength": 1
+      },
+      {
+        "id": "colette-wish-light",
+        "type": "mana-spark",
+        "emissive": true,
+        "layer": "front",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 29,
+        "x": 513,
+        "y": 413,
+        "visible": true,
+        "strength": 1
+      }
+    ]
+  ]
+}

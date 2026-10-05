@@ -1,0 +1,132 @@
+{
+  "event": {"id": "vigil", "title": "Old companions, remembered", "duration": 24, "growth": 0.36, "start": 108.5},
+  "actors": [
+    [
+      {"id": "kratos", "t": 0, "pose": "walk", "face": 1, "heading": 1, "x": -65, "y": 542, "side": true},
+      {
+        "id": "kratos",
+        "t": 5.5,
+        "face": 1,
+        "heading": 1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true
+      },
+      {
+        "id": "kratos",
+        "t": 6.2,
+        "face": 1,
+        "heading": 1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 1}
+      },
+      {
+        "id": "kratos",
+        "t": 6.6,
+        "face": 1,
+        "heading": 1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 2}
+      },
+      {
+        "id": "kratos",
+        "t": 12.5,
+        "face": 1,
+        "heading": 1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 2}
+      },
+      {
+        "id": "kratos",
+        "t": 13.2,
+        "face": 1,
+        "heading": 1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 1}
+      },
+      {
+        "id": "kratos",
+        "t": 13.6,
+        "face": 1,
+        "heading": 1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 3}
+      },
+      {
+        "id": "kratos",
+        "t": 14.2,
+        "face": 1,
+        "heading": 1,
+        "lean": 3,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 3}
+      },
+      {
+        "id": "kratos",
+        "t": 15,
+        "face": 1,
+        "heading": 1,
+        "lean": 3,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 3}
+      },
+      {
+        "id": "kratos",
+        "t": 15.6,
+        "face": 1,
+        "heading": 1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 3}
+      },
+      {
+        "id": "kratos",
+        "t": 16.2,
+        "face": 1,
+        "heading": 1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 0}
+      },
+      {
+        "id": "kratos",
+        "t": 16.5,
+        "face": 1,
+        "heading": -1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true,
+        "clip": {"name": "acting", "index": 0}
+      },
+      {
+        "id": "kratos",
+        "t": 17.2,
+        "pose": "walk",
+        "face": 1,
+        "heading": -1,
+        "x": 481.6317256218453,
+        "y": 510.2596197719291,
+        "side": true
+      },
+      {"id": "kratos", "t": 23.5, "pose": "walk", "face": 1, "heading": -1, "x": -110, "y": 550, "side": true},
+      {"id": "kratos", "t": 24, "pose": "walk", "face": 1, "heading": -1, "x": -110, "y": 550, "side": true}
+    ]
+  ],
+  "props": []
+}

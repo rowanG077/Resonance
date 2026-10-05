@@ -1,0 +1,176 @@
+{
+  "event": {"id": "quiet-visit", "title": "A quiet understanding", "duration": 25, "growth": 0.69, "start": 218.5},
+  "actors": [
+    [
+      {"id": "regal", "t": 0, "pose": "walk", "face": 1, "heading": 1, "x": -158, "y": 551, "side": true},
+      {"id": "regal", "t": 5.5, "face": 1, "heading": 1, "x": 458, "y": 552, "side": true},
+      {
+        "id": "regal",
+        "t": 6.2,
+        "pose": "settle",
+        "face": 1,
+        "heading": 1,
+        "x": 458,
+        "y": 552,
+        "seated": true,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "regal",
+        "t": 6.6,
+        "pose": "sit",
+        "face": 1,
+        "heading": 1,
+        "x": 458,
+        "y": 552,
+        "seated": true,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "regal",
+        "t": 17.4,
+        "pose": "settle",
+        "face": 1,
+        "heading": 1,
+        "x": 458,
+        "y": 552,
+        "seated": true,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "regal",
+        "t": 17.8,
+        "face": 1,
+        "heading": 1,
+        "crouch": 0.45,
+        "x": 458,
+        "y": 552,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {"id": "regal", "t": 18.2, "face": 1, "heading": -1, "x": 458, "y": 552, "seat_at": 6.2, "side": true},
+      {
+        "id": "regal",
+        "t": 19,
+        "pose": "walk",
+        "face": 1,
+        "heading": -1,
+        "x": 458,
+        "y": 552,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "regal",
+        "t": 24.5,
+        "pose": "walk",
+        "face": 1,
+        "heading": -1,
+        "x": -180,
+        "y": 555,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "regal",
+        "t": 25,
+        "pose": "walk",
+        "face": 1,
+        "heading": -1,
+        "x": -180,
+        "y": 555,
+        "seat_at": 6.2,
+        "side": true
+      }
+    ],
+    [
+      {"id": "presea", "t": 0, "pose": "walk", "face": 1, "heading": 1, "x": -70, "y": 565, "side": true},
+      {"id": "presea", "t": 5.5, "face": 1, "heading": 1, "x": 525, "y": 553, "side": true},
+      {
+        "id": "presea",
+        "t": 6.2,
+        "pose": "settle",
+        "face": 1,
+        "heading": 1,
+        "x": 525,
+        "y": 553,
+        "seated": true,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "presea",
+        "t": 6.6,
+        "pose": "sit",
+        "face": 1,
+        "heading": 1,
+        "x": 525,
+        "y": 553,
+        "seated": true,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "presea",
+        "t": 17.4,
+        "pose": "settle",
+        "face": 1,
+        "heading": 1,
+        "x": 525,
+        "y": 553,
+        "seated": true,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "presea",
+        "t": 17.8,
+        "face": 1,
+        "heading": 1,
+        "crouch": 0.45,
+        "x": 525,
+        "y": 553,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {"id": "presea", "t": 18.2, "face": 1, "heading": -1, "x": 525, "y": 553, "seat_at": 6.2, "side": true},
+      {
+        "id": "presea",
+        "t": 19,
+        "pose": "walk",
+        "face": 1,
+        "heading": -1,
+        "x": 525,
+        "y": 553,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "presea",
+        "t": 24.5,
+        "pose": "walk",
+        "face": 1,
+        "heading": -1,
+        "x": -100,
+        "y": 569,
+        "seat_at": 6.2,
+        "side": true
+      },
+      {
+        "id": "presea",
+        "t": 25,
+        "pose": "walk",
+        "face": 1,
+        "heading": -1,
+        "x": -100,
+        "y": 569,
+        "seat_at": 6.2,
+        "side": true
+      }
+    ]
+  ],
+  "props": []
+}

@@ -1,0 +1,148 @@
+{
+  "event": {
+    "id": "petting-noishe",
+    "title": "A friend beneath the branches",
+    "duration": 24,
+    "growth": 0.25,
+    "start": 59.5
+  },
+  "actors": [
+    [
+      {"id": "colette", "t": 0, "pose": "walk", "face": 1, "heading": 1, "x": -155, "y": 558, "side": true},
+      {"id": "colette", "t": 5.5, "face": 1, "heading": 1, "x": 494, "y": 558, "side": true},
+      {
+        "id": "colette",
+        "t": 6.4,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 1}
+      },
+      {
+        "id": "colette",
+        "t": 7.3,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 3}
+      },
+      {
+        "id": "colette",
+        "t": 8,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 4}
+      },
+      {
+        "id": "colette",
+        "t": 8.7,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 3}
+      },
+      {
+        "id": "colette",
+        "t": 9.4,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 4}
+      },
+      {
+        "id": "colette",
+        "t": 10.1,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 3}
+      },
+      {
+        "id": "colette",
+        "t": 10.8,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 4}
+      },
+      {
+        "id": "colette",
+        "t": 11.5,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 3}
+      },
+      {
+        "id": "colette",
+        "t": 12.2,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 5}
+      },
+      {
+        "id": "colette",
+        "t": 13,
+        "face": 1,
+        "heading": 1,
+        "x": 494,
+        "y": 558,
+        "side": true,
+        "clip": {"name": "pet", "index": 0}
+      },
+      {"id": "colette", "t": 16.4, "face": 1, "heading": -1, "x": 494, "y": 558, "side": true},
+      {"id": "colette", "t": 17.5, "pose": "walk", "face": 1, "heading": -1, "x": 494, "y": 558, "side": true},
+      {
+        "id": "colette",
+        "t": 23.5,
+        "pose": "walk",
+        "face": 1,
+        "heading": -1,
+        "x": -170,
+        "y": 556,
+        "side": true
+      },
+      {"id": "colette", "t": 24, "pose": "walk", "face": 1, "heading": -1, "x": -170, "y": 556, "side": true}
+    ],
+    [
+      {"id": "noishe", "t": 0, "x": -70, "y": 564.90625, "pose": "walk", "face": 1},
+      {"id": "noishe", "t": 5, "x": 540.375, "y": 564.90625, "face": -1},
+      {"id": "noishe", "t": 6.8, "x": 540.375, "y": 564.90625, "face": -1},
+      {"id": "noishe", "t": 7.3, "x": 540.375, "y": 564.90625, "face": -1, "tail_wag": 1},
+      {"id": "noishe", "t": 8, "x": 540.375, "y": 564.90625, "face": -1, "tail_wag": 1},
+      {"id": "noishe", "t": 8.7, "x": 540.375, "y": 564.90625, "face": -1, "tail_wag": 1},
+      {"id": "noishe", "t": 9.4, "x": 540.375, "y": 564.90625, "face": -1, "tail_wag": 1},
+      {"id": "noishe", "t": 10.1, "x": 540.375, "y": 564.90625, "face": -1, "tail_wag": 1},
+      {"id": "noishe", "t": 10.8, "x": 540.375, "y": 564.90625, "face": -1, "tail_wag": 1},
+      {"id": "noishe", "t": 11.5, "x": 540.375, "y": 564.90625, "face": -1, "tail_wag": 1},
+      {"id": "noishe", "t": 12.2, "x": 540.375, "y": 564.90625, "face": -1, "tail_wag": 1},
+      {"id": "noishe", "t": 13, "x": 540.375, "y": 564.90625, "face": -1},
+      {"id": "noishe", "t": 14, "x": 540.375, "y": 564.90625, "face": -1},
+      {"id": "noishe", "t": 14.5, "x": 540.375, "y": 564.90625, "face": -1},
+      {"id": "noishe", "t": 17.5, "x": 540.375, "y": 564.90625, "pose": "walk", "face": -1},
+      {"id": "noishe", "t": 23.5, "x": -90, "y": 563, "pose": "walk", "face": -1},
+      {"id": "noishe", "t": 24, "x": -90, "y": 563, "pose": "walk", "face": -1}
+    ]
+  ],
+  "props": []
+}

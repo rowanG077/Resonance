@@ -1,0 +1,2694 @@
+{
+  "meadow": "environment/ground/meadow",
+  "plants": "environment/ground/plants",
+  "cast": {
+    "lloyd": {"image": "characters/lloyd/front", "size": 96, "breathing_phase": 0.0},
+    "colette": {"image": "characters/colette/front", "size": 96, "breathing_phase": 0.83},
+    "genis": {"image": "characters/genis/front", "size": 88, "breathing_phase": 1.66},
+    "raine": {"image": "characters/raine/front", "size": 96, "breathing_phase": 2.4899999999999998},
+    "kratos": {"image": "characters/kratos/front", "size": 96, "breathing_phase": 3.32},
+    "sheena": {"image": "characters/sheena/front", "size": 96, "breathing_phase": 4.1499999999999995},
+    "zelos": {"image": "characters/zelos/front", "size": 96, "breathing_phase": 4.9799999999999995},
+    "presea": {"image": "characters/presea/front", "size": 88, "breathing_phase": 5.81},
+    "regal": {"image": "characters/regal/front", "size": 96, "breathing_phase": 6.64},
+    "noishe": {"image": "characters/noishe/front", "size": 100, "breathing_phase": 7.47}
+  },
+  "noishe": {
+    "body": "characters/noishe/walk/body",
+    "tail": {"pivot": [79, 79], "image": "characters/noishe/walk/tail"},
+    "legs": [
+      {"pivot": [36, 90], "image": "characters/noishe/walk/legs/1", "phase": 0},
+      {"pivot": [63, 89], "image": "characters/noishe/walk/legs/2", "phase": 0.5},
+      {"pivot": [49, 90], "image": "characters/noishe/walk/legs/3", "phase": 0.5},
+      {"pivot": [75, 90], "image": "characters/noishe/walk/legs/4", "phase": 0}
+    ]
+  },
+  "lighting": {
+    "sky": "environment/sky/sky",
+    "stars": "environment/sky/stars",
+    "cloud_veil": "environment/sky/cloud-veil",
+    "day_air": "environment/sky/day-air",
+    "backdrop": "environment/sky/backdrop",
+    "moons": [
+      {
+        "image": "environment/sky/pale-moon",
+        "pad": 16,
+        "orbit": {"rise": 0.02, "duration": 0.74, "cx": 249, "rx": 232, "base": 184, "height": 164}
+      },
+      {
+        "image": "environment/sky/mana-moon",
+        "pad": 23,
+        "orbit": {"rise": 0.3, "duration": 0.64, "cx": 260, "rx": 233, "base": 180, "height": 135}
+      }
+    ]
+  },
+  "duration": 483.5,
+  "growth_end": 395.5,
+  "props": {
+    "blanket": {"image": "props/objects/blanket", "rect": [-48, -29, 96, 58]},
+    "basket": {"image": "props/objects/basket", "rect": [-17, -17, 34, 34]},
+    "bowl": {"image": "props/objects/bowl", "rect": [-12, -9, 23, 16]},
+    "bowl-empty": {"image": "props/objects/bowl-empty", "rect": [-12, -9, 23, 16]},
+    "camp-flames": {"image": "props/objects/camp-flames", "rect": [-192, -24, 384, 48]},
+    "log": {"image": "props/objects/log", "rect": [-26, -14, 52, 27]},
+    "support": {"image": "props/objects/support", "rect": [-4, -29.0, 8, 58]},
+    "tie": {"image": "props/objects/tie", "rect": [-10, -6, 21, 12]},
+    "book": {"image": "props/objects/book", "rect": [-19, -12, 38, 24]},
+    "book-closed": {"image": "props/objects/book-closed", "rect": [-13, -12, 26, 24]},
+    "flower": {"image": "props/objects/flower", "rect": [-9, -17, 16, 28]},
+    "bread": {"image": "props/objects/bread", "rect": [-7, -9, 14, 18]},
+    "specimen": {"image": "props/objects/specimen", "rect": [-8, -21, 16, 22]},
+    "pencil": {"image": "props/objects/pencil", "rect": [-2, -14, 5, 22]},
+    "paper-charm": {"image": "props/objects/paper-charm", "rect": [-7, -3, 14, 28]},
+    "charm-cord": {"image": "props/objects/charm-cord", "rect": [-20, -2, 40, 4]},
+    "hearth-stones": {"image": "props/objects/hearth-stones", "rect": [-12, -9, 24, 18]},
+    "can": {"image": "props/objects/can", "rect": [-12, 0, 36, 23]}
+  },
+  "dusk_duration": 72,
+  "overlays": {
+    "book": {
+      "acting": [
+        [[40.0, 76.0], [53.0, 76.0], [54.0, 94.0], [40.0, 94.0]],
+        [
+          [54.0, 65.0],
+          [64.0, 63.0],
+          [70.0, 65.0],
+          [76.0, 66.0],
+          [80.0, 69.0],
+          [79.0, 73.0],
+          [69.0, 75.0],
+          [67.0, 79.0],
+          [63.0, 80.0],
+          [57.0, 78.0]
+        ],
+        [
+          [54.0, 65.0],
+          [64.0, 63.0],
+          [70.0, 65.0],
+          [75.0, 66.0],
+          [79.0, 68.0],
+          [78.0, 73.0],
+          [69.0, 75.0],
+          [67.0, 79.0],
+          [63.0, 80.0],
+          [57.0, 78.0]
+        ],
+        [[58.0, 64.0], [70.0, 64.0], [77.0, 69.0], [79.0, 78.0], [68.0, 81.0], [58.0, 76.0]],
+        [[67.0, 58.0], [88.0, 58.0], [91.0, 71.0], [77.0, 76.0], [65.0, 70.0]],
+        [
+          [54.0, 65.0],
+          [64.0, 62.0],
+          [74.0, 63.0],
+          [81.0, 68.0],
+          [80.0, 74.0],
+          [70.0, 76.0],
+          [67.0, 80.0],
+          [62.0, 81.0],
+          [56.0, 77.0]
+        ]
+      ],
+      "profile": [[66.0, 65.0], [84.0, 65.0], [88.0, 76.0], [77.0, 81.0], [65.0, 76.0]]
+    },
+    "log": [
+      [60.0, 72.0],
+      [70.0, 70.0],
+      [78.0, 74.0],
+      [80.0, 71.0],
+      [91.0, 71.0],
+      [94.0, 81.0],
+      [84.0, 86.0],
+      [81.0, 89.0],
+      [71.0, 88.0],
+      [64.0, 82.0]
+    ],
+    "pet": [[79.0, 47.0], [94.0, 46.0], [110.0, 47.0], [112.0, 61.0], [97.0, 66.0], [82.0, 64.0], [79.0, 59.0]]
+  },
+  "clips": {
+    "lloyd": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/lloyd/rest/01", "hands": [[66, 91], [66, 91]]},
+          {"image": "characters/lloyd/rest/02", "hands": [[66, 91], [66, 91]]},
+          {"image": "characters/lloyd/rest/03", "hands": [[66, 91], [66, 91]]},
+          {"image": "characters/lloyd/rest/04", "hands": [[66, 91], [66, 91]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/lloyd/meal/01", "hands": [[66, 91], [66, 91]]},
+          {"image": "characters/lloyd/meal/02", "hands": [[95, 81], [95, 81]]},
+          {"image": "characters/lloyd/meal/03", "hands": [[64, 95], [64, 95]]},
+          {"image": "characters/lloyd/meal/04", "hands": [[65, 86], [65, 86]]},
+          {"image": "characters/lloyd/meal/05", "hands": [[65, 82], [65, 82]]},
+          {"image": "characters/lloyd/meal/06", "hands": [[65, 79], [65, 79]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/lloyd/setdown/01", "hands": [[64, 95], [64, 95]]},
+          {"image": "characters/lloyd/setdown/02", "hands": [[88, 95], [88, 95]]},
+          {"image": "characters/lloyd/setdown/03", "hands": [[90, 104], [90, 104]]},
+          {"image": "characters/lloyd/setdown/04", "hands": [[90, 110], [90, 110]]}
+        ]
+      },
+      "profile": {
+        "pivot": 89,
+        "frames": [
+          {"image": "characters/lloyd/profile/01", "hands": [[80, 87], [79, 90]]},
+          {"image": "characters/lloyd/profile/02", "hands": [[80, 87], [79, 90]]},
+          {"image": "characters/lloyd/profile/03", "hands": [[84, 73], [76, 74]]},
+          {"image": "characters/lloyd/profile/04", "hands": [[86, 78], [78, 80]]}
+        ]
+      },
+      "acting": {
+        "pivot": 89,
+        "frames": [
+          {"image": "characters/lloyd/acting/01", "hands": [[52, 87], [52, 87]]},
+          {"image": "characters/lloyd/acting/02", "hands": [[72, 77], [72, 77]]},
+          {"image": "characters/lloyd/acting/03", "hands": [[71, 67], [71, 67]]},
+          {"image": "characters/lloyd/acting/04", "hands": [[89, 70], [89, 70]]},
+          {"image": "characters/lloyd/acting/05", "hands": [[71, 78], [71, 78]]},
+          {"image": "characters/lloyd/acting/06", "hands": [[54, 86], [54, 86]]}
+        ]
+      },
+      "gather": {
+        "pivot": 116,
+        "frames": [
+          {"image": "characters/lloyd/gather/01", "hands": [[52, 87], [79, 90]]},
+          {"image": "characters/lloyd/gather/02", "hands": [[62, 104], [80, 104]]},
+          {"image": "characters/lloyd/gather/03", "hands": [[63, 111], [72, 109]]},
+          {"image": "characters/lloyd/gather/04", "hands": [[63, 111], [72, 109]]},
+          {"image": "characters/lloyd/gather/05", "hands": [[76, 79], [83, 77]]},
+          {"image": "characters/lloyd/gather/06", "hands": [[84, 73], [76, 74]]}
+        ]
+      }
+    },
+    "colette": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/colette/rest/01", "hands": [[61, 94], [61, 94]]},
+          {"image": "characters/colette/rest/02", "hands": [[61, 94], [61, 94]]},
+          {"image": "characters/colette/rest/03", "hands": [[61, 94], [61, 94]]},
+          {"image": "characters/colette/rest/04", "hands": [[61, 94], [61, 94]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/colette/meal/01", "hands": [[61, 94], [61, 94]]},
+          {"image": "characters/colette/meal/02", "hands": [[95, 79], [95, 79]]},
+          {"image": "characters/colette/meal/03", "hands": [[61, 91], [61, 91]]},
+          {"image": "characters/colette/meal/04", "hands": [[61, 77], [61, 77]]},
+          {"image": "characters/colette/meal/05", "hands": [[61, 74], [61, 74]]},
+          {"image": "characters/colette/meal/06", "hands": [[61, 70], [61, 70]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/colette/setdown/01", "hands": [[61, 91], [61, 91]]},
+          {"image": "characters/colette/setdown/02", "hands": [[87, 96], [87, 96]]},
+          {"image": "characters/colette/setdown/03", "hands": [[91, 101], [91, 101]]},
+          {"image": "characters/colette/setdown/04", "hands": [[96, 107], [96, 107]]}
+        ]
+      },
+      "profile": {
+        "pivot": 92,
+        "frames": [
+          {"image": "characters/colette/profile/01", "hands": [[79, 82], [79, 82]]},
+          {"image": "characters/colette/profile/02", "hands": [[79, 82], [79, 82]]},
+          {"image": "characters/colette/profile/03", "hands": [[85, 67], [85, 67]]},
+          {"image": "characters/colette/profile/04", "hands": [[85, 67], [85, 67]]}
+        ]
+      },
+      "wish": {
+        "pivot": 92,
+        "frames": [
+          {"image": "characters/colette/wish/01", "hands": [[61, 86], [69, 86]]},
+          {"image": "characters/colette/wish/02", "hands": [[62, 89], [69, 89]]},
+          {"image": "characters/colette/wish/03", "hands": [[63, 78], [67, 78]]},
+          {"image": "characters/colette/wish/04", "hands": [[63, 78], [67, 78]]},
+          {"image": "characters/colette/wish/05", "hands": [[60, 83], [68, 83]]},
+          {"image": "characters/colette/wish/06", "hands": [[62, 86], [69, 86]]}
+        ]
+      },
+      "pet": {
+        "pivot": 92,
+        "frames": [
+          {"image": "characters/colette/pet/01", "hands": [[55, 84], [87, 82]]},
+          {"image": "characters/colette/pet/02", "hands": [[75, 71], [87, 82]]},
+          {"image": "characters/colette/pet/03", "hands": [[104, 55], [55, 84]]},
+          {"image": "characters/colette/pet/04", "hands": [[105, 59], [55, 84]]},
+          {"image": "characters/colette/pet/05", "hands": [[105, 53], [55, 84]]},
+          {"image": "characters/colette/pet/06", "hands": [[92, 66], [55, 84]]}
+        ]
+      }
+    },
+    "kratos": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/kratos/rest/01", "hands": [[67, 84], [67, 84]]},
+          {"image": "characters/kratos/rest/02", "hands": [[67, 84], [67, 84]]},
+          {"image": "characters/kratos/rest/03", "hands": [[67, 84], [67, 84]]},
+          {"image": "characters/kratos/rest/04", "hands": [[67, 84], [67, 84]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/kratos/meal/01", "hands": [[67, 84], [67, 84]]},
+          {"image": "characters/kratos/meal/02", "hands": [[95, 82], [95, 82]]},
+          {"image": "characters/kratos/meal/03", "hands": [[65, 94], [65, 94]]},
+          {"image": "characters/kratos/meal/04", "hands": [[65, 86], [65, 86]]},
+          {"image": "characters/kratos/meal/05", "hands": [[65, 82], [65, 82]]},
+          {"image": "characters/kratos/meal/06", "hands": [[65, 78], [65, 78]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/kratos/setdown/01", "hands": [[65, 94], [65, 94]]},
+          {"image": "characters/kratos/setdown/02", "hands": [[94, 91], [94, 91]]},
+          {"image": "characters/kratos/setdown/03", "hands": [[95, 101], [95, 101]]},
+          {"image": "characters/kratos/setdown/04", "hands": [[101, 111], [101, 111]]}
+        ]
+      },
+      "profile": {
+        "pivot": 92,
+        "frames": [
+          {"image": "characters/kratos/profile/01", "hands": [[56, 88], [56, 88]]},
+          {"image": "characters/kratos/profile/02", "hands": [[56, 88], [56, 88]]},
+          {"image": "characters/kratos/profile/03", "hands": [[84, 77], [84, 77]]},
+          {"image": "characters/kratos/profile/04", "hands": [[94, 66], [94, 66]]}
+        ]
+      },
+      "acting": {
+        "pivot": 92,
+        "frames": [
+          {"image": "characters/kratos/acting/01", "hands": [[56, 88], [56, 88]]},
+          {"image": "characters/kratos/acting/02", "hands": [[75, 75], [75, 75]]},
+          {"image": "characters/kratos/acting/03", "hands": [[95, 71], [95, 71]]},
+          {"image": "characters/kratos/acting/04", "hands": [[70, 79], [70, 79]]},
+          {"image": "characters/kratos/acting/05", "hands": [[88, 81], [88, 81]]},
+          {"image": "characters/kratos/acting/06", "hands": [[72, 73], [72, 73]]}
+        ]
+      }
+    },
+    "zelos": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/zelos/rest/01", "hands": [[56, 79], [56, 79]]},
+          {"image": "characters/zelos/rest/02", "hands": [[56, 79], [56, 79]]},
+          {"image": "characters/zelos/rest/03", "hands": [[56, 79], [56, 79]]},
+          {"image": "characters/zelos/rest/04", "hands": [[56, 79], [56, 79]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/zelos/meal/01", "hands": [[56, 79], [56, 79]]},
+          {"image": "characters/zelos/meal/02", "hands": [[96, 77], [96, 77]]},
+          {"image": "characters/zelos/meal/03", "hands": [[64, 82], [64, 82]]},
+          {"image": "characters/zelos/meal/04", "hands": [[63, 73], [63, 73]]},
+          {"image": "characters/zelos/meal/05", "hands": [[63, 70], [63, 70]]},
+          {"image": "characters/zelos/meal/06", "hands": [[63, 66], [63, 66]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/zelos/setdown/01", "hands": [[64, 82], [64, 82]]},
+          {"image": "characters/zelos/setdown/02", "hands": [[94, 93], [94, 93]]},
+          {"image": "characters/zelos/setdown/03", "hands": [[96, 99], [96, 99]]},
+          {"image": "characters/zelos/setdown/04", "hands": [[98, 105], [98, 105]]}
+        ]
+      },
+      "profile": {
+        "pivot": 94,
+        "frames": [
+          {"image": "characters/zelos/profile/01", "hands": [[47, 85], [47, 85]]},
+          {"image": "characters/zelos/profile/02", "hands": [[47, 85], [47, 85]]},
+          {"image": "characters/zelos/profile/03", "hands": [[81, 73], [81, 73]]},
+          {"image": "characters/zelos/profile/04", "hands": [[90, 62], [90, 62]]}
+        ]
+      },
+      "acting": {
+        "pivot": 94,
+        "frames": [
+          {"image": "characters/zelos/acting/01", "hands": [[47, 85], [47, 85]]},
+          {"image": "characters/zelos/acting/02", "hands": [[67, 65], [67, 65]]},
+          {"image": "characters/zelos/acting/03", "hands": [[94, 65], [94, 65]]},
+          {"image": "characters/zelos/acting/04", "hands": [[67, 66], [67, 66]]},
+          {"image": "characters/zelos/acting/05", "hands": [[94, 62], [94, 62]]},
+          {"image": "characters/zelos/acting/06", "hands": [[65, 77], [65, 77]]}
+        ]
+      },
+      "gather": {
+        "pivot": 116,
+        "frames": [
+          {"image": "characters/zelos/gather/01", "hands": [[47, 85], [80, 86]]},
+          {"image": "characters/zelos/gather/02", "hands": [[81, 100], [59, 94]]},
+          {"image": "characters/zelos/gather/03", "hands": [[66, 111], [69, 89]]},
+          {"image": "characters/zelos/gather/04", "hands": [[63, 81], [72, 81]]},
+          {"image": "characters/zelos/gather/05", "hands": [[62, 74], [71, 74]]},
+          {"image": "characters/zelos/gather/06", "hands": [[81, 73], [76, 73]]}
+        ]
+      }
+    },
+    "sheena": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/sheena/rest/01", "hands": [[73, 103], [73, 103]]},
+          {"image": "characters/sheena/rest/02", "hands": [[73, 103], [73, 103]]},
+          {"image": "characters/sheena/rest/03", "hands": [[73, 103], [73, 103]]},
+          {"image": "characters/sheena/rest/04", "hands": [[73, 103], [73, 103]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/sheena/meal/01", "hands": [[73, 103], [73, 103]]},
+          {"image": "characters/sheena/meal/02", "hands": [[94, 85], [94, 85]]},
+          {"image": "characters/sheena/meal/03", "hands": [[67, 95], [67, 95]]},
+          {"image": "characters/sheena/meal/04", "hands": [[69, 85], [69, 85]]},
+          {"image": "characters/sheena/meal/05", "hands": [[69, 80], [69, 80]]},
+          {"image": "characters/sheena/meal/06", "hands": [[69, 77], [69, 77]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/sheena/setdown/01", "hands": [[67, 95], [67, 95]]},
+          {"image": "characters/sheena/setdown/02", "hands": [[91, 96], [91, 96]]},
+          {"image": "characters/sheena/setdown/03", "hands": [[93, 103], [93, 103]]},
+          {"image": "characters/sheena/setdown/04", "hands": [[96, 108], [96, 108]]}
+        ]
+      },
+      "profile": {
+        "pivot": 93,
+        "frames": [
+          {"image": "characters/sheena/profile/01", "hands": [[52, 92], [52, 92]]},
+          {"image": "characters/sheena/profile/02", "hands": [[52, 92], [52, 92]]},
+          {"image": "characters/sheena/profile/03", "hands": [[84, 78], [84, 78]]},
+          {"image": "characters/sheena/profile/04", "hands": [[85, 69], [85, 69]]}
+        ]
+      },
+      "acting": {
+        "pivot": 93,
+        "frames": [
+          {"image": "characters/sheena/acting/01", "hands": [[52, 92], [52, 92]]},
+          {"image": "characters/sheena/acting/02", "hands": [[59, 83], [59, 83]]},
+          {"image": "characters/sheena/acting/03", "hands": [[73, 78], [73, 78]]},
+          {"image": "characters/sheena/acting/04", "hands": [[72, 77], [72, 77]]},
+          {"image": "characters/sheena/acting/05", "hands": [[95, 68], [95, 68]]},
+          {"image": "characters/sheena/acting/06", "hands": [[93, 74], [93, 74]]}
+        ]
+      },
+      "ritual": {
+        "pivot": 93,
+        "frames": [
+          {"image": "characters/sheena/ritual/01", "hands": [[52, 92], [74, 93]]},
+          {"image": "characters/sheena/ritual/02", "hands": [[78, 75], [83, 75]]},
+          {"image": "characters/sheena/ritual/03", "hands": [[91, 70], [94, 76]]},
+          {"image": "characters/sheena/ritual/04", "hands": [[88, 69], [94, 73]]},
+          {"image": "characters/sheena/ritual/05", "hands": [[79, 76], [92, 73]]},
+          {"image": "characters/sheena/ritual/06", "hands": [[77, 70], [79, 70]]}
+        ]
+      }
+    },
+    "raine": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/raine/rest/01", "hands": [[60, 96], [60, 96]]},
+          {"image": "characters/raine/rest/02", "hands": [[60, 96], [60, 96]]},
+          {"image": "characters/raine/rest/03", "hands": [[60, 96], [60, 96]]},
+          {"image": "characters/raine/rest/04", "hands": [[60, 96], [60, 96]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/raine/meal/01", "hands": [[60, 96], [60, 96]]},
+          {"image": "characters/raine/meal/02", "hands": [[95, 86], [95, 86]]},
+          {"image": "characters/raine/meal/03", "hands": [[65, 96], [65, 96]]},
+          {"image": "characters/raine/meal/04", "hands": [[65, 85], [65, 85]]},
+          {"image": "characters/raine/meal/05", "hands": [[65, 80], [65, 80]]},
+          {"image": "characters/raine/meal/06", "hands": [[65, 77], [65, 77]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/raine/setdown/01", "hands": [[65, 96], [65, 96]]},
+          {"image": "characters/raine/setdown/02", "hands": [[86, 97], [86, 97]]},
+          {"image": "characters/raine/setdown/03", "hands": [[88, 103], [88, 103]]},
+          {"image": "characters/raine/setdown/04", "hands": [[91, 108], [91, 108]]}
+        ]
+      },
+      "profile": {
+        "pivot": 97,
+        "frames": [
+          {"image": "characters/raine/profile/01", "hands": [[46, 90], [46, 90]]},
+          {"image": "characters/raine/profile/02", "hands": [[46, 90], [46, 90]]},
+          {"image": "characters/raine/profile/03", "hands": [[80, 73], [80, 73]]},
+          {"image": "characters/raine/profile/04", "hands": [[83, 66], [83, 66]]}
+        ]
+      },
+      "acting": {
+        "pivot": 97,
+        "frames": [
+          {"image": "characters/raine/acting/01", "hands": [[46, 90], [80, 90]]},
+          {"image": "characters/raine/acting/02", "hands": [[72, 70], [83, 75]]},
+          {"image": "characters/raine/acting/03", "hands": [[71, 70], [83, 75]]},
+          {"image": "characters/raine/acting/04", "hands": [[70, 75], [83, 75]]},
+          {"image": "characters/raine/acting/05", "hands": [[83, 66], [61, 77]]},
+          {"image": "characters/raine/acting/06", "hands": [[73, 70], [83, 75]]}
+        ]
+      }
+    },
+    "genis": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/genis/rest/01", "hands": [[70, 101], [70, 101]]},
+          {"image": "characters/genis/rest/02", "hands": [[70, 101], [70, 101]]},
+          {"image": "characters/genis/rest/03", "hands": [[70, 101], [70, 101]]},
+          {"image": "characters/genis/rest/04", "hands": [[70, 101], [70, 101]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/genis/meal/01", "hands": [[70, 101], [70, 101]]},
+          {"image": "characters/genis/meal/02", "hands": [[97, 87], [97, 87]]},
+          {"image": "characters/genis/meal/03", "hands": [[66, 96], [66, 96]]},
+          {"image": "characters/genis/meal/04", "hands": [[64, 88], [64, 88]]},
+          {"image": "characters/genis/meal/05", "hands": [[66, 86], [66, 86]]},
+          {"image": "characters/genis/meal/06", "hands": [[66, 82], [66, 82]]}
+        ]
+      },
+      "gesture": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/genis/gesture/01", "hands": [[97, 87], [97, 87]]},
+          {"image": "characters/genis/gesture/02", "hands": [[81, 92], [81, 92]]},
+          {"image": "characters/genis/gesture/03", "hands": [[71, 94], [71, 94]]},
+          {"image": "characters/genis/gesture/04", "hands": [[66, 96], [66, 96]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/genis/setdown/01", "hands": [[66, 96], [66, 96]]},
+          {"image": "characters/genis/setdown/02", "hands": [[92, 102], [92, 102]]},
+          {"image": "characters/genis/setdown/03", "hands": [[96, 109], [96, 109]]},
+          {"image": "characters/genis/setdown/04", "hands": [[96, 114], [96, 114]]}
+        ]
+      },
+      "profile": {
+        "pivot": 99,
+        "frames": [
+          {"image": "characters/genis/profile/01", "hands": [[50, 92], [50, 92]]},
+          {"image": "characters/genis/profile/02", "hands": [[50, 92], [50, 92]]},
+          {"image": "characters/genis/profile/03", "hands": [[80, 79], [80, 79]]},
+          {"image": "characters/genis/profile/04", "hands": [[88, 75], [88, 75]]}
+        ]
+      }
+    },
+    "presea": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/presea/rest/01", "hands": [[63, 89], [63, 89]]},
+          {"image": "characters/presea/rest/02", "hands": [[63, 89], [63, 89]]},
+          {"image": "characters/presea/rest/03", "hands": [[63, 89], [63, 89]]},
+          {"image": "characters/presea/rest/04", "hands": [[63, 89], [63, 89]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/presea/meal/01", "hands": [[63, 89], [63, 89]]},
+          {"image": "characters/presea/meal/02", "hands": [[94, 84], [94, 84]]},
+          {"image": "characters/presea/meal/03", "hands": [[61, 87], [61, 87]]},
+          {"image": "characters/presea/meal/04", "hands": [[61, 80], [61, 80]]},
+          {"image": "characters/presea/meal/05", "hands": [[61, 76], [61, 76]]},
+          {"image": "characters/presea/meal/06", "hands": [[61, 73], [61, 73]]}
+        ]
+      },
+      "gesture": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/presea/gesture/01", "hands": [[61, 87], [61, 87]]},
+          {"image": "characters/presea/gesture/02", "hands": [[68, 87], [56, 87]]},
+          {"image": "characters/presea/gesture/03", "hands": [[78, 88], [54, 88]]},
+          {"image": "characters/presea/gesture/04", "hands": [[84, 83], [57, 88]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/presea/setdown/01", "hands": [[61, 87], [61, 87]]},
+          {"image": "characters/presea/setdown/02", "hands": [[84, 96], [84, 96]]},
+          {"image": "characters/presea/setdown/03", "hands": [[85, 102], [85, 102]]},
+          {"image": "characters/presea/setdown/04", "hands": [[87, 108], [87, 108]]}
+        ]
+      },
+      "profile": {
+        "pivot": 99,
+        "frames": [
+          {"image": "characters/presea/profile/01", "hands": [[57, 94], [76, 94]]},
+          {"image": "characters/presea/profile/02", "hands": [[57, 94], [76, 94]]},
+          {"image": "characters/presea/profile/03", "hands": [[86, 80], [77, 80]]},
+          {"image": "characters/presea/profile/04", "hands": [[83, 75], [74, 79]]}
+        ]
+      },
+      "gather": {
+        "pivot": 116,
+        "frames": [
+          {"image": "characters/presea/gather/01", "hands": [[57, 94], [76, 94]]},
+          {"image": "characters/presea/gather/02", "hands": [[63, 97], [72, 94]]},
+          {"image": "characters/presea/gather/03", "hands": [[64, 109], [72, 107]]},
+          {"image": "characters/presea/gather/04", "hands": [[68, 91], [78, 88]]},
+          {"image": "characters/presea/gather/05", "hands": [[67, 83], [76, 80]]},
+          {"image": "characters/presea/gather/06", "hands": [[86, 80], [77, 80]]}
+        ]
+      }
+    },
+    "regal": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/regal/rest/01", "hands": [[63, 93], [63, 93]]},
+          {"image": "characters/regal/rest/02", "hands": [[63, 93], [63, 93]]},
+          {"image": "characters/regal/rest/03", "hands": [[63, 93], [63, 93]]},
+          {"image": "characters/regal/rest/04", "hands": [[63, 93], [63, 93]]}
+        ]
+      },
+      "meal": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/regal/meal/01", "hands": [[63, 93], [63, 93]]},
+          {"image": "characters/regal/meal/02", "hands": [[101, 77], [101, 77]]},
+          {"image": "characters/regal/meal/03", "hands": [[60, 89], [60, 89]]},
+          {"image": "characters/regal/meal/04", "hands": [[61, 77], [61, 77]]},
+          {"image": "characters/regal/meal/05", "hands": [[61, 74], [61, 74]]},
+          {"image": "characters/regal/meal/06", "hands": [[61, 71], [61, 71]]}
+        ]
+      },
+      "setdown": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/regal/setdown/01", "hands": [[60, 89], [60, 89]]},
+          {"image": "characters/regal/setdown/02", "hands": [[85, 93], [85, 93]]},
+          {"image": "characters/regal/setdown/03", "hands": [[88, 102], [88, 102]]},
+          {"image": "characters/regal/setdown/04", "hands": [[90, 105], [90, 105]]}
+        ]
+      },
+      "profile": {
+        "pivot": 94,
+        "frames": [
+          {"image": "characters/regal/profile/01", "hands": [[75, 84], [83, 84]]},
+          {"image": "characters/regal/profile/02", "hands": [[75, 84], [83, 84]]},
+          {"image": "characters/regal/profile/03", "hands": [[82, 77], [91, 77]]},
+          {"image": "characters/regal/profile/04", "hands": [[88, 66], [82, 70]]}
+        ]
+      },
+      "gather": {
+        "pivot": 116,
+        "frames": [
+          {"image": "characters/regal/gather/01", "hands": [[75, 84], [83, 84]]},
+          {"image": "characters/regal/gather/02", "hands": [[70, 94], [78, 94]]},
+          {"image": "characters/regal/gather/03", "hands": [[69, 109], [77, 109]]},
+          {"image": "characters/regal/gather/04", "hands": [[78, 81], [84, 80]]},
+          {"image": "characters/regal/gather/05", "hands": [[72, 83], [80, 82]]},
+          {"image": "characters/regal/gather/06", "hands": [[82, 77], [91, 77]]}
+        ]
+      }
+    },
+    "noishe": {
+      "rest": {
+        "pivot": 100,
+        "frames": [
+          {"image": "characters/noishe/rest/01", "hands": [[44, 105], [44, 105]]},
+          {"image": "characters/noishe/rest/02", "hands": [[44, 105], [44, 105]]},
+          {"image": "characters/noishe/rest/03", "hands": [[44, 105], [44, 105]]},
+          {"image": "characters/noishe/rest/04", "hands": [[44, 105], [44, 105]]}
+        ]
+      }
+    }
+  },
+  "support_x": 491,
+  "world": [
+    [
+      {
+        "id": "presea-camp-timber",
+        "type": "log",
+        "grip": "both",
+        "grip_offset": [0, -4],
+        "finger_width": 14,
+        "finger_height": 10,
+        "t": 0,
+        "x": 412,
+        "y": 610,
+        "z": 596,
+        "face": 1,
+        "visible": true,
+        "grounded": true,
+        "layer": "back"
+      },
+      {
+        "id": "presea-camp-timber",
+        "type": "log",
+        "grip": "both",
+        "grip_offset": [0, -4],
+        "finger_width": 14,
+        "finger_height": 10,
+        "t": 391.5,
+        "x": 570,
+        "y": 599,
+        "z": 600,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "presea-camp-timber",
+        "type": "log",
+        "t": 483.5,
+        "x": 570,
+        "y": 599,
+        "z": 600,
+        "face": 1,
+        "visible": true,
+        "charcoal": 0.55
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-9",
+        "type": "hearth-stone",
+        "cel": 1,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 358,
+        "y": 606,
+        "z": 615,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-9",
+        "type": "hearth-stone",
+        "cel": 1,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 548,
+        "y": 584,
+        "z": 593,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-9",
+        "type": "hearth-stone",
+        "cel": 1,
+        "t": 483.5,
+        "x": 548,
+        "y": 584,
+        "z": 593,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-0",
+        "type": "hearth-stone",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 350,
+        "y": 623,
+        "z": 632,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-0",
+        "type": "hearth-stone",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 570,
+        "y": 580,
+        "z": 589,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-0",
+        "type": "hearth-stone",
+        "t": 483.5,
+        "x": 570,
+        "y": 580,
+        "z": 589,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-6",
+        "type": "hearth-stone",
+        "cel": 2,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 463,
+        "y": 623,
+        "z": 632,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-6",
+        "type": "hearth-stone",
+        "cel": 2,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 548,
+        "y": 614,
+        "z": 623,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-6",
+        "type": "hearth-stone",
+        "cel": 2,
+        "t": 483.5,
+        "x": 548,
+        "y": 614,
+        "z": 623,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-7",
+        "type": "hearth-stone",
+        "cel": 3,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 482,
+        "y": 612,
+        "z": 621,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-7",
+        "type": "hearth-stone",
+        "cel": 3,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 534,
+        "y": 605,
+        "z": 614,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-7",
+        "type": "hearth-stone",
+        "cel": 3,
+        "t": 483.5,
+        "x": 534,
+        "y": 605,
+        "z": 614,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-8",
+        "type": "hearth-stone",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 464,
+        "y": 602,
+        "z": 611,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-8",
+        "type": "hearth-stone",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 534,
+        "y": 593,
+        "z": 602,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-8",
+        "type": "hearth-stone",
+        "t": 483.5,
+        "x": 534,
+        "y": 593,
+        "z": 602,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-1",
+        "type": "hearth-stone",
+        "cel": 1,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 650,
+        "y": 584,
+        "z": 593,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-1",
+        "type": "hearth-stone",
+        "cel": 1,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 592,
+        "y": 584,
+        "z": 593,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-1",
+        "type": "hearth-stone",
+        "cel": 1,
+        "t": 483.5,
+        "x": 592,
+        "y": 584,
+        "z": 593,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-2",
+        "type": "hearth-stone",
+        "cel": 2,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 667,
+        "y": 602,
+        "z": 611,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-2",
+        "type": "hearth-stone",
+        "cel": 2,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 606,
+        "y": 593,
+        "z": 602,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-2",
+        "type": "hearth-stone",
+        "cel": 2,
+        "t": 483.5,
+        "x": 606,
+        "y": 593,
+        "z": 602,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-3",
+        "type": "hearth-stone",
+        "cel": 3,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 645,
+        "y": 621,
+        "z": 630,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-3",
+        "type": "hearth-stone",
+        "cel": 3,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 606,
+        "y": 605,
+        "z": 614,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-3",
+        "type": "hearth-stone",
+        "cel": 3,
+        "t": 483.5,
+        "x": 606,
+        "y": 605,
+        "z": 614,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-4",
+        "type": "hearth-stone",
+        "cel": 1,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 672,
+        "y": 621,
+        "z": 630,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-4",
+        "type": "hearth-stone",
+        "cel": 1,
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 592,
+        "y": 614,
+        "z": 623,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-4",
+        "type": "hearth-stone",
+        "cel": 1,
+        "t": 483.5,
+        "x": 592,
+        "y": 614,
+        "z": 623,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "camp-hearth-stone-5",
+        "type": "hearth-stone",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 0,
+        "x": 650,
+        "y": 603,
+        "z": 612,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-5",
+        "type": "hearth-stone",
+        "grip": "both",
+        "grip_offset": [0, -3],
+        "t": 391.5,
+        "x": 570,
+        "y": 618,
+        "z": 627,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      },
+      {
+        "id": "camp-hearth-stone-5",
+        "type": "hearth-stone",
+        "t": 483.5,
+        "x": 570,
+        "y": 618,
+        "z": 627,
+        "face": 1,
+        "visible": true,
+        "grounded": true
+      }
+    ],
+    [
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 24.5,
+        "x": 491,
+        "y": 476,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.33333333333333,
+        "x": 490.97934996901535,
+        "y": 476.00000735213507,
+        "angle": -0.04079861111110647,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.375,
+        "x": 490.895459435723,
+        "y": 476.0001884269842,
+        "angle": -0.20654296875001565,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.41666666666667,
+        "x": 490.7470403069662,
+        "y": 476.00110327281914,
+        "angle": -0.49978298611117605,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.45833333333333,
+        "x": 490.5341036799185,
+        "y": 476.0037426446285,
+        "angle": -0.9205186631944224,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.5,
+        "x": 490.25668023743964,
+        "y": 476.0095278456768,
+        "angle": -1.4687500000000417,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.54166666666667,
+        "x": 489.9148360581406,
+        "y": 476.02031022907096,
+        "angle": -2.1444769965279122,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.58333333333333,
+        "x": 489.5086932037198,
+        "y": 476.0383701418693,
+        "angle": -2.947699652777738,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.625,
+        "x": 489.03845506189185,
+        "y": 476.0664149912981,
+        "angle": -3.878417968750068,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.66666666666667,
+        "x": 488.504436405537,
+        "y": 476.1075760389338,
+        "angle": -4.936631944444649,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.70833333333333,
+        "x": 487.90709810311944,
+        "y": 476.1654034559824,
+        "angle": -6.122341579861054,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.75,
+        "x": 487.24708638053914,
+        "y": 476.2438591016655,
+        "angle": -7.435546875000094,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.79166666666667,
+        "x": 486.52527648898644,
+        "y": 476.3473064180698,
+        "angle": -8.876247829861384,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.83333333333333,
+        "x": 485.74282057574356,
+        "y": 476.48049676973363,
+        "angle": -10.44444444444437,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.875,
+        "x": 484.9011994840224,
+        "y": 476.6485514961526,
+        "angle": -12.14013671875012,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.91666666666667,
+        "x": 484.00227812275773,
+        "y": 476.85693889199746,
+        "angle": -13.963324652778121,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.95833333333333,
+        "x": 483.0483639469104,
+        "y": 477.1114452852213,
+        "angle": -15.914008246527686,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.0,
+        "x": 482.04226797267154,
+        "y": 477.41813934980865,
+        "angle": -17.99218750000015,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.04166666666667,
+        "x": 480.98736761967916,
+        "y": 477.78332877046586,
+        "angle": -20.19786241319486,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.08333333333333,
+        "x": 479.88767052405154,
+        "y": 478.2135083742203,
+        "angle": -22.531032986111,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.125,
+        "x": 478.74787830232356,
+        "y": 478.7152988621646,
+        "angle": -24.991699218750174,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.16666666666667,
+        "x": 477.5734490683877,
+        "y": 479.2953753172543,
+        "angle": -27.579861111111594,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.20833333333333,
+        "x": 476.3706573151407,
+        "y": 479.960384735205,
+        "angle": -30.29551866319432,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.25,
+        "x": 475.14664957240484,
+        "y": 480.7168519293756,
+        "angle": -33.1386718750002,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.29166666666667,
+        "x": 473.9094940463522,
+        "y": 481.57107330140093,
+        "angle": -36.10932074652833,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.33333333333333,
+        "x": 472.66822223767133,
+        "y": 482.5289981515601,
+        "angle": -39.20746527777764,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.375,
+        "x": 471.43286033178737,
+        "y": 483.59609743049975,
+        "angle": -42.43310546875023,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.41666666666667,
+        "x": 470.21444796141117,
+        "y": 484.77722011069903,
+        "angle": -45.78624131944507,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.45833333333333,
+        "x": 469.0250417676766,
+        "y": 486.07643768505403,
+        "angle": -49.26687282986096,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.5,
+        "x": 467.87770104059143,
+        "y": 487.49687768334655,
+        "angle": -52.875000000000256,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.54166666666667,
+        "x": 466.78645261315285,
+        "y": 489.04054753618067,
+        "angle": -56.6106228298618,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.58333333333333,
+        "x": 465.76623212823523,
+        "y": 490.7081506097394,
+        "angle": -60.47374131944427,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.625,
+        "x": 464.8327988063656,
+        "y": 492.49889678100936,
+        "angle": -64.46435546875028,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.66666666666667,
+        "x": 464.0026209297805,
+        "y": 494.4103105173534,
+        "angle": -68.58246527777854,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.70833333333333,
+        "x": 463.2927294384305,
+        "y": 496.4380400591929,
+        "angle": -72.82807074652759,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.75,
+        "x": 462.7205373219466,
+        "y": 498.57567196972434,
+        "angle": -77.20117187500031,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.79166666666667,
+        "x": 462.3036229028729,
+        "y": 500.8145559973307,
+        "angle": -81.70176866319528,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.83333333333333,
+        "x": 462.0594756548772,
+        "y": 503.1436458771686,
+        "angle": -86.3298611111109,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.875,
+        "x": 462.0052038979237,
+        "y": 505.5493623567579,
+        "angle": -91.08544921875033,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.91666666666667,
+        "x": 462.0647612195396,
+        "y": 506.93699682956367,
+        "angle": -93.8298079283807,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.95833333333333,
+        "x": 462.03863999063407,
+        "y": 506.49653814114447,
+        "angle": -92.95804904882141,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.0,
+        "x": 462.0122684476162,
+        "y": 505.8434568435502,
+        "angle": -91.66666666666657,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.04166666666667,
+        "x": 462.0003132523524,
+        "y": 505.1347907204136,
+        "angle": -90.26630921395093,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.08333333333333,
+        "x": 462.0039866779527,
+        "y": 504.51915550574626,
+        "angle": -89.04994404631763,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.125,
+        "x": 462.0138018819138,
+        "y": 504.1053946909067,
+        "angle": -88.23223304703359,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.16666666666667,
+        "x": 462.0192584472726,
+        "y": 503.94329802970725,
+        "angle": -87.91179417603131,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.20833333333333,
+        "x": 462.0165714649325,
+        "y": 504.0197600535403,
+        "angle": -88.06295475371047,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.25,
+        "x": 462.00920149791966,
+        "y": 504.2695191913693,
+        "angle": -88.55662432702597,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.29166666666667,
+        "x": 462.00280306617566,
+        "y": 504.59680032117154,
+        "angle": -89.20336606062367,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.33333333333333,
+        "x": 462.0001644287549,
+        "y": 504.9023432503804,
+        "angle": -89.80705758037006,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.375,
+        "x": 462.0002054717849,
+        "y": 505.10916648435364,
+        "angle": -90.21568253758545,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.41666666666667,
+        "x": 462.0005632631179,
+        "y": 505.18074552158197,
+        "angle": -90.35710422760363,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.45833333333333,
+        "x": 462.00027994225724,
+        "y": 505.1274228101775,
+        "angle": -90.25175216306575,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "grip_offset": [0, -6],
+        "z": 505,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.5,
+        "x": 462.0,
+        "y": 505.0,
+        "angle": -90.0,
+        "visible": true
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "t": 105.5,
+        "x": 0,
+        "y": 0,
+        "z": 505,
+        "angle": -90,
+        "visible": false,
+        "layer": "front",
+        "grip": "right",
+        "face": 1
+      }
+    ],
+    [
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 24.5,
+        "x": 500,
+        "y": 491,
+        "visible": true,
+        "support_wrap": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.33333333333333,
+        "x": 499.95120804398147,
+        "y": 491.0179759837963,
+        "angle": -0.11555989583332028,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.375,
+        "x": 499.75733947753906,
+        "y": 491.0894012451172,
+        "angle": -0.5747222900391054,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.41666666666667,
+        "x": 499.4233443648726,
+        "y": 491.21245207609957,
+        "angle": -1.3657633463543395,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.45833333333333,
+        "x": 498.95727595576534,
+        "y": 491.3841614899812,
+        "angle": -2.4696095784504637,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.5,
+        "x": 498.36718749999994,
+        "y": 491.6015625,
+        "angle": -3.867187500000105,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.54166666666667,
+        "x": 497.66113224735955,
+        "y": 491.8616881193939,
+        "angle": -5.539423624674808,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.58333333333333,
+        "x": 496.84716344762734,
+        "y": 492.16157136140043,
+        "angle": -7.46724446614574,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.625,
+        "x": 495.9333343505859,
+        "y": 492.4982452392578,
+        "angle": -9.631576538086092,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.66666666666667,
+        "x": 494.9276982060183,
+        "y": 492.86874276620375,
+        "angle": -12.013346354167119,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.70833333333333,
+        "x": 493.8383082637081,
+        "y": 493.270096955476,
+        "angle": -14.593480428059776,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.75,
+        "x": 492.67321777343744,
+        "y": 493.69934082031256,
+        "angle": -17.352905273437695,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.79166666666667,
+        "x": 491.4404799849896,
+        "y": 494.1535073739512,
+        "angle": -20.2725474039719,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.83333333333333,
+        "x": 490.1481481481482,
+        "y": 494.6296296296296,
+        "angle": -23.333333333333194,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.875,
+        "x": 488.8042755126952,
+        "y": 495.124740600586,
+        "angle": -26.516189575195533,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.91666666666667,
+        "x": 487.4169153284141,
+        "y": 495.63587330005794,
+        "angle": -29.802042643229772,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 84.95833333333333,
+        "x": 485.99412084508833,
+        "y": 496.16006074128325,
+        "angle": -33.17181905110662,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.0,
+        "x": 484.5439453124999,
+        "y": 496.69433593750006,
+        "angle": -36.606445312500234,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.04166666666667,
+        "x": 483.0744419804323,
+        "y": 497.235731901946,
+        "angle": -40.08684794108136,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.08333333333333,
+        "x": 481.593664098669,
+        "y": 497.78128164785875,
+        "angle": -43.59395345052067,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.125,
+        "x": 480.1096649169921,
+        "y": 498.3280181884766,
+        "angle": -47.10868835449243,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.16666666666667,
+        "x": 478.63049768518493,
+        "y": 498.8729745370371,
+        "angle": -50.6119791666673,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.20833333333333,
+        "x": 477.164215653031,
+        "y": 499.41318370677806,
+        "angle": -54.08475240071599,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.25,
+        "x": 475.7188720703124,
+        "y": 499.94567871093756,
+        "angle": -57.50793457031273,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.29166666666667,
+        "x": 474.30252018681256,
+        "y": 500.46749256275325,
+        "angle": -60.86245218912821,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.33333333333333,
+        "x": 472.9232132523149,
+        "y": 500.97565827546293,
+        "angle": -64.12923177083319,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.375,
+        "x": 471.58900451660145,
+        "y": 501.46720886230474,
+        "angle": -67.28919982910178,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.41666666666667,
+        "x": 470.3079472294558,
+        "y": 501.9391773365163,
+        "angle": -70.3232828776047,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.45833333333333,
+        "x": 469.0880946406612,
+        "y": 502.38859671133537,
+        "angle": -73.21240743001289,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.5,
+        "x": 467.93749999999994,
+        "y": 502.8125,
+        "angle": -75.93750000000018,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.54166666666667,
+        "x": 466.8642165572553,
+        "y": 503.20792021574806,
+        "angle": -78.47948710123742,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.58333333333333,
+        "x": 465.8762975622107,
+        "y": 503.5718903718171,
+        "angle": -80.81929524739573,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.625,
+        "x": 464.9817962646484,
+        "y": 503.9014434814453,
+        "angle": -82.93785095214858,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.66666666666667,
+        "x": 464.18876591435173,
+        "y": 504.19361255787044,
+        "angle": -84.81608072916698,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.70833333333333,
+        "x": 463.5052597611039,
+        "y": 504.4454306143301,
+        "angle": -86.43491109212232,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.75,
+        "x": 462.93933105468744,
+        "y": 504.6539306640625,
+        "angle": -87.77526855468759,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.79166666666667,
+        "x": 462.49903304488566,
+        "y": 504.8161457203053,
+        "angle": -88.81807963053402,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.83333333333333,
+        "x": 462.1924189814815,
+        "y": 504.9291087962963,
+        "angle": -89.5442708333333,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.875,
+        "x": 462.0275421142578,
+        "y": 504.98985290527344,
+        "angle": -89.93476867675783,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.91666666666667,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 85.95833333333333,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.0,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.04166666666667,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.08333333333333,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.125,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.16666666666667,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.20833333333333,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.25,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.29166666666667,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.33333333333333,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.375,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.41666666666667,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.45833333333333,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "grip_offset": [9, 9],
+        "z": 506,
+        "layer": "back",
+        "grip": "right",
+        "t": 86.5,
+        "x": 462,
+        "y": 505,
+        "angle": -90,
+        "visible": true
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "t": 105.5,
+        "x": 0,
+        "y": 0,
+        "z": 506,
+        "angle": -90,
+        "visible": false,
+        "layer": "front",
+        "grip": "right",
+        "face": 1
+      }
+    ],
+    [
+      {
+        "id": "sheena-charm-cord",
+        "type": "charm-cord",
+        "layer": "back",
+        "t": 286.5,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [0, 0]},
+        "x": 505.71746460265825,
+        "y": 470.62367229719007,
+        "visible": true,
+        "wrapped": 1,
+        "face": 1
+      }
+    ],
+    [
+      {
+        "id": "sheena-paper-seal",
+        "type": "paper-charm",
+        "layer": "back",
+        "scale": 0.75,
+        "t": 286.5,
+        "x": 489.7174646,
+        "y": 472.6236723,
+        "visible": true,
+        "tree_attach": {"branch": "trunk", "distance": 16, "offset": [-8, 1]},
+        "face": 1
+      }
+    ],
+    [
+      {"id": "camp-fire", "type": "campfire", "t": 391.5, "x": 570, "y": 599, "z": 601, "visible": true},
+      {
+        "id": "camp-fire",
+        "type": "campfire",
+        "t": 483.5,
+        "x": 570,
+        "y": 599,
+        "z": 601,
+        "visible": true,
+        "heat": 0.8
+      }
+    ]
+  ],
+  "trip": [
+    {"cel": 1, "frames": 3},
+    {"cel": 2, "frames": 2},
+    {"cel": 3, "frames": 7},
+    {"cel": 4, "frames": 4},
+    {"cel": 5, "frames": 4},
+    {"cel": 6, "frames": 5},
+    {"cel": 0, "frames": 4},
+    {"cel": 7, "frames": 5},
+    {"cel": 8, "frames": 16},
+    {"cel": 9, "frames": 15}
+  ],
+  "rigs": {
+    "lloyd": {
+      "body": [
+        "characters/lloyd/walk/body/01",
+        "characters/lloyd/walk/body/02",
+        "characters/lloyd/walk/body/03",
+        "characters/lloyd/walk/body/04"
+      ],
+      "legs": ["characters/lloyd/walk/legs/01", "characters/lloyd/walk/legs/02"],
+      "pivots": [[55, 102], [70, 102]],
+      "ankles": [[54, 114], [73, 114]]
+    },
+    "colette": {
+      "body": [
+        "characters/colette/walk/body/01",
+        "characters/colette/walk/body/02",
+        "characters/colette/walk/body/03",
+        "characters/colette/walk/body/04"
+      ],
+      "legs": ["characters/colette/walk/legs/01", "characters/colette/walk/legs/02"],
+      "pivots": [[56, 96], [71, 96]],
+      "ankles": [[55, 114], [74, 114]]
+    },
+    "genis": {
+      "body": [
+        "characters/genis/walk/body/01",
+        "characters/genis/walk/body/02",
+        "characters/genis/walk/body/03",
+        "characters/genis/walk/body/04"
+      ],
+      "legs": ["characters/genis/walk/legs/01", "characters/genis/walk/legs/02"],
+      "pivots": [[56, 100], [69, 100]],
+      "ankles": [[55, 114], [72, 114]]
+    },
+    "raine": {
+      "body": [
+        "characters/raine/walk/body/01",
+        "characters/raine/walk/body/02",
+        "characters/raine/walk/body/03",
+        "characters/raine/walk/body/04"
+      ],
+      "legs": ["characters/raine/walk/legs/01", "characters/raine/walk/legs/02"],
+      "pivots": [[59, 99], [67, 99]],
+      "ankles": [[57, 114], [72, 114]]
+    },
+    "kratos": {
+      "body": [
+        "characters/kratos/walk/body/01",
+        "characters/kratos/walk/body/02",
+        "characters/kratos/walk/body/03",
+        "characters/kratos/walk/body/04"
+      ],
+      "legs": ["characters/kratos/walk/legs/01", "characters/kratos/walk/legs/02"],
+      "pivots": [[58, 92], [70, 92]],
+      "ankles": [[52, 114], [75, 114]]
+    },
+    "sheena": {
+      "body": [
+        "characters/sheena/walk/body/01",
+        "characters/sheena/walk/body/02",
+        "characters/sheena/walk/body/03",
+        "characters/sheena/walk/body/04"
+      ],
+      "legs": ["characters/sheena/walk/legs/01", "characters/sheena/walk/legs/02"],
+      "pivots": [[57, 95], [70, 95]],
+      "ankles": [[54, 114], [73, 114]]
+    },
+    "zelos": {
+      "body": [
+        "characters/zelos/walk/body/01",
+        "characters/zelos/walk/body/02",
+        "characters/zelos/walk/body/03",
+        "characters/zelos/walk/body/04"
+      ],
+      "legs": ["characters/zelos/walk/legs/01", "characters/zelos/walk/legs/02"],
+      "pivots": [[59, 92], [69, 92]],
+      "ankles": [[52, 114], [74, 114]]
+    },
+    "presea": {
+      "body": [
+        "characters/presea/walk/body/01",
+        "characters/presea/walk/body/02",
+        "characters/presea/walk/body/03",
+        "characters/presea/walk/body/04"
+      ],
+      "legs": ["characters/presea/walk/legs/01", "characters/presea/walk/legs/02"],
+      "pivots": [[56, 99], [67, 99]],
+      "ankles": [[55, 114], [72, 114]]
+    },
+    "regal": {
+      "body": [
+        "characters/regal/walk/body/01",
+        "characters/regal/walk/body/02",
+        "characters/regal/walk/body/03",
+        "characters/regal/walk/body/04"
+      ],
+      "legs": ["characters/regal/walk/legs/01", "characters/regal/walk/legs/02"],
+      "pivots": [[56, 94], [71, 94]],
+      "ankles": [[51, 114], [76, 114]]
+    }
+  }
+}

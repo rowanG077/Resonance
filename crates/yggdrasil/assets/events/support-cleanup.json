@@ -1,0 +1,220 @@
+{
+  "event": {"id": "support-cleanup", "title": "When nobody is watching", "duration": 18, "growth": 0.3, "start": 87.5},
+  "actors": [
+    [
+      {"id": "zelos", "t": 0, "x": -80, "y": 553, "pose": "walk", "face": 1, "heading": 1, "side": true},
+      {"id": "zelos", "t": 4.6, "x": 460.5, "y": 508.75, "face": 1, "heading": 1, "side": true},
+      {"id": "zelos", "t": 5.2, "x": 460.5, "y": 508.75, "face": 1, "heading": 1, "lean": 3, "side": true},
+      {"id": "zelos", "t": 5.8, "x": 460.5, "y": 508.75, "face": 1, "heading": 1, "lean": 3, "side": true},
+      {"id": "zelos", "t": 6.2, "x": 460.5, "y": 508.75, "face": 1, "heading": 1, "side": true},
+      {
+        "id": "zelos",
+        "t": 6.4,
+        "x": 460.5,
+        "y": 508.75,
+        "face": 1,
+        "heading": 1,
+        "side": true,
+        "clip": {"name": "gather", "index": 1}
+      },
+      {
+        "id": "zelos",
+        "t": 7.6,
+        "x": 460.5,
+        "y": 508.75,
+        "face": 1,
+        "heading": 1,
+        "side": true,
+        "clip": {"name": "gather", "index": 2}
+      },
+      {
+        "id": "zelos",
+        "t": 8,
+        "x": 460.5,
+        "y": 508.75,
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "clip": {"name": "gather", "index": 2}
+      },
+      {
+        "id": "zelos",
+        "t": 8.5,
+        "x": 460.5,
+        "y": 508.75,
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "clip": {"name": "gather", "index": 3}
+      },
+      {
+        "id": "zelos",
+        "t": 9.3,
+        "x": 460.5,
+        "y": 508.75,
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "clip": {"name": "gather", "index": 4}
+      },
+      {
+        "id": "zelos",
+        "t": 10.2,
+        "x": 460.5,
+        "y": 508.75,
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "clip": {"name": "gather", "index": 5}
+      },
+      {
+        "id": "zelos",
+        "t": 10.6,
+        "x": 460.5,
+        "y": 508.75,
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      },
+      {
+        "id": "zelos",
+        "t": 11,
+        "x": 460.5,
+        "y": 508.75,
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      },
+      {
+        "id": "zelos",
+        "t": 11.4,
+        "x": 460.5,
+        "y": 508.75,
+        "pose": "walk",
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      },
+      {
+        "id": "zelos",
+        "t": 17.5,
+        "x": 1120,
+        "y": 553,
+        "pose": "walk",
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      },
+      {
+        "id": "zelos",
+        "t": 18,
+        "x": 1120,
+        "y": 553,
+        "pose": "walk",
+        "face": 1,
+        "heading": 1,
+        "held": true,
+        "side": true,
+        "stance": "holding"
+      }
+    ]
+  ],
+  "props": [
+    [
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "t": 0,
+        "x": 462,
+        "y": 505,
+        "z": 505,
+        "angle": -90,
+        "visible": true,
+        "layer": "back",
+        "face": 1
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "t": 8,
+        "x": 0,
+        "y": 0,
+        "z": 505,
+        "angle": -90,
+        "visible": true,
+        "attach": "zelos",
+        "layer": "front",
+        "grip": "right",
+        "face": 1
+      },
+      {
+        "id": "lloyd-handmade-support",
+        "type": "support",
+        "t": 18,
+        "x": 0,
+        "y": 0,
+        "z": 505,
+        "angle": -90,
+        "visible": true,
+        "attach": "zelos",
+        "layer": "front",
+        "grip": "right",
+        "face": 1
+      }
+    ],
+    [
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "t": 0,
+        "x": 462,
+        "y": 505,
+        "z": 506,
+        "angle": -90,
+        "visible": true,
+        "layer": "back",
+        "face": 1
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "t": 8,
+        "x": 0,
+        "y": 0,
+        "z": 506,
+        "angle": -90,
+        "visible": true,
+        "attach": "zelos",
+        "layer": "front",
+        "grip": "right",
+        "face": 1
+      },
+      {
+        "id": "lloyd-support-tie",
+        "type": "tie",
+        "t": 18,
+        "x": 0,
+        "y": 0,
+        "z": 506,
+        "angle": -90,
+        "visible": true,
+        "attach": "zelos",
+        "layer": "front",
+        "grip": "right",
+        "face": 1
+      }
+    ]
+  ]
+}
