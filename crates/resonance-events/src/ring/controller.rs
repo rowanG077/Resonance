@@ -252,7 +252,14 @@ impl Controller {
                 .get(&cast.source.0)
                 .is_some_and(|a| a.instance == cast.source.1);
             if !exists {
-                cast.cancel(&mut events.world);
+                // A hit may start a scene that replaces its caster. That scene
+                // owns its remaining work even after the projectile is gone.
+                if cast.callbacks.iter().any(Operation::is_pending) {
+                    cast.finish(&mut events.world);
+                    cast.pose = None;
+                } else {
+                    cast.cancel(&mut events.world);
+                }
                 continue;
             }
             // Gameplay freezes as a unit. Release phases contain cosmetic tails only.
