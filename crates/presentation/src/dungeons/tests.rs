@@ -1550,3 +1550,11 @@ fn first_fire_bridge_returns_control() -> Result<()> {
     Ok(())
 }
 
+#[test]
+#[ignore = "requires locally cooked fields; no devices"]
+fn post_base_triet_scene() -> Result<()> {
+    let mut field = enter(Fixture::FireSeal, 527, Some(1_202_000))?;
+    advance_until(&mut field, FieldSession::player_has_control)?;
+    assert_eq!(field.story_progress()?, 1_203_000);
+    Ok(())
+}

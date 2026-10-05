@@ -731,7 +731,7 @@ impl EventRuntime {
                     .get(id)
                     .is_some_and(|actor| actor.attachment.is_some())
             })
-            .map(|id| self.world.attached_model_position(&self.resources, id))
+            .map(|id| self.world.attached_position(&self.resources, id))
             .transpose()?;
         if let Some(camera) = &mut self.world.field_camera {
             camera.step_positions(|id| {
@@ -793,7 +793,7 @@ impl EventRuntime {
                         && !actor.appearance.model_hidden
                         && self.world.field_camera.is_some()
                 })
-                .map(|_| self.world.attached_model_position(&self.resources, *id))
+                .map(|_| self.world.attached_position(&self.resources, *id))
                 .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
@@ -849,7 +849,9 @@ impl EventRuntime {
         self.world.update_collision_attachments(&self.resources)?;
         self.world.step_enemy_sources();
         self.world.step_model_particles();
-        self.world.step_emitters().map_err(anyhow::Error::msg)?;
+        self.world
+            .step_emitters(&self.resources)
+            .map_err(anyhow::Error::msg)?;
         services(self)?;
         self.world
             .step_ring_stations()

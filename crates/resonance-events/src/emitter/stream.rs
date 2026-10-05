@@ -1,17 +1,12 @@
 //! Continuous emission uses normalized settings prepared at the script boundary.
-use super::{inherit, normalized, palette, particle};
+use super::{inherit, normalized, palette};
 use crate::effect::{BillboardController, BillboardEffect};
 use crate::world::random_unit;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Stream {
-    pub(super) settings: Settings,
     pub(super) angle: f32,
     pub(super) emitted: u32,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct Settings {
     pub(super) sprite: BillboardEffect,
     pub(super) palette: Option<i32>,
     pub(super) images: &'static [u16],
@@ -20,7 +15,8 @@ pub(super) struct Settings {
     pub(super) radius: [f32; 2],
     pub(super) filled: bool,
     pub(super) converge: bool,
-    pub(super) size_variation: f32,
+    pub(super) size_variation: [f32; 2],
+    pub(super) tilt_variation: f32,
     pub(super) speed_variation: f32,
     pub(super) speed_scale: f32,
     pub(super) radial_speed: f32,
@@ -33,84 +29,60 @@ pub(super) struct Settings {
     pub(super) preserve_particles: bool,
     pub(super) limit: Option<u32>,
     pub(super) flash: Option<BillboardEffect>,
+    pub(super) flash_rays: u8,
 }
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            sprite: particle([0.; 3], 0, 0, 300),
-            palette: Some(0),
-            images: &[10],
-            interval: 1,
-            count: 1,
-            radius: [0.; 2],
-            filled: false,
-            converge: false,
-            size_variation: 0.,
-            speed_variation: 0.,
-            speed_scale: 0.,
-            radial_speed: 0.,
-            orbit_speed_scale: 0.,
-            radial_speed_scale: 0.,
-            target: None,
-            camera_offset: None,
-            inherit_appearance: false,
-            owned: false,
-            preserve_particles: false,
-            limit: None,
-            flash: None,
-        }
-    }
-}
-
 impl Stream {
-    pub(crate) fn camera_offset(&self) -> Option<f32> {
-        self.settings.camera_offset
-    }
-    pub(super) fn preserves_particles(&self) -> bool {
-        self.settings.preserve_particles
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub(super) fn particles(
         &mut self,
         owner: i32,
         center: [f32; 3],
         camera: [f32; 3],
-        properties: &std::collections::BTreeMap<i32, i32>,
-        blend: Option<crate::model_particle::Blend>,
+        actor: &crate::Actor,
         born: u32,
         tick: u32,
         random: &mut u32,
         out: &mut Vec<BillboardEffect>,
-    ) -> Result<(), String> {
-        let s = &self.settings;
+    ) {
+        let s = self;
         let center = if s.converge {
             let direction = normalized([camera[0], camera[1], 0.]);
             std::array::from_fn(|i| center[i] + direction[i] * s.camera_offset.unwrap_or(0.))
         } else {
             center
         };
-        let actor_speed = properties.get(&super::SPEED_PROPERTY).copied().unwrap_or(0) as f32;
-        if s.limit.is_some_and(|limit| self.emitted >= limit) {
-            return Ok(());
+        let actor_speed = actor
+            .properties
+            .get(&super::SPEED_PROPERTY)
+            .copied()
+            .unwrap_or(0) as f32;
+        if s.limit.is_some_and(|limit| s.emitted >= limit) {
+            return;
         }
-        self.angle = (self.angle + actor_speed * s.orbit_speed_scale) % 360.;
+        s.angle = (s.angle + actor_speed * s.orbit_speed_scale) % 360.;
         if !tick.is_multiple_of(s.interval) {
-            return Ok(());
+            return;
         }
         let speed = actor_speed * s.speed_scale;
-        if self.emitted == 0
+        if s.emitted == 0
             && let Some(flash) = &s.flash
         {
             let mut flash = flash.clone();
             flash.position = center;
             flash.born = born;
             flash.palette = s.palette.map(|color| palette(color, random));
+            for ray in 0..s.flash_rays {
+                let mut streak = flash.clone();
+                streak.recipe = resonance_content::effect::STREAK_SPRITE;
+                streak.size = [4., flash.size[0] * 2.];
+                streak.rotation[2] = f32::from(ray) * 180. / f32::from(s.flash_rays);
+                out.push(streak);
+            }
             out.push(flash);
         }
         let count = s
             .limit
-            .map_or(s.count, |limit| s.count.min(limit - self.emitted));
+            .map_or(s.count, |limit| s.count.min(limit - s.emitted));
         for spoke in 0..count {
             let mut p = s.sprite.clone();
             p.born = born;
@@ -119,10 +91,15 @@ impl Stream {
             }
             p.recipe = s.images[crate::world::random(random) as usize % s.images.len()];
             p.palette = s.palette.map(|color| palette(color, random));
-            let size = random_unit(random) * s.size_variation;
-            p.size = p.size.map(|v| v + size);
+            let variation = random_unit(random);
+            for (size, spread) in p.size.iter_mut().zip(s.size_variation) {
+                *size += variation * spread;
+            }
+            if s.tilt_variation != 0. {
+                p.rotation[1] += (random_unit(random) * 2. - 1.) * s.tilt_variation;
+            }
             let angle = if s.count > 1 {
-                self.angle + spoke as f32 * 360. / s.count as f32
+                s.angle + spoke as f32 * 360. / s.count as f32
             } else {
                 random_unit(random) * 360.
             };
@@ -164,11 +141,10 @@ impl Stream {
                 });
             }
             if s.inherit_appearance {
-                inherit(&mut p, properties, blend);
+                inherit(&mut p, &actor.properties, actor.blend);
             }
             out.push(p);
         }
-        self.emitted = self.emitted.saturating_add(count);
-        Ok(())
+        s.emitted = s.emitted.saturating_add(count);
     }
 }

@@ -1,13 +1,19 @@
 //! Continuous preset decoding and mutable scenario properties.
-use super::{particle, stream::Settings};
+use super::{particle, stream::Stream};
 use crate::effect::{Fade, SpriteOrientation};
 
-impl Settings {
+impl Stream {
     pub(super) fn decode(recipe: i32, v: [i32; 10]) -> Result<Self, String> {
-        let mut s = Settings::default();
-        use crate::effect::GLOW_SPRITE;
+        use crate::effect::{GLOW_SPRITE, ORB_SPRITE};
+        let mut s = Self {
+            sprite: particle([0.; 3], 0, 0, 300),
+            palette: Some(0),
+            images: &[ORB_SPRITE],
+            interval: 1,
+            count: 1,
+            ..Self::default()
+        };
         use resonance_content::effect::{STREAK_SPRITE, VerticalAnchor};
-        s.sprite.field_lighting = true;
         let alpha = |value: i32| value.clamp(0, 255) as u8;
         let count =
             |value: i32| u32::try_from(value).map_err(|_| "negative emitter count".to_owned());
@@ -19,7 +25,7 @@ impl Settings {
                 s.images = &[GLOW_SPRITE];
                 s.interval = if flame { 4 } else { 8 };
                 s.count = if flame { 2 } else { 1 };
-                s.size_variation = 15.;
+                s.size_variation = [15.; 2];
                 s.sprite.velocity[2] = 2.;
                 s.speed_variation = 1.;
                 s.sprite.size_delta = if flame { -1. } else { 1. };
@@ -54,7 +60,7 @@ impl Settings {
                 s.sprite.rgba[3] = alpha(v[6]);
                 s.sprite.velocity[2] = v[7] as f32;
                 s.radial_speed = v[8] as f32;
-                s.size_variation = v[9] as f32;
+                s.size_variation = [v[9] as f32; 2];
             }
             15 | 30 | 54 => {
                 s.speed_scale = 0.01;
@@ -77,7 +83,7 @@ impl Settings {
                 s.palette = Some(v[0]);
                 s.radius = [v[1] as f32; 2];
                 s.sprite.size = [v[2] as f32; 2];
-                s.size_variation = v[3] as f32;
+                s.size_variation = [v[3] as f32; 2];
                 s.sprite.field_lighting = v[4] & 1 != 0;
                 s.speed_variation = v[5] as f32 / 100.;
                 s.interval = count(v[8])?;
@@ -116,7 +122,7 @@ impl Settings {
                 s.sprite.lifetime = duration(v[3])?;
                 s.sprite.fade = Fade::tail(s.sprite.lifetime);
                 s.target = Some([v[4] as f32, v[5] as f32, v[6] as f32]);
-                s.size_variation = v[7] as f32;
+                s.size_variation = [v[7] as f32; 2];
             }
             55 => {
                 s.inherit_appearance = true;
@@ -175,7 +181,7 @@ impl Settings {
                 s.count = v[1].max(1) as u32;
                 s.radius = [v[2] as f32, v[3] as f32];
                 s.sprite.size = [v[5] as f32; 2];
-                s.size_variation = v[6] as f32;
+                s.size_variation = [v[6] as f32; 2];
                 s.sprite.rgba[3] = alpha(v[7]);
                 s.sprite.fade = Fade::Linear(v[9] as f32);
             }
@@ -185,7 +191,7 @@ impl Settings {
                 s.count = count(v[2])?;
                 s.interval = count(v[3])?;
                 s.sprite.size = [v[4] as f32; 2];
-                s.size_variation = v[5] as f32;
+                s.size_variation = [v[5] as f32; 2];
                 s.sprite.rgba[3] = alpha(v[6]);
                 s.sprite.position[2] = v[7] as f32 * 0.5;
                 s.sprite.field_lighting = v[8] != 0;
@@ -200,18 +206,18 @@ impl Settings {
                 s.sprite.orientation = SpriteOrientation::World;
                 s.sprite.anchor = VerticalAnchor::Top;
                 s.sprite.rotation = [90., 0., 0.];
+                s.sprite.rgba[3] = alpha(v[7]);
                 s.sprite.fade = Fade::RiseFall {
                     rise_ticks: 40,
-                    step: 1.25,
+                    step: f32::from(s.sprite.rgba[3]) / 40.,
                 };
                 s.sprite.lifetime = 80;
-
                 s.palette = Some(v[0]);
                 s.interval = count(v[1])?;
                 s.radius = [v[2] as f32; 2];
                 s.sprite.size = [v[3] as f32, v[5] as f32];
-                s.size_variation = v[4] as f32;
-                s.count = v[8].max(1) as u32;
+                s.size_variation = [v[4] as f32, v[6] as f32];
+                s.tilt_variation = v[8] as f32;
             }
             27 | 28 => {
                 let mut glow = particle([0.; 3], 0, 0, 180);
@@ -247,7 +253,9 @@ impl Settings {
                     s.count = 32;
                     s.limit = Some(s.count);
                     glow.size = [v[4].max(1) as f32; 2];
-                    glow.size_delta = v[2] as f32 / 10.;
+                    glow.size_delta = 0.;
+                    glow.rgba = [128, 128, 128, 192];
+                    s.flash_rays = 8;
                     s.radius = [v[3] as f32; 2];
                     s.radial_speed = -s.radius[0] / s.sprite.lifetime as f32;
                 } else {
@@ -263,7 +271,7 @@ impl Settings {
         if s.palette.is_some_and(|color| !(0..=108).contains(&color))
             || s.interval == 0
             || s.radius.iter().any(|r| *r < 0.)
-            || s.size_variation < 0.
+            || s.size_variation.iter().any(|v| *v < 0.)
             || s.speed_variation < 0.
             || s.count > crate::effect::BILLBOARD_LIMIT as u32
         {

@@ -72,13 +72,13 @@ impl Inputs {
         let a = &self.parameters;
         let kind = match self.preset {
             0..=3 | 9 | 15..=17 | 24 | 26..=28 | 30 | 33 | 36 | 48 | 54 | 55 | 75 => {
-                Kind::Stream(Box::new(stream::Stream {
-                    settings: stream::Settings::decode(self.preset, *a)?,
-                    angle: 0.,
-                    emitted: 0,
-                }))
+                Kind::Stream(Box::new(stream::Stream::decode(self.preset, *a)?))
             }
             11 => Kind::Gathering { delay: a[0] },
+            12 => Kind::Glow {
+                palette: a[0],
+                size: a[1],
+            },
             19 => Kind::Charge {
                 palette: a[0],
                 radius: a[3],
@@ -200,7 +200,8 @@ impl Kind {
                     && *variation >= 0
                     && *mote_variation >= 0
             }
-            Kind::Travel { palette, .. }
+            Kind::Glow { palette, .. }
+            | Kind::Travel { palette, .. }
             | Kind::Seal { palette, .. }
             | Kind::Charge { palette, .. } => color(*palette),
             _ => true,
@@ -244,7 +245,14 @@ mod tests {
         let mut random = 1;
         let mut output = super::super::Births::default();
         emitter
-            .step(500, &mut actor, 0, [0.; 3], &mut random, &mut output)
+            .step(
+                (500, [0.; 3]),
+                &mut actor,
+                0,
+                [0.; 3],
+                &mut random,
+                &mut output,
+            )
             .unwrap();
         assert!(!output.particles.is_empty());
         assert!(output.particles.iter().all(|p| p.lifetime == 120));
@@ -252,13 +260,27 @@ mod tests {
         output.particles.clear();
         for tick in 1..20 {
             emitter
-                .step(500, &mut actor, tick, [0.; 3], &mut random, &mut output)
+                .step(
+                    (500, [0.; 3]),
+                    &mut actor,
+                    tick,
+                    [0.; 3],
+                    &mut random,
+                    &mut output,
+                )
                 .unwrap();
         }
         assert!(output.particles.is_empty());
         emitter.property(PHASE_PROPERTY, Some(0)).unwrap();
         emitter
-            .step(500, &mut actor, 20, [0.; 3], &mut random, &mut output)
+            .step(
+                (500, [0.; 3]),
+                &mut actor,
+                20,
+                [0.; 3],
+                &mut random,
+                &mut output,
+            )
             .unwrap();
         assert!(!output.particles.is_empty());
     }
