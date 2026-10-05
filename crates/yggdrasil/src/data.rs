@@ -36,12 +36,12 @@ pub(crate) struct ImageRef(pub String);
 #[serde(deny_unknown_fields)]
 pub(crate) struct Art {
     pub meadow: ImageRef,
-    pub plants: ImageRef,
+    pub plants: Vec<SpriteArt>,
     pub cast: HashMap<String, CharacterArt>,
     pub rigs: HashMap<String, WalkParts>,
     pub clips: HashMap<String, HashMap<String, Clip>>,
     pub trip: Vec<Exposure>,
-    pub props: HashMap<String, PropArt>,
+    pub props: HashMap<String, SpriteArt>,
     pub noishe: Noishe,
     pub lighting: Sky,
     pub overlays: Overlays,
@@ -60,9 +60,9 @@ pub(crate) struct CharacterArt {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct PropArt {
+pub(crate) struct SpriteArt {
     pub image: ImageRef,
-    /// Destination rectangle relative to the prop's attachment point.
+    /// Destination rectangle relative to the layer origin or prop attachment.
     pub rect: [f64; 4],
 }
 #[derive(Deserialize)]

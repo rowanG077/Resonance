@@ -1,6 +1,9 @@
 {
   "meadow": "environment/ground/meadow",
-  "plants": "environment/ground/plants",
+  "plants": [
+    {"image": "environment/ground/plants/left", "rect": [0, 480, 193, 160]},
+    {"image": "environment/ground/plants/right", "rect": [846, 470, 178, 170]}
+  ],
   "cast": {
     "lloyd": {"image": "characters/lloyd/front", "size": 96, "breathing_phase": 0.0},
     "colette": {"image": "characters/colette/front", "size": 96, "breathing_phase": 0.83},

@@ -18,6 +18,12 @@ Character atlases contain front-view strips, named action cels and whole walking
 parts. Cel numbers are local to their action. The foliage atlas groups painted
 leaf variants as `palette/<shape>/<RGB hex color>` and small shoots by shape.
 
+`environment/ground.ktx2` contains the meadow and independently painted
+`plants/left` and `plants/right` sprites. Their placement rectangles live in
+`scene.json`. Only petals, stems and leaves occlude characters; the spaces
+between them retain transparency. Keep these foreground plants out of both
+the meadow and the night backdrop in `environment/sky.ktx2`.
+
 ## Tree growth
 
 Edit `tree/growth.json` to change the tree's shape and growth schedule:

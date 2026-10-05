@@ -297,7 +297,15 @@ impl Renderer {
         }
         if options.foreground {
             let mut plants = Drawing::new(crate::WIDTH as i32, crate::HEIGHT as i32);
-            plants.image(&self.assets.image(&self.assets.data.plants), 0., 0.);
+            for plant in &self.assets.data.plants {
+                plants.image_rect(
+                    &self.assets.image(&plant.image),
+                    None,
+                    plant.rect,
+                    1.,
+                    BlendMode::SrcOver,
+                );
+            }
             light.tint(&mut plants, 0.61);
             out.image(&plants.snapshot(), 0., 0.);
         }
