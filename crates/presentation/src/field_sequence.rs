@@ -29,6 +29,9 @@ pub struct FieldSequence {
     /// Use copied progress for an arrival scene instead of loading a free-control save.
     #[serde(default)]
     pub scene_entry: bool,
+    /// Controlled render fixture: isolate effects or selected actors on a matte.
+    #[serde(default)]
+    pub isolation: Option<FieldIsolation>,
     /// Ordered formation IDs granted victory for controlled post-battle captures.
     #[serde(default)]
     pub battle_victories: Vec<u16>,
@@ -50,6 +53,27 @@ pub struct FieldSequence {
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct FieldIsolation {
+    pub background: [u8; 3],
+    pub visible_actors: Vec<i32>,
+    #[serde(default)]
+    pub camera: Option<IsolationCamera>,
+    #[serde(default)]
+    pub remove_actors: Vec<i32>,
+    #[serde(default)]
+    pub clear_effects: bool,
+    /// Stop arrival scripts so an isolated ability can receive ordinary input.
+    #[serde(default)]
+    pub cancel_scripts: bool,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IsolationCamera {
+    pub position: [f32; 3],
+    pub target: [f32; 3],
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct FieldMovement {
     pub update: u32,
     pub direction: [f32; 2],
@@ -58,6 +82,17 @@ pub struct FieldMovement {
 }
 impl FieldSequence {
     pub(super) fn validate(&self) -> Result<()> {
+        if let Some(camera) = self.isolation.as_ref().and_then(|i| i.camera.as_ref()) {
+            ensure!(
+                camera
+                    .position
+                    .iter()
+                    .chain(&camera.target)
+                    .all(|v| v.is_finite())
+                    && camera.position != camera.target,
+                "invalid isolation camera"
+            );
+        }
         ensure!(
             !self.scene_entry || (self.checkpoint.is_some() && self.start_tick.is_some()),
             "scene entry requires copied progress and an explicit start tick"
@@ -162,6 +197,37 @@ fn advance(
         .is_multiple_of(recording.spec.renders_per_update)
     {
         let update = recording.frame / recording.spec.renders_per_update;
+        if let Some(isolation) = &recording.spec.isolation {
+            if update == 0 && isolation.cancel_scripts {
+                session.0.events.cancel();
+                session.0.dialogue.clear();
+                let world = &mut session.0.events.world;
+                world.input_enabled = true;
+                world.triggers.clear();
+                world.fade = Some(resonance_events::Fade {
+                    start_tick: world.tick,
+                    duration: 0,
+                    from: 0.,
+                    to: 0.,
+                    white: false,
+                });
+            }
+            let world = &mut session.0.events.world;
+            if update == 0 {
+                for id in &isolation.remove_actors {
+                    world.actors.remove(id);
+                }
+                if isolation.clear_effects {
+                    world.billboards.clear();
+                    world.model_particles.clear();
+                    world.refractions.clear();
+                }
+            }
+            for (&id, actor) in &mut world.actors {
+                actor.appearance.model_hidden = !isolation.visible_actors.contains(&id);
+                actor.casts_shadow = false;
+            }
+        }
         let movement = recording
             .spec
             .movement
@@ -183,6 +249,16 @@ fn advance(
             return;
         }
         session.0.events.world.audio_commands.clear();
+        if let Some(camera) = recording
+            .spec
+            .isolation
+            .as_ref()
+            .and_then(|i| i.camera.as_ref())
+        {
+            let rig = session.0.events.world.field_camera.as_mut().unwrap();
+            rig.position = camera.position;
+            rig.target = camera.target;
+        }
         if !recording.spec.battle_victories.is_empty() {
             let result = (|| -> Result<()> {
                 let world = &mut session.0.events.world;
@@ -231,7 +307,12 @@ fn capture(
     ui: Res<crate::field_ui::Artwork>,
     effects: Query<(&Mesh3d, &Visibility), With<crate::field_effects::EffectDraw>>,
     meshes: Res<Assets<Mesh>>,
+    mut clear: ResMut<ClearColor>,
 ) {
+    if let Some(isolation) = &recording.spec.isolation {
+        let [r, g, b] = isolation.background.map(|v| f32::from(v) / 255.);
+        clear.0 = Color::linear_rgb(r, g, b);
+    }
     if recording.settled < 20 {
         if art.ready
             && !roots.is_empty()
@@ -262,13 +343,15 @@ fn capture(
     let path = recording.output.join(format!("frame-{frame:04}.png"));
     let world = &session.0.events.world;
     let state = serde_json::json!({
-        "frame":frame, "tick":world.tick, "audio_device":false,
+        "frame":frame, "tick":world.tick, "effect_tick":world.effect_tick, "audio_device":false,
         "resolution":recording.spec.resolution,
         "output_stage":"framebuffer",
         "input_enabled":world.input_enabled,
         "battle_victories":recording.battle_victories,
+        "camera":world.field_camera.as_ref().map(|c| serde_json::json!({"position":c.position,"target":c.target,"fov":c.fov_degrees()})),
         "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"resource":a.resource,"hidden_nodes":a.appearance.hidden_nodes,"position":a.position,"visual_position":a.visual_position(),"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
         "model_particles":world.model_particles.iter().map(|(id,p)|serde_json::json!({"id":id,"resource":p.resource,"position":p.position,"rotation":p.rotation,"scale":p.scale,"rgba":p.rgba})).collect::<Vec<_>>(),
+        "billboards":world.billboards.iter().map(|(id,p)|serde_json::json!({"id":id,"recipe":p.recipe,"born":p.born,"lifetime":p.lifetime,"position":p.position,"rotation":p.rotation,"size":p.size,"rgba":p.rgba,"alpha":p.alpha(world.tick),"velocity":p.velocity,"size_delta":p.size_delta,"blend":p.blend_mode})).collect::<Vec<_>>(),
         "poses":roots.iter().filter(|(_,p)|p.actor==world.controlled_actor && p.part==0).flat_map(|(root,_)|children.iter_descendants(root)).filter_map(|e|bones.get(e).ok()).map(|(name,t,g)|serde_json::json!({"name":name.as_str(),"translation":t.translation.to_array(),"rotation":t.rotation.to_array(),"world":g.to_matrix().to_cols_array()})).collect::<Vec<_>>(),
         "emotes":format!("{:?}",world.emotes),
         "refractions":world.refractions.iter().map(|(id,p)| {
@@ -276,7 +359,7 @@ fn capture(
             serde_json::json!({"id":id,"born":p.born,"position":p.position,"size":size,"alpha":alpha})
         }).collect::<Vec<_>>(),
         "save_points":world.save_points.iter().map(|p|serde_json::json!({"position":p.position,"active":p.active,"glow_scale":p.glow_scale})).collect::<Vec<_>>(),
-        "effects":effects.iter().map(|(mesh,visibility)|serde_json::json!({"visibility":format!("{visibility:?}"),"positions":format!("{:?}",meshes.get(mesh).and_then(|m|m.attribute(Mesh::ATTRIBUTE_POSITION)))})).collect::<Vec<_>>(),
+        "effects":effects.iter().filter(|(_,v)| **v != Visibility::Hidden).map(|(mesh,visibility)|serde_json::json!({"visibility":format!("{visibility:?}"),"positions":format!("{:?}",meshes.get(mesh).and_then(|m|m.attribute(Mesh::ATTRIBUTE_POSITION)))})).collect::<Vec<_>>(),
         "dialogue_layouts":ui.diagnostic_layouts(&session.0),
     });
     commands.spawn(Screenshot(target.0.clone())).observe(
