@@ -169,6 +169,27 @@ impl GameWorld {
 mod tests {
     use super::*;
     #[test]
+    fn camera_anchor_does_not_intercept_a_shot_at_an_invisible_target() {
+        let mut world = GameWorld::default();
+        world
+            .actors
+            .insert(crate::camera::ANCHOR_ACTOR, crate::camera::anchor());
+        let mut target = crate::Actor::new(1, [0., -100., 0.]);
+        target.visible = false;
+        world.actors.insert(2, target);
+        let shot = Shot {
+            source: 1,
+            position: [0., 0., 100.],
+            velocity: [0., -150., 0.],
+            radius: 20.,
+        };
+        assert_eq!(
+            shot.nearest_target(&world, shot.radius).map(|hit| hit.0),
+            Some(2)
+        );
+    }
+
+    #[test]
     fn contact_checks_the_entire_segment_including_vertical_motion() {
         let mut actor = crate::Actor::new(1, [0.; 3]);
         actor.radius = 1.;

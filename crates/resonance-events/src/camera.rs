@@ -43,6 +43,7 @@ pub fn anchor() -> Actor {
         interaction_anchor: true,
         grounded: false,
         collidable: false,
+        contact: crate::ActorContact::None,
         casts_shadow: false,
         autonomy: Some(crate::Autonomy::new(
             crate::Behavior::Stationary,
