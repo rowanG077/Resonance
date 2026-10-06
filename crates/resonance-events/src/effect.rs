@@ -38,12 +38,12 @@ impl StunEffect {
 
     pub fn tint(self, tick: u32) -> Option<[u8; 3]> {
         match self {
-            Self::Electric => Some(if tick % 10 < 5 {
+            Self::Electric | Self::Lightning => Some(if tick % 10 < 5 {
                 [128; 3]
             } else {
                 [80, 64, 160]
             }),
-            Self::None | Self::Lightning | Self::Ice | Self::Darkness | Self::TetheallaElectric => {
+            Self::None | Self::Ice | Self::Darkness | Self::TetheallaElectric => {
                 Some([40, 40, 255])
             }
         }
@@ -119,8 +119,8 @@ impl crate::GameWorld {
             position,
             rotation,
             size: [width, height],
-            rgba: [96, 112, 160, 192],
-            fade: Fade::Linear(0.),
+            rgba: [32, 32, 255, 247],
+            fade: Fade::Linear(-8.),
             blend_mode: Some(1),
             ..Default::default()
         })?;
