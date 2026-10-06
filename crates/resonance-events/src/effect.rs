@@ -372,6 +372,8 @@ pub struct BillboardEffect {
     pub field_lighting: bool,
     pub field_fog: bool,
     pub recipe: u16,
+    /// Optional atlas rectangle for effects that use a fixed crop.
+    pub uv: Option<[f32; 4]>,
     /// Optional scene texture resource and image index.
     pub texture: Option<(u32, u8)>,
     pub orientation: SpriteOrientation,
@@ -466,6 +468,7 @@ impl Default for BillboardEffect {
             field_lighting: false,
             field_fog: true,
             recipe: 0,
+            uv: None,
             texture: None,
             orientation: SpriteOrientation::Camera,
             anchor: resonance_content::effect::VerticalAnchor::Center,
@@ -517,6 +520,7 @@ impl BillboardEffect {
             acceleration: None,
             gravity: 0.,
             recipe: 10,
+            uv: None,
             texture: None,
             born,
             lifetime: 21,
@@ -551,6 +555,7 @@ impl BillboardEffect {
             acceleration: None,
             gravity: 0.,
             recipe: 8,
+            uv: None,
             texture: None,
             born,
             lifetime: 61,
