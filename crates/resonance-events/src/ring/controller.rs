@@ -1,7 +1,7 @@
 //! One owner for ring timing, contacts, recovery and visual lifetimes.
 use super::{BubblePhase, CallColor, ElectricOrbKind, Hit, SorcerersRing as Ability};
 use crate::animation::{AnimationSource, slot};
-use crate::effect::{RefractionImage, StunEffect, ring::Visuals};
+use crate::effect::{StunEffect, ring::Visuals};
 use crate::projectile::Shot;
 use crate::{Actor, Animation, EventRuntime, GameWorld, Operation, PlayerSize, ResourceLibrary};
 use anyhow::{Context, Result};
@@ -15,6 +15,11 @@ const ORB_FLIGHT_TICKS: u32 = 20;
 const ORB_RADIUS: f32 = 30.;
 const SUNLIGHT_EXPOSURE_TICKS: u32 = 240;
 const BUBBLE_RISE_TICKS: u32 = 60;
+const BUBBLE_OPACITY: f32 = 96.;
+const BUBBLE_FADE_IN_STEP: f32 = 5.;
+const BUBBLE_FADE_OUT_STEP: f32 = 2.;
+const BUBBLE_CENTER_HEIGHT: f32 = 90.;
+const BUBBLE_TURN_PER_TICK: f32 = 4.;
 const BOMB_FUSE_TICKS: u32 = 180;
 const BOMB_BLAST_TICKS: u32 = 60;
 const RADAR_TICKS: u32 = 600;
@@ -262,8 +267,11 @@ impl Controller {
                 }
                 continue;
             }
-            // Gameplay freezes as a unit. Release phases contain cosmetic tails only.
-            if !events.world.mapped_input_disabled || cast.phase == Phase::Release {
+            // Floating and release motion continue while a scene owns player input.
+            if !events.world.mapped_input_disabled
+                || cast.phase == Phase::Release
+                || (matches!(cast.ability, Ability::Bubble(_)) && cast.phase == Phase::Hold)
+            {
                 if cast.ability != Ability::Sunlight {
                     cast.recovery = cast.recovery.saturating_sub(1);
                 }
@@ -459,6 +467,14 @@ impl Cast {
                 };
                 self.stun(&mut events.world, ORB_RADIUS, duration, effect);
                 if self.phase == Phase::Active {
+                    if self.age < ORB_FLIGHT_TICKS {
+                        let mut visuals =
+                            Visuals::new(&self.shot, &self.operation, events.world.tick);
+                        visuals.electric(true, self.age - 1, &mut events.world.random_state);
+                        visuals
+                            .publish(&mut events.world)
+                            .map_err(anyhow::Error::msg)?;
+                    }
                     let hit = contact(events, &mut self.shot)?;
                     if hit.is_none() {
                         self.shot.advance();
@@ -564,8 +580,7 @@ impl Cast {
                 if self.phase == Phase::Active && self.age >= BUBBLE_RISE_TICKS {
                     self.transition(Phase::Hold);
                     self.callback(events, Hit::Pulse, false)?;
-                }
-                if self.phase == Phase::Hold
+                } else if self.phase == Phase::Hold
                     && events.world.party.as_ref().unwrap().travel.sorcerers_ring
                         != Ability::Bubble(BubblePhase::Float)
                 {
@@ -582,9 +597,9 @@ impl Cast {
                 }
             }
             Ability::Earthquake => {
-                const COLUMN_TICKS: u32 = 20;
+                const COLUMN_TICKS: u32 = 21;
                 const QUAKE_TICKS: u32 = 120;
-                if self.phase == Phase::Active && self.age >= COLUMN_TICKS {
+                if self.phase == Phase::Active && self.age > COLUMN_TICKS {
                     self.transition(Phase::Hold);
                     events.world.rumble = Some(
                         crate::rumble::Rumble::new(0, 50, true, events.world.tick)
@@ -710,8 +725,8 @@ impl Cast {
         }
         let mut visuals = Visuals::new(&self.shot, &self.operation, world.tick);
         match self.ability {
-            Ability::ElectricOrb(_) => {
-                visuals.electric(self.phase == Phase::Active, &mut world.random_state)
+            Ability::ElectricOrb(_) if self.phase != Phase::Active => {
+                visuals.electric(false, self.age, &mut world.random_state)
             }
             Ability::Bomb if self.phase == Phase::Release && self.age <= 20 => {
                 visuals.bomb(self.age == 0, &mut world.random_state)
@@ -749,41 +764,55 @@ impl Cast {
                 }
             }
             Ability::Bubble(_) => {
-                let amount = match self.phase {
-                    Phase::Active => fraction(self.age, BUBBLE_RISE_TICKS),
-                    Phase::Release => 1. - fraction(self.age, BUBBLE_RISE_TICKS),
-                    _ => 1.,
+                let angle = (world.effect_tick as f32 * BUBBLE_TURN_PER_TICK).to_radians();
+                let previous_lift = world.actors[&self.source.0]
+                    .visual_lift
+                    .as_ref()
+                    .map_or(0., |lift| lift.height);
+                let lift = match self.phase {
+                    Phase::Active => 40. * fraction(self.age, BUBBLE_RISE_TICKS),
+                    Phase::Hold if self.age == 0 => 40.,
+                    Phase::Hold if self.age > 0 => {
+                        previous_lift + (angle - BUBBLE_TURN_PER_TICK.to_radians()).sin()
+                    }
+                    Phase::Release if self.age > 0 => {
+                        let remaining = BUBBLE_RISE_TICKS.saturating_sub(self.age);
+                        previous_lift * fraction(remaining, remaining + 1)
+                    }
+                    _ => previous_lift,
                 };
-                let lift = 40. * amount;
                 world.actors.get_mut(&self.source.0).unwrap().visual_lift =
                     Some(crate::projectile::VisualLift {
                         height: lift,
                         operation: self.operation.clone(),
                     });
-                self.follow(world, MUZZLE_HEIGHT + lift);
+                self.follow(world, BUBBLE_CENTER_HEIGHT + lift);
                 let position = self.shot.position;
-                let angle = (world.effect_tick as f32 * 4.).to_radians();
                 let model = self.model(world, 0)?;
                 model.position = position;
                 model.scale = [1.1 + angle.sin() * 0.2, 1., 1.1 + angle.cos() * 0.2];
-                model.rgba = [128, 192, 192, (96. * amount) as u8];
+                let opacity = match self.phase {
+                    Phase::Active => (self.age as f32 * BUBBLE_FADE_IN_STEP).min(BUBBLE_OPACITY),
+                    Phase::Release => {
+                        (BUBBLE_OPACITY - self.age as f32 * BUBBLE_FADE_OUT_STEP).max(0.)
+                    }
+                    _ => BUBBLE_OPACITY,
+                };
+                model.rgba = [128, 192, 192, opacity as u8];
                 model.orientation = crate::effect::SpriteOrientation::Camera;
             }
-            Ability::Sound | Ability::AnimalCall(_) if self.age == 0 => {
+            Ability::Sound | Ability::AnimalCall(_) if self.age == 1 => {
                 let color = match self.ability {
-                    Ability::AnimalCall(CallColor::Pink) => [248, 96, 184, 208],
-                    Ability::AnimalCall(CallColor::White) => [255, 255, 255, 208],
-                    Ability::AnimalCall(CallColor::Blue) => [32, 32, 255, 208],
-                    _ => [64, 64, 64, 208],
+                    Ability::AnimalCall(CallColor::Pink) => Some([248, 96, 184]),
+                    Ability::AnimalCall(CallColor::White) => Some([255; 3]),
+                    Ability::AnimalCall(CallColor::Blue) => Some([32, 32, 255]),
+                    _ => None,
                 };
                 visuals.pulse(color);
             }
             Ability::Earthquake => {
-                if self.phase == Phase::Active {
-                    visuals.ground_ring((20 - self.age) as f32 * 6.);
-                }
-                if self.phase == Phase::Hold && self.age == 0 {
-                    visuals.ripple(true, RefractionImage::Ripple);
+                if self.phase == Phase::Active && self.age > 0 {
+                    visuals.ground_ring((21 - self.age) as f32 * 6.);
                 }
             }
             _ => {}
@@ -941,8 +970,10 @@ fn shake(world: &mut GameWorld, amount: f32) {
         .configure(amount, 8, 8);
 }
 fn radar_fog(amount: f32) -> crate::camera::Fog {
+    const CLEAR_START: f32 = 9900.;
+    const SCAN_START: f32 = -226.667;
     crate::camera::Fog {
-        start: 9900. - 9800. * amount,
+        start: CLEAR_START + (SCAN_START - CLEAR_START) * amount,
         end: 10000.,
         color: [10, 255, 10],
     }

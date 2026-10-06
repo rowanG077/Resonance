@@ -354,6 +354,37 @@ fn area_and_transformation_powers_finish_without_leaving_control_or_visuals() {
     }
 }
 #[test]
+fn bubble_callback_can_keep_the_player_floating_before_release() {
+    let callback = format!(
+        "push.s8 19\ncalc 0\narg\npush.s8 1\ncalc 0\narg\nproc {}\nend\n",
+        NativeCall::ConfigureSorcerersRing as u8
+    );
+    let mut events = field(
+        Ability::Bubble(BubblePhase::Release),
+        Some((CALLBACK, &callback)),
+    );
+    Arc::get_mut(&mut events.resources).unwrap().session_data =
+        Some(Arc::new(crate::party::tests::data()));
+    events.activate_ring(true).unwrap();
+    steps(&mut events, 200);
+    assert!(!events.world.model_particles.is_empty());
+    let height = events.world.actors[&1].visual_lift.as_ref().unwrap().height;
+    events.world.mapped_input_disabled = true;
+    steps(&mut events, 20);
+    assert_ne!(
+        events.world.actors[&1].visual_lift.as_ref().unwrap().height,
+        height
+    );
+    events.world.party.as_mut().unwrap().travel.sorcerers_ring =
+        Ability::Bubble(BubblePhase::Release);
+    steps(&mut events, 100);
+    assert!(events.world.model_particles.is_empty());
+    assert!(events.world.actors[&1].visual_lift.is_none());
+    events.world.mapped_input_disabled = false;
+    assert!(events.player_has_control());
+}
+
+#[test]
 fn insufficient_mana_calls_only_the_secondary_callback_without_spending_tp() {
     let callback = format!(
         "push.s8 42\ncalc 0\narg\nproc {}\nend\n",
