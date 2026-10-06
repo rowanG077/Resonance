@@ -441,14 +441,14 @@ pub(super) fn render(
         } else {
             (
                 art.sprite_modes[&(effect.recipe, mode, effect.field_fog)],
-                recipe.uv_at(world.tick.saturating_sub(effect.born)),
+                recipe.uv_at(world.tick.saturating_sub(effect.born) + 1),
             )
         };
         batches[batch].anchored_sprite(
             Vec3::from_array(effect.position),
             rotation,
             effect.size,
-            uv,
+            effect.uv.unwrap_or(uv),
             [
                 rgb[0],
                 rgb[1],
