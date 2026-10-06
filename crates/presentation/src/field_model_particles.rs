@@ -49,12 +49,33 @@ pub(super) fn retire(world: &mut World) {
     }
 }
 
+type ModelNodes<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut Transform, &'static ChildOf),
+    (With<bevy::gltf::GltfExtras>, Without<Part>),
+>;
+
+fn reset_model_roots(root: Entity, children: &Query<&Children>, nodes: &mut ModelNodes) {
+    // Particle placement replaces the model's authored root transform.
+    // Keep child transforms so multipart effects retain their shape.
+    for child in children.iter_descendants(root) {
+        let Ok((_, parent)) = nodes.get(child) else {
+            continue;
+        };
+        if !nodes.contains(parent.parent()) {
+            *nodes.get_mut(child).unwrap().0 = Transform::IDENTITY;
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Shared assets and independent scene instances.
 pub(super) fn sync(
     state: State,
     art: Res<Art>,
     mut commands: Commands,
     mut roots: Query<(Entity, &mut Part, &mut Transform)>,
+    mut nodes: ModelNodes,
     children: Query<&Children>,
     slots: Query<&MaterialSlot>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
@@ -83,6 +104,7 @@ pub(super) fn sync(
             continue;
         }
         if part.phase == Phase::BindingMaterials {
+            reset_model_roots(entity, &children, &mut nodes);
             for child in children.iter_descendants(entity) {
                 let Ok(slot) = slots.get(child) else { continue };
                 let index = slot
@@ -204,5 +226,47 @@ pub(super) fn sync(
                 );
             applied.loading(Request::ModelParticle(handle, index));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::{ecs::system::RunSystemOnce, transform::helper::TransformHelper};
+
+    #[test]
+    fn particle_placement_preserves_child_layout_without_scaling_twice() {
+        let mut world = World::new();
+        let particle = world
+            .spawn(Transform::from_xyz(10., 20., 30.).with_scale(Vec3::splat(0.5)))
+            .id();
+        let model = world
+            .spawn((
+                ChildOf(particle),
+                bevy::gltf::GltfExtras { value: "{}".into() },
+                Transform::from_xyz(100., 0., 0.).with_scale(Vec3::splat(3.)),
+            ))
+            .id();
+        let child = world
+            .spawn((
+                ChildOf(model),
+                bevy::gltf::GltfExtras { value: "{}".into() },
+                Transform::from_xyz(4., 0., 0.),
+            ))
+            .id();
+        world
+            .run_system_once(move |children: Query<&Children>, mut nodes: ModelNodes| {
+                reset_model_roots(particle, &children, &mut nodes);
+            })
+            .unwrap();
+        world
+            .run_system_once(move |transforms: TransformHelper| {
+                let transform = transforms.compute_global_transform(child).unwrap();
+                assert_eq!(
+                    transform.transform_point(Vec3::X * 2.),
+                    Vec3::new(13., 20., 30.)
+                );
+            })
+            .unwrap();
     }
 }
