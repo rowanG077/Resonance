@@ -1,8 +1,8 @@
-//! Emote artwork with a short entrance and a smooth repeating motion.
+//! Head symbols with individual entrances and repeating gestures.
 use resonance_content::effect::{EmoteTrack, Sprite, VerticalAnchor};
 use std::{collections::BTreeMap, f32::consts::TAU};
 
-const INTRO_TICKS: usize = 12;
+const INTRO_TICKS: usize = 60;
 const CYCLE_TICKS: usize = 48;
 const ATLAS_SIZE: f32 = 256.;
 
@@ -20,37 +20,46 @@ fn glyph(x: f32, z: f32, size: f32, rect: [f32; 4]) -> Sprite {
 fn artwork(kind: u16, tick: usize) -> Vec<Sprite> {
     let mut sprites = Vec::new();
     if matches!(kind, 0 | 1 | 4..=8 | 10 | 12) {
-        let left = if matches!(kind, 5 | 12) { 96. } else { 0. };
+        let left = if kind == 5 { 96. } else { 0. };
         sprites.push(glyph(24., 82., 80., [left, 0., left + 96., 96.]));
     }
     let mut mark = |x, z, size, rect| sprites.push(glyph(x, z, size, rect));
     match kind {
         0 => {
-            for x in [12., 24., 36.] {
+            for &x in [12., 24., 36.].iter().take((tick / 18).min(3)) {
                 mark(x, 90., 20., [223., 144., 255., 176.]);
             }
         }
         1 => {
-            let left = 96. + (tick / 16 % 3) as f32 * 32.;
+            let left = 96. + (tick / 4 % 3) as f32 * 32.;
             mark(28., 90., 52., [left, 112., left + 32., 144.]);
         }
         2 => {
-            for (x, z, left) in [
-                (-20., 24., 192.),
-                (-5., 24., 128.),
-                (-1., 44., 96.),
-                (5., 24., 160.),
-                (20., 29., 128.),
+            for (x, z, left, rotation) in [
+                (-38., 32., 192., 55.),
+                (-22., 56., 160., 25.),
+                (0., 64., 128., 0.),
+                (24., 55., 96., -25.),
+                (40., 33., 192., -55.),
             ] {
-                mark(x, z, 32., [left, 176., left + 32., 208.]);
+                let pulse = 1. + 0.2 * (TAU * tick as f32 / 16.).sin();
+                let mut sprite = glyph(x * pulse, z * pulse, 36., [left, 176., left + 32., 208.]);
+                sprite.rotation = rotation;
+                sprites.push(sprite);
             }
         }
         3 => {
-            let left = (tick / 24 % 2) as f32 * 48.;
-            mark(32., 66., 80., [left, 176., left + 48., 224.]);
+            let large = (tick / 12).is_multiple_of(2);
+            let left = if large { 48. } else { 0. };
+            mark(
+                if large { 42. } else { 24. },
+                if large { 64. } else { 32. },
+                64.,
+                [left, 176., left + 48., 224.],
+            );
         }
         4 => {
-            for x in [10., 22., 34., 46.] {
+            for &x in [10., 22., 34., 46.].iter().take((tick / 12 + 1).min(4)) {
                 mark(x, 88., 28., [192., 112., 224., 144.]);
             }
         }
@@ -58,29 +67,68 @@ fn artwork(kind: u16, tick: usize) -> Vec<Sprite> {
         6 => mark(28., 88., 52., [64., 144., 96., 176.]),
         7 => mark(28., 88., 52., [32., 144., 64., 176.]),
         8 => mark(24., 90., 52., [32., 112., 64., 144.]),
-        9 => mark(24., 92., 52., [192., 0., 224., 32.]),
-        10 => mark(27., 94., 52., [0., 144., 32., 176.]),
+        10 => mark(
+            27.,
+            94. + (16. - tick as f32).max(0.) * 2.,
+            52.,
+            [0., 144., 32., 176.],
+        ),
         11 => {
-            for x in [5., 20., 35.] {
-                mark(x, 64., 22., [223., 112., 255., 144.]);
+            for (index, x) in [10., 28., 44.].into_iter().enumerate() {
+                let phase = ((tick + index * 8) % 24) as f32 / 24.;
+                let mut sprite = glyph(
+                    x + phase * 10.,
+                    50. - phase * 24.,
+                    16.,
+                    [224., 112., 256., 144.],
+                );
+                sprite.rotation = -45.;
+                sprite.alpha = (255. * (1. - phase)) as u8;
+                sprites.push(sprite);
             }
         }
         12 => {
-            let left = 128. + (tick / 16 % 3) as f32 * 32.;
+            let left = 128. + (tick / 8 % 3) as f32 * 32.;
             mark(24., 86., 52., [left, 144., left + 32., 176.]);
         }
         13 => {
-            for x in [-24., -8., 8., 24.] {
-                mark(x, 72., 28., [64., 112., 96., 144.]);
+            for (index, x) in [-20., 8., 28.].into_iter().enumerate() {
+                let phase = ((tick + index * 16) % 48) as f32 / 48.;
+                let mut sprite = glyph(
+                    x,
+                    32. + phase * 65.,
+                    24. * (0.5 + phase),
+                    [64., 112., 96., 144.],
+                );
+                sprite.alpha = (255. * (TAU * phase / 2.).sin()) as u8;
+                sprites.push(sprite);
             }
         }
         14 => {
-            for x in [-24., -8., 8., 24.] {
-                mark(x, 50., 30., [192., 176., 224., 208.]);
+            for (x, z, angle) in [
+                (8., 54., -10.),
+                (23., 49., -30.),
+                (35., 37., -50.),
+                (42., 22., -70.),
+            ] {
+                let mut sprite = glyph(x, z, 23., [192., 176., 224., 208.]);
+                sprite.rotation = angle;
+                sprites.push(sprite);
             }
         }
         15 => mark(10., 32., 30., [223., 176., 255., 208.]),
         _ => {}
+    }
+    for (index, sprite) in sprites.iter_mut().enumerate() {
+        let bubble = index == 0 && matches!(kind, 0 | 1 | 4..=8 | 10 | 12);
+        let entrance = if bubble {
+            tick as f32 / 8.
+        } else {
+            tick.saturating_sub(4) as f32 / 12.
+        }
+        .min(1.);
+        sprite.size = sprite.size.map(|v| v * entrance);
+        sprite.alpha = (f32::from(sprite.alpha) * entrance) as u8;
     }
     sprites
 }
@@ -88,42 +136,9 @@ fn artwork(kind: u16, tick: usize) -> Vec<Sprite> {
 pub(super) fn tracks() -> BTreeMap<u16, EmoteTrack> {
     (0..20)
         .map(|kind| {
-            let intro = (0..INTRO_TICKS)
-                .map(|tick| {
-                    let progress = tick as f32 / INTRO_TICKS as f32;
-                    let scale = 1. - (1. - progress).powi(2);
-                    let mut sprites = artwork(kind, 0);
-                    for sprite in &mut sprites {
-                        sprite.size = sprite.size.map(|size| size * scale);
-                        sprite.alpha = (255. * scale) as u8;
-                        sprite.offset[2] -= (1. - scale) * 12.;
-                    }
-                    sprites
-                })
-                .collect();
+            let intro = (0..INTRO_TICKS).map(|tick| artwork(kind, tick)).collect();
             let cycle = (0..CYCLE_TICKS)
-                .map(|tick| {
-                    let phase = tick as f32 / CYCLE_TICKS as f32;
-                    let mut sprites = artwork(kind, tick);
-                    for (index, sprite) in sprites.iter_mut().enumerate() {
-                        let wave = (TAU * phase).sin();
-                        match kind {
-                            3 | 11 => sprite.offset[2] -= wave * 8.,
-                            9 => {
-                                sprite.offset[2] += wave * 6.;
-                            }
-                            13 => {
-                                let rise = (phase + index as f32 / 4.) % 1.;
-                                sprite.offset[2] += rise * 24.;
-                                sprite.size = sprite.size.map(|v| v * (0.5 + rise));
-                                sprite.alpha = (255. * (TAU * rise / 2.).sin()) as u8;
-                            }
-                            14 => sprite.rotation = sprite.offset[0],
-                            _ => sprite.offset[2] += wave * 3.,
-                        }
-                    }
-                    sprites
-                })
+                .map(|tick| artwork(kind, INTRO_TICKS + tick))
                 .collect();
             (
                 kind,
@@ -141,7 +156,7 @@ pub(super) fn tracks() -> BTreeMap<u16, EmoteTrack> {
 #[test]
 fn emotes_enter_visibly_and_loop_with_valid_artwork() {
     for (kind, track) in tracks() {
-        if kind >= 16 {
+        if kind == 9 || kind >= 16 {
             assert!(track.intro.iter().chain(&track.cycle).all(Vec::is_empty));
             continue;
         }
