@@ -202,6 +202,47 @@ graphics/audio output; `--trigger KEY --follow` invokes a registered event direc
 `--output PATH` exports a lightweight checkpoint when control returns. Use the
 player for save identity validation.
 
+## Field effect primitives
+
+```sh
+cargo build -p resonance-oracle
+cargo build -p resonance-presentation --example field_sequence
+python3 tools/oracle/effect_delta.py --disc /path/to/Disc1.rvz \
+  --output local/effect-base-delta
+```
+
+This dedicated suite compares frozen low-level inputs in Dolphin and Resonance:
+camera/world sprites, alpha/additive/subtractive blending, rotated atlas crops,
+sampled animated atlas poses, leaf front/back faces, model particles (including
+nonuniform scale and back faces), and ripple/air refraction at two opacities.
+It has 42 effect checks plus a checkerboard control. The 21 cooked sprite recipes
+are artwork choices, not 21 separate rendering systems. UI, overworld rendering,
+emitter motion, source animation timing and composed abilities are outside this
+suite. Both renderers receive poses from the cooked catalogue, so these checks
+also do not independently validate the cooker.
+
+The default [profile](cases/effect-bases.json) pins the existing local Martel
+checkpoint and matching native scene fixture by hash. It requires those files,
+the source state's `.dtm` companion, existing cooked assets, Dolphin 2606 and the
+oracle Python dependencies. `--case` selects another explicitly pinned profile;
+this RAM fixture writer supports only the stated game/state format. No cooking
+runs. The copied source state changes live renderer data and stops scene scripts.
+Every edit is recorded in `fixture.json`; the original checkpoint is untouched.
+Captures use the oracle's standard no-blur presentation and silent audio backend.
+
+`report.html` shows source/native/difference images; `results.json` contains fixed
+pixel, occupied-bounds and mean-error gates. Metrics use the union of visible
+effect pixels in declared regions, excluding the field prompt. Refraction uses
+each renderer's own unwarped checkerboard to identify affected pixels. Missing
+effects fail, and missing mattes/checkerboards reject the fixture. Failures remain
+failures; the runner exits nonzero without aligning images or fitting brightness.
+
+Use `--only model-additive` (or another report group) for a focused run.
+`--reference local/effect-base-delta` reuses hashed Dolphin captures and always
+rerenders Resonance into a fresh `--output` directory. Inputs, catalogue, suite,
+fixture writer, capture tool, disc, movie prefix, image and capture metadata must match.
+Keep the full reference directory to retain emulator/configuration provenance.
+
 ## Audio and performance
 
 ```sh
