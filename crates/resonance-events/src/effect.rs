@@ -7,6 +7,7 @@ pub const NEUTRAL_TINT: u8 = 64;
 pub const NEUTRAL_PALETTE: u8 = 0;
 pub(crate) const GLOW_SPRITE: u16 = 0;
 pub(crate) const STATION_GLOW_SPRITE: u16 = 4;
+pub(crate) const STATION_HALO_SPRITE: u16 = 22;
 pub(crate) const CAMERA_DISC_SPRITE: u16 = 5;
 pub(crate) const WORLD_GLOW_SPRITE: u16 = 6;
 pub(crate) const STAR_SPRITE: u16 = 7;
@@ -140,12 +141,13 @@ impl crate::GameWorld {
                 (position, rgb)
             })
             .collect();
+        let turn = self.effect_tick as f32 * 4.;
         for (position, rgb) in stations {
             for (index, (recipe, lifetime, base, mask, alpha, fade, rotation, blend)) in [
-                (4, 1, 48, 7, 64, -16., 0., None),
-                (4, 2, 40, 3, 128, -64., 0., Some(0)),
-                (22, 4, 80, 3, 255, -48., self.tick as f32 * 4., None),
-                (22, 4, 80, 3, 255, -48., -(self.tick as f32) * 8., None),
+                (STATION_GLOW_SPRITE, 2, 48, 7, 48, -16., 0., None),
+                (STATION_GLOW_SPRITE, 3, 40, 3, 64, -64., 0., Some(0)),
+                (STATION_HALO_SPRITE, 5, 80, 3, 207, -48., turn, None),
+                (STATION_HALO_SPRITE, 5, 80, 3, 207, -48., -turn * 2., None),
             ]
             .into_iter()
             .enumerate()
@@ -159,7 +161,7 @@ impl crate::GameWorld {
                     born: self.tick,
                     lifetime,
                     position,
-                    rotation: [rotation, 0., 0.],
+                    rotation: [0., 0., rotation],
                     size: [size; 2],
                     rgba: [color[0], color[1], color[2], alpha],
                     fade: Fade::Linear(fade),
