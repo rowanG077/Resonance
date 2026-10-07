@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 
 pub(super) fn material(surface: &mut TitleSurface, blend: Blend) {
     surface.blend = true;
+    surface.cull = resonance_content::CullFace::None;
     surface.depth_write = false;
     surface.additive = blend == Blend::Additive;
     surface.subtractive = blend == Blend::Subtractive;
