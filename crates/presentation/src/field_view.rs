@@ -1,4 +1,6 @@
 //! Field scene instances: shared cooked assets, independent actor state.
+#[path = "field_effect_probe.rs"]
+mod effect_probe;
 #[path = "field_sequence.rs"]
 mod sequence;
 #[path = "field_shadow.rs"]
