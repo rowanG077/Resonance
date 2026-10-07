@@ -1,6 +1,10 @@
 #import bevy_pbr::forward_io::VertexOutput
 #import bevy_pbr::mesh_bindings::mesh
 #import resonance::surface_bindings::{surface_data, sample_primary, sample_secondary, sample_toon}
+#ifdef CLAMP_COLOR
+#import bevy_pbr::mesh_view_bindings::view
+#import resonance::effect_color::quantize
+#endif
 #ifdef DISTANCE_FOG
 #import bevy_pbr::mesh_view_bindings::fog as view_fog
 #endif
@@ -34,6 +38,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     texture_color *= secondary;
     color *= secondary;
 #endif
+#ifdef CLAMP_COLOR
+    // Filtered particle alpha is rounded before testing coverage.
+    color.a = round(color.a * 255.) / 255.;
+#endif
     // Preserve transparent holes in both the color and focus depth layers.
     // Keep every nonzero eight-bit alpha value.
     if color.a < 1.0/255.0 { discard; }
@@ -64,8 +72,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     color *= tint;
 #endif
 #ifdef CLAMP_COLOR
-    // GX clamps after texture modulation and gain, before fog and alpha blending.
-    color = vec4<f32>(clamp(color.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), color.a);
+    color = vec4<f32>(quantize(color.rgb, vec2<f32>(in.position.x, view.viewport.w - in.position.y)), color.a);
 #endif
     var fog_range = material.fog_range.xyz;
     var fog_color = material.fog_color.rgb;

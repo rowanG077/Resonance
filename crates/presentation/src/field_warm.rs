@@ -406,7 +406,7 @@ fn effects(
     preparation: Option<ResMut<Preparation>>,
     shared: Res<Shared>,
     art: Option<Res<Art>>,
-    meshes: Query<(&Mesh3d, &MeshMaterial3d<TitleSurface>), With<super::field_effects::EffectDraw>>,
+    effects: Option<Res<super::field_effects::Artwork>>,
 ) {
     let Some(mut preparation) = preparation else {
         return;
@@ -414,12 +414,12 @@ fn effects(
     if preparation.effects_copied || art.as_ref().is_none_or(|a| !a.ready) {
         return;
     }
+    let Some(effects) = effects else { return };
     let mut report = shared.0.lock().unwrap();
     // Effect and shadow assets are created by field preparation before this
     // pass. Copy their bindings into the offscreen view, not their state.
-    let bindings = meshes
-        .iter()
-        .map(|(m, s)| (m.0.clone(), s.0.clone()))
+    let bindings = effects
+        .prepared_bindings()
         .chain(art.as_ref().and_then(|a| a.shadow_binding()));
     for (mesh, material) in bindings {
         let entity = commands

@@ -6,7 +6,7 @@ use bevy::{
 
 use resonance_content::{HEIGHT, SCENE_HEIGHT};
 
-const RASTER_SUBDIVISIONS: f32 = 12.;
+pub(super) const RASTER_SUBDIVISIONS: f32 = 12.;
 
 /// Use the full display aspect even though the scene viewport retains only
 /// 448 of the 480 authored display rows.

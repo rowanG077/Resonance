@@ -1,7 +1,7 @@
 //! World-space ripples sample the completed scene before dialogue is composited.
 use super::{
     field_audit::{Applied, Request},
-    field_effects::Artwork,
+    field_effects::{Artwork, effect_rotation},
     field_view::State,
 };
 use bevy::{
@@ -113,7 +113,7 @@ fn sync(
             // scene at every output resolution.
             recipe.displacement[0] / resonance_content::WIDTH as f32,
             recipe.displacement[1] / resonance_content::SCENE_HEIGHT as f32,
-            0.,
+            1. / super::camera::RASTER_SUBDIVISIONS,
         ),
         screen_copy: Vec4::new(
             world.screen_copy_depth[0],
@@ -131,17 +131,9 @@ fn sync(
     let world_from_view = camera.to_matrix();
     for (pulse, effect) in settings.pulses.iter_mut().zip(world.refractions.values()) {
         let (size, alpha) = effect.sample(world.tick);
-        let [x, y, z] = effect.rotation.map(f32::to_radians);
-        let rotation = match effect.orientation {
-            resonance_events::effect::SpriteOrientation::Camera => {
-                camera.rotation * Quat::from_euler(EulerRot::ZYX, z, y, x)
-            }
-            resonance_events::effect::SpriteOrientation::World => {
-                Quat::from_euler(EulerRot::ZYX, z, y, x)
-            }
-        };
+        let rotation = effect_rotation(effect.orientation, effect.rotation, camera.rotation);
         *pulse = Pulse {
-            position_size: Vec3::from_array(effect.position).extend(size),
+            position_size: Vec3::from_array(effect.position).extend((size / 2.).trunc() * 2.),
             opacity: Vec4::new(alpha / 255., effect.image as u8 as f32, 0., 0.),
             tint: Vec4::from_array(
                 art.palette(effect.palette)

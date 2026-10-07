@@ -605,9 +605,8 @@ fn load_live(
     if art.is_some() || session.overworld.is_some() {
         return;
     }
-    if let Some((art, mut ui, mut effects)) = retained.0.remove(&session.assets.map_id) {
+    if let Some((art, mut ui, effects)) = retained.0.remove(&session.assets.map_id) {
         ui.prepare(&mut commands, &mut meshes, &mut materials);
-        effects.prepare(&mut commands, &mut meshes, &mut surfaces);
         commands.insert_resource(art);
         commands.insert_resource(ui);
         commands.insert_resource(effects);
@@ -643,10 +642,12 @@ fn load_live(
         }
     };
     ui.prepare(&mut commands, &mut meshes, &mut materials);
-    let mut effects = match super::field_effects::Artwork::load_with(
+    let effects = match super::field_effects::Artwork::load_with(
         &root.assets,
         &session.assets,
         &server,
+        &mut meshes,
+        &mut surfaces,
         files.as_deref(),
     ) {
         Ok(effects) => effects,
@@ -656,7 +657,6 @@ fn load_live(
             return;
         }
     };
-    effects.prepare(&mut commands, &mut meshes, &mut surfaces);
     commands.insert_resource(effects);
     commands.insert_resource(ui);
     commands.insert_resource(load_art(&session.assets, &server, behavior_sources));
@@ -1399,11 +1399,7 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         )
             .chain(),
     );
-    // Embedded paths are relative to the module file, hence these live beside
-    // this file and retain the same shader identifiers as the main application.
-    bevy::asset::embedded_asset!(app, "title_surface.wgsl");
-    bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
-    bevy::shader::load_shader_library!(&mut app, "surface_bindings.wgsl");
+    super::materials::embed_shaders(&mut app);
     super::renderer::configure(&mut app);
     bevy::asset::embedded_asset!(app, "title_output.wgsl");
     let ready = super::RenderReady::default();
@@ -1446,9 +1442,14 @@ fn setup(
             super::Resolution::default()
         }
     };
-    let mut effects = super::field_effects::Artwork::load(&root.assets, &manifest.0, &server)
-        .expect("validated cooked field effects");
-    effects.prepare(&mut commands, &mut meshes, &mut surfaces);
+    let effects = super::field_effects::Artwork::load(
+        &root.assets,
+        &manifest.0,
+        &server,
+        &mut meshes,
+        &mut surfaces,
+    )
+    .expect("validated cooked field effects");
     commands.insert_resource(effects);
     let mut ui = super::field_ui::Artwork::load(
         &root.assets,

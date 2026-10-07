@@ -13,6 +13,13 @@ use bevy::{
 #[path = "surface_shader_tests.rs"]
 mod shader_tests;
 
+pub(super) fn embed_shaders(app: &mut App) {
+    bevy::asset::embedded_asset!(app, "title_surface.wgsl");
+    bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
+    bevy::shader::load_shader_library!(app, "surface_bindings.wgsl");
+    bevy::shader::load_shader_library!(app, "effect_color.wgsl");
+}
+
 /// Each geometry mesh has one authored draw recipe, bound per scene instance.
 #[derive(Component, Reflect, Clone, Copy, Debug, PartialEq, Eq)]
 #[reflect(Component)]
