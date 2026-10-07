@@ -198,7 +198,7 @@ pub(super) fn run(
                 .as_str()
                 .context("reference has no state-observation hash")?,
         )?;
-        verify_observations(&pair, &path.join("memory.jsonl"), &capture)?;
+        verify_observations(&pair, &path.join("memory.jsonl"))?;
     }
     let mut names = BTreeSet::new();
     for frame in &pair.frames {
@@ -450,11 +450,10 @@ pub(super) fn run(
     }
     let mut results = Vec::new();
     let mut popup_content = Value::Null;
-    let alias = save_point_alias(&capture);
     let memory: BTreeMap<u32, Value> = fs::read_to_string(dolphin_output.join("memory.jsonl"))?
         .lines()
         .map(|line| -> Result<_> {
-            let mut value = source_observation(line, alias)?;
+            let mut value = serde_json::from_str::<Value>(line)?;
             let vi = u32::try_from(value["vi_sample"].as_u64().context("missing VI index")?)?;
             // Dismissal returns to the slot list before its old message fades.
             // Retain content from observed menu state, never the native output.
@@ -759,73 +758,12 @@ pub(super) fn run(
     );
     Ok(())
 }
-fn save_point_alias(capture: &Value) -> bool {
-    let names = ["field_control_flags_word", "field_save_point_word"];
-    let mut addresses = Vec::new();
-    for (address, name) in capture["memory_watch"]["locations"]
-        .as_object()
-        .into_iter()
-        .flatten()
-    {
-        if name.as_str().is_some_and(|name| names.contains(&name)) {
-            addresses.push(address);
-        }
-    }
-    for (address, aliases) in capture["memory_watch"]["aliases"]
-        .as_object()
-        .into_iter()
-        .flatten()
-    {
-        if aliases.as_array().is_some_and(|aliases| {
-            aliases
-                .iter()
-                .any(|name| name.as_str().is_some_and(|name| names.contains(&name)))
-        }) {
-            addresses.push(address);
-        }
-    }
-    // Hex case is immaterial; pointer chains and other addresses are not aliases.
-    // Independently recorded fields at other addresses remain available as recorded.
-    !addresses.is_empty()
-        && addresses
-            .iter()
-            .all(|address| address.eq_ignore_ascii_case("8035a73c"))
-}
-
-fn source_observation(line: &str, alias: bool) -> Result<Value> {
-    let mut source: Value = serde_json::from_str(line)?;
-    if alias {
-        let keys = ["field_control_flags_word", "field_save_point_word"];
-        let mut observed = None;
-        for key in keys {
-            if let Some(value) = source.get(key) {
-                let word = value
-                    .as_u64()
-                    .filter(|&word| word <= u64::from(u32::MAX))
-                    .with_context(|| format!("invalid source u32 {key}"))?;
-                ensure!(
-                    observed.is_none_or(|previous| previous == word),
-                    "conflicting source values for field_save_point_word"
-                );
-                observed = Some(word);
-            }
-        }
-        if let Some(word) = observed {
-            for key in keys {
-                source[key] = json!(word);
-            }
-        }
-    }
-    Ok(source)
-}
-
 // Fail before rendering when a reused recording lacks observations for these gates.
-fn verify_observations(pair: &Pair, path: &Path, capture: &Value) -> Result<()> {
-    let alias = save_point_alias(capture);
+fn verify_observations(pair: &Pair, path: &Path) -> Result<()> {
     let memory: BTreeMap<u64, Value> = fs::read_to_string(path)?
         .lines()
         .map(|line| -> Result<_> {
-            let value = source_observation(line, alias)?;
+            let value = serde_json::from_str::<Value>(line)?;
             Ok((
                 value["vi_sample"].as_u64().context("missing VI index")?,
                 value,
@@ -853,7 +791,7 @@ fn verify_frame_observations(frame: &Frame, source: &Value) -> Result<()> {
     };
     require("presentation_counter")?;
     if frame.tech_state {
-        require("field_save_point_word")?;
+        require("field_control_flags_word")?;
     }
     if frame.main_menu_state {
         for key in [
@@ -2126,7 +2064,7 @@ fn tech_state(native: &Value, source: &Value, loadout: bool) -> Result<Value> {
             "passed":navigation}),
         );
     }
-    let at_save_point = (word("field_save_point_word")? >> 16) & 255 == 1;
+    let at_save_point = (word("field_control_flags_word")? >> 16) & 255 == 1;
     let mut passed = navigation
         && menu["at_save_point"] == at_save_point
         && menu["tech_choices"] == json!(choices)
@@ -2606,51 +2544,6 @@ mod tests {
         assert!(cooking_state(&native, &source).is_err());
         native.as_object_mut().unwrap().remove("persistent_party");
         assert_eq!(cooking_state(&native, &source).unwrap()["passed"], true);
-    }
-
-    #[test]
-    fn legacy_save_point_alias_requires_the_same_raw_word() {
-        let mut capture = json!({"memory_watch":{"locations":{
-            "8035a73c":"field_control_flags_word"
-        }}});
-        assert!(save_point_alias(&capture));
-        capture["memory_watch"]["locations"]["8035A73C"] = json!("field_save_point_word");
-        assert!(save_point_alias(&capture));
-        let reverse = source_observation(r#"{"field_save_point_word":65536}"#, true).unwrap();
-        assert_eq!(reverse["field_control_flags_word"], 65536);
-        let word = json!({"field_control_flags_word":0x1234_abcd_u32});
-        let source = source_observation(&word.to_string(), true).unwrap();
-        assert_eq!(
-            observed_word(&source, "field_save_point_word").unwrap(),
-            0x1234_abcd
-        );
-        assert_eq!(
-            source_observation(&source.to_string(), true).unwrap(),
-            source
-        );
-        for invalid in [
-            json!({"field_control_flags_word":1,"field_save_point_word":2}),
-            json!({"field_control_flags_word":0x1_0000_0000_u64}),
-            json!({"field_control_flags_word":null}),
-            json!({"field_save_point_word":0x1_0000_0000_u64}),
-            json!({"field_save_point_word":null}),
-        ] {
-            assert!(source_observation(&invalid.to_string(), true).is_err());
-        }
-        for source in [
-            source_observation("{}", true).unwrap(),
-            source_observation(&word.to_string(), false).unwrap(),
-        ] {
-            assert!(observed_word(&source, "field_save_point_word").is_err());
-        }
-        capture["memory_watch"]["aliases"] = json!({"8035a740":["field_save_point_word"]});
-        assert!(!save_point_alias(&capture));
-        capture["memory_watch"]["aliases"] = json!({"8035a73c":["field_save_point_word"]});
-        assert!(save_point_alias(&capture));
-        capture["memory_watch"]["locations"]["8035a740"] = json!("field_save_point_word");
-        assert!(!save_point_alias(&capture));
-        capture["memory_watch"]["locations"] = json!({"8035a73c 0":"field_control_flags_word"});
-        assert!(!save_point_alias(&capture));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 """Failure behavior of the primitive image gate, independent of game assets."""
 import unittest
 from PIL import Image, ImageDraw
-from effect_delta import compare, validate_matte, validate_checker
+from effect_delta import compare, validate_matte, validate_checker, random_cases
 
 
 class EffectDeltaTests(unittest.TestCase):
@@ -35,6 +35,11 @@ class EffectDeltaTests(unittest.TestCase):
         ImageDraw.Draw(actual).rectangle((30, 20, 49, 39), fill=(60, 240, 40))
         self.assertFalse(self.measure(actual)['passed'])
 
+    def test_tolerated_rounding_fringe_is_not_geometry_drift(self):
+        actual = self.reference.copy()
+        actual.putpixel((5, 5), (3, 231, 0))
+        self.assertTrue(self.measure(actual)['passed'])
+
     def test_missing_matte_is_a_fixture_error(self):
         validate_matte(self.background, (0, 231, 0))
         with self.assertRaises(ValueError):
@@ -51,6 +56,17 @@ class EffectDeltaTests(unittest.TestCase):
     def test_mismatched_resolution_is_rejected(self):
         with self.assertRaises(ValueError):
             self.measure(Image.new('RGB', (160, 120)))
+
+    def test_seed_replays_combinations_and_covers_each_primitive(self):
+        camera = {'position': [700, -324, 736], 'target': [0, 97, 87]}
+        catalogue = {'sprites': {str(k): {'texture': {'effect': 2}, 'uv': [0, 0, .25, .25]}
+                                for k in [0, 4, 42, 52]}}
+        first = list(random_cases(camera, catalogue, 17, 12))
+        self.assertEqual(first, list(random_cases(camera, catalogue, 17, 12)))
+        self.assertNotEqual(first, list(random_cases(camera, catalogue, 18, 12)))
+        effects = [p for _, _, probes, _ in first for p in probes[48:]]
+        self.assertEqual({p['shape']['kind'] for p in effects}, {'sprite', 'leaf', 'model', 'refraction'})
+        self.assertTrue(any(len(probes) > 49 for _, _, probes, _ in first))
 
 
 if __name__ == '__main__':
