@@ -6,6 +6,7 @@ This development tool is independent of the Resonance runtime.
 """
 import argparse
 import ctypes
+import copy
 import ctypes.util
 import hashlib
 import json
@@ -14,31 +15,80 @@ from pathlib import Path
 import struct
 
 
+def digest(path):
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+class State:
+    """Decoded checkpoint, shared by observations and isolated renderer fixtures."""
+    def __init__(self, path, library=None):
+        self.path = Path(path)
+        self.data = self.path.read_bytes()
+        data = self.data
+        if len(data) < 48 or data[:6] != b'GQSEAF':
+            raise ValueError('expected a GQSEAF Dolphin state')
+        cookie, length = struct.unpack_from('<II', data, 24)
+        if cookie != 0xBAADBABE + 191 or not 1 <= length <= 256:
+            raise ValueError('only the pinned Dolphin 2606 state version is supported')
+        self.header = 32 + length
+        self.version = data[32:self.header].rstrip(b'\0').decode('utf-8')
+        header, compression, extra, size, packed = struct.unpack_from('<HHIQI', data, self.header)
+        if (header != 1 or compression != 1 or extra != 0
+                or not 0 < size <= 256 * 1024 * 1024 or self.header + 20 + packed != len(data)):
+            raise ValueError('unsupported or truncated single-block state')
+        self.codec = ctypes.CDLL(library or ctypes.util.find_library('lz4') or 'liblz4.so.1')
+        for name in ['LZ4_decompress_safe', 'LZ4_compress_default']:
+            fn = getattr(self.codec, name)
+            fn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+            fn.restype = ctypes.c_int
+        self.raw = bytearray(size)
+        buffer = (ctypes.c_char * size).from_buffer(self.raw)
+        if self.codec.LZ4_decompress_safe(data[self.header+20:], buffer, packed, size) != size:
+            raise ValueError('corrupt compressed state')
+        candidates, at = [], 0
+        while (at := self.raw.find(b'GQSEAF', at)) >= 0:
+            if (self.raw[at+28:at+32] == bytes.fromhex('c2339f3d')
+                    and self.raw[at+40:at+44] == bytes.fromhex('01800000')
+                    and at + 0x1800000 <= len(self.raw)):
+                candidates.append(at)
+            at += 1
+        if len(candidates) != 1:
+            raise ValueError('cannot uniquely locate main memory')
+        self.ram_offset = candidates[0]
+        self.sha256 = hashlib.sha256(data).hexdigest()
+        self.changes = []
+
+    @property
+    def ram(self):
+        return memoryview(self.raw)[self.ram_offset:self.ram_offset+0x1800000]
+
+    def fork(self):
+        state = copy.copy(self)
+        state.raw = self.raw.copy()
+        state.changes = []
+        return state
+
+    def read(self, address, fmt='I'):
+        return struct.unpack_from('>' + fmt, self.ram, address & 0x1FFFFFF)[0]
+
+    def write(self, address, fmt, value):
+        before = self.read(address, fmt)
+        struct.pack_into('>' + fmt, self.ram, address & 0x1FFFFFF, value)
+        self.changes.append([hex(address), fmt, before, value])
+
+    def save(self, path):
+        raw = (ctypes.c_char * len(self.raw)).from_buffer(self.raw)
+        buf = ctypes.create_string_buffer(len(self.raw) + len(self.raw)//255 + 16)
+        size = self.codec.LZ4_compress_default(raw, buf, len(self.raw), len(buf))
+        if size <= 0:
+            raise ValueError('state compression failed')
+        Path(path).write_bytes(self.data[:self.header+16] + struct.pack('<I', size) + buf.raw[:size])
+
+
 def inspect(path, library=None):
-    data = path.read_bytes()
-    if len(data) < 48 or data[:6] != b"GQSEAF":
-        raise ValueError("expected a GQSEAF Dolphin state")
-    cookie, length = struct.unpack_from("<II", data, 24)
-    if cookie != 0xBAADBABE + 191 or not 1 <= length <= 256:
-        raise ValueError("only the pinned Dolphin 2606 state version is supported")
-    offset = 32 + length
-    version = data[32:offset].rstrip(b"\0").decode("utf-8")
-    header, compression, extra, size = struct.unpack_from("<HHIQ", data, offset)
-    if header != 1 or compression != 1 or extra != 0 or not 0 < size <= 256 * 1024 * 1024:
-        raise ValueError("unsupported state header or excessive decompressed size")
-    offset += 16
-    compressed_size, = struct.unpack_from("<I", data, offset)
-    offset += 4
-    if offset + compressed_size != len(data):
-        raise ValueError("truncated state or unsupported multi-block state")
-    library = library or ctypes.util.find_library("lz4") or "liblz4.so.1"
-    codec = ctypes.CDLL(library)
-    codec.LZ4_decompress_safe.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
-    codec.LZ4_decompress_safe.restype = ctypes.c_int
-    buffer = ctypes.create_string_buffer(size)
-    if codec.LZ4_decompress_safe(data[offset:], buffer, compressed_size, size) != size:
-        raise ValueError("corrupt compressed state")
-    raw = buffer.raw
+    state = path if isinstance(path, State) else State(path, library)
+    raw, ram = state.raw, state.ram
     # State.cpp serializes platform/memory sizes, then MovieManager::DoState.
     if (raw[0] != 0 or struct.unpack_from("<I", raw, 1)[0] != 0x1800000
             or struct.unpack_from("<I", raw, 50)[0] != 0x42):
@@ -46,27 +96,16 @@ def inspect(path, library=None):
     movie_frame, movie_byte, movie_lag, movie_input = struct.unpack_from("<QQQQ", raw, 9)
     if movie_byte != movie_input * 8:
         raise ValueError("expected single-controller GameCube replay")
-    candidates = []
-    offset = 0
-    while (offset := raw.find(b"GQSEAF", offset)) >= 0:
-        if (raw[offset + 0x1c:offset + 0x20] == bytes.fromhex("c2339f3d")
-                and raw[offset + 0x28:offset + 0x2c] == bytes.fromhex("01800000")
-                and offset + 0x1800000 <= len(raw)):
-            candidates.append(offset)
-        offset += 1
-    if len(candidates) != 1:
-        raise ValueError("could not uniquely identify the GameCube main-memory observation")
-    ram = memoryview(raw)[candidates[0]:candidates[0] + 0x1800000]
     u32 = lambda offset: struct.unpack_from(">I", ram, offset)[0]
     fields = {
         "selected": 0x35a010, "pulse_tick": 0x35a058,
         "presentation_counter": 0x35a628, "opacity": 0x35a6bc,
         "reveal_counter": 0x35a6c4, "idle_counter": 0x35a6c8,
     }
-    result = {"dolphin_version": version,
+    result = {"dolphin_version": state.version,
               "movie": {"vi_frame": movie_frame, "input_count": movie_input,
                         "input_byte": movie_byte, "lag_frames": movie_lag},
-              "state_sha256": hashlib.sha256(data).hexdigest(),
+              "state_sha256": state.sha256,
               "title": {key: u32(address) for key, address in fields.items()}}
     result["title"]["revealed"] = bool(ram[0x35a6c0])
     result["title"]["state_flags"] = struct.unpack_from(">H", ram, 0x35a762)[0]

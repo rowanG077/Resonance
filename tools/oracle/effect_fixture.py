@@ -3,12 +3,10 @@
 Only live field data is edited. Texture handles and pool layouts were observed
 in Dolphin captures; this tool neither reads nor patches executable code.
 """
-import ctypes
-import ctypes.util
 import hashlib
+import json
 import shutil
-import struct
-from pathlib import Path
+from state import digest
 
 SPRITE_POOL = 0x8035A4FC
 MODEL_POOL = 0x8035A4F8
@@ -19,60 +17,8 @@ TEXTURES = {0: 0x802BFF84, 2: 0x802BFF64, 3: 0x802BFF04,
             4: 0x802BFF44, 5: 0x802BFEE4}
 
 
-def digest(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
-
-
-class State:
-    def __init__(self, path):
-        self.path = Path(path)
-        self.data = self.path.read_bytes()
-        if self.data[:6] != b'GQSEAF' or struct.unpack_from('<I', self.data, 24)[0] != 0xBAADBABE + 191:
-            raise ValueError('expected the pinned GQSEAF Dolphin 2606 state')
-        self.header = 32 + struct.unpack_from('<I', self.data, 28)[0]
-        size, packed = struct.unpack_from('<QI', self.data, self.header + 8)
-        if not 0 < size <= 256 * 1024 * 1024 or self.header + 20 + packed != len(self.data):
-            raise ValueError('invalid single-block state')
-        self.codec = ctypes.CDLL(ctypes.util.find_library('lz4') or 'liblz4.so.1')
-        for name in ['LZ4_decompress_safe', 'LZ4_compress_default']:
-            fn = getattr(self.codec, name)
-            fn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
-            fn.restype = ctypes.c_int
-        buf = ctypes.create_string_buffer(size)
-        if self.codec.LZ4_decompress_safe(self.data[self.header+20:], buf, packed, size) != size:
-            raise ValueError('corrupt state')
-        self.raw = bytearray(buf.raw)
-        candidates, at = [], 0
-        while (at := self.raw.find(b'GQSEAF', at)) >= 0:
-            if (self.raw[at+28:at+32] == bytes.fromhex('c2339f3d')
-                    and self.raw[at+40:at+44] == bytes.fromhex('01800000')):
-                candidates.append(at)
-            at += 1
-        if len(candidates) != 1:
-            raise ValueError('cannot uniquely locate main memory')
-        self.ram = memoryview(self.raw)[candidates[0]:candidates[0]+0x1800000]
-        self.changes = []
-
-    def read(self, address, fmt='I'):
-        return struct.unpack_from('>' + fmt, self.ram, address & 0x1FFFFFF)[0]
-
-    def write(self, address, fmt, value):
-        before = self.read(address, fmt)
-        struct.pack_into('>' + fmt, self.ram, address & 0x1FFFFFF, value)
-        self.changes.append([hex(address), fmt, before, value])
-
-    def save(self, path):
-        buf = ctypes.create_string_buffer(len(self.raw) + len(self.raw)//255 + 16)
-        size = self.codec.LZ4_compress_default(bytes(self.raw), buf, len(self.raw), len(buf))
-        if size <= 0:
-            raise ValueError('state compression failed')
-        Path(path).write_bytes(self.data[:self.header+16] + struct.pack('<I', size) + buf.raw[:size])
-        shutil.copyfile(str(self.path)+'.dtm', str(path)+'.dtm')
-
-
 def prepare(source, target, observation, sprites, model=None):
-    state = State(source)
+    state = source.fork()
     put, read = state.write, state.read
     globals_ = read(0x8035A578)
     script = read(globals_ + 0x5820)
@@ -153,12 +99,21 @@ def prepare(source, target, observation, sprites, model=None):
         if read(models, 'h') < 0:
             raise ValueError('fixture needs a live model particle in slot zero')
         put(models, 'h', 32767)
+        # The pool updates before the isolation script's first turn.
+        # Stop motion now, so that turn cannot rotate or translate the probe.
+        for offset in [0x38, 0x3c, 0x40, 0x44, 0x48, 0x4c, 0x70, 0x74, 0x78]:
+            put(models+offset, 'f', 0.)
         # Freeze the retained ring; its resource and child transforms stay intact.
         for offset, values in [(4, model['position']), (16, model['rotation']), (100, model['scale'])]:
             for j, value in enumerate(values):
                 put(models+offset+j*4, 'f', value)
         for j, value in enumerate(model['rgba']):
             put(models+32+j, 'B', value)
+    marker = int.from_bytes(hashlib.sha256(json.dumps([sprites, model], sort_keys=True).encode()).digest()[:4])
+    marker_address = globals_ + 0x581C + 31*0x360 + 0x300
+    put(marker_address, 'I', marker)
     state.save(target)
-    return {'source_sha256': digest(source), 'fixture_sha256': digest(target),
-            'game_code_modified': False, 'ram_changes': state.changes}
+    shutil.copyfile(str(source.path)+'.dtm', str(target)+'.dtm')
+    return {'source_sha256': source.sha256, 'fixture_sha256': digest(target),
+            'game_code_modified': False, 'ram_changes': state.changes,
+            'marker_address': marker_address, 'case_marker': marker}

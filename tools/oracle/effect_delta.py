@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Paired low-level field-effect tests. No ability scripts or random composites."""
+"""Paired low-level field effects and seeded compositions, using a live Dolphin oracle."""
 import argparse
 import copy
+from contextlib import ExitStack
 import html
 import json
 import math
+import random
+import shutil
+import time
 from pathlib import Path
 import subprocess
 import sys
@@ -12,8 +16,9 @@ import sys
 import numpy as np
 from PIL import Image
 
-from effect_fixture import digest, prepare
-from state import inspect
+from effect_fixture import prepare
+from dolphin_fixture import DolphinFixture
+from state import State, digest, inspect
 
 # Gates are shared across cases; known differences stay failures, never tuned away.
 GATES = {'pixel_tolerance': 8, 'max_changed_fraction': 0.05,
@@ -43,17 +48,21 @@ def compare(reference, actual, background, roi, actual_background=None):
     def bounds(m):
         ys, xs = np.where(m)
         return [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())] if xs.size else None
-    rb, ab = bounds(rm), bounds(am)
     error = abs(a-r)
+    different = error.max(2) > GATES['pixel_tolerance']
+    # A tolerated color-rounding fringe cannot establish geometry drift.
+    # Keep shared coverage and every pixel whose disagreement exceeds tolerance.
+    rb, ab = bounds(rm & (am | different)), bounds(am & (rm | different))
     count = int(mask.sum())
     result = {'reference_active_pixels': int(rm.sum()), 'actual_active_pixels': int(am.sum()),
               'reference_bounds': rb, 'actual_bounds': ab,
               'mean_error': float(error[mask].mean()) if count else None,
-              'changed_fraction': float((error.max(2)[mask] > GATES['pixel_tolerance']).mean()) if count else None,
+              'changed_fraction': float(different[mask].mean()) if count else None,
               'bounds_delta': max(abs(v-w) for v, w in zip(rb, ab)) if rb and ab else None}
     result['passed'] = (min(result['reference_active_pixels'], result['actual_active_pixels']) >= GATES['minimum_active_pixels']
                         and result['mean_error'] <= GATES['max_mean_error']
                         and result['changed_fraction'] <= GATES['max_changed_fraction']
+                        and result['bounds_delta'] is not None
                         and result['bounds_delta'] <= GATES['max_bounds_delta'])
     return result
 
@@ -175,12 +184,58 @@ def cases(camera, catalogue):
         yield 'refraction-'+str(alpha), [0, 231, 0], probes, regions
 
 
+def random_cases(camera, catalogue, seed, count):
+    rng = random.Random(seed)
+    checker = next(c[2] for c in cases(camera, catalogue) if c[0] == 'refraction-background')
+    recipes = [int(k) for k, v in catalogue['sprites'].items() if v['texture']['effect'] in [0, 2, 4]]
+    for trial in range(count):
+        probes = copy.deepcopy(checker)
+        # Cycle the first primitive to guarantee coverage, then combine randomly.
+        kinds = [trial % 4] + [rng.randrange(4) for _ in range(rng.randrange(4))]
+        model_used = False
+        for kind in kinds:
+            if kind == 2 and model_used:
+                kind = 0
+            x, y = rng.uniform(260, 380), rng.uniform(170, 290)
+            size = rng.uniform(60, 150)
+            rotation = [0, 0, rng.uniform(-180, 180)]
+            world = rng.choice([False, True])
+            if world:
+                rotation[:2] = [rng.uniform(-50, 50), rng.uniform(-50, 50)]
+            recipe = rng.choice(recipes)
+            probe = sprite(recipe, camera, x, y, [size]*2,
+                           [rng.randrange(16, 97) for _ in range(3)]+[rng.randrange(64, 256)],
+                           rng.randrange(3), rotation, world, rng.randrange(56))
+            if kind == 1:
+                probe.update(world_space=True, blend=0, size=[probe['size'][0], probe['size'][0]/3])
+                probe['shape'] = {'kind': 'leaf', 'recipe': 25, 'motion': {
+                    'rotation': rotation, 'fall_speed': 0, 'spin': 0, 'heading': 0, 'turn_after': 0}}
+            elif kind == 2:
+                model_used = True
+                probe['world_space'] = True
+                probe['shape'] = {'kind': 'model', 'resource': TELEPORTER_RING,
+                                  'scale': [rng.uniform(.2, .5) for _ in range(3)]}
+            elif kind == 3:
+                probe.update(rgba=[64, 64, 64, probe['rgba'][3]], blend=0)
+                probe['shape'] = {'kind': 'refraction', 'air': rng.choice([False, True])}
+            probes.append(probe)
+        yield f'random-{seed}-{trial}', [0, 231, 0], probes, [{'name': 'composition', 'rect': [80, 60, 480, 340]}]
+
+
 def run_command(args, log):
     with Path(log).open('w') as f:
         subprocess.run(list(map(str, args)), stdout=f, stderr=subprocess.STDOUT, check=True)
 
 
 def run(args):
+    with ExitStack() as stack:
+        return run_suite(args, stack)
+
+
+def run_suite(args, stack):
+    started = time.monotonic()
+    if not 0 <= args.random_cases <= 1000:
+        raise ValueError('random-cases must be between 0 and 1000')
     profile = json.loads(args.case.read_text())
     source, sequence_path = [Path(profile[k]['path']) for k in ['source', 'native_sequence']]
     for key, path in [('source', source), ('native_sequence', sequence_path)]:
@@ -189,7 +244,8 @@ def run(args):
     if args.output.exists():
         raise ValueError('output must be a fresh directory')
     args.output.mkdir(parents=True)
-    observation = inspect(source)
+    base = State(source)
+    observation = inspect(base)
     sequence = json.loads(sequence_path.read_text())
     camera = sequence['isolation']['camera']
     for key in ['position', 'target']:
@@ -199,25 +255,45 @@ def run(args):
     art = json.loads(catalogue_path.read_text())
     catalogue = {**art['effects'], 'particles': art['particles']}
     selected = list(cases(camera, catalogue))
+    selected += list(random_cases(camera, catalogue, args.seed, args.random_cases))
     if args.only and args.only not in [case[0] for case in selected]:
         raise ValueError('unknown case: '+args.only)
+    if args.only:
+        selected = [case for case in selected if case[0] == args.only or (case[0] == 'refraction-background' and (args.only.startswith('refraction-') or args.only.startswith('random-')))]
     inputs = args.output/'neutral.json'
     write(inputs, {'game_id': 'GQSEAF', 'polls': 500, 'rtc': 1700000000, 'inputs': []})
     results = []
     disc_hash = digest(args.disc)
-    for name, color, probes, regions in selected:
-        if args.only and name != args.only and not (args.only.startswith('refraction-') and name == 'refraction-background'):
-            continue
+    native_hash = digest(args.native)
+    emulator = Path(shutil.which('dolphin-emu')).resolve()
+    wrapped = emulator.with_name('.'+emulator.name+'-wrapped')
+    oracle_files = [emulator] + [Path(__file__).with_name(name) for name in
+        ['effect_delta.py', 'effect_fixture.py', 'dolphin_fixture.py', 'capture.py', 'memory_watch.py', 'state.py']]
+    if wrapped.is_file():
+        oracle_files.append(wrapped)
+    for directory in ['config', 'game-settings']:
+        oracle_files.extend(sorted(Path(__file__).with_name(directory).glob('*')))
+    oracle_hashes = {str(p): digest(p) for p in oracle_files if p.is_file()}
+    if args.reference and not json.loads((args.reference/'results.json').read_text()).get('source_complete'):
+        raise ValueError('cached source suite did not finish')
+    dolphin = None
+    batch = copy.deepcopy(sequence)
+    batch.update(capture_frames=[i*12+FRAME for i in range(len(selected))], updates=len(selected)*12)
+    batch['isolation'].update(effects=[], clear_effects=True, cancel_scripts=True,
+        samples={i*12: {'background': color, 'effects': probes} for i, (_, color, probes, _) in enumerate(selected)})
+    write(args.output/'native.json', batch)
+    native_started = time.monotonic()
+    run_command([args.native, args.output/'native.json', args.output/'native', args.cooked], args.output/'native.log')
+    native_seconds = time.monotonic()-native_started
+    for case_index, (name, color, probes, regions) in enumerate(selected):
         out = args.output/name; out.mkdir()
         native = copy.deepcopy(sequence)
         native.update(capture_frames=[FRAME], updates=FRAME+2)
         native['isolation'].update(background=color, effects=probes, clear_effects=True, cancel_scripts=True)
         spec = out/'native.json'; write(spec, native)
         fingerprint = {'profile': profile, 'spec_sha256': digest(spec), 'catalogue_sha256': digest(catalogue_path),
-                       'suite_sha256': digest(__file__),
-                       'fixture_tool_sha256': digest(Path(__file__).with_name('effect_fixture.py')),
-                       'capture_tool_sha256': digest('tools/oracle/capture.py'), 'disc_sha256': disc_hash,
-                       'source_movie_sha256': digest(str(source)+'.dtm')}
+                       'disc_sha256': disc_hash,
+                       'source_movie_sha256': digest(str(source)+'.dtm'), 'oracle_files': oracle_hashes}
         reference_dir = args.reference/name if args.reference else out
         if args.reference:
             recorded = json.loads((reference_dir/'reference.json').read_text())
@@ -233,35 +309,40 @@ def run(args):
             fixture = out/'fixture.s01'
             models = [p for p in probes if p['shape']['kind'] == 'model']
             model = {**models[0], 'scale': models[0]['shape']['scale']} if models else None
-            edits = prepare(source, fixture, observation, [matte]+[source_sprite(p, catalogue) for p in probes if p['shape']['kind'] != 'model'], model)
+            edits = prepare(base, fixture, observation, [matte]+[source_sprite(p, catalogue) for p in probes if p['shape']['kind'] != 'model'], model)
             write(out/'fixture.json', edits)
             movie = out/'neutral.dtm'
             run_command(['target/debug/resonance-oracle', 'dtm', inputs, '--prefix', str(fixture)+'.dtm',
                          '--start-poll', observation['movie']['input_count'], '--output', movie], out/'movie.log')
-            run_command(['python3', 'tools/oracle/capture.py', '--disc', args.disc, '--movie', movie,
-                         '--initial-state', fixture, '--output', out/'dolphin', '--frame', FRAME,
-                         '--xvfb', '--watch-state', '--timeout', 90], out/'dolphin.log')
+            (out/'dolphin').mkdir()
+            if args.cold:
+                with DolphinFixture(args.disc, movie, fixture, out/'session', edits['marker_address']) as cold:
+                    cold.capture(fixture, out/'dolphin/reference.png', edits['case_marker'])
+            else:
+                if dolphin is None:
+                    dolphin = stack.enter_context(DolphinFixture(args.disc, movie, fixture, args.output/'dolphin', edits['marker_address']))
+                dolphin.capture(fixture, out/'dolphin/reference.png', edits['case_marker'])
             write(out/'reference.json', {'inputs': fingerprint, 'image_sha256': digest(out/'dolphin/reference.png'),
                                         'capture_sha256': digest(out/'dolphin/capture.json')})
         metadata = json.loads((reference_dir/'dolphin/capture.json').read_text())
         if (not metadata['complete'] or metadata['disc_sha256'] != disc_hash
-                or metadata['requested_frame'] != FRAME
+                or metadata['requested_frame'] not in [FRAME, 12]
                 or metadata['dolphin_version'] != 'Dolphin [master] 2606'
                 or not metadata['presentation']['gecko_verified']
+                or metadata['presentation'].get('texture_sampling') != 'precise'
                 or metadata['audio']['backend'] != 'No Audio Output'):
             raise ValueError('invalid Dolphin capture provenance: '+name)
-        run_command([args.native, spec, out/'native', args.cooked], out/'native.log')
         reference = Image.open(reference_dir/'dolphin/reference.png')
-        actual = Image.open(out/'native'/f'frame-{FRAME:04}.png')
+        actual = Image.open(args.output/'native'/f'frame-{case_index*12+FRAME:04}.png')
         background = Image.new('RGB', reference.size, tuple(color))
         actual_background = background
-        if name.startswith('refraction-'):
+        if name.startswith(('refraction-', 'random-')):
             validate_checker(reference)
             validate_checker(actual)
-        if name.startswith('refraction-') and name != 'refraction-background':
+        if name.startswith(('refraction-', 'random-')) and name != 'refraction-background':
             background = Image.open(args.output/'refraction-background/reference.png')
             actual_background = Image.open(args.output/'refraction-background/actual.png')
-        elif not name.startswith('refraction-'):
+        elif not name.startswith(('refraction-', 'random-')):
             validate_matte(reference, color)
             validate_matte(actual, color)
         delta = np.abs(np.asarray(reference.convert('RGB'), dtype=np.int16)-np.asarray(actual.convert('RGB'), dtype=np.int16))
@@ -272,7 +353,12 @@ def run(args):
         print(name, sum(r['passed'] for r in results if r['case'].startswith(name+'/')), '/', len(regions), flush=True)
     if not results:
         raise ValueError('no cases selected')
-    write(args.output/'results.json', {'gates': GATES, 'native_sha256': digest(args.native), 'results': results,
+    # Validate the watcher and close the source session before publishing success.
+    stack.close()
+    write(args.output/'results.json', {'gates': GATES, 'native_sha256': native_hash, 'results': results,
+                                      'source_complete': True,
+                                      'native_seconds': native_seconds, 'total_seconds': time.monotonic()-started,
+                                      'seed': args.seed, 'random_cases': args.random_cases,
                                       'passed': all(r['passed'] for r in results), 'reference': str(args.reference) if args.reference else None})
     page='<html><meta charset="utf-8"><title>Effect primitive deltas</title><style>body{font:16px system-ui;background:#eee;margin:2rem}img{width:32%}td,th{padding:.4rem;border:1px solid #aaa}table{border-collapse:collapse}.fail{background:#ffd4d4}.pass{background:#d4ffda}</style><h1>Effect primitive deltas</h1><p>Reference / Resonance / absolute difference ×4. Fixed camera and samples; no image alignment or brightness fitting. Atlas poses are sampled from cooked recipes; emitter timing is outside this suite.</p>'
     page+=f'<p>{sum(r["passed"] for r in results)} / {len(results)} checks passed. Gates: {html.escape(json.dumps(GATES))}</p>'
@@ -294,4 +380,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--reference', type=Path)
     parser.add_argument('--only')
+    parser.add_argument('--cold', action='store_true', help='Start Dolphin per case to verify the warm oracle')
+    parser.add_argument('--seed', type=int, default=1)
+    parser.add_argument('--random-cases', type=int, default=32)
     sys.exit(run(parser.parse_args()))

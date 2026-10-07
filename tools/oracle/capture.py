@@ -189,7 +189,6 @@ def main():
         if "battle" in observation and (args.watch_actor or args.watch_particle):
             parser.error("field actor/particle watches require a field checkpoint")
         if args.watch_state:
-            actor_locations["8035A73C"] = "field_save_point_word"
             for controller in range(4):
                 actor_locations[f"{0x802caed8 + controller * 12 + 8:08X}"] = f"controller_{controller}_status_word"
             for offset in range(0, 0x24, 4):

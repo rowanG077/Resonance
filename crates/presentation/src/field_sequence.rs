@@ -7,6 +7,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     time::Instant,
@@ -68,6 +69,15 @@ pub struct FieldIsolation {
     /// Frozen renderer inputs for the effect-base delta suite, reapplied after each update.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<super::effect_probe::EffectProbe>,
+    /// Replace frozen inputs at these update numbers without reloading the field.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub samples: BTreeMap<u32, EffectSample>,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectSample {
+    pub background: [u8; 3],
+    pub effects: Vec<super::effect_probe::EffectProbe>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -87,7 +97,17 @@ impl FieldSequence {
     pub(super) fn validate(&self) -> Result<()> {
         if let Some(isolation) = &self.isolation {
             ensure!(isolation.effects.len() <= 128, "too many effect probes");
-            for effect in &isolation.effects {
+            for (&update, sample) in &isolation.samples {
+                ensure!(
+                    update < self.updates && sample.effects.len() <= 128,
+                    "invalid effect sample"
+                );
+            }
+            for effect in isolation
+                .effects
+                .iter()
+                .chain(isolation.samples.values().flat_map(|s| &s.effects))
+            {
                 effect.validate()?;
             }
         }
@@ -259,15 +279,20 @@ fn advance(
         }
         session.0.events.world.audio_commands.clear();
         if let Some(isolation) = &recording.spec.isolation
-            && !isolation.effects.is_empty()
+            && (!isolation.effects.is_empty() || !isolation.samples.is_empty())
         {
             let world = &mut session.0.events.world;
             world.billboards.clear();
             world.model_particles.clear();
             world.refractions.clear();
             world.particles.clear();
-            for (index, effect) in isolation.effects.iter().enumerate() {
-                effect.apply(world, -(index as i32) - 1);
+            let effects = isolation
+                .samples
+                .range(..=update)
+                .next_back()
+                .map_or(&isolation.effects, |(_, sample)| &sample.effects);
+            for (index, effect) in effects.iter().enumerate() {
+                effect.apply(world, index as i32 + 1);
             }
         }
         if let Some(camera) = recording
@@ -331,7 +356,13 @@ fn capture(
     mut clear: ResMut<ClearColor>,
 ) {
     if let Some(isolation) = &recording.spec.isolation {
-        let [r, g, b] = isolation.background.map(|v| f32::from(v) / 255.);
+        let update = recording.frame.saturating_sub(1) / recording.spec.renders_per_update;
+        let background = isolation
+            .samples
+            .range(..=update)
+            .next_back()
+            .map_or(isolation.background, |(_, sample)| sample.background);
+        let [r, g, b] = background.map(|v| f32::from(v) / 255.);
         clear.0 = Color::linear_rgb(r, g, b);
     }
     if recording.settled < 20 {
