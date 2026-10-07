@@ -57,7 +57,7 @@ pub struct ModelParticle {
     alpha_delta: f32,
 }
 impl ModelParticle {
-    fn new(resource: u32) -> Self {
+    pub fn new(resource: u32) -> Self {
         Self {
             operation: None,
             resource,

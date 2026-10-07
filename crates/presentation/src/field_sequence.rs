@@ -65,6 +65,9 @@ pub struct FieldIsolation {
     /// Stop arrival scripts so an isolated ability can receive ordinary input.
     #[serde(default)]
     pub cancel_scripts: bool,
+    /// Frozen renderer inputs for the effect-base delta suite, reapplied after each update.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<super::effect_probe::EffectProbe>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -82,6 +85,12 @@ pub struct FieldMovement {
 }
 impl FieldSequence {
     pub(super) fn validate(&self) -> Result<()> {
+        if let Some(isolation) = &self.isolation {
+            ensure!(isolation.effects.len() <= 128, "too many effect probes");
+            for effect in &isolation.effects {
+                effect.validate()?;
+            }
+        }
         if let Some(camera) = self.isolation.as_ref().and_then(|i| i.camera.as_ref()) {
             ensure!(
                 camera
@@ -249,6 +258,18 @@ fn advance(
             return;
         }
         session.0.events.world.audio_commands.clear();
+        if let Some(isolation) = &recording.spec.isolation
+            && !isolation.effects.is_empty()
+        {
+            let world = &mut session.0.events.world;
+            world.billboards.clear();
+            world.model_particles.clear();
+            world.refractions.clear();
+            world.particles.clear();
+            for (index, effect) in isolation.effects.iter().enumerate() {
+                effect.apply(world, -(index as i32) - 1);
+            }
+        }
         if let Some(camera) = recording
             .spec
             .isolation
