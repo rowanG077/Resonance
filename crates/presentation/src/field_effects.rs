@@ -1,6 +1,7 @@
 //! Camera-facing sprites from cooked recipes and live event state.
 use super::sparse_animation::affine::Helper as TransformHelper;
 use super::{
+    draw_order::{CONTACT_SHADOWS, DrawOrder, EFFECT_UI_OFFSET, EFFECTS},
     field_animation::Rig,
     field_audit::{Applied, Request},
     field_view::{ActorPart, State},
@@ -18,10 +19,14 @@ use resonance_content::{
     effect::{EmoteTrack, FieldEffects, FlutterRecipe, RefractionRecipe, VerticalAnchor},
     field::FieldAssets,
 };
+use resonance_events::effect::SpriteOrientation;
 use std::{collections::BTreeMap, fs, path::Path};
 
 const EMOTES: usize = 0;
 const STATUS: usize = 1;
+
+// Blend mode, then whether field fog is enabled.
+type SpriteMaterials = [[usize; 2]; 3];
 
 #[derive(Component)]
 pub(super) struct EffectDraw;
@@ -30,14 +35,13 @@ pub(super) struct EffectDraw;
 pub(super) struct Artwork {
     spec: FieldEffects,
     textures: Vec<Handle<Image>>,
-    layers: Vec<Option<(Entity, Handle<Mesh>)>>,
+    materials: Vec<Handle<TitleSurface>>,
+    warm_mesh: Handle<Mesh>,
+    draws: Vec<(Entity, Handle<Mesh>)>,
     particles: BTreeMap<i32, (FlutterRecipe, usize)>,
     shadow: (resonance_content::field::ContactShadow, usize),
-    sprite_modes: BTreeMap<(u16, u8, bool), usize>,
-    texture_modes: BTreeMap<(u32, u8, u8, bool), usize>,
-    additive: Vec<bool>,
-    subtractive: Vec<bool>,
-    fog: Vec<bool>,
+    sprite_materials: BTreeMap<u16, SpriteMaterials>,
+    overlay_materials: BTreeMap<u32, Vec<SpriteMaterials>>,
     refraction_texture: [Handle<Image>; 2],
 }
 impl Artwork {
@@ -60,13 +64,21 @@ impl Artwork {
     pub fn mouth_frame(&self, age: u32) -> u8 {
         self.spec.mouth_cycle[age as usize % self.spec.mouth_cycle.len()]
     }
-    pub fn load(root: &Path, field: &FieldAssets, server: &AssetServer) -> Result<Self> {
-        Self::load_with(root, field, server, None)
+    pub fn load(
+        root: &Path,
+        field: &FieldAssets,
+        server: &AssetServer,
+        meshes: &mut Assets<Mesh>,
+        surfaces: &mut Assets<TitleSurface>,
+    ) -> Result<Self> {
+        Self::load_with(root, field, server, meshes, surfaces, None)
     }
     pub fn load_with(
         root: &Path,
         field: &FieldAssets,
         server: &AssetServer,
+        meshes: &mut Assets<Mesh>,
+        surfaces: &mut Assets<TitleSurface>,
         files: Option<&resonance_content::prepared::Files>,
     ) -> Result<Self> {
         let spec: FieldEffects = if let Some(files) = files {
@@ -75,204 +87,151 @@ impl Artwork {
             serde_json::from_slice(&fs::read(root.join(&field.effects))?)?
         };
         spec.validate()?;
-        let mut paths = vec![spec.emote_texture.clone(), spec.status_texture.clone()];
-        let mut additive = vec![false, false];
+        let mut textures: Vec<Handle<Image>> = Vec::new();
+        let mut materials = Vec::new();
+        let mut shared = BTreeMap::new();
+        let mut register = |path: &str, blend, field_fog| {
+            let key = (path.to_owned(), blend, field_fog);
+            if let Some(&index) = shared.get(&key) {
+                return index;
+            }
+            let index = materials.len();
+            let color = load_image(server, path, index == STATUS);
+            // Status pixels share the UI atlas, but world symbols use a linear sampler.
+            let sampling = if index == STATUS {
+                textures[EMOTES].clone()
+            } else {
+                color.clone()
+            };
+            textures.push(color.clone());
+            materials.push(surfaces.add(TitleSurface {
+                color: Some(color),
+                sampling: Some(sampling),
+                field_fog,
+                blend: true,
+                additive: blend == 1,
+                subtractive: blend == 2,
+                clamp_color: index > STATUS,
+                depth_test: index > STATUS,
+                depth_write: false,
+                cull: resonance_content::CullFace::None,
+                ..default()
+            }));
+            if index > STATUS {
+                shared.insert(key, index);
+            }
+            index
+        };
+        register(&spec.emote_texture, 0, false);
+        register(&spec.status_texture, 0, false);
         let particles = field
             .particles
             .iter()
-            .map(|(&kind, recipe)| {
-                let index = paths
-                    .iter()
-                    .enumerate()
-                    .find(|(i, p)| *i > STATUS && !additive[*i] && **p == recipe.texture)
-                    .map(|(i, _)| i)
-                    .unwrap_or_else(|| {
-                        paths.push(recipe.texture.clone());
-                        additive.push(false);
-                        paths.len() - 1
-                    });
-                (kind, (recipe.clone(), index))
-            })
+            .map(|(&kind, recipe)| (kind, (recipe.clone(), register(&recipe.texture, 0, true))))
             .collect();
-        let shadow = (field.contact_shadow.clone(), paths.len());
-        paths.push(field.contact_shadow.texture.clone());
-        additive.push(false);
-        let mut subtractive = vec![false; paths.len()];
-        let mut fog: Vec<_> = (0..paths.len()).map(|index| index > STATUS).collect();
-        let mut sprite_modes = BTreeMap::new();
-        for (&kind, recipe) in &spec.sprites {
-            for mode in 0..3 {
-                for field_fog in [true, false] {
-                    sprite_modes.insert((kind, mode, field_fog), paths.len());
-                    paths.push(recipe.texture.clone());
-                    additive.push(mode == 1);
-                    subtractive.push(mode == 2);
-                    fog.push(field_fog);
-                }
-            }
-        }
-        let mut texture_modes = BTreeMap::new();
+        let shadow = (
+            field.contact_shadow.clone(),
+            register(&field.contact_shadow.texture, 0, true),
+        );
+        let mut variants = |path: &str| {
+            std::array::from_fn(|mode| {
+                std::array::from_fn(|fog| register(path, mode as u8, fog != 0))
+            })
+        };
+        let sprite_materials = spec
+            .sprites
+            .iter()
+            .map(|(&kind, recipe)| (kind, variants(&recipe.texture)))
+            .collect();
+        let mut overlay_materials = BTreeMap::new();
         for (&resource, path) in &field.overlays {
             let overlay: resonance_content::effect::OverlayArt = if let Some(files) = files {
                 files.json(path)?
             } else {
                 serde_json::from_slice(&fs::read(root.join(path))?)?
             };
-            for (image, texture) in overlay.textures.iter().enumerate() {
-                for mode in 0..3 {
-                    for field_fog in [true, false] {
-                        texture_modes
-                            .insert((resource as u32, image as u8, mode, field_fog), paths.len());
-                        paths.push(texture.images[0].path.clone());
-                        additive.push(mode == 1);
-                        subtractive.push(mode == 2);
-                        fog.push(field_fog);
-                    }
-                }
-            }
+            overlay_materials.insert(
+                resource as u32,
+                overlay
+                    .textures
+                    .iter()
+                    .map(|t| variants(&t.images[0].path))
+                    .collect(),
+            );
         }
-        let textures: Vec<_> = paths
-            .iter()
-            .enumerate()
-            .map(|(index, path)| {
-                server
-                    .load_builder()
-                    .with_settings(move |s: &mut ImageLoaderSettings| {
-                        s.is_srgb = false;
-                        // AssetServer shares the first load's settings by path.
-                        // Match dialogue's sampler for the shared frame/status atlas.
-                        s.sampler = if index == STATUS {
-                            ImageSampler::Descriptor(ImageSamplerDescriptor {
-                                address_mode_u: ImageAddressMode::Repeat,
-                                address_mode_v: ImageAddressMode::Repeat,
-                                ..ImageSamplerDescriptor::nearest()
-                            })
-                        } else {
-                            ImageSampler::linear()
-                        };
-                    })
-                    .load(path.clone())
-            })
-            .collect();
-        let layers = vec![None; textures.len()];
         let refraction_texture = [
             &spec.refraction.sprite.texture,
             &spec.air_refraction.texture,
         ]
-        .map(|path| {
-            server
-                .load_builder()
-                .with_settings(|s: &mut ImageLoaderSettings| {
-                    s.is_srgb = false;
-                    s.sampler = ImageSampler::linear();
-                })
-                .load(path.clone())
-        });
+        .map(|path| load_image(server, path, false));
+        let warm = Quad::new(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            [1.; 2],
+            [0., 0., 1., 1.],
+            [1.; 4],
+            VerticalAnchor::Center,
+        );
         Ok(Self {
             spec,
             textures,
-            layers,
+            materials,
+            warm_mesh: meshes.add(Quad::mesh(std::iter::once(&warm))),
+            draws: Vec::new(),
             particles,
-            sprite_modes,
-            texture_modes,
+            sprite_materials,
+            overlay_materials,
             shadow,
-            additive,
-            subtractive,
-            fog,
             refraction_texture,
         })
     }
     pub fn despawn(&mut self, world: &mut World) {
-        for (entity, _) in self.layers.iter_mut().filter_map(Option::take) {
+        for (entity, _) in self.draws.drain(..) {
             world.despawn(entity);
         }
     }
-    pub(super) fn prepare(
-        &mut self,
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-        surfaces: &mut Assets<TitleSurface>,
-    ) {
-        for index in 0..self.layers.len() {
-            if self.layers[index].is_some() {
-                continue;
-            }
-            let mut batch = Batch::default();
-            batch.sprite(
-                Vec3::ZERO,
-                Quat::IDENTITY,
-                [1., 1.],
-                [0., 0., 1., 1.],
-                [1.; 4],
-            );
-            let mesh = meshes.add(batch.mesh());
-            let surface = surfaces.add(TitleSurface {
-                field_fog: self.fog[index],
-                color: Some(self.textures[index].clone()),
-                // The UI shares the status atlas with nearest filtering. Reuse
-                // the prepared emote sampler for smooth world-space symbols.
-                sampling: Some(self.textures[if index == STATUS { EMOTES } else { index }].clone()),
-                blend: true,
-                additive: self.additive[index],
-                subtractive: self.subtractive[index],
-                clamp_color: index > STATUS,
-                // Head emotes ignore depth so hair cannot obscure them; dust tests depth.
-                depth_test: index > STATUS,
-                depth_write: false,
-                cull: resonance_content::CullFace::None,
-                ..default()
-            });
-            let entity = commands
-                .spawn((
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(surface),
-                    Transform::default(),
-                    Visibility::Hidden,
-                    NoFrustumCulling,
-                    EffectDraw,
-                    super::draw_order::DrawOrder(
-                        super::draw_order::EFFECTS
-                            + if index <= STATUS {
-                                u16::MAX as u32
-                            } else {
-                                index as u32
-                            },
-                        0,
-                    ),
-                ))
-                .id();
-            self.layers[index] = Some((entity, mesh));
-        }
+    pub(super) fn prepared_bindings(
+        &self,
+    ) -> impl Iterator<Item = (Handle<Mesh>, Handle<TitleSurface>)> + '_ {
+        self.materials
+            .iter()
+            .map(|material| (self.warm_mesh.clone(), material.clone()))
     }
 }
 
-#[derive(Default)]
-struct Batch {
-    positions: Vec<[f32; 3]>,
-    uv: Vec<[f32; 2]>,
-    colors: Vec<[f32; 4]>,
-    indices: Vec<u32>,
+fn load_image(server: &AssetServer, path: &str, nearest: bool) -> Handle<Image> {
+    server
+        .load_builder()
+        .with_settings(move |s: &mut ImageLoaderSettings| {
+            s.is_srgb = false;
+            // AssetServer shares the first load's settings by path. Match the UI atlas.
+            s.sampler = if nearest {
+                ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    address_mode_u: ImageAddressMode::Repeat,
+                    address_mode_v: ImageAddressMode::Repeat,
+                    ..ImageSamplerDescriptor::nearest()
+                })
+            } else {
+                ImageSampler::linear()
+            };
+        })
+        .load(path.to_owned())
 }
-impl Batch {
-    fn sprite(
-        &mut self,
-        center: Vec3,
-        rotation: Quat,
-        size: [f32; 2],
-        uv: [f32; 4],
-        color: [f32; 4],
-    ) {
-        self.anchored_sprite(center, rotation, size, uv, color, VerticalAnchor::Center);
-    }
-    fn anchored_sprite(
-        &mut self,
+
+struct Quad {
+    positions: [[f32; 3]; 4],
+    uv: [f32; 4],
+    color: [f32; 4],
+}
+impl Quad {
+    fn new(
         center: Vec3,
         rotation: Quat,
         size: [f32; 2],
         uv: [f32; 4],
         color: [f32; 4],
         anchor: VerticalAnchor,
-    ) {
+    ) -> Self {
         let right = rotation * Vec3::X * (size[0] / 2.).trunc();
         let [above, below] = match anchor {
             VerticalAnchor::Center => [(size[1] / 2.).trunc(); 2],
@@ -283,35 +242,52 @@ impl Batch {
         };
         let up = rotation * Vec3::Y * above;
         let down = rotation * Vec3::Y * below;
-        let base = self.positions.len() as u32;
-        self.positions.extend(
-            [
+        Self {
+            positions: [
                 center - right + up,
                 center + right + up,
                 center + right - down,
                 center - right - down,
             ]
             .map(|v| v.to_array()),
-        );
-        self.uv.extend([
-            [uv[0], uv[1]],
-            [uv[2], uv[1]],
-            [uv[2], uv[3]],
-            [uv[0], uv[3]],
-        ]);
-        self.colors.extend([color; 4]);
-        self.indices
-            .extend([base, base + 2, base + 1, base, base + 3, base + 2]);
+            uv,
+            color,
+        }
     }
-    fn mesh(self) -> Mesh {
+    fn mesh<'a>(quads: impl IntoIterator<Item = &'a Self>) -> Mesh {
+        let mut positions = Vec::new();
+        let mut uv = Vec::new();
+        let mut colors = Vec::new();
+        let mut indices = Vec::new();
+        for quad in quads {
+            let base = positions.len() as u32;
+            positions.extend(quad.positions);
+            let [left, top, right, bottom] = quad.uv;
+            uv.extend([[left, top], [right, top], [right, bottom], [left, bottom]]);
+            colors.extend([quad.color; 4]);
+            indices.extend([base, base + 2, base + 1, base, base + 3, base + 2]);
+        }
         Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::default(),
         )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uv)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
-        .with_inserted_indices(Indices::U32(self.indices))
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+        .with_inserted_indices(Indices::U32(indices))
+    }
+}
+
+pub(super) fn effect_rotation(
+    orientation: SpriteOrientation,
+    angles: [f32; 3],
+    camera: Quat,
+) -> Quat {
+    let [x, y, z] = angles.map(f32::to_radians);
+    let rotation = Quat::from_euler(EulerRot::ZYX, z, y, x);
+    match orientation {
+        SpriteOrientation::Camera => camera * rotation,
+        SpriteOrientation::World => rotation,
     }
 }
 
@@ -319,7 +295,7 @@ impl Batch {
 pub(super) fn render(
     mut commands: Commands,
     state: State,
-    art: Res<Artwork>,
+    mut art: ResMut<Artwork>,
     images: Res<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     actors: Query<(&ActorPart, Option<&Rig>)>,
@@ -353,7 +329,7 @@ pub(super) fn render(
     let side = Vec3::new(camera.right().x, camera.right().y, 0.).normalize_or_zero();
     let forward = Vec3::Z.cross(side);
     let brightness = world.brightness();
-    let mut batches: Vec<_> = (0..art.layers.len()).map(|_| Batch::default()).collect();
+    let mut quads = Vec::new();
     for particle in &world.particles {
         let Some((recipe, layer)) = art.particles.get(&particle.kind) else {
             continue;
@@ -363,7 +339,7 @@ pub(super) fn render(
         };
         let [x, y, z] = flutter.rotation.map(f32::to_radians);
         let rgb = particle.rgba.map(|v| v * 4. / 255. * brightness);
-        batches[*layer].sprite(
+        let quad = Quad::new(
             Vec3::from_array(particle.position),
             Quat::from_euler(EulerRot::ZYX, z, y, x),
             [particle.size, particle.size / recipe.aspect_ratio],
@@ -374,14 +350,16 @@ pub(super) fn render(
                 rgb[2],
                 particle.alpha(world.tick).clamp(0., 255.) / 255.,
             ],
+            VerticalAnchor::Center,
         );
+        quads.push((EFFECTS, particle.handle, *layer, quad));
         applied.ack(Request::Particle(particle.handle));
     }
     let collision = world.ring_shadows().next().map(|_| state.get().collision());
     for position in world.ring_shadows() {
         if let Some(surface) = collision.as_ref().and_then(|c| c.surface_below(position)) {
-            let (spec, batch) = &art.shadow;
-            batches[*batch].sprite(
+            let (spec, layer) = &art.shadow;
+            let quad = Quad::new(
                 Vec3::new(
                     position[0],
                     position[1],
@@ -391,24 +369,21 @@ pub(super) fn render(
                 [40.; 2],
                 [0., 0., spec.uv_size[0], spec.uv_size[1]],
                 [0., 0., 1., 64. / 255.],
+                VerticalAnchor::Center,
             );
+            quads.push((CONTACT_SHADOWS, 0, *layer, quad));
         }
     }
     for (&id, effect) in &world.billboards {
         let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
             continue;
         };
-        let rotation = match effect.orientation {
-            resonance_events::effect::SpriteOrientation::Camera => {
-                camera.rotation * Quat::from_rotation_z(effect.rotation[2].to_radians())
-            }
-            resonance_events::effect::SpriteOrientation::World => Quat::from_euler(
-                EulerRot::ZYX,
-                effect.rotation[2].to_radians(),
-                effect.rotation[1].to_radians(),
-                effect.rotation[0].to_radians(),
-            ),
+        // Camera-facing sprites use only roll; model and refraction planes can tilt.
+        let angles = match effect.orientation {
+            SpriteOrientation::Camera => [0., 0., effect.rotation[2]],
+            SpriteOrientation::World => effect.rotation,
         };
+        let rotation = effect_rotation(effect.orientation, angles, camera.rotation);
         let mut rgba = effect.rgba;
         if let Some(palette) = effect
             .palette
@@ -425,26 +400,24 @@ pub(super) fn render(
         } else {
             1.
         };
-        let rgb = rgba[..3]
-            .iter()
-            .map(|v| f32::from(*v) * 4. / 255. * brightness)
-            .collect::<Vec<_>>();
+        let rgb = rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
         let mode = effect
             .blend_mode
             .filter(|mode| *mode < 3)
             .unwrap_or(u8::from(recipe.additive));
-        let (batch, uv) = if let Some((resource, image)) = effect.texture {
+        let (materials, uv) = if let Some((resource, image)) = effect.texture {
             (
-                art.texture_modes[&(resource, image, mode, effect.field_fog)],
+                &art.overlay_materials[&resource][usize::from(image)],
                 [0., 0., 1., 1.],
             )
         } else {
             (
-                art.sprite_modes[&(effect.recipe, mode, effect.field_fog)],
+                &art.sprite_materials[&effect.recipe],
                 recipe.uv_at(world.tick.saturating_sub(effect.born) + 1),
             )
         };
-        batches[batch].anchored_sprite(
+        let layer = materials[usize::from(mode)][usize::from(effect.field_fog)];
+        let quad = Quad::new(
             Vec3::from_array(effect.position),
             rotation,
             effect.size,
@@ -457,6 +430,7 @@ pub(super) fn render(
             ],
             effect.anchor,
         );
+        quads.push((EFFECTS, id, layer, quad));
         applied.ack(Request::Billboard(id));
     }
     let roots: BTreeMap<_, _> = actors
@@ -510,7 +484,7 @@ pub(super) fn render(
             let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
             let center = anchor + side * x + forward * y + Vec3::Z * z;
             let rotation = camera.rotation * Quat::from_rotation_z(sprite.rotation.to_radians());
-            batches[layer].anchored_sprite(
+            let quad = Quad::new(
                 center,
                 rotation,
                 sprite.size,
@@ -523,22 +497,37 @@ pub(super) fn render(
                 ],
                 sprite.vertical_anchor,
             );
+            quads.push((EFFECTS + EFFECT_UI_OFFSET, layer as i32, layer, quad));
         }
         applied.ack(request);
     }
-    for (index, batch) in batches.into_iter().enumerate() {
-        if batch.positions.is_empty() {
-            if let Some((entity, _)) = &art.layers[index] {
-                commands.entity(*entity).insert(Visibility::Hidden);
-            }
-            continue;
-        }
-        let mesh = batch.mesh();
-        let (entity, handle) = art.layers[index]
-            .as_ref()
-            .expect("effect layer was not prepared");
-        *meshes.get_mut(handle).expect("effect mesh is retained") = mesh;
-        commands.entity(*entity).insert(Visibility::Inherited);
+    // Only adjacent, compatible draws may merge; translucent overlap is ordered.
+    quads.sort_by_key(|(pass, id, _, _)| (*pass, *id));
+    let mut used = 0;
+    for run in quads.chunk_by(|a, b| (a.0, a.2) == (b.0, b.2)) {
+        let (pass, _, layer, _) = run[0];
+        let batch = Quad::mesh(run.iter().map(|(_, _, _, quad)| quad));
+        let (entity, mesh) = if let Some((entity, mesh)) = art.draws.get(used) {
+            *meshes.get_mut(mesh).unwrap() = batch;
+            (*entity, mesh.clone())
+        } else {
+            let mesh = meshes.add(batch);
+            let entity = commands
+                .spawn((Transform::default(), NoFrustumCulling, EffectDraw))
+                .id();
+            art.draws.push((entity, mesh.clone()));
+            (entity, mesh)
+        };
+        commands.entity(entity).insert((
+            Mesh3d(mesh),
+            MeshMaterial3d(art.materials[layer].clone()),
+            Visibility::Inherited,
+            DrawOrder(pass, used),
+        ));
+        used += 1;
+    }
+    for &(entity, _) in art.draws.iter().skip(used) {
+        commands.entity(entity).insert(Visibility::Hidden);
     }
 }
 
@@ -619,8 +608,7 @@ mod tests {
             (VerticalAnchor::UpperHalf, [1., 1., 0., 0.]),
             (VerticalAnchor::LowerHalf, [0., 0., -1., -1.]),
         ] {
-            let mut batch = Batch::default();
-            batch.anchored_sprite(
+            let quad = Quad::new(
                 Vec3::ZERO,
                 Quat::IDENTITY,
                 [3.; 2],
@@ -629,11 +617,11 @@ mod tests {
                 anchor,
             );
             assert_eq!(
-                batch.positions.iter().map(|p| p[1]).collect::<Vec<_>>(),
+                quad.positions.iter().map(|p| p[1]).collect::<Vec<_>>(),
                 expected
             );
             assert_eq!(
-                batch.positions.iter().map(|p| p[0]).collect::<Vec<_>>(),
+                quad.positions.iter().map(|p| p[0]).collect::<Vec<_>>(),
                 [-1., 1., 1., -1.]
             );
         }

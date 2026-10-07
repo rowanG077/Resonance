@@ -457,9 +457,7 @@ fn build_app_with_display(
     audio::validate_startup(&app, silent, capture_only)?;
     bevy::asset::embedded_asset!(app, "title_output.wgsl");
     bevy::asset::embedded_asset!(app, "title_text.wgsl");
-    bevy::asset::embedded_asset!(app, "title_surface.wgsl");
-    bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
-    bevy::shader::load_shader_library!(&mut app, "surface_bindings.wgsl");
+    materials::embed_shaders(&mut app);
     bevy::asset::embedded_asset!(app, "title_glow.wgsl");
     app.get_sub_app_mut(bevy::render::RenderApp)
         .context("render application unavailable")?

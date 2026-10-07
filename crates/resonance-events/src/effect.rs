@@ -386,7 +386,6 @@ pub struct BillboardEffect {
     pub lifetime: u32,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
-    pub acceleration: Option<f32>,
     pub(crate) controller: Option<BillboardController>,
     pub gravity: f32,
     pub rotation: [f32; 3],
@@ -479,7 +478,6 @@ impl Default for BillboardEffect {
             lifetime: 0,
             position: [0.; 3],
             velocity: [0.; 3],
-            acceleration: None,
             controller: None,
             gravity: 0.,
             rotation: [0.; 3],
@@ -494,47 +492,17 @@ impl Default for BillboardEffect {
 }
 
 impl BillboardEffect {
-    pub(crate) fn advance(&mut self, tick: u32, age: u32, random: &mut u32) {
-        if let Some(controller) = &mut self.controller {
-            match controller {
-                BillboardController::Orbit(orbit) => self.position = orbit.position(age),
-                BillboardController::Flutter(flutter) => {
-                    flutter.step(&mut self.position, tick, &mut || {
-                        crate::world::random(random)
-                    });
-                    self.rotation = flutter.rotation;
-                }
-                BillboardController::CameraOffset { .. } => {}
-            }
-        }
-        self.step();
-    }
     pub fn poison(position: [f32; 3], size: f32, speed: f32, born: u32) -> Self {
         Self {
-            operation: None,
-            owner: None,
             field_lighting: true,
-            field_fog: true,
-            orientation: crate::effect::SpriteOrientation::Camera,
-            anchor: resonance_content::effect::VerticalAnchor::Center,
-            palette: None,
-            controller: None,
-            acceleration: None,
-            gravity: 0.,
-            recipe: 10,
-            uv: None,
-            texture: None,
+            recipe: ORB_SPRITE,
             born,
             lifetime: 21,
             position,
             velocity: [0., 0., speed],
-            rotation: [0.; 3],
-            angular_velocity: [0.; 3],
             size: [size; 2],
-            size_delta: 0.,
             rgba: [13, 63, 4, 255],
-            fade: Fade::Linear(0.),
-            blend_mode: None,
+            ..Default::default()
         }
     }
 
@@ -546,19 +514,8 @@ impl BillboardEffect {
         effect_tick: u32,
     ) -> Self {
         Self {
-            operation: None,
-            owner: None,
             field_lighting: true,
-            field_fog: true,
-            orientation: crate::effect::SpriteOrientation::Camera,
-            anchor: resonance_content::effect::VerticalAnchor::Center,
-            palette: None,
-            controller: None,
-            acceleration: None,
-            gravity: 0.,
-            recipe: 8,
-            uv: None,
-            texture: None,
+            recipe: SPINNING_STAR_SPRITE,
             born,
             lifetime: 61,
             position,
@@ -566,17 +523,11 @@ impl BillboardEffect {
             rotation: [0., 0., (effect_tick & 127) as f32],
             angular_velocity: [0., 0., 1.],
             size: [size; 2],
-            size_delta: 0.,
-            rgba: [64, 64, 64, 255],
-            fade: Fade::Linear(0.),
-            blend_mode: None,
+            ..Default::default()
         }
     }
 
     pub fn step(&mut self) {
-        if let Some(gain) = self.acceleration {
-            self.velocity = self.velocity.map(|v| v * gain);
-        }
         for i in 0..3 {
             self.position[i] += self.velocity[i];
             self.rotation[i] += self.angular_velocity[i];
@@ -628,27 +579,34 @@ impl crate::GameWorld {
                 };
                 trails.push(trail);
             }
-            if let Some(crate::effect::BillboardController::CameraOffset {
-                emitter,
-                center,
-                distance,
-            }) = &mut effect.controller
-            {
-                if let Some(offset) = self
-                    .actors
-                    .get(emitter)
-                    .and_then(|a| a.emitter.as_ref())
-                    .and_then(crate::emitter::Emitter::camera_offset)
-                {
-                    *distance = offset;
+            match &mut effect.controller {
+                Some(BillboardController::Orbit(orbit)) => {
+                    effect.position = orbit.position(self.tick.saturating_sub(effect.born));
                 }
-                effect.position = std::array::from_fn(|i| center[i] + direction[i] * *distance);
+                Some(BillboardController::Flutter(flutter)) => {
+                    flutter.step(&mut effect.position, effect_tick, &mut || {
+                        crate::world::random(&mut self.random_state)
+                    });
+                    effect.rotation = flutter.rotation;
+                }
+                Some(BillboardController::CameraOffset {
+                    emitter,
+                    center,
+                    distance,
+                }) => {
+                    if let Some(offset) = self
+                        .actors
+                        .get(emitter)
+                        .and_then(|a| a.emitter.as_ref())
+                        .and_then(crate::emitter::Emitter::camera_offset)
+                    {
+                        *distance = offset;
+                    }
+                    effect.position = std::array::from_fn(|i| center[i] + direction[i] * *distance);
+                }
+                None => {}
             }
-            effect.advance(
-                effect_tick,
-                self.tick.saturating_sub(effect.born),
-                &mut self.random_state,
-            );
+            effect.step();
         }
         for trail in trails {
             self.emit_billboard(trail)?;

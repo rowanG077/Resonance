@@ -42,6 +42,10 @@ fn surface_shader_validates_with_and_without_view_fog() -> anyhow::Result<()> {
         include_str!("surface_bindings.wgsl"),
         "surface_bindings.wgsl",
     ));
+    sources.push(Shader::from_wgsl(
+        include_str!("effect_color.wgsl"),
+        "effect_color.wgsl",
+    ));
     let mut assets = Assets::<Shader>::default();
     let mut cache = ShaderCache::new((), WgpuFeatures::all(), DownlevelFlags::all(), |_, _, _| {
         Ok(())
@@ -55,7 +59,7 @@ fn surface_shader_validates_with_and_without_view_fog() -> anyhow::Result<()> {
     cache.set_shader(handle.id(), shader);
     for bindless in [false, true] {
         for fog in [false, true] {
-            for lighting in [false, true] {
+            for (lighting, particles) in [(false, false), (true, false), (false, true)] {
                 let mut defs: Vec<ShaderDefVal> = [
                     ("MATERIAL_BIND_GROUP", 3),
                     ("MAX_DIRECTIONAL_LIGHTS", MAX_DIRECTIONAL_LIGHTS as u32),
@@ -80,6 +84,7 @@ fn surface_shader_validates_with_and_without_view_fog() -> anyhow::Result<()> {
                     ("BINDLESS", bindless),
                     ("DISTANCE_FOG", fog),
                     ("FIELD_LIGHTING", lighting),
+                    ("CLAMP_COLOR", particles),
                 ] {
                     if enabled {
                         defs.push(name.into());
@@ -92,7 +97,9 @@ fn surface_shader_validates_with_and_without_view_fog() -> anyhow::Result<()> {
                         }
                         error => error.to_string(),
                     };
-                    anyhow::bail!("bindless={bindless}, fog={fog}, lighting={lighting}: {message}");
+                    anyhow::bail!(
+                        "bindless={bindless}, fog={fog}, lighting={lighting}, particles={particles}: {message}"
+                    );
                 }
             }
         }

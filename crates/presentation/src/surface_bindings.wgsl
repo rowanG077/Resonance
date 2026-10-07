@@ -43,10 +43,25 @@ fn surface_data(slot: u32) -> SurfaceUniform {
 #endif
 }
 fn sample_primary(slot: u32, uv: vec2<f32>) -> vec4<f32> {
+    var coords = uv;
+#ifdef CLAMP_COLOR
+    // Particle atlas coordinates retain seven fractional bits per texel.
 #ifdef BINDLESS
-    return textureSample(bindless_textures_2d[indices[slot].color], bindless_samplers_filtering[indices[slot].color_sampler], uv);
+    let size = vec2<f32>(textureDimensions(bindless_textures_2d[indices[slot].color]));
 #else
-    return textureSample(color_texture, color_sampler, uv);
+    let size = vec2<f32>(textureDimensions(color_texture));
+#endif
+    coords = trunc(coords * size * 128.) / (size * 128.);
+#endif
+#ifdef BINDLESS
+    let sampled = textureSample(bindless_textures_2d[indices[slot].color], bindless_samplers_filtering[indices[slot].color_sampler], coords);
+#else
+    let sampled = textureSample(color_texture, color_sampler, coords);
+#endif
+#ifdef CLAMP_COLOR
+    return round(sampled * 255.) / 255.;
+#else
+    return sampled;
 #endif
 }
 fn sample_secondary(slot: u32, uv: vec2<f32>) -> vec4<f32> {

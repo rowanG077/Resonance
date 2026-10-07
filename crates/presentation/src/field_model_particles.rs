@@ -1,7 +1,8 @@
 //! Model particles share field assets, but have separate instances and draw state.
 use super::{
-    draw_order::{DrawOrder, EFFECTS},
+    draw_order::{DrawOrder, MODEL_EFFECTS},
     field_audit::{Applied, Request},
+    field_effects::effect_rotation,
     field_view::{Art, State},
     materials::{MaterialSlot, TitleSurface},
     scene::SampledImages,
@@ -88,6 +89,12 @@ pub(super) fn sync(
         return;
     }
     let world = &state.get().events.world;
+    let camera = world
+        .field_camera
+        .as_ref()
+        .map_or(Quat::IDENTITY, |camera| {
+            super::field_view::camera_transform(camera).rotation
+        });
     let mut retained = BTreeSet::new();
     for (entity, mut part, mut transform) in &mut roots {
         let Some(particle) = world
@@ -98,6 +105,7 @@ pub(super) fn sync(
             commands.entity(entity).despawn();
             continue;
         };
+        let model = &art.models[&part.resource][part.index];
         retained.insert((part.handle, part.index));
         let request = Request::ModelParticle(part.handle, part.index);
         if part.phase == Phase::Instantiating {
@@ -111,7 +119,7 @@ pub(super) fn sync(
                 let index = slot
                     .index(part.materials.len())
                     .expect("model particle material slot");
-                let spec = &art.models[&part.resource][part.index].spec.materials[index];
+                let spec = &model.spec.materials[index];
                 if spec.image == resonance_content::SceneImage::Capture {
                     commands
                         .entity(child)
@@ -126,36 +134,14 @@ pub(super) fn sync(
                 }
                 commands.entity(child).insert((
                     MeshMaterial3d(part.materials[index].clone()),
-                    DrawOrder(
-                        EFFECTS
-                            + art.models[&part.resource][part.index].spec.materials[index]
-                                .draw_order,
-                        part.handle as usize,
-                    ),
+                    DrawOrder(MODEL_EFFECTS + spec.draw_order, part.handle as usize),
                 ));
                 part.phase = Phase::Ready;
             }
         }
         transform.translation = Vec3::from_array(particle.position);
         transform.scale = Vec3::from_array(particle.scale);
-        transform.rotation = Quat::from_euler(
-            EulerRot::ZYX,
-            particle.rotation[2].to_radians(),
-            particle.rotation[1].to_radians(),
-            particle.rotation[0].to_radians(),
-        );
-        if matches!(
-            particle.orientation,
-            resonance_events::effect::SpriteOrientation::Camera
-        ) {
-            transform.rotation = world
-                .field_camera
-                .as_ref()
-                .map_or(Quat::IDENTITY, |camera| {
-                    super::field_view::camera_transform(camera).rotation
-                })
-                * transform.rotation;
-        }
+        transform.rotation = effect_rotation(particle.orientation, particle.rotation, camera);
         let brightness = if particle.field_lighting {
             world.brightness()
         } else {
@@ -179,7 +165,7 @@ pub(super) fn sync(
                 material.subtractive = subtractive;
             }
         }
-        let captured = art.models[&part.resource][part.index]
+        let captured = model
             .spec
             .materials
             .iter()
