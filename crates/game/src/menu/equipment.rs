@@ -1,4 +1,5 @@
 use super::*;
+use resonance_events::input::Button;
 
 pub const VISIBLE_EQUIPMENT: usize = 9;
 /// Display order; saved parties store the arm slot after both accessories.
@@ -133,7 +134,7 @@ impl Menu {
             return None;
         }
         let focus = self.equipment.focus;
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             self.equipment.focus = match focus {
                 Focus::Character => {
                     self.equipment.transition.page_closing = true;
@@ -146,13 +147,13 @@ impl Menu {
             return Some(3);
         }
         if matches!(focus, Focus::Character | Focus::Slots)
-            && (input.previous_page
-                || input.next_page
+            && (input.pressed(Button::PreviousPage)
+                || input.pressed(Button::NextPage)
                 || focus == Focus::Character && (left || right))
         {
             let party = &self.checkpoint.as_ref().unwrap().progress.party;
             let old = self.character;
-            let back = input.previous_page || left;
+            let back = input.pressed(Button::PreviousPage) || left;
             for _ in 0..party.formation.len() {
                 self.character = (self.character
                     + if back { party.formation.len() - 1 } else { 1 })
@@ -168,7 +169,7 @@ impl Menu {
         let resources = self.resources.as_ref().unwrap().clone();
         match focus {
             Focus::Character => {
-                if input.menu {
+                if input.pressed(Button::Menu) {
                     if member == 0 {
                         self.equipment.focus = Focus::Optimal { thrust: false };
                         return Some(1);
@@ -182,11 +183,11 @@ impl Menu {
                         .optimize_equipment(&resources.session, &resources.data, member, false);
                     return self.party_result(result);
                 }
-                if up || down || input.interact {
+                if up || down || input.pressed(Button::Accept) {
                     self.equipment.focus = Focus::Slots;
                     self.equipment.slot = if up { SLOTS.len() - 1 } else { 0 };
                     self.equipment.reset_list();
-                    return Some(if input.interact { 2 } else { 1 });
+                    return Some(if input.pressed(Button::Accept) { 2 } else { 1 });
                 }
             }
             Focus::Optimal { thrust } => {
@@ -194,7 +195,7 @@ impl Menu {
                     self.equipment.focus = Focus::Optimal { thrust: !thrust };
                     return Some(1);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     let result = self
                         .checkpoint
                         .as_mut()
@@ -206,13 +207,13 @@ impl Menu {
                 }
             }
             Focus::Slots | Focus::List => {
-                if input.menu {
+                if input.pressed(Button::Menu) {
                     self.equipment.by_parameter = !self.equipment.by_parameter;
                     return Some(1);
                 }
                 let items = self.equipment_items();
                 if focus == Focus::Slots {
-                    if input.alternate {
+                    if input.pressed(Button::Ring) {
                         if self.equipment.slot == 0
                             || self.equipment_item().is_none()
                             || self.member().knocked_out()
@@ -228,7 +229,7 @@ impl Menu {
                         self.equipment.reset_list();
                         return self.party_result(result);
                     }
-                    if input.interact {
+                    if input.pressed(Button::Accept) {
                         if items.is_empty() || self.member().knocked_out() {
                             return Some(4);
                         }
@@ -250,7 +251,7 @@ impl Menu {
                         return Some(1);
                     }
                 } else {
-                    if input.interact {
+                    if input.pressed(Button::Accept) {
                         let id = *items.get(self.equipment.row)?;
                         let result = self.checkpoint.as_mut().unwrap().progress.party.equip_slot(
                             &resources.session,

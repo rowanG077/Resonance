@@ -135,59 +135,40 @@ impl Session {
             Start::Saved(checkpoint) => checkpoint.map_id,
             Start::Dungeon(destination) => destination.map,
         };
-        let saved = match &start {
-            Start::Saved(checkpoint) => Some(*checkpoint),
-            _ => None,
-        };
         let new_game = matches!(start, Start::NewGame);
         let initial = Arc::new(FieldPackage::load(root, files.clone(), map, cache)?);
         let available_fields = available_fields(root)?;
-        let mut entry = if let Start::Dungeon(destination) = &start {
-            destination.entry(data.clone(), available_fields.clone())?
-        } else if let Some(checkpoint) = saved {
-            checkpoint
-                .clone()
-                .entry(&initial.assets, data.clone(), available_fields.clone())?
+        let field = if let Start::Saved(checkpoint) = &start {
+            initial.restore(
+                checkpoint,
+                data.clone(),
+                skits.clone(),
+                available_fields.clone(),
+            )?
         } else {
-            FieldEntry {
-                services: None,
-                attachments: Default::default(),
-                effect_palette: Default::default(),
-                allow_incomplete_scripts: false,
-                kind: Default::default(),
-                menu_data: None,
-                play_time: Default::default(),
-                persistent: resonance_events::PersistentState {
-                    party: Some(resonance_events::party::Party::new(
-                        &data,
-                        Default::default(),
-                    )?),
-                    ..Default::default()
-                },
-                data: Some(data.clone()),
-                skits: None,
-                text: Default::default(),
-                available_fields: available_fields.clone(),
-                available_movies: Default::default(),
-                position: [-719., -371., 0.],
-                heading: 0.,
-                idle_animation: Some(116),
-                camera: None,
-            }
-        };
-        entry.skits = Some(skits.clone());
-        let mut field = initial.enter(entry)?;
-        if let Some(checkpoint) = saved {
-            initialize_checkpoint(&mut field, checkpoint)?;
-        }
-        initial.queue_entry(
-            &mut field,
-            if saved.is_some() {
-                resonance_game::field::EntryKind::Restore
+            let mut entry = if let Start::Dungeon(destination) = &start {
+                destination.entry(data.clone(), available_fields.clone())?
             } else {
-                resonance_game::field::EntryKind::Arrival
-            },
-        );
+                FieldEntry {
+                    persistent: resonance_events::PersistentState {
+                        party: Some(resonance_events::party::Party::new(
+                            &data,
+                            Default::default(),
+                        )?),
+                        ..Default::default()
+                    },
+                    data: Some(data.clone()),
+                    available_fields: available_fields.clone(),
+                    position: [-719., -371., 0.],
+                    idle_animation: Some(116),
+                    ..Default::default()
+                }
+            };
+            entry.skits = Some(skits.clone());
+            let mut field = initial.enter(entry)?;
+            initial.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
+            field
+        };
         let story_movie = if new_game {
             let movie: MovieAsset = files.json("movies/1.json")?;
             movie.validate()?;
@@ -309,15 +290,12 @@ impl Session {
             .get(&checkpoint.map_id)
             .context("saved field is not prepared")?
             .clone();
-        let mut entry = checkpoint.clone().entry(
-            &package.assets,
+        let field = package.restore(
+            &checkpoint,
             self.data.clone(),
+            self.skits.clone(),
             self.available_fields.clone(),
         )?;
-        entry.skits = Some(self.skits.clone());
-        let mut field = package.enter(entry)?;
-        initialize_checkpoint(&mut field, &checkpoint)?;
-        package.queue_entry(&mut field, resonance_game::field::EntryKind::Restore);
         self.activate(field, &package, false);
         self.prepared_movie = None;
         Ok(())
@@ -426,33 +404,21 @@ impl Session {
         );
         let starting_story =
             self.overworld.is_none() && self.assets.map_id == 5 && request.map == 340;
-        let mut entry = if let Some(scene) = &self.overworld {
-            scene.session.field_entry()?
+        let field = if let Some(scene) = &self.overworld {
+            let mut entry = scene.session.field_entry()?;
+            entry.allow_incomplete_scripts = self.field.allow_incomplete_scripts;
+            let mut field = package.enter(entry)?;
+            package.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
+            field
         } else {
-            FieldEntry {
-                play_time: self.field.play_time,
-                persistent: self.field.events.persistent_state()?,
-                data: Some(self.data.clone()),
-                skits: Some(self.skits.clone()),
-                available_fields: self.available_fields.clone(),
-                position: request.position,
-                heading: request.heading,
-                camera: request.camera.clone(),
-                ..Default::default()
-            }
+            package.transition(&self.field)?
         };
-        entry.allow_incomplete_scripts = self.field.allow_incomplete_scripts;
-        let mut field = package.enter(entry)?;
         if let Some(reason) = &field.events.exploration_error {
             warn!(
                 "Field {} entered as an exploration preview: {reason}",
                 package.assets.map_id
             );
         }
-        if self.overworld.is_none() {
-            field.continue_ambient(&self.field);
-        }
-        package.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
         self.activate(field, &package, starting_story);
         self.fields.insert(package.assets.map_id, package);
         Ok(())
@@ -532,6 +498,16 @@ pub(super) fn initialize_checkpoint(
         .as_mut()
         .context("saved field has no camera")?
         .snap_follow_view(&world.actors);
+    // Preparing the scene must not consume the saved gameplay clocks.
+    let travel = &mut world
+        .party
+        .as_mut()
+        .context("saved field has no party")?
+        .travel;
+    let saved = &checkpoint.progress.party.travel;
+    travel.field_ticks = saved.field_ticks;
+    travel.field_countdown = saved.field_countdown;
+    travel.ring_timer = saved.ring_timer;
     field.play_time = resonance_game::clock::PlayTime::resume(checkpoint.played_ticks());
     Ok(())
 }

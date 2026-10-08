@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::menu_data::TechniqueUse;
+use resonance_events::input::Button;
 use resonance_events::party::TechniqueShortcut;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -288,14 +289,14 @@ impl Menu {
         let member = self.member_index();
         let selected = self.selected_technique();
         if focus == Focus::CannotForget {
-            if input.interact || input.cancel {
+            if input.pressed(Button::Accept) || input.pressed(Button::Cancel) {
                 self.tech.focus = self.tech.return_to;
                 return Some(1);
             }
             return None;
         }
         if let Focus::Forget { yes } = focus {
-            if input.cancel {
+            if input.pressed(Button::Cancel) {
                 self.tech.focus = self.tech.return_to;
                 return Some(3);
             }
@@ -303,7 +304,7 @@ impl Menu {
                 self.tech.focus = Focus::Forget { yes: !yes };
                 return Some(1);
             }
-            if input.interact {
+            if input.pressed(Button::Accept) {
                 self.tech.focus = self.tech.return_to;
                 if !yes {
                     return Some(if self.tech_auto() { 2 } else { 3 });
@@ -324,7 +325,7 @@ impl Menu {
             }
             return None;
         }
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if focus == Focus::AssistCharacter || focus == Focus::Shortcuts && self.tech.unison {
                 self.close_tech_banner(if self.tech.unison {
                     Focus::Character
@@ -360,14 +361,14 @@ impl Menu {
         let count = self.party().formation.len();
         if matches!(focus, Focus::Character | Focus::Shortcuts | Focus::List)
             && !self.tech.unison
-            && (input.previous_page
-                || input.next_page
+            && (input.pressed(Button::PreviousPage)
+                || input.pressed(Button::NextPage)
                 || focus == Focus::Character && (left || right))
         {
             let before = self.character;
             for _ in 0..count {
                 self.character = (self.character
-                    + if input.previous_page || left {
+                    + if input.pressed(Button::PreviousPage) || left {
                         count - 1
                     } else {
                         1
@@ -402,13 +403,13 @@ impl Menu {
                     self.party_changed = true;
                     return Some(1);
                 }
-                if input.interact || down {
+                if input.pressed(Button::Accept) || down {
                     self.tech.focus = Focus::Character;
                     return Some(1);
                 }
             }
             Focus::Character => {
-                if input.start && self.character < VISIBLE_PARTY {
+                if input.pressed(Button::Start) && self.character < VISIBLE_PARTY {
                     let control = &mut self
                         .checkpoint
                         .as_mut()
@@ -422,7 +423,7 @@ impl Menu {
                     self.party_changed = true;
                     return Some(1);
                 }
-                if input.menu && self.tech_unison_available() {
+                if input.pressed(Button::Menu) && self.tech_unison_available() {
                     self.tech.unison = true;
                     self.tech.banner_opacity = 0;
                     self.tech.focus = Focus::Shortcuts;
@@ -435,7 +436,7 @@ impl Menu {
                     self.tech.focus = Focus::Control;
                     return Some(1);
                 }
-                if input.interact || down {
+                if input.pressed(Button::Accept) || down {
                     if self.tech_auto() {
                         self.reset_tech_focus();
                     } else {
@@ -446,7 +447,7 @@ impl Menu {
                 }
             }
             Focus::Shortcuts => {
-                if input.alternate {
+                if input.pressed(Button::Ring) {
                     selected?;
                     self.party_changed |= self
                         .checkpoint
@@ -458,7 +459,7 @@ impl Menu {
                         .expect("validated shortcut slot");
                     return Some(1);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     self.tech.row = 0;
                     self.tech.first = 0;
                     self.tech.focus = if self.tech.slot >= 4 {
@@ -506,9 +507,13 @@ impl Menu {
                 }
             }
             Focus::AssistCharacter => {
-                if left || right || input.previous_page || input.next_page {
+                if left
+                    || right
+                    || input.pressed(Button::PreviousPage)
+                    || input.pressed(Button::NextPage)
+                {
                     self.tech.assist = (self.tech.assist
-                        + if left || input.previous_page {
+                        + if left || input.pressed(Button::PreviousPage) {
                             count - 1
                         } else {
                             1
@@ -518,7 +523,7 @@ impl Menu {
                     self.tech.first = 0;
                     return Some(1);
                 }
-                if input.interact || down {
+                if input.pressed(Button::Accept) || down {
                     self.tech.focus = Focus::AssistList;
                     return Some(2);
                 }
@@ -539,7 +544,7 @@ impl Menu {
                         return Some(1);
                     }
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     let selected = selected?;
                     let party = &mut self.checkpoint.as_mut().unwrap().progress.party;
                     let target = usize::from(party.formation[self.tech.target] - 1);
@@ -573,13 +578,14 @@ impl Menu {
                 }
             }
             Focus::List | Focus::AssistList => {
-                if self.tech.unison && (input.alternate || input.menu) {
+                if self.tech.unison && (input.pressed(Button::Ring) || input.pressed(Button::Menu))
+                {
                     return None;
                 }
                 let list = self.technique_list();
                 let owner = self.tech_member_index();
                 let id = selected.map(|s| s.technique);
-                if input.alternate && focus == Focus::List {
+                if input.pressed(Button::Ring) && focus == Focus::List {
                     let id = id?;
                     if !self.member().techniques.contains(&id) {
                         return Some(4);
@@ -597,7 +603,7 @@ impl Menu {
                         2
                     });
                 }
-                if input.menu && self.tech_auto() && focus == Focus::List {
+                if input.pressed(Button::Menu) && self.tech_auto() && focus == Focus::List {
                     let id = id?;
                     let target =
                         &mut self.checkpoint.as_mut().unwrap().progress.party.members[owner];
@@ -610,9 +616,11 @@ impl Menu {
                     self.party_changed = true;
                     return Some(1);
                 }
-                let cast =
-                    input.interact && self.tech_auto() && !self.tech.unison && focus == Focus::List
-                        || input.menu;
+                let cast = input.pressed(Button::Accept)
+                    && self.tech_auto()
+                    && !self.tech.unison
+                    && focus == Focus::List
+                    || input.pressed(Button::Menu);
                 if cast {
                     let id = id?;
                     let target = &self.party().members[owner];
@@ -630,7 +638,7 @@ impl Menu {
                     self.tech.focus = Focus::Target;
                     return Some(2);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     let Some(selected) = selected else {
                         return Some(4);
                     };

@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::menu_data::RENAME_GEM;
+use resonance_events::input::Button;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
@@ -98,12 +99,12 @@ impl Menu {
         }
         match state.focus {
             Focus::Name => {
-                if input.cancel || up {
+                if input.pressed(Button::Cancel) || up {
                     state.focus = Focus::Commands;
                     state.command = 0;
                     return Some(1);
                 }
-                if input.interact || down {
+                if input.pressed(Button::Accept) || down {
                     state.focus = Focus::Keyboard;
                     let key = state
                         .value
@@ -113,14 +114,14 @@ impl Menu {
                         .unwrap_or(0);
                     state.column = key % 13;
                     state.row = key / 13;
-                    return Some(if input.interact { 2 } else { 1 });
+                    return Some(if input.pressed(Button::Accept) { 2 } else { 1 });
                 }
-                if input.menu {
+                if input.pressed(Button::Menu) {
                     state.value.clone_from(&data.defaults[state.character]);
                     state.position = 0;
                     return Some(2);
                 }
-                if input.alternate {
+                if input.pressed(Button::Ring) {
                     if state.position < state.value.len() {
                         state.value.remove(state.position);
                     } else if state.position > 0 {
@@ -141,11 +142,11 @@ impl Menu {
                 }
             }
             Focus::Keyboard => {
-                if input.cancel {
+                if input.pressed(Button::Cancel) {
                     state.focus = Focus::Name;
                     return Some(3);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if state.position < state.value.len() {
                         state.value.remove(state.position);
                     }
@@ -171,11 +172,11 @@ impl Menu {
                 return (left || right || up || down).then_some(1);
             }
             Focus::Commands => {
-                if input.cancel || down {
+                if input.pressed(Button::Cancel) || down {
                     state.focus = Focus::Name;
                     return Some(1);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     match state.command {
                         0 => {
                             if state.value.is_empty() {

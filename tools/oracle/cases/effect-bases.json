@@ -1,11 +1,11 @@
 {
   "source": {
-    "path": "local/teleporter-review/dolphin-standing/user/StateSaves/GQSEAF.s01",
+    "path": "local/oracle-fixtures/effects/base.s01",
     "sha256": "945b0d1d733f20304f1f3ec8ce93306db0547d6df348a2273009a0fb069c2b05"
   },
   "native_sequence": {
-    "path": "local/ring-shading-review/sprite-green-native.json",
-    "sha256": "8e78a44f98259b2d6bd58e32529b42338324c53eefdb1d52b352e20424f7b5c9"
+    "path": "local/oracle-fixtures/effects/base.json",
+    "sha256": "42160829d191cc07050873104d77bfd7a077dc6f47526abdb002cd5c9cbdad15"
   },
-  "description": "Pinned Martel renderer fixture. Low-level primitive inputs replace transient effects; this does not test gameplay composites."
+  "description": "Registered Martel stage for independent scenario-driven field effects, emotes and generated compositions."
 }

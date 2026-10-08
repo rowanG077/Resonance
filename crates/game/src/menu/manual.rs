@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::menu_data::{ManualChapter, ManualTopic};
+use resonance_events::input::Button;
 
 #[derive(Default, serde::Serialize)]
 pub struct Manual {
@@ -54,7 +55,7 @@ impl Menu {
         input: crate::field::FieldInput,
         [up, down, page_up, page_down]: [bool; 4],
     ) -> Option<i16> {
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if self.manual.reading {
                 self.manual.reading = false;
             } else {
@@ -73,7 +74,7 @@ impl Menu {
             .get(self.manual.topic)
             .map_or(0, |t| t.paragraphs.len());
         let state = &mut self.manual;
-        if input.interact {
+        if input.pressed(Button::Accept) {
             if state.reading {
                 return None;
             }

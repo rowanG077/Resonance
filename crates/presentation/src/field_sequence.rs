@@ -7,9 +7,9 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
     time::Instant,
 };
 
@@ -24,39 +24,71 @@ pub struct FieldSequence {
     /// Selected zero-based render frames; empty records every frame.
     #[serde(default)]
     pub capture_frames: Vec<u32>,
-    /// Compact field restart for paired oracle cases; no transient VM state.
+    /// Record per-frame simulation and geometry diagnostics alongside images.
     #[serde(default)]
-    pub checkpoint: Option<resonance_game::field::FieldCheckpoint>,
-    /// Scenario bytecode for a controlled command-driven effect comparison.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub script: Option<Vec<u16>>,
+    pub trace: bool,
+    /// The simulation's starting state; no transient VM state is restored.
+    #[serde(default)]
+    pub scene: FieldScene,
+    #[serde(default)]
+    pub at: CaptureMoment,
     /// Register a random input after fixture setup, before effect commands run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub random_seed: Option<EffectSeed>,
-    /// Use copied progress for an arrival scene instead of loading a free-control save.
-    #[serde(default)]
-    pub scene_entry: bool,
     /// Controlled render fixture: isolate effects or selected actors on a matte.
     #[serde(default)]
     pub isolation: Option<FieldIsolation>,
     /// Ordered formation IDs granted victory for controlled post-battle captures.
     #[serde(default)]
     pub battle_victories: Vec<u16>,
-    pub start_tick: Option<u32>,
     pub probe: Option<crate::ClassroomProbe>,
     pub updates: u32,
     pub renders_per_update: u32,
+    /// Complete held controls at each change; button edges follow transitions.
     #[serde(default)]
-    pub direction: [f32; 2],
-    #[serde(default)]
-    pub run: bool,
-    #[serde(default)]
-    pub accept_updates: Vec<u32>,
-    #[serde(default)]
-    pub ring_updates: Vec<u32>,
-    /// Held input changes, indexed from the first recorded update.
-    #[serde(default)]
-    pub movement: Vec<FieldMovement>,
+    pub inputs: Vec<FieldControls>,
+}
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum FieldScene {
+    #[default]
+    Classroom,
+    NewGame,
+    Restore {
+        checkpoint: resonance_game::field::FieldCheckpoint,
+    },
+    Arrival {
+        checkpoint: resonance_game::field::FieldCheckpoint,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        script: Option<Vec<u16>>,
+    },
+}
+impl FieldScene {
+    pub(super) fn checkpoint(&self) -> Option<&resonance_game::field::FieldCheckpoint> {
+        match self {
+            Self::Restore { checkpoint } | Self::Arrival { checkpoint, .. } => Some(checkpoint),
+            _ => None,
+        }
+    }
+    pub(super) fn script(&self) -> Option<&[u16]> {
+        match self {
+            Self::Arrival { script, .. } => script.as_deref(),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CaptureMoment {
+    #[default]
+    Control,
+    Tick {
+        update: u32,
+    },
+    Dialogue {
+        prefix: String,
+        hold_updates: u32,
+    },
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -80,21 +112,9 @@ pub struct FieldIsolation {
     /// Stop arrival scripts so an isolated ability can receive ordinary input.
     #[serde(default)]
     pub cancel_scripts: bool,
-    /// Frozen renderer inputs for the effect-base delta suite, reapplied after each update.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub effects: Vec<super::effect_probe::EffectProbe>,
     /// Stationary scenery for refraction tests, alongside live effects.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub backdrop: Vec<super::effect_probe::EffectProbe>,
-    /// Replace frozen inputs at these update numbers without reloading the field.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub samples: BTreeMap<u32, EffectSample>,
-}
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct EffectSample {
-    pub background: [u8; 3],
-    pub effects: Vec<super::effect_probe::EffectProbe>,
+    pub backdrop: Vec<super::backdrop::Backdrop>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -104,24 +124,27 @@ pub struct IsolationCamera {
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct FieldMovement {
+pub struct FieldControls {
     pub update: u32,
+    #[serde(default)]
     pub direction: [f32; 2],
     #[serde(default)]
     pub run: bool,
+    #[serde(default)]
+    pub buttons: Vec<resonance_events::input::Button>,
 }
 impl FieldSequence {
     pub(super) fn validate(&self) -> Result<()> {
         if let Some(seed) = &self.random_seed {
             ensure!(
-                self.script.is_some() && seed.update < self.updates,
+                self.scene.script().is_some() && seed.update < self.updates,
                 "effect random seed requires a script and an update inside the sequence"
             );
         }
-        if let Some(script) = &self.script {
+        if let Some(script) = self.scene.script() {
             ensure!(
-                self.checkpoint.is_some() && self.start_tick == Some(0),
-                "effect script requires a checkpoint and starts at update zero"
+                matches!(self.at, CaptureMoment::Tick { update: 0 }),
+                "effect script starts at update zero"
             );
             symphonia_script::Program::decode(
                 &script
@@ -131,23 +154,9 @@ impl FieldSequence {
             )?;
         }
         if let Some(isolation) = &self.isolation {
-            ensure!(
-                isolation.effects.len() + isolation.backdrop.len() <= 128,
-                "too many effect probes"
-            );
-            for (&update, sample) in &isolation.samples {
-                ensure!(
-                    update < self.updates && sample.effects.len() <= 128,
-                    "invalid effect sample"
-                );
-            }
-            for effect in isolation
-                .effects
-                .iter()
-                .chain(&isolation.backdrop)
-                .chain(isolation.samples.values().flat_map(|s| &s.effects))
-            {
-                effect.validate()?;
+            ensure!(isolation.backdrop.len() <= 128, "too many backdrop tiles");
+            for tile in &isolation.backdrop {
+                tile.validate()?;
             }
         }
         if let Some(camera) = self.isolation.as_ref().and_then(|i| i.camera.as_ref()) {
@@ -162,10 +171,6 @@ impl FieldSequence {
             );
         }
         ensure!(
-            !self.scene_entry || (self.checkpoint.is_some() && self.start_tick.is_some()),
-            "scene entry requires copied progress and an explicit start tick"
-        );
-        ensure!(
             (1..=MAX_SEQUENCE_UPDATES).contains(&self.updates)
                 && (1..=8).contains(&self.renders_per_update),
             "invalid sequence length/cadence"
@@ -179,25 +184,25 @@ impl FieldSequence {
             "invalid capture frames"
         );
         ensure!(
-            self.direction
-                .iter()
-                .all(|v| v.is_finite() && v.abs() <= 1.),
-            "invalid sequence direction"
-        );
-        ensure!(
-            self.accept_updates
-                .iter()
-                .chain(&self.ring_updates)
-                .all(|u| *u < self.updates),
-            "input outside sequence"
-        );
-        ensure!(
-            self.movement.windows(2).all(|w| w[0].update < w[1].update)
-                && self.movement.iter().all(|m| m.update < self.updates
+            self.inputs.windows(2).all(|w| w[0].update < w[1].update)
+                && self.inputs.iter().all(|m| m.update < self.updates
                     && m.direction.iter().all(|v| v.is_finite() && v.abs() <= 1.)),
-            "invalid movement sequence"
+            "invalid input timeline"
         );
         Ok(())
+    }
+
+    fn input(&self, update: u32) -> resonance_game::field::FieldInput {
+        let count = self.inputs.partition_point(|input| input.update <= update);
+        let Some(current) = count.checked_sub(1).map(|i| &self.inputs[i]) else {
+            return Default::default();
+        };
+        resonance_game::field::FieldInput {
+            direction: current.direction,
+            run: current.run,
+            held_buttons: current.buttons.iter().copied().collect(),
+            ..Default::default()
+        }
     }
 }
 #[derive(Resource)]
@@ -208,16 +213,33 @@ pub(super) struct Recording {
     frame: u32,
     captured: u32,
     presenting: bool,
+    rendered: bool,
     battle_victories: usize,
     since: Instant,
+    failure: Failure,
 }
-pub(super) fn install(app: &mut App, output: &Path, spec: &FieldSequence) -> Result<()> {
+
+#[derive(Clone, Default)]
+pub(super) struct Failure(Arc<Mutex<Option<anyhow::Error>>>);
+impl Failure {
+    fn record(&self, error: anyhow::Error, exit: &mut MessageWriter<AppExit>) {
+        error!("field capture failed: {error:#}");
+        self.0.lock().unwrap().get_or_insert(error);
+        exit.write(AppExit::error());
+    }
+    pub(super) fn result(&self) -> Result<()> {
+        self.0.lock().unwrap().take().map_or(Ok(()), Err)
+    }
+}
+
+pub(super) fn install(app: &mut App, output: &Path, spec: &FieldSequence) -> Result<Failure> {
     ensure!(!output.exists(), "sequence output already exists");
     fs::create_dir_all(output)?;
     fs::write(
         output.join("sequence.json"),
         serde_json::to_vec_pretty(spec)?,
     )?;
+    let failure = Failure::default();
     app.insert_resource(Recording {
         spec: spec.clone(),
         output: output.into(),
@@ -225,8 +247,10 @@ pub(super) fn install(app: &mut App, output: &Path, spec: &FieldSequence) -> Res
         frame: 0,
         captured: 0,
         presenting: false,
+        rendered: false,
         battle_victories: 0,
         since: Instant::now(),
+        failure: failure.clone(),
     })
     .add_systems(PreUpdate, advance)
     .add_systems(
@@ -236,7 +260,7 @@ pub(super) fn install(app: &mut App, output: &Path, spec: &FieldSequence) -> Res
             .after(bevy::asset::AssetEventSystems)
             .after(crate::field_audit::check),
     );
-    Ok(())
+    Ok(failure)
 }
 fn advance(
     mut recording: ResMut<Recording>,
@@ -254,12 +278,14 @@ fn advance(
         return;
     }
     if recording.since.elapsed().as_secs() > 60 + u64::from(frame_count) / 20 {
-        error!(
-            frame = recording.frame,
-            tick = session.0.events.tick(),
-            "field sequence timed out"
+        recording.failure.record(
+            anyhow::anyhow!(
+                "field sequence timed out at frame {}, update {}",
+                recording.frame,
+                session.0.events.tick()
+            ),
+            &mut exit,
         );
-        exit.write(AppExit::error());
         return;
     }
     if recording.presenting
@@ -299,11 +325,11 @@ fn advance(
                     world.refractions.clear();
                 }
             }
-            if recording.spec.script.is_none() || update == 0 {
+            if recording.spec.scene.script().is_none() || update == 0 {
                 for (&id, actor) in &mut world.actors {
                     actor.appearance.model_hidden = !isolation.visible_actors.contains(&id);
                     actor.casts_shadow = false;
-                    if recording.spec.script.is_some() {
+                    if recording.spec.scene.script().is_some() {
                         // A borrowed effect stage need not have floor under its actors.
                         actor.grounded = false;
                         if id == world.controlled_actor {
@@ -327,12 +353,6 @@ fn advance(
                 session.0.effect_clock = resonance_game::clock::PresentationClock::new(tick);
             }
         }
-        let movement = recording
-            .spec
-            .movement
-            .iter()
-            .rev()
-            .find(|m| m.update <= update);
         if let Some(camera) = &mut session.0.events.world.field_camera {
             camera.view_aspect_ratio = recording.spec.resolution.aspect();
         }
@@ -351,42 +371,17 @@ fn advance(
             rig.current_mut().position_bounds = camera.position.map(|v| [v; 2]);
             rig.current_mut().target_bounds = camera.target.map(|v| [v; 2]);
         }
-        if let Err(error) = session.0.step(resonance_game::field::FieldInput {
-            direction: movement.map_or(recording.spec.direction, |m| m.direction),
-            run: movement.map_or(recording.spec.run, |m| m.run),
-            interact: recording.spec.accept_updates.contains(&update),
-            alternate: recording.spec.ring_updates.contains(&update),
-            ..Default::default()
-        }) {
-            error!("field sequence update failed: {error:#}");
-            exit.write(AppExit::error());
+        if let Err(error) = session.0.step(recording.spec.input(update)) {
+            recording
+                .failure
+                .record(error.context("field sequence update failed"), &mut exit);
             return;
         }
         session.0.events.world.audio_commands.clear();
-        if let Some(isolation) = &recording.spec.isolation
-            && (!isolation.effects.is_empty() || !isolation.samples.is_empty())
-        {
-            let world = &mut session.0.events.world;
-            world.billboards.clear();
-            world.model_particles.clear();
-            world.refractions.clear();
-            let effects = isolation
-                .samples
-                .range(..=update)
-                .next_back()
-                .map_or(&isolation.effects, |(_, sample)| &sample.effects);
-            for (index, effect) in effects.iter().enumerate() {
-                effect.apply(world, index as i32 + 1);
-            }
-        }
         if let Some(isolation) = &recording.spec.isolation {
             for (index, effect) in isolation.backdrop.iter().enumerate() {
                 let world = &mut session.0.events.world;
-                let id = -(index as i32 + 1);
-                effect.apply(world, id);
-                if let Some(sprite) = world.billboards.get_mut(&id) {
-                    sprite.field_fog = true;
-                }
+                effect.apply(world, index);
             }
         }
         if !recording.spec.battle_victories.is_empty() {
@@ -414,8 +409,10 @@ fn advance(
                 Ok(())
             })();
             if let Err(error) = result {
-                error!("field sequence battle grant failed: {error:#}");
-                exit.write(AppExit::error());
+                recording.failure.record(
+                    error.context("field sequence battle grant failed"),
+                    &mut exit,
+                );
                 return;
             }
         }
@@ -440,15 +437,10 @@ fn capture(
     effects: Query<(&Mesh3d, &Visibility), With<crate::field_effects::EffectDraw>>,
     meshes: Res<Assets<Mesh>>,
     mut clear: ResMut<ClearColor>,
+    mut exit: MessageWriter<AppExit>,
 ) {
     if let Some(isolation) = &recording.spec.isolation {
-        let update = recording.frame.saturating_sub(1) / recording.spec.renders_per_update;
-        let background = isolation
-            .samples
-            .range(..=update)
-            .next_back()
-            .map_or(isolation.background, |(_, sample)| sample.background);
-        let [r, g, b] = background.map(|v| f32::from(v) / 255.);
+        let [r, g, b] = isolation.background.map(|v| f32::from(v) / 255.);
         clear.0 = Color::linear_rgb(r, g, b);
     }
     if recording.settled < 20 {
@@ -472,17 +464,31 @@ fn capture(
     // A spawned model may need several render updates to instantiate. Keep the
     // simulation on its birth update until the model can be captured. Dialogue
     // initialization needs another game update, so it must not block this gate.
+    let models_ready = match applied.model_particles_ready(session.0.events.tick()) {
+        Ok(ready) => ready,
+        Err(error) => {
+            recording.failure.record(error, &mut exit);
+            return;
+        }
+    };
     if !recording.presenting
-        || !applied
-            .model_particles_ready(session.0.events.tick())
-            .expect("field sequence model effects did not become ready")
+        || !models_ready
+        || !ready.0.load(std::sync::atomic::Ordering::Relaxed)
+        || !refraction.get()
         || roots.iter().any(|(_, p)| !p.prepared)
         || session.0.events.world.actors.iter().any(|(id, actor)| {
             art.models.contains_key(&actor.resource) && !art.instances.contains_key(id)
         })
     {
+        recording.rendered = false;
         return;
     }
+    // Render the prepared pose once before requesting readback. New material
+    // pipelines are queued during rendering, after this system has run.
+    if !std::mem::replace(&mut recording.rendered, true) {
+        return;
+    }
+    recording.rendered = false;
     recording.presenting = false;
     let frame = recording.frame - 1;
     if recording.frame == recording.spec.updates * recording.spec.renders_per_update {
@@ -495,42 +501,93 @@ fn capture(
     }
     let path = recording.output.join(format!("frame-{frame:04}.png"));
     let world = &session.0.events.world;
-    let state = serde_json::json!({
+    let state = recording.spec.trace.then(|| serde_json::json!({
         "frame":frame, "tick":world.tick, "effect_tick":world.effect_tick,
         "random_state":world.random_state, "audio_device":false,
         "resolution":recording.spec.resolution,
         "output_stage":"framebuffer",
         "input_enabled":world.input_enabled,
         "battle_victories":recording.battle_victories,
-        "camera":world.field_camera.as_ref().map(|c| serde_json::json!({"position":c.position,"target":c.target,"fov":c.fov_degrees()})),
-        "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"resource":a.resource,"hidden_nodes":a.appearance.hidden_nodes,"position":a.position,"visual_position":a.visual_position(),"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
+        "camera":world.field_camera.as_ref().map(|c| serde_json::json!({"position":c.position,"target":c.target,"fov":c.fov_degrees(),"shake":c.shake.offset})),
+        "actors":world.actors.iter().map(|(id,a)|serde_json::json!({"id":id,"resource":a.resource,"hidden_nodes":a.appearance.hidden_nodes,"position":a.position,"autonomy":a.autonomy,"visual_position":a.visual_position(),"heading":a.heading,"animation":a.animation.as_ref().map(|a|serde_json::json!({"slot":a.slot,"start_tick":a.start_tick,"sample":a.sample(world.tick,0,a.duration_ticks as f32)}))})).collect::<Vec<_>>(),
         "model_particles":world.model_particles.iter().map(|(id,p)|serde_json::json!({"id":id,"resource":p.resource,"position":p.position,"rotation":p.rotation,"scale":p.scale,"rgba":p.rgba})).collect::<Vec<_>>(),
-        "billboards":world.billboards.iter().map(|(id,p)|serde_json::json!({"id":id,"recipe":p.recipe,"born":p.born,"lifetime":p.lifetime,"position":p.position,"rotation":p.rotation,"size":p.size,"rgba":p.rgba,"alpha":p.alpha(world.tick),"velocity":p.velocity,"size_delta":p.size_delta,"blend":p.blend})).collect::<Vec<_>>(),
+        "emotes":world.emotes.iter().map(|(id,e)|serde_json::json!({"id":id,"kind":e.kind,"start_tick":e.start_tick,"phase":e.phase})).collect::<Vec<_>>(),
+        "billboards":world.billboards.iter().map(|(id,p)|serde_json::json!({"id":id,"draw_order":p.draw_order,"recipe":p.recipe,"born":p.born,"lifetime":p.lifetime,"position":p.position,"rotation":p.rotation,"size":p.size,"rgba":p.rgba,"alpha":p.alpha(world.tick),"velocity":p.velocity,"size_delta":p.size_delta,"blend":p.blend})).collect::<Vec<_>>(),
         "poses":roots.iter().filter(|(_,p)|p.actor==world.controlled_actor && p.part==0).flat_map(|(root,_)|children.iter_descendants(root)).filter_map(|e|bones.get(e).ok()).map(|(name,t,g)|serde_json::json!({"name":name.as_str(),"translation":t.translation.to_array(),"rotation":t.rotation.to_array(),"world":g.to_matrix().to_cols_array()})).collect::<Vec<_>>(),
-        "emotes":format!("{:?}",world.emotes),
         "refractions":world.refractions.iter().map(|(id,p)| {
-            let (size, alpha) = (p.size, p.alpha(world.tick));
-            serde_json::json!({"id":id,"born":p.born,"position":p.position,"size":size,"alpha":alpha})
+            let (position, size, alpha) = (p.position, p.size, p.alpha(world.tick));
+            serde_json::json!({"id":id,"born":p.born,"position":position,"size":size,"alpha":alpha})
         }).collect::<Vec<_>>(),
         "save_points":world.save_points.iter().map(|p|serde_json::json!({"position":p.position,"active":p.active,"glow_scale":p.glow_scale})).collect::<Vec<_>>(),
         "effects":effects.iter().filter(|(_,v)| **v != Visibility::Hidden).map(|(mesh,visibility)|serde_json::json!({"visibility":format!("{visibility:?}"),"positions":format!("{:?}",meshes.get(mesh).and_then(|m|m.attribute(Mesh::ATTRIBUTE_POSITION)))})).collect::<Vec<_>>(),
         "dialogue_layouts":ui.diagnostic_layouts(&session.0),
-    });
+    }));
     commands.spawn(Screenshot(target.0.clone())).observe(
         move |event: On<ScreenshotCaptured>,
               mut recording: ResMut<Recording>,
               mut exit: MessageWriter<AppExit>| {
             let result = (|| -> Result<()> {
                 crate::screenshot::write(&event.image, &path, None)?;
-                fs::write(path.with_extension("json"), serde_json::to_vec(&state)?)?;
+                if let Some(state) = &state {
+                    fs::write(path.with_extension("json"), serde_json::to_vec(state)?)?;
+                }
                 Ok(())
             })();
             if let Err(error) = result {
-                error!("sequence capture failed: {error:#}");
-                exit.write(AppExit::error());
+                recording
+                    .failure
+                    .record(error.context("writing field sequence capture"), &mut exit);
                 return;
             }
             recording.captured += 1;
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use resonance_events::input::Button;
+
+    #[test]
+    fn held_controls_survive_movement_changes_and_press_again_after_release() {
+        let sequence: FieldSequence = serde_json::from_value(serde_json::json!({
+            "updates": 15, "renders_per_update": 1,
+            "inputs": [
+                {"update": 3, "buttons": ["accept", "ring"]},
+                {"update": 7, "buttons": ["accept", "ring"], "direction": [1., 0.]},
+                {"update": 9},
+                {"update": 12, "buttons": ["accept", "ring"]}
+            ]
+        }))
+        .unwrap();
+        sequence.validate().unwrap();
+        let mut buttons = resonance_events::input::Input::default();
+        for update in 0..15 {
+            let input = sequence.input(update);
+            buttons.sample(input.held_buttons, input.pressed_buttons);
+            assert_eq!(
+                buttons.pressed.contains(Button::Accept),
+                matches!(update, 3 | 12)
+            );
+            assert_eq!(
+                buttons.pressed.contains(Button::Ring),
+                matches!(update, 3 | 12)
+            );
+            assert_eq!(
+                input
+                    .held_buttons
+                    .contains(resonance_events::input::Button::Ring),
+                matches!(update, 3..=8 | 12..=14)
+            );
+            assert_eq!(
+                input.direction,
+                if matches!(update, 7..=8) {
+                    [1., 0.]
+                } else {
+                    [0.; 2]
+                }
+            );
+        }
+    }
 }

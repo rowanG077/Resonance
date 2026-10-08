@@ -1,4 +1,5 @@
 use super::*;
+use resonance_events::input::Button;
 use resonance_events::party::TechniqueShortcut;
 
 const UNLOCK_STORY: i32 = 1_403_000;
@@ -126,7 +127,7 @@ impl Menu {
         if state.animating() {
             return None;
         }
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if self.unison.focus == Focus::List {
                 self.unison.list_closing = true;
             } else {
@@ -158,7 +159,7 @@ impl Menu {
                 state.character -= 2;
             } else if right && state.character + 2 < count {
                 state.character += 2;
-            } else if input.interact {
+            } else if input.pressed(Button::Accept) {
                 let choices = self.unison_techniques();
                 if choices.is_empty() {
                     return Some(4);
@@ -172,7 +173,7 @@ impl Menu {
                 self.unison.focus = Focus::List;
                 self.unison.list_opacity = 0;
                 return Some(1);
-            } else if input.alternate {
+            } else if input.pressed(Button::Ring) {
                 let member = self.unison_member_index();
                 let changed = self
                     .checkpoint
@@ -187,7 +188,7 @@ impl Menu {
             }
             return (before != (self.unison.character, self.unison.slot)).then_some(1);
         }
-        if input.interact {
+        if input.pressed(Button::Accept) {
             let member = self.unison_member_index();
             let selected = self.unison_selection();
             let changed = self

@@ -1,4 +1,5 @@
 use super::*;
+use resonance_events::input::Button;
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
@@ -10,14 +11,14 @@ fn martel_golem_blocks_fill_both_north_gaps() -> Result<()> {
     for regrab in [false, true] {
         // Before receiving the ring, neither gap is filled by story progression.
         let mut field = enter(MARTEL_START, 308, Some(105_000))?;
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         for (cells, flag, placed) in [(3, FIRST_GAP, 5003), (4, SECOND_GAP, 5004)] {
             assert!(!field.events.world.event_flags.contains(&flag));
             assert!(field.actor(placed).model_collision.is_none());
             assert!(field.events.contact_enemy(GOLEM)?);
-            advance_until(&mut field, |f| f.events.world.battle_request.is_some())?;
+            field.advance_until(|f| f.events.world.battle_request.is_some())?;
             assert!(skip_battle(&mut field)?);
-            advance_until(&mut field, FieldSession::player_has_control)?;
+            field.advance_until(FieldSession::player_has_control)?;
 
             // Deliver the script-created block through the upper room's center hole.
             for (axis, target) in [(1, -1375.), (0, -890.)] {
@@ -32,7 +33,7 @@ fn martel_golem_blocks_fill_both_north_gaps() -> Result<()> {
                     assert!((field.actor(MOVING_BLOCK).position[axis] - target).abs() < 1.);
                 }
             }
-            ticks(&mut field, 70, FieldInput::default())?;
+            field.ticks(70, FieldInput::default())?;
             assert!((field.actor(MOVING_BLOCK).position[2] + 800.).abs() < 1.);
             grab_block(&mut field, MOVING_BLOCK, [0., 1.])?;
             for cell in 1..=cells {
@@ -47,13 +48,13 @@ fn martel_golem_blocks_fill_both_north_gaps() -> Result<()> {
                 if regrab && cell < cells {
                     field.step(FieldInput::default())?;
                     field.step(FieldInput {
-                        interact: true,
+                        pressed_buttons: [Button::Accept].into(),
                         ..Default::default()
                     })?;
                     assert_eq!(field.events.world.grabbed_block, Some(MOVING_BLOCK));
                 }
             }
-            ticks(&mut field, 70, FieldInput::default())?;
+            field.ticks(70, FieldInput::default())?;
             assert!(field.events.world.event_flags.contains(&flag));
             assert!(!field.events.world.actors.contains_key(&MOVING_BLOCK));
             assert!(field.actor(placed).model_collision.is_some());
@@ -61,11 +62,7 @@ fn martel_golem_blocks_fill_both_north_gaps() -> Result<()> {
         }
         let player = field.events.world.controlled_actor;
         field.actor_mut(player).position = [-890., -1050., -800.];
-        let walking = FieldInput {
-            held_buttons: Default::default(),
-            ..block_input(&field, [0., 1.])
-        };
-        ticks(&mut field, 75, walking)?;
+        field.ticks(75, field.walking([0., 1.]))?;
         assert!(field.actor(player).position[1] > -800.);
         assert!((field.actor(player).position[2] + 799.).abs() < 1.);
     }
@@ -83,7 +80,7 @@ fn triet_two_blocks_fill_the_gap_and_allow_crossing() -> Result<()> {
     ] {
         let lane = 75.;
         let mut field = enter(TRIET_START, 220, None)?;
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         for (index, block) in order.into_iter().enumerate() {
             let start = field.actor(block).position;
             let destination_x = if index == 0 { -1125. } else { -1275. };
@@ -102,7 +99,7 @@ fn triet_two_blocks_fill_the_gap_and_allow_crossing() -> Result<()> {
                 grab_block(&mut field, block, direction)?;
                 let held = block_input(&field, direction);
                 for cell in 1..=cells {
-                    ticks(&mut field, 50, held)?;
+                    field.ticks(50, held)?;
                     let expected = [
                         start[0] + direction[0] * 150. * cell as f32,
                         start[1] + direction[1] * 150. * cell as f32,
@@ -116,7 +113,7 @@ fn triet_two_blocks_fill_the_gap_and_allow_crossing() -> Result<()> {
                     if regrab && cell < cells {
                         field.step(FieldInput::default())?;
                         field.step(FieldInput {
-                            interact: true,
+                            pressed_buttons: [Button::Accept].into(),
                             ..Default::default()
                         })?;
                         assert_eq!(
@@ -126,7 +123,7 @@ fn triet_two_blocks_fill_the_gap_and_allow_crossing() -> Result<()> {
                         );
                     }
                 }
-                ticks(&mut field, 30, FieldInput::default())?;
+                field.ticks(30, FieldInput::default())?;
             }
             assert!(field.actor(block).position[2] < -100.);
             let placed = match (block, index) {
@@ -143,30 +140,14 @@ fn triet_two_blocks_fill_the_gap_and_allow_crossing() -> Result<()> {
         }
         let player = field.events.world.controlled_actor;
         field.actor_mut(player).position = [-1000., lane, 0.];
-        for _ in 0..70 {
-            let camera = field.events.world.field_camera.as_ref().unwrap();
-            let angle = -(camera.target[0] - camera.position[0])
-                .atan2(camera.target[1] - camera.position[1]);
-            field.step(FieldInput {
-                direction: [-angle.cos(), angle.sin()],
-                ..Default::default()
-            })?;
-        }
+        field.ticks(70, field.walking([-1., 0.]))?;
         assert!(
             field.actor(player).position[0] < -1250.,
             "cannot cross the filled gap: {:?}",
             field.actor(player).position
         );
         assert!(field.actor(player).position[2].abs() < 1.);
-        for _ in 0..210 {
-            let camera = field.events.world.field_camera.as_ref().unwrap();
-            let angle = -(camera.target[0] - camera.position[0])
-                .atan2(camera.target[1] - camera.position[1]);
-            field.step(FieldInput {
-                direction: [-angle.sin(), -angle.cos()],
-                ..Default::default()
-            })?;
-        }
+        field.ticks(210, field.walking([0., -1.]))?;
         assert!(
             field.actor(player).position[1] < -700. && field.actor(player).position[2] > 300.,
             "cannot leave filled gap for the ramp: {:?}",
@@ -181,7 +162,7 @@ fn triet_two_blocks_fill_the_gap_and_allow_crossing() -> Result<()> {
 fn triet_marked_tiles_stop_blocks() -> Result<()> {
     for (block, direction, stop) in [(5000, [0., 1.], 825.), (5001, [0., -1.], -825.)] {
         let mut field = enter(TRIET_START, 220, None)?;
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         grab_block(&mut field, block, direction)?;
         push(&mut field, direction, 200)?;
         assert!(
@@ -202,7 +183,7 @@ fn generator_blocks_reach_the_lift_and_drop_from_ledges() -> Result<()> {
         (301, [500., 150., 0.], [-675., 150., 0.], 350),
     ] {
         let mut field = enter(BASE_GENERATOR, 279, None)?;
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         if block == 301 {
             field.actor_mut(300).position = [-825., 150., 0.];
             field.actor_mut(301).position = [375., 150., 0.];
@@ -210,11 +191,11 @@ fn generator_blocks_reach_the_lift_and_drop_from_ledges() -> Result<()> {
         field.actor_mut(1).position = position;
         field.actor_mut(1).face(270.);
         field.step(FieldInput {
-            interact: true,
+            pressed_buttons: [Button::Accept].into(),
             ..Default::default()
         })?;
         push(&mut field, [-1., 0.], ticks)?;
-        super::ticks(&mut field, 30, FieldInput::default())?;
+        field.ticks(30, FieldInput::default())?;
         assert_eq!(field.actor(block).position, expected);
         assert!(field.player_has_control());
     }
@@ -232,7 +213,7 @@ fn forest_cliff_jumps_reach_each_ledge() -> Result<()> {
         entry.position = [-980., 1350., 0.];
         Ok(())
     })?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     for (jump, height) in [
         (2000, 250.),
         (2002, 0.),
@@ -244,7 +225,7 @@ fn forest_cliff_jumps_reach_each_ledge() -> Result<()> {
         (2007, 500.),
     ] {
         assert!(field.events.trigger(jump, true)?);
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         let player = &field.events.world.actors[&field.events.world.controlled_actor];
 
         assert!(player.attachment.is_none());
@@ -255,8 +236,7 @@ fn forest_cliff_jumps_reach_each_ledge() -> Result<()> {
         );
         let landed = player.position;
         for direction in [[1., 0.], [-1., 0.], [0., 1.], [0., -1.]] {
-            ticks(
-                &mut field,
+            field.ticks(
                 10,
                 FieldInput {
                     direction,
@@ -285,7 +265,7 @@ fn stacked_blocks_can_be_moved_in_martel_triet_and_palmacosta() -> Result<()> {
         (PALMACOSTA_RANCH, 202, 1001),
     ] {
         let mut field = enter(fixture, map, (map == 308).then_some(107_000))?;
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         let mut upper = field.actor(block).clone();
         upper.position[2] = upper.collision_bounds().1[2];
         if map == 308 {
@@ -302,13 +282,13 @@ fn stacked_blocks_can_be_moved_in_martel_triet_and_palmacosta() -> Result<()> {
             support.pushable = false;
             field.events.world.insert_actor(6001, support);
         }
-        ticks(&mut field, 30, FieldInput::default())?;
+        field.ticks(30, FieldInput::default())?;
         let start = field.actor(6000).position;
         let player = field.events.world.controlled_actor;
         field.actor_mut(player).position = [start[0], start[1] - 125., start[2]];
         field.actor_mut(player).face(180.);
         field.step(FieldInput {
-            interact: true,
+            pressed_buttons: [Button::Accept].into(),
             ..Default::default()
         })?;
         assert_eq!(field.events.world.grabbed_block, Some(6000), "map {map}");
@@ -335,7 +315,7 @@ fn stacked_blocks_can_be_moved_in_martel_triet_and_palmacosta() -> Result<()> {
             }
         }
         if map != 308 {
-            ticks(&mut field, 30, FieldInput::default())?;
+            field.ticks(30, FieldInput::default())?;
             assert!(
                 field.actor(6000).position[2] < start[2] - 100.,
                 "map {map}: block did not fall"
@@ -357,7 +337,7 @@ fn grab_block(field: &mut Scene, block: i32, direction: [f32; 2]) -> Result<()> 
         .actor_mut(player)
         .face(direction[0].atan2(-direction[1]).to_degrees());
     field.step(FieldInput {
-        interact: true,
+        pressed_buttons: [Button::Accept].into(),
         ..Default::default()
     })?;
     assert_eq!(field.events.world.grabbed_block, Some(block));
@@ -372,7 +352,7 @@ fn push(field: &mut Scene, direction: [f32; 2], count: usize) -> Result<()> {
 }
 
 fn block_input(field: &Scene, direction: [f32; 2]) -> FieldInput {
-    use resonance_events::input::Button;
+    use resonance_events::input::{Button, Buttons};
     let camera = field.events.world.field_camera.as_ref().unwrap();
     let angle =
         -(camera.target[0] - camera.position[0]).atan2(camera.target[1] - camera.position[1]);
@@ -382,6 +362,7 @@ fn block_input(field: &Scene, direction: [f32; 2]) -> FieldInput {
         -angle.sin() * direction[0] + angle.cos() * direction[1],
     ];
     FieldInput {
+        direction,
         held_buttons: [
             (Button::Accept, true),
             (Button::Left, direction[0] < -0.5),
@@ -391,9 +372,8 @@ fn block_input(field: &Scene, direction: [f32; 2]) -> FieldInput {
         ]
         .into_iter()
         .filter_map(|(button, held)| held.then_some(button))
-        .collect(),
-        accelerate_dialogue: true,
-        direction,
+        .collect::<Buttons>()
+        .with(Button::Accept, true),
         ..Default::default()
     }
 }

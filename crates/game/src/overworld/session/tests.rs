@@ -7,6 +7,7 @@ use resonance_content::{
     overworld::{Interaction, Marker},
     session::SessionData,
 };
+use resonance_events::input::Button;
 use resonance_events::party::Party;
 
 fn data() -> Arc<SessionData> {
@@ -885,7 +886,7 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
                 },
                 confirm: true,
                 menu: crate::field::FieldInput {
-                    menu: true,
+                    pressed_buttons: [Button::Menu].into(),
                     ..Default::default()
                 },
                 ..Default::default()

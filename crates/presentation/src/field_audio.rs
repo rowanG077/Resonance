@@ -1094,6 +1094,7 @@ pub(super) fn acknowledge(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resonance_events::input::{Button, Buttons};
 
     #[test]
     #[ignore = "requires RESONANCE_WORLD_ASSETS; synthesizes native world music and vehicles without a device"]
@@ -1309,64 +1310,24 @@ mod tests {
     #[test]
     #[ignore = "requires RESONANCE_TEST_ASSETS with the Tower of Salvation; no devices"]
     fn salvation_scene_keeps_kratos_theme_audible_after_battle() -> Result<()> {
-        use resonance_game::field::{FieldEntry, FieldInput};
         let root = std::path::PathBuf::from(
             std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
         );
-        let package =
-            crate::new_game::FieldPackage::prepare(&root, 535, &mut Default::default(), || false)?;
-        let data = Arc::new(package.files.json("game/session-data.json")?);
-        let mut persistent = resonance_events::PersistentState {
-            party: Some(resonance_events::party::Party::new(
-                &data,
-                Default::default(),
-            )?),
-            ..Default::default()
-        };
-        persistent.party.as_mut().unwrap().formation = vec![1, 2, 3, 4, 9];
-        persistent
-            .memory
-            .write(0x40, symphonia_script::Width::S32, 2_302_000)?;
-        let mut field = package.enter(FieldEntry {
-            persistent,
-            data: Some(data),
-            available_fields: crate::new_game::available_fields(&root)?,
-            ..Default::default()
+        let mut field = crate::field_test::Scene::story(&root, 535, 2_302_000, |entry| {
+            entry.persistent.party.as_mut().unwrap().formation = vec![1, 2, 3, 4, 9];
+            Ok(())
         })?;
-        let (source, control) = (*package.audio).clone().session();
-        let mut frames = source.decoder();
         let mut heard_introduction = false;
-        let mut battles = 0;
-        for tick in 0..18_000 {
-            field.step(FieldInput {
-                interact: tick % 2 == 0,
-                accelerate_dialogue: true,
-                ..Default::default()
-            })?;
-            battles += usize::from(
-                field
-                    .events
-                    .world
-                    .skip_battle_as_victory()
-                    .map_err(anyhow::Error::msg)?,
-            );
-            for command in std::mem::take(&mut field.events.world.audio_commands) {
-                control.send(command)?;
-            }
-            for _ in 0..534 {
-                frames.frame()?.context("mixer stopped")?;
-            }
+        let battles = field.replay(|field| {
             if field.events.world.dialogue.values().any(|d| d.body.tokens.iter().any(|token| {
                 matches!(token, resonance_events::dialogue::TextToken::Text { text } if text.contains("I am of Cruxis"))
             })) {
                 heard_introduction = true;
-                assert_eq!(frames.music_id, Some(106));
-                assert!(frames.fade.value() > 0.5, "Kratos theme was muted after the battle");
+                assert_eq!(field.audio.frames.music_id, Some(106));
+                assert!(field.audio.frames.fade.value() > 0.5, "Kratos theme was muted after the battle");
             }
-            if field.events.world.field_transition.is_some() {
-                break;
-            }
-        }
+            Ok(field.events.world.field_transition.is_some())
+        })?;
         assert!(heard_introduction);
         assert_eq!(battles, 3);
         assert_eq!(field.story_progress()?, 2_306_000);
@@ -1398,18 +1359,17 @@ mod tests {
             ..Default::default()
         })?;
         session.assets = package.assets.clone();
-        let (source, control) = (*package.audio).clone().session();
-        let mut frames = source.decoder();
+        let mut audio = validation::Playback::new((*package.audio).clone(), &mut session.field);
         app.insert_resource(session);
-        app.insert_resource(control);
+        app.insert_resource(audio.control.clone());
         let mut heard_scene_music = false;
         for tick in 0..5000 {
             app.world_mut()
                 .resource_mut::<Session>()
                 .field
                 .step(FieldInput {
-                    interact: tick % 2 == 0,
-                    accelerate_dialogue: true,
+                    pressed_buttons: Buttons::default().with(Button::Accept, tick % 2 == 0),
+                    held_buttons: Buttons::default().with(Button::Accept, true),
                     ..Default::default()
                 })?;
             let exiting = app
@@ -1430,17 +1390,15 @@ mod tests {
             } else {
                 flush_commands(app.world_mut())?;
             }
-            for _ in 0..534 {
-                frames.frame()?.context("mixer stopped")?;
-            }
-            heard_scene_music |= frames.music_id == Some(51);
+            audio.advance()?;
+            heard_scene_music |= audio.frames.music_id == Some(51);
             if exiting {
                 break;
             }
         }
         assert!(heard_scene_music);
         assert_eq!(app.world().resource::<Session>().field.map_id, 526);
-        assert_eq!(frames.music_id, Some(8));
+        assert_eq!(audio.frames.music_id, Some(8));
 
         // The next room inherits the same mixer; its script only changes volume.
         let package = FieldPackage::prepare(&root, 529, &mut Default::default(), || false)?;
@@ -1464,15 +1422,13 @@ mod tests {
                 .resource_mut::<Session>()
                 .field
                 .step(FieldInput {
-                    interact: tick % 2 == 0,
-                    accelerate_dialogue: true,
+                    pressed_buttons: Buttons::default().with(Button::Accept, tick % 2 == 0),
+                    held_buttons: Buttons::default().with(Button::Accept, true),
                     ..Default::default()
                 })?;
             flush_commands(app.world_mut())?;
-            for _ in 0..534 {
-                frames.frame()?.context("mixer stopped")?;
-            }
-            assert_eq!(frames.music_id, Some(8));
+            audio.advance()?;
+            assert_eq!(audio.frames.music_id, Some(8));
             if app.world().resource::<Session>().field.story_progress()? == 1_204_000 {
                 break;
             }

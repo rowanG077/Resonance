@@ -1,3 +1,4 @@
+use resonance_events::input::Button;
 use resonance_game::field::FieldInput;
 
 #[derive(Clone, Copy)]
@@ -25,18 +26,18 @@ impl Action {
         let mut input = FieldInput::default();
         match self {
             Self::Idle => {}
-            Self::Accept => input.interact = true,
-            Self::Cancel => input.cancel = true,
-            Self::Alternate => input.alternate = true,
-            Self::OpenMenu => input.menu = true,
-            Self::Start => input.start = true,
-            Self::Skit => input.skit = true,
+            Self::Accept => input.pressed_buttons = [Button::Accept].into(),
+            Self::Cancel => input.pressed_buttons = [Button::Cancel].into(),
+            Self::Alternate => input.pressed_buttons = [Button::Ring].into(),
+            Self::OpenMenu => input.pressed_buttons = [Button::Menu].into(),
+            Self::Start => input.pressed_buttons = [Button::Start].into(),
+            Self::Skit => input.pressed_buttons = [Button::Skit].into(),
             Self::Up => input.direction = [0., 1.],
             Self::Down => input.direction = [0., -1.],
             Self::Left => input.direction = [-1., 0.],
             Self::Right => input.direction = [1., 0.],
-            Self::Next => input.next_page = true,
-            Self::Previous => input.previous_page = true,
+            Self::Next => input.pressed_buttons = [Button::NextPage].into(),
+            Self::Previous => input.pressed_buttons = [Button::PreviousPage].into(),
             Self::PageUp => input.scroll_direction = 1,
             Self::PageDown => input.scroll_direction = -1,
         }

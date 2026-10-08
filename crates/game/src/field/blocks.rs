@@ -95,7 +95,7 @@ impl Blocks {
         })
     }
     pub fn step(&mut self, events: &mut EventRuntime, mesh: &WalkMesh, input: FieldInput) {
-        if !self.active() && (!events.player_has_control() || !input.interact) {
+        if !self.active() && (!events.player_has_control() || !input.pressed(Button::Accept)) {
             return;
         }
         let mesh = &mesh.with_actors(events.world.actors.values());
@@ -116,7 +116,8 @@ impl Blocks {
         });
         let world = &mut events.world;
         if self.grip.is_none() {
-            if !world.input_enabled || world.mapped_input_disabled || !input.interact {
+            if !world.input_enabled || world.mapped_input_disabled || !input.pressed(Button::Accept)
+            {
                 return;
             }
             let Some(id) = Self::target(world) else {
@@ -320,14 +321,10 @@ mod tests {
         .unwrap()
     }
     fn step(events: &mut EventRuntime, mesh: &WalkMesh, blocks: &mut Blocks, input: FieldInput) {
-        events.world.input.sample(
-            input.held_buttons,
-            input
-                .interact
-                .then_some(Button::Accept)
-                .into_iter()
-                .collect(),
-        );
+        events
+            .world
+            .input
+            .sample(input.held_buttons, input.pressed_buttons);
         blocks.step(events, mesh, input);
         events.step().unwrap();
     }
@@ -344,7 +341,7 @@ mod tests {
             mesh,
             blocks,
             FieldInput {
-                interact: true,
+                pressed_buttons: [Button::Accept].into(),
                 ..Default::default()
             },
         );

@@ -1,15 +1,15 @@
 //! Scene completion and visible speakers, independent of dialogue wording.
 use super::super::destinations::*;
-use super::{enter, replay};
+use super::enter;
 use anyhow::Result;
 
 #[test]
 #[ignore = "requires locally cooked Iselia scenes; no devices"]
 fn genis_attacks_the_guards_and_the_party_escapes() -> Result<()> {
     let mut field = enter(MARTEL_START, 193, Some(304_000))?;
-    super::advance_until(&mut field, |f| f.player_has_control())?;
+    field.advance_until(|f| f.player_has_control())?;
     assert!(field.events.trigger(3004, true)?);
-    replay(&mut field, |f| f.events.world.field_transition.is_some())?;
+    field.replay(|f| Ok(f.events.world.field_transition.is_some()))?;
     assert_eq!(field.story_progress()?, 306_000);
     assert_eq!(
         field.events.world.field_transition.as_ref().unwrap().map,
@@ -29,7 +29,7 @@ fn iselia_scenes_keep_one_lloyd_and_visible_speakers() -> Result<()> {
         let mut field = enter(ISELIA_RANCH, map, Some(story))?;
         let mut heard_kratos = false;
         let mut full_party = false;
-        let battles = replay(&mut field, |f| {
+        let battles = field.replay(|f| {
             let actors = &f.events.world.actors;
             full_party |= [1, 2, 3, 9].iter().all(|id| actors.contains_key(id));
             assert!(
@@ -50,8 +50,8 @@ fn iselia_scenes_keep_one_lloyd_and_visible_speakers() -> Result<()> {
                     );
                 }
             }
-            f.story_progress().unwrap() == end
-                && (f.player_has_control() || f.events.world.field_transition.is_some())
+            Ok(f.story_progress()? == end
+                && (f.player_has_control() || f.events.world.field_transition.is_some()))
         })?;
         if map == 197 {
             assert!(heard_kratos && full_party);

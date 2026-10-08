@@ -1,0 +1,22 @@
+{
+  "family": "rings",
+  "only": "ring-sunlight-*",
+  "source": {
+    "path": "local/oracle-fixtures/effects/ring-sunlight.s01",
+    "sha256": "0140429097eea7036136abb0ffbeb92cf39136c7e83bdce1707e9bdb0b2f9e13"
+  },
+  "native_sequence": {
+    "path": "local/oracle-fixtures/effects/ring-sunlight.json",
+    "sha256": "a8bf27ec267dac10974f0149f5bd9ea9cff0b1ade52415068f31dd131f58dc3d"
+  },
+  "inputs": [
+    {
+      "poll": 100,
+      "duration": 120,
+      "buttons": [
+        "x"
+      ]
+    }
+  ],
+  "description": "Held sunlight beam and release, both with a fixed origin and attached to the casting pose."
+}

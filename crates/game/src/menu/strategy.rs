@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::menu_data::StrategyPreset;
+use resonance_events::input::Button;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub enum Focus {
@@ -160,7 +161,7 @@ impl Menu {
         if focus == Rename {
             return self.rename_strategy(input, [left, right, up, down]);
         }
-        if input.cancel || focus.setting() && left {
+        if input.pressed(Button::Cancel) || focus.setting() && left {
             self.strategy.focus = match focus {
                 Character => {
                     self.strategy.transition.page_closing = true;
@@ -190,11 +191,11 @@ impl Menu {
                 };
                 return (old != self.strategy.preset).then_some(1);
             }
-            if input.interact {
+            if input.pressed(Button::Accept) {
                 self.strategy.focus = PresetCharacter;
                 return Some(2);
             }
-            if input.alternate {
+            if input.pressed(Button::Ring) {
                 self.strategy.rename = NameEditor {
                     value: self.strategy_presets()[self.strategy.preset].name.clone(),
                     ..Default::default()
@@ -202,7 +203,7 @@ impl Menu {
                 self.strategy.focus = Rename;
                 return Some(1);
             }
-            if input.menu {
+            if input.pressed(Button::Menu) {
                 let defaults = &self.resources.as_ref().unwrap().data.strategy.presets;
                 let target = &mut self
                     .checkpoint
@@ -217,12 +218,12 @@ impl Menu {
                 return Some(2);
             }
         } else if focus.character() {
-            if input.alternate && focus == Character {
+            if input.pressed(Button::Ring) && focus == Character {
                 self.strategy.focus = Presets;
                 self.strategy.preset = 0;
                 return Some(2);
             }
-            if input.interact || right {
+            if input.pressed(Button::Accept) || right {
                 self.strategy.focus = if focus.preset() {
                     PresetSetting
                 } else {
@@ -231,14 +232,14 @@ impl Menu {
                 self.strategy.group = 0;
                 return Some(2);
             }
-            if input.previous_page || input.next_page {
+            if input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage) {
                 let count = self.party().formation.len();
                 let shift = super::party::page_shift(input, count, self.strategy.first);
                 self.strategy.first = self.strategy.first.saturating_add_signed(shift);
                 self.strategy.character = self.strategy.character.saturating_add_signed(shift);
                 return (shift != 0).then_some(0x26);
             }
-        } else if focus.setting() && input.interact {
+        } else if focus.setting() && input.pressed(Button::Accept) {
             let current = usize::from(
                 self.strategy_choices(self.strategy_member_index())[self.strategy.group],
             );
@@ -255,7 +256,7 @@ impl Menu {
             return Some(2);
         } else if focus.options() {
             let options = self.strategy_options();
-            if input.interact {
+            if input.pressed(Button::Accept) {
                 let option = *options.get(self.strategy.option)? as u8;
                 let member = self.strategy_member_index();
                 let data = &self.resources.as_ref().unwrap().data.strategy;
@@ -334,12 +335,12 @@ impl Menu {
     ) -> Option<i16> {
         let original = self.strategy_presets()[self.strategy.preset].name.clone();
         let edit = &mut self.strategy.rename;
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             edit.column = 10;
             edit.row = 7;
             return Some(3);
         }
-        if input.interact {
+        if input.pressed(Button::Accept) {
             if edit.column < 10 {
                 let c = self
                     .resources
@@ -405,11 +406,12 @@ impl Menu {
                 _ => unreachable!(),
             }
         }
-        if input.previous_page && edit.position > 0 {
+        if input.pressed(Button::PreviousPage) && edit.position > 0 {
             edit.position -= 1;
             return Some(38);
         }
-        if input.next_page && edit.position < edit.value.len() && edit.position < 6 {
+        if input.pressed(Button::NextPage) && edit.position < edit.value.len() && edit.position < 6
+        {
             edit.position += 1;
             return Some(38);
         }

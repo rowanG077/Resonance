@@ -9,6 +9,7 @@ use resonance_content::{
     prepared::Files,
     session::SessionData,
 };
+use resonance_events::input::{Button, Buttons};
 use resonance_events::{PersistentState, party::Party};
 use resonance_game::{
     clock::{UPDATE_RATE_DENOMINATOR, UPDATE_RATE_NUMERATOR},
@@ -44,6 +45,7 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
     let effects: FieldEffects = files.json(&package.assets.effects)?;
     effects.validate()?;
     let data: Arc<SessionData> = Arc::new(files.json("game/session-data.json")?);
+    let skits: Arc<resonance_content::skit::SkitCatalog> = Arc::new(files.json("game/skits.json")?);
     let art: DialogueArt = files.json("ui/dialogue.json")?;
     let font: BitmapFont = files.json(&art.font)?;
     let available_fields = new_game::available_fields(root)?;
@@ -63,34 +65,38 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
         .context("field has no ground triangle")?;
     let position = std::array::from_fn(|axis| floor.iter().map(|p| p[axis]).sum::<f32>() / 3.);
     let new = |checkpoint: Option<&FieldCheckpoint>| -> Result<(FieldSession, Playback)> {
-        let mut party = Party::new(&data, Default::default())?;
-        party.formation = if story >= 2000 {
-            vec![1, 2, 3]
+        let mut field = if let Some(checkpoint) = checkpoint {
+            package.restore(
+                checkpoint,
+                data.clone(),
+                skits.clone(),
+                available_fields.clone(),
+            )?
         } else {
-            vec![1]
-        };
-        let mut persistent = PersistentState {
-            party: Some(party),
-            ..Default::default()
-        };
-        persistent
-            .memory
-            .write(0x40, symphonia_script::Width::S32, story)?;
-        let mut entry = if let Some(checkpoint) = checkpoint {
-            checkpoint
-                .clone()
-                .entry(&package.assets, data.clone(), available_fields.clone())?
-        } else {
-            FieldEntry {
+            let mut party = Party::new(&data, Default::default())?;
+            party.formation = if story >= 2000 {
+                vec![1, 2, 3]
+            } else {
+                vec![1]
+            };
+            let mut persistent = PersistentState {
+                party: Some(party),
+                ..Default::default()
+            };
+            persistent
+                .memory
+                .write(0x40, symphonia_script::Width::S32, story)?;
+            let mut field = package.enter(FieldEntry {
                 persistent,
                 data: Some(data.clone()),
+                skits: Some(skits.clone()),
                 position,
                 available_fields: available_fields.clone(),
                 ..Default::default()
-            }
+            })?;
+            package.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
+            field
         };
-        entry.skits = Some(Arc::new(files.json("game/skits.json")?));
-        let mut field = package.enter(entry)?;
         let mut audio = Playback::new((*package.audio).clone(), &mut field);
         for _ in 0..1000 {
             check_effects(&field, &package.assets, &effects, &files)?;
@@ -215,8 +221,12 @@ pub fn check_field_events(root: &Path, map: u32, story: i32, output: &Path) -> R
                         .values()
                         .any(|choice| choice.operation.is_pending());
                     field.step(FieldInput {
-                        interact: !in_menu && (dialogue_ready || choosing) && ticks % 30 == 10,
-                        cancel: in_menu && ticks % 30 == 10,
+                        pressed_buttons: Buttons::default()
+                            .with(
+                                Button::Accept,
+                                !in_menu && (dialogue_ready || choosing) && ticks % 30 == 10,
+                            )
+                            .with(Button::Cancel, in_menu && ticks % 30 == 10),
                         ..Default::default()
                     })?;
                     ticks += 1;

@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::menu_data::{ItemUse, ItemView, RENAME_GEM};
+use resonance_events::input::Button;
 mod transform;
 
 pub const VISIBLE_ITEMS: usize = 18;
@@ -298,7 +299,7 @@ impl Menu {
         let items = self.inventory_items();
         let selected = items.get(self.inventory.row).copied();
         if self.inventory.notice.is_some() {
-            if input.interact || input.cancel {
+            if input.pressed(Button::Accept) || input.pressed(Button::Cancel) {
                 if let Some(id) = self.inventory.transform.result {
                     return self.finish_transformation(id);
                 }
@@ -318,7 +319,7 @@ impl Menu {
             }
             return None;
         }
-        if input.cancel || input.menu {
+        if input.pressed(Button::Cancel) || input.pressed(Button::Menu) {
             match self.inventory.focus {
                 Focus::Categories => {
                     self.close_items(Page::Main);
@@ -336,13 +337,13 @@ impl Menu {
         }
         if self.inventory.focus == Focus::List
             && !(left || right || up || down)
-            && (input.previous_page || input.next_page)
+            && (input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage))
             || self.inventory.focus == Focus::Categories && (left || right)
         {
             let previous = if self.inventory.focus == Focus::Categories {
                 left
             } else {
-                input.previous_page
+                input.pressed(Button::PreviousPage)
             };
             self.inventory.category = (self.inventory.category + if previous { 8 } else { 1 }) % 9;
             self.inventory.row = 0;
@@ -351,7 +352,7 @@ impl Menu {
         }
         match self.inventory.focus {
             Focus::Categories => {
-                if down || input.interact {
+                if down || input.pressed(Button::Accept) {
                     self.inventory.focus = Focus::List;
                     self.inventory.row = 0;
                     self.inventory.first = 0;
@@ -376,7 +377,7 @@ impl Menu {
                 {
                     self.inventory.target = old + VISIBLE_PARTY;
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     let id = selected?;
                     let target = usize::from(party.formation[self.inventory.target] - 1);
                     if id == RENAME_GEM {
@@ -413,7 +414,7 @@ impl Menu {
                     self.inventory.focus = Focus::Discard(!yes);
                     return Some(1);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     self.inventory.focus = Focus::List;
                     if !yes {
                         return Some(2);
@@ -461,14 +462,14 @@ impl Menu {
                 self.inventory.scroll =
                     (self.inventory.first as isize - first as isize).signum() as i8;
                 let selected = items.get(self.inventory.row).copied();
-                if input.alternate && self.inventory.focus == Focus::List {
+                if input.pressed(Button::Ring) && self.inventory.focus == Focus::List {
                     if selected.is_some_and(|id| resources.data.items[usize::from(id)].price != 0) {
                         self.inventory.focus = Focus::Discard(false);
                         return Some(2);
                     }
                     return Some(4);
                 }
-                if input.interact
+                if input.pressed(Button::Accept)
                     && let Some(id) = selected
                 {
                     if matches!(self.inventory.focus, Focus::Transform(_)) {

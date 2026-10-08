@@ -1,4 +1,5 @@
 use super::*;
+use resonance_events::input::Button;
 use resonance_events::party::Member;
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -99,10 +100,10 @@ impl Menu {
         let length = self.checkpoint.as_ref()?.progress.party.formation.len();
         match self.page {
             Page::Status => {
-                if input.next_page && !self.status.details
-                    || input.previous_page && self.status.details
+                if input.pressed(Button::NextPage) && !self.status.details
+                    || input.pressed(Button::PreviousPage) && self.status.details
                 {
-                    self.status.details = input.next_page;
+                    self.status.details = input.pressed(Button::NextPage);
                     return Some(0x26);
                 }
                 if left || right {
@@ -113,7 +114,7 @@ impl Menu {
                     self.status.title_focus = down;
                     return Some(1);
                 }
-                if input.interact && self.status.title_focus {
+                if input.pressed(Button::Accept) && self.status.title_focus {
                     self.status.row = self
                         .titles()
                         .iter()
@@ -123,7 +124,7 @@ impl Menu {
                     self.status.title_closing = false;
                     return Some(2);
                 }
-                if input.interact && self.can_rename() {
+                if input.pressed(Button::Accept) && self.can_rename() {
                     self.open_rename(rename::Origin::Status, self.member_index());
                     return Some(2);
                 }
@@ -138,7 +139,7 @@ impl Menu {
                 if down {
                     self.status.row = (self.status.row + 1).min(titles.len() - 1);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     let member = self.member_index();
                     self.checkpoint.as_mut().unwrap().progress.party.members[member].title =
                         titles[self.status.row];
