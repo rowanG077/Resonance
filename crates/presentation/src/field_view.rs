@@ -909,8 +909,8 @@ fn camera(
         *projection = Projection::custom(TitleProjection(PerspectiveProjection {
             fov: camera.fov_degrees().to_radians(),
             aspect_ratio: display.as_ref().map_or(4. / 3., |d| d.0.aspect()),
-            near: 100.,
-            far: 40000.,
+            near: super::camera::FIELD_NEAR,
+            far: super::camera::FIELD_FAR,
             ..default()
         }));
         applied.ack(Request::Camera);
@@ -1571,8 +1571,8 @@ fn setup(
         Projection::custom(TitleProjection(PerspectiveProjection {
             fov: camera.fov_degrees().to_radians(),
             aspect_ratio: 4. / 3.,
-            near: 100.,
-            far: 40000.,
+            near: super::camera::FIELD_NEAR,
+            far: super::camera::FIELD_FAR,
             ..default()
         })),
     ));
@@ -1957,7 +1957,14 @@ fn pose(
                 1.,
                 1.,
                 1.,
-                echo_color.map_or_else(|| actor.opacity as f32, |rgba| f32::from(rgba[3])) / 255.,
+                f32::from(wing_layer.as_ref().map_or(
+                    if actor.ring_station {
+                        64
+                    } else {
+                        actor.opacity
+                    },
+                    |layer| echo_color.map_or(layer.alpha, |rgba| rgba[3]),
+                )) / 255.,
             )
             * if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                 if sealed {
@@ -1967,8 +1974,6 @@ fn pose(
                 } else {
                     Vec4::new(1., 1., 1., 128. / 255.)
                 }
-            } else if let Some(layer) = &wing_layer {
-                Vec4::new(1., 1., 1., f32::from(layer.alpha) / 255.)
             } else {
                 Vec4::ONE
             };
@@ -2090,6 +2095,13 @@ fn pose(
                 actor.toon_lighting.map(i32::from),
             );
             let depth_write = material.depth_write && actor.depth_write;
+            let cull = if actor.ring_station
+                || actor.resource == resonance_content::field::SAVE_POINT_RESOURCE
+            {
+                resonance_content::CullFace::None
+            } else {
+                material.cull
+            };
             let blend = actor.blend.or_else(|| {
                 if actor.ring_station || (save_point.is_some() && !sealed) {
                     Some(Blend::Additive)
@@ -2107,6 +2119,9 @@ fn pose(
                     || s.field_light != light_position
                     || s.shade_colors != shades
                     || s.toon_ramp != toon_ramp
+                    || s.cull != cull
+                    || s.vertex_alpha != actor.ring_station
+                    || s.clamp_color != actor.ring_station
             }) {
                 let mut surface = surfaces.get_mut(&instance.materials[index]).unwrap();
                 surface.uv_offsets = offsets;
@@ -2118,6 +2133,9 @@ fn pose(
                 surface.field_light = light_position;
                 surface.shade_colors = shades;
                 surface.toon_ramp = toon_ramp;
+                surface.cull = cull;
+                surface.vertex_alpha = actor.ring_station;
+                surface.clamp_color = actor.ring_station;
             }
         }
         transform.translation = Vec3::from_array(
@@ -2143,6 +2161,7 @@ fn pose(
             * Quat::from_rotation_y(y.to_radians())
             * Quat::from_rotation_x(x.to_radians());
         *visibility = if actor.visible
+            && world.tick >= actor.visible_from
             && !actor.appearance.model_hidden
             && !actor.animation_culled
             && wing_layer.as_ref().is_none_or(|layer| layer.visible)

@@ -259,6 +259,7 @@ impl NativeHost<'_> {
                 require(self.world.actors.len() < 4096, "actor limit exceeded")?;
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
                 actor.ring_station = true;
+                actor.visible = false;
                 actor.radius = 65.;
                 actor.grounded = false;
                 actor.casts_shadow = false;
@@ -625,9 +626,7 @@ impl NativeHost<'_> {
                 )?);
             }
             NativeCall::SetModelParticleProperty => {
-                if let Some(particle) = self.world.model_particles.get_mut(&a[0]) {
-                    particle.set_property(a[1], a[2])?;
-                }
+                self.world.set_model_particle_property(a[0], a[1], a[2])?;
                 value = Some(0);
             }
             NativeCall::CreateEffectEmitter => {
@@ -662,259 +661,168 @@ impl NativeHost<'_> {
                     .insert(a[0] as u8, (resource, a[2] as u8));
             }
             NativeCall::CreateEffectObject | NativeCall::CreateParticle => {
-                const GLOW: i32 = crate::effect::GLOW_SPRITE as i32;
-                const IMPACT_GLOW: i32 = 2;
-                const IMPACT_FLARE: i32 = 49;
-                const SMOKE: i32 = resonance_content::effect::SMOKE_SPRITE as i32;
-                const STREAK: i32 = resonance_content::effect::STREAK_SPRITE as i32;
-                const ORB: i32 = crate::effect::ORB_SPRITE as i32;
-                const STATION_GLOW: i32 = crate::effect::STATION_GLOW_SPRITE as i32;
-                const CAMERA_DISC: i32 = crate::effect::CAMERA_DISC_SPRITE as i32;
-                const CAMERA_RING: i32 = 40;
-                const WORLD_GLOW: i32 = crate::effect::WORLD_GLOW_SPRITE as i32;
-                const RING: i32 = crate::effect::RING_SPRITE as i32;
-                const CAMERA_RIPPLE: i32 = 27;
-                const WORLD_RIPPLE: i32 = 28;
-                const EXPANDING_GLOW: i32 = 32;
-                const SPINNING_STAR: i32 = crate::effect::SPINNING_STAR_SPRITE as i32;
-                const STAR: i32 = crate::effect::STAR_SPRITE as i32;
-                const SEAL_SPARK: i32 = 69;
-                const FALLING_SPARK: i32 = 43;
-                const DEBRIS_FIRST: i32 = 52;
-                const DEBRIS_LAST: i32 = 54;
-                const STAR_ROTATION: f32 = 45.;
-                const ELECTRIC_SPARK: i32 = crate::effect::ELECTRIC_SPARK_SPRITE as i32;
-                const ELECTRIC_ARC: i32 = crate::effect::ELECTRIC_ARC_SPRITE as i32;
-                const STREAK_ASPECT: f32 = 6.;
+                use crate::effect::{
+                    BillboardController, BillboardEffect, Blend, CAMERA_DISC_SPRITE,
+                    ELECTRIC_ARC_SPRITE, ELECTRIC_SPARK_SPRITE, Fade, Flutter, GLOW_SPRITE,
+                    ORB_SPRITE, RING_SPRITE, RefractionImage, RefractionPulse, SEAL_SPARK_SPRITE,
+                    SEAL_STAR_SPRITE, SPINNING_STAR_SPRITE, STAR_SPRITE, STATION_GLOW_SPRITE,
+                    SpriteOrientation, WORLD_GLOW_SPRITE,
+                };
+                use resonance_content::effect::{
+                    SMOKE_UPDATES,
+                    sprite::{DEBRIS_SPRITES, SMOKE_SPRITE, STREAK_SPRITE},
+                };
+                const IMPACT_GLOW: u16 = 2;
+                const CAMERA_RIPPLE: u16 = 27;
+                const WORLD_RIPPLE: u16 = 28;
+                const BOUND_SPRITES: std::ops::Range<u16> = 32..40;
+                const CAMERA_RING: u16 = 40;
+                const FALLING_SPARK: u16 = 43;
+                const IMPACT_FLARE: u16 = 49;
                 let directed = op == NativeCall::CreateEffectObject;
-                let offset = usize::from(directed);
-                let [size, alpha, fade, palette, parameter] = a[8 + offset..].try_into().unwrap();
+                let kind = u16::try_from(a[0]).map_err(|_| "invalid effect recipe")?;
+                let [size, alpha, fade, palette, parameter] =
+                    a[8 + usize::from(directed)..].try_into().unwrap();
+                require(
+                    (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32).contains(&palette)
+                        && (!directed
+                            || matches!(kind, WORLD_GLOW_SPRITE | SPINNING_STAR_SPRITE)
+                            || parameter == 0),
+                    "invalid effect palette or parameter",
+                )?;
                 let lifetime = if a[1] as i16 == i16::MAX {
                     u32::MAX
                 } else {
                     u32::from(a[1] as u16) + 1
                 };
-                let effect_fade = if fade == 0 {
-                    crate::effect::Fade::tail(lifetime)
-                } else {
-                    crate::effect::Fade::Linear(fade as f32)
-                };
-                if matches!(a[0], CAMERA_RIPPLE | WORLD_RIPPLE) {
-                    require(
-                        (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32)
-                            .contains(&palette)
-                            && parameter == 0,
-                        "invalid refraction palette or parameter",
-                    )?;
-                    require(
-                        a[5..8 + offset].iter().all(|v| *v == 0),
-                        "moving refraction particles are not implemented",
-                    )?;
-                    let handle = self.world.emit_refraction(crate::effect::RefractionPulse {
-                        draw_order: 0,
-                        operation: None,
-                        owner: None,
-                        image: crate::effect::RefractionImage::Ripple,
-                        palette: palette as u8,
-                        orientation: if a[0] == WORLD_RIPPLE {
-                            crate::effect::SpriteOrientation::World
-                        } else {
-                            crate::effect::SpriteOrientation::Camera
-                        },
-                        rotation: [0.; 3],
-                        position: [a[2] as f32, a[3] as f32, a[4] as f32],
-                        born: self.world.tick,
-                        lifetime,
-                        size: size as f32,
-                        growth: 0.,
-                        alpha: alpha as u8 as f32,
-                        fade: effect_fade,
-                    })?;
-                    return Ok(NativeResult::Continue(Some(handle)));
-                }
-                let supported = match a[0] {
-                    STATION_GLOW => !directed,
-                    GLOW | IMPACT_GLOW | IMPACT_FLARE | SMOKE | EXPANDING_GLOW | STREAK
-                    | SEAL_SPARK | FALLING_SPARK => directed,
-                    CAMERA_DISC
-                    | CAMERA_RING
-                    | WORLD_GLOW
-                    | ORB
-                    | RING
-                    | STAR
-                    | SPINNING_STAR
-                    | ELECTRIC_SPARK
-                    | ELECTRIC_ARC
-                    | DEBRIS_FIRST..=DEBRIS_LAST => true,
-                    _ => false,
-                };
-                require(
-                    supported
-                        && (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32)
-                            .contains(&palette)
-                        && (!directed
-                            || matches!(a[0], WORLD_GLOW | SPINNING_STAR)
-                            || parameter == 0),
-                    "effect recipe is not implemented",
-                )?;
-                let spin = match a[0] {
-                    SPINNING_STAR => parameter as f32,
-                    GLOW | IMPACT_GLOW | SMOKE | EXPANDING_GLOW | ELECTRIC_ARC => {
-                        if self.world.effect_tick & 1 == 0 {
-                            -3.
-                        } else {
-                            3.
-                        }
-                    }
-                    _ => 0.,
-                };
                 let velocity = [a[5] as f32, a[6] as f32, a[7] as f32];
-                let length = velocity.iter().map(|x| x * x).sum::<f32>().sqrt();
-                let speed = a[8] as f32 / 100.;
-                let flutter = if a[0] == FALLING_SPARK {
-                    let Some(crate::ParticleKind::Flutter(recipe)) =
-                        self.resources.particles.get(&25)
-                    else {
-                        return Err("falling spark motion recipe is not cooked".into());
-                    };
-                    let mut flutter = crate::effect::Flutter::new(recipe);
-                    flutter.initialize(&mut || self.world.random());
-                    Some(flutter)
-                } else {
-                    None
-                };
-                let handle = self.world.emit_billboard(crate::effect::BillboardEffect {
-                    texture: u8::try_from(a[0] - CAMERA_RING)
-                        .ok()
-                        .and_then(|slot| self.world.effect_textures.get(&slot).copied()),
-                    field_lighting: true,
-                    orientation: if matches!(a[0], WORLD_GLOW | RING | FALLING_SPARK) {
-                        crate::effect::SpriteOrientation::World
-                    } else {
-                        crate::effect::SpriteOrientation::Camera
-                    },
+                let mut particle = BillboardEffect {
+                    recipe: kind,
+                    texture_phase: 0,
                     palette: Some(palette as u16),
-                    // Recipes 5/6/40 share their atlas; only facing differs.
-                    recipe: if a[0] == IMPACT_GLOW {
-                        GLOW
-                    } else if a[0] == EXPANDING_GLOW {
-                        crate::effect::ORB_SPRITE as i32
-                    } else if matches!(a[0], CAMERA_DISC | CAMERA_RING) {
-                        WORLD_GLOW
-                    } else if matches!(a[0], FALLING_SPARK | IMPACT_FLARE) {
-                        68
-                    } else {
-                        a[0]
-                    } as u16,
-                    size_delta: if a[0] == EXPANDING_GLOW { 6. } else { 0. },
-                    blend: (a[0] == IMPACT_GLOW).then_some(crate::effect::Blend::Additive),
-                    uv: (a[0] == IMPACT_FLARE).then_some([192., 0., 254., 62.].map(|v| v / 256.)),
                     born: self.world.tick + 1,
-                    lifetime: lifetime.min(
-                        if a[0] as u16 == resonance_content::effect::SMOKE_SPRITE {
-                            resonance_content::effect::SMOKE_UPDATES
-                        } else {
-                            u32::MAX
-                        },
-                    ),
+                    lifetime,
                     position: [a[2] as f32, a[3] as f32, a[4] as f32],
                     velocity: if directed {
-                        velocity.map(|v| if length > 0. { v / length * speed } else { 0. })
+                        let speed = (a[8] / 100) as f32;
+                        crate::effect::emission::normalized(velocity).map(|v| v * speed)
                     } else {
                         velocity
                     },
-                    rotation: flutter.as_ref().map_or(
-                        [
-                            0.,
-                            0.,
-                            if matches!(a[0], SMOKE | SPINNING_STAR) {
-                                (self.world.effect_tick & 127) as f32
-                            } else if a[0] == STAR {
-                                STAR_ROTATION
-                            } else {
-                                0.
-                            },
-                        ],
-                        |flutter| flutter.rotation,
-                    ),
-                    controller: flutter.map(crate::effect::BillboardController::Flutter),
-                    angular_velocity: [
-                        if a[0] == WORLD_GLOW {
-                            parameter as f32
-                        } else {
-                            0.
-                        },
-                        0.,
-                        spin,
-                    ],
-                    size: [
-                        size as f32,
-                        size as f32 / if a[0] == STREAK { STREAK_ASPECT } else { 1. },
-                    ],
-                    rgba: if a[0] == IMPACT_GLOW {
-                        [255, 10, 10, alpha as u8]
+                    size: [size as f32; 2],
+                    rgba: [64, 64, 64, alpha as u8],
+                    fade: if fade == 0 {
+                        Fade::tail(lifetime)
                     } else {
-                        [64, 64, 64, alpha as u8]
+                        Fade::Linear(fade as f32)
                     },
-                    fade: effect_fade,
                     ..Default::default()
-                })?;
-                value = Some(handle);
-            }
-            NativeCall::SetEffectProperty => {
-                const PARTICLE_MODE: i32 = 146;
-                const QUAD_LAYOUT: i32 = 147;
-                const FIELD_FOG: i32 = 148;
-                require(
-                    matches!(a[1], 120..=128 | 132..=135 | 141..=145 | PARTICLE_MODE | QUAD_LAYOUT | FIELD_FOG),
-                    "effect property is not implemented",
-                )?;
-                if let Some(effect) = self.world.billboards.get_mut(&a[0]) {
-                    match a[1] {
-                        120..=122 => effect.position[(a[1] - 120) as usize] = a[2] as f32,
-                        123..=124 => effect.size[(a[1] - 123) as usize] = a[2] as f32,
-                        125..=128 => effect.rgba[(a[1] - 125) as usize] = a[2] as u8,
-                        132..=134 => {
-                            effect.angular_velocity[(a[1] - 132) as usize] = a[2] as f32 / 100.
-                        }
-                        135 => effect.size_delta = a[2] as f32 / 100.,
-                        141..=143 => effect.rotation[(a[1] - 141) as usize] = a[2] as f32 / 100.,
-                        144 => {
-                            effect.orientation = if a[2] & 1 == 0 {
-                                crate::effect::SpriteOrientation::World
-                            } else {
-                                crate::effect::SpriteOrientation::Camera
-                            }
-                        }
-                        145 => {
-                            effect.blend = if a[2] & 3 == 3 {
-                                None
-                            } else {
-                                Some(a[2].try_into()?)
-                            }
-                        }
-                        PARTICLE_MODE => {
-                            const PROPORTIONAL_FADE: i32 = 8;
-                            require(a[2] == PROPORTIONAL_FADE, "unsupported particle mode")?;
-                            effect.rgba[3] = effect.alpha(self.world.tick) as u8;
-                            effect.fade = crate::effect::Fade::Proportional {
-                                after: self.world.tick.saturating_sub(effect.born),
-                                lifetime: effect.lifetime,
-                            };
-                        }
-                        QUAD_LAYOUT => {
-                            use resonance_content::effect::VerticalAnchor;
-                            effect.anchor = match a[2] {
-                                0 => VerticalAnchor::Center,
-                                4 => VerticalAnchor::UpperHalf,
-                                8 => VerticalAnchor::LowerHalf,
-                                _ => return Err("unsupported particle quad layout".into()),
-                            };
-                        }
-                        FIELD_FOG => effect.field_fog = a[2] & 1 != 0,
-                        _ => unreachable!(),
+                };
+                let spin = if self.world.effect_tick & 1 == 0 {
+                    -3.
+                } else {
+                    3.
+                };
+                match kind {
+                    GLOW_SPRITE if directed => particle.angular_velocity[2] = spin,
+                    IMPACT_GLOW if directed => {
+                        particle.recipe = GLOW_SPRITE;
+                        particle.blend = Some(Blend::Additive);
+                        particle.rgba[..3].copy_from_slice(&[255, 10, 10]);
+                        particle.angular_velocity[2] = spin;
                     }
+                    SMOKE_SPRITE if directed => {
+                        particle.lifetime = lifetime.min(SMOKE_UPDATES);
+                        particle.rotation[2] = (self.world.effect_tick & 127) as f32;
+                        particle.angular_velocity[2] = spin;
+                    }
+                    _ if directed && BOUND_SPRITES.contains(&kind) => {
+                        particle.recipe = ORB_SPRITE;
+                        let slot = (kind - BOUND_SPRITES.start) as u8;
+                        particle.texture = Some(
+                            *self
+                                .world
+                                .effect_textures
+                                .get(&slot)
+                                .ok_or("sprite texture slot is not bound")?,
+                        );
+                        particle.blend = Some(Blend::Alpha);
+                        particle.uv = Some([0., 0., 254. / 256., 254. / 256.]);
+                        if slot == 7 {
+                            particle.uv = Some([0., 0., 31. / 256., 254. / 256.]);
+                            particle.controller = Some(BillboardController::TextureStrip {
+                                columns: 8,
+                                ticks: 8,
+                            });
+                        }
+                    }
+                    STREAK_SPRITE if directed => particle.size[1] /= 6.,
+                    SEAL_SPARK_SPRITE if directed => {}
+                    STATION_GLOW_SPRITE if !directed => {}
+                    CAMERA_DISC_SPRITE | CAMERA_RING => particle.recipe = WORLD_GLOW_SPRITE,
+                    WORLD_GLOW_SPRITE => {
+                        particle.orientation = SpriteOrientation::World;
+                        particle.angular_velocity[0] = parameter as f32;
+                    }
+                    RING_SPRITE => particle.orientation = SpriteOrientation::World,
+                    STAR_SPRITE => particle.rotation[2] = 45.,
+                    SPINNING_STAR_SPRITE => {
+                        particle.rotation[2] = (self.world.effect_tick & 127) as f32;
+                        particle.angular_velocity[2] = parameter as f32;
+                    }
+                    FALLING_SPARK if directed => {
+                        let Some(crate::ParticleKind::Flutter(recipe)) =
+                            self.resources.particles.get(&25)
+                        else {
+                            return Err("falling spark motion recipe is not cooked".into());
+                        };
+                        // Choose the motion on its first update, after all births
+                        // in this script update have consumed their own randomness.
+                        let flutter = Flutter::pending(recipe);
+                        particle.recipe = SEAL_STAR_SPRITE;
+                        particle.orientation = SpriteOrientation::World;
+                        particle.rotation = [0.; 3];
+                        particle.velocity = [0.; 3];
+                        particle.controller = Some(BillboardController::Flutter(flutter));
+                    }
+                    IMPACT_FLARE if directed => {
+                        particle.recipe = SEAL_STAR_SPRITE;
+                        particle.uv = Some([192., 0., 254., 62.].map(|v| v / 256.));
+                    }
+                    CAMERA_RIPPLE | WORLD_RIPPLE => {
+                        require(parameter == 0, "invalid refraction parameter")?;
+                        let handle = self.world.emit_refraction(RefractionPulse {
+                            draw_order: 0,
+                            operation: None,
+                            owner: None,
+                            image: RefractionImage::Ripple,
+                            palette: palette as u8,
+                            orientation: if kind == WORLD_RIPPLE {
+                                SpriteOrientation::World
+                            } else {
+                                SpriteOrientation::Camera
+                            },
+                            rotation: [0.; 3],
+                            position: particle.position,
+                            velocity: particle.velocity,
+                            born: particle.born,
+                            lifetime,
+                            size: size as f32,
+                            growth: 0.,
+                            alpha: alpha as u8 as f32,
+                            fade: particle.fade,
+                        })?;
+                        return Ok(NativeResult::Continue(Some(handle)));
+                    }
+                    ORB_SPRITE | ELECTRIC_SPARK_SPRITE | ELECTRIC_ARC_SPRITE => {}
+                    _ if DEBRIS_SPRITES.contains(&kind) => {}
+                    _ => return Err("effect recipe is not implemented".into()),
                 }
+                value = Some(self.world.emit_billboard(particle)?);
+            }
+
+            NativeCall::SetEffectProperty => {
+                self.world.set_effect_property(a[0], a[1], a[2])?;
                 value = Some(0);
             }
             NativeCall::SetActorAnimationProperty => {
@@ -1237,15 +1145,25 @@ impl NativeHost<'_> {
                         a[5]
                     };
                     if (-299..=-100).contains(&a[0]) && self.world.actors.contains_key(&target) {
-                        require((0..=19).contains(&a[4]), "unknown emote recipe")?;
-                        require(self.world.emotes.len() < 200, "emote limit exceeded")?;
-                        let phase = self.world.random();
+                        let kind = crate::emote::Kind::try_from(a[4])?;
+                        let draw_order = self.world.emotes.get(&a[0]).map_or_else(
+                            || {
+                                (0..200)
+                                    .find(|order| {
+                                        self.world.emotes.values().all(|e| e.draw_order != *order)
+                                    })
+                                    .ok_or("emote limit exceeded")
+                            },
+                            |previous| Ok(previous.draw_order),
+                        )?;
+                        let phase = kind.phase(self.world.effect_tick, self.world.random());
                         self.world.emotes.insert(
                             a[0],
                             Emote {
+                                draw_order,
                                 phase,
                                 actor: target,
-                                kind: a[4] as u16,
+                                kind,
                                 offset: [a[1] as f32, a[2] as f32, a[3] as f32],
                                 start_tick: self.world.tick,
                                 duration: (a[7] != -1).then_some(a[7].max(0) as u32),
@@ -1343,6 +1261,8 @@ impl NativeHost<'_> {
                     90022 => actor.set_wings(crate::WingStyle::Feathered),
                     90026 => actor.set_wings(crate::WingStyle::Echo),
                     90027 | 90028 => {
+                        actor.grounded = false;
+                        actor.collidable = false;
                         actor.casts_shadow = false;
                         actor.scripted_animation = true;
                         if let Some(animation) = &mut actor.animation {

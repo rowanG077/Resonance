@@ -9,20 +9,6 @@ use std::{
 };
 use symphonia_script::{NativeCall, Op, Program, scenario, semantics::NativeRegistry};
 
-/// Latheon binds its local sphere directly to the native scene-copy texture.
-pub(crate) fn controller_capture(map: u32, section: usize) -> bool {
-    const LATHEON: std::ops::RangeInclusive<u32> = 492..=498;
-    section == 16 && LATHEON.contains(&map)
-}
-
-/// The native sunlight controller binds the first local mesh to the next TPL.
-pub(crate) fn controller_palette(map: u32, section: usize) -> Option<usize> {
-    const SUNLIGHT: std::ops::RangeInclusive<u32> = 511..=518;
-    const MODEL: usize = 16;
-    const PALETTE: usize = 17;
-    (section == MODEL && SUNLIGHT.contains(&map)).then_some(PALETTE)
-}
-
 #[derive(Debug)]
 pub(crate) struct Declarations {
     pub resources: BTreeSet<u32>,

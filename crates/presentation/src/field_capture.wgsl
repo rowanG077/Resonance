@@ -1,4 +1,4 @@
-struct Settings { world_from_clip: mat4x4<f32>, clip_from_world: mat4x4<f32> };
+struct Settings { clip_from_world: mat4x4<f32> };
 @group(0) @binding(0) var scene: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;
 @group(0) @binding(3) var<uniform> settings: Settings;

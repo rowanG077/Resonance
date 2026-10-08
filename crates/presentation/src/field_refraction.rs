@@ -23,6 +23,7 @@ use bevy::{
         view::{ViewDepthTexture, ViewTarget},
     },
 };
+use resonance_content::effect::REFRACTION_LIMIT;
 use std::{
     collections::HashMap,
     sync::{
@@ -40,21 +41,19 @@ impl Ready {
 }
 #[derive(Clone, Copy, Default, ShaderType)]
 struct Pulse {
-    position_size: Vec4,
+    center: Vec4,
+    right: Vec4,
+    up: Vec4,
     opacity: Vec4,
     tint: Vec4,
-    basis_x: Vec4,
-    basis_y: Vec4,
 }
 #[derive(Component, Clone, Default, ExtractComponent, ShaderType)]
 struct Settings {
-    world_from_clip: Mat4,
     clip_from_world: Mat4,
-    eye: Vec4,
     uv: [Vec4; 2],
     parameters: Vec4,
     screen_copy: Vec4,
-    pulses: [Pulse; 16],
+    pulses: [Pulse; REFRACTION_LIMIT],
 }
 #[derive(Component, Clone, ExtractComponent)]
 struct Atlas([Handle<Image>; 2]);
@@ -109,8 +108,7 @@ fn sync(
         uv: [recipe.sprite.uv, air.uv].map(Vec4::from_array),
         parameters: Vec4::new(
             world.refractions.len() as f32,
-            // Authored pixel displacement remains the same fraction of the
-            // scene at every output resolution.
+            // Normalize authored displacement across output resolutions.
             recipe.displacement[0] / resonance_content::WIDTH as f32,
             recipe.displacement[1] / resonance_content::SCENE_HEIGHT as f32,
             1. / super::camera::RASTER_SUBDIVISIONS,
@@ -118,7 +116,7 @@ fn sync(
         screen_copy: Vec4::new(
             world.screen_copy_depth[0],
             world.screen_copy_depth[1],
-            100. / 40000.,
+            super::camera::FIELD_NEAR / super::camera::FIELD_FAR,
             0.,
         ),
         ..default()
@@ -127,36 +125,42 @@ fn sync(
         .field_camera
         .as_ref()
         .map_or(Transform::IDENTITY, super::field_view::camera_transform);
-    settings.eye = camera.translation.extend(1.);
-    let world_from_view = camera.to_matrix();
+    let view_from_world = camera.to_matrix().inverse();
     let mut effects: Vec<_> = world.refractions.values().collect();
     effects.sort_unstable_by_key(|effect| effect.draw_order);
-    for (pulse, effect) in settings.pulses.iter_mut().zip(effects) {
-        let (size, alpha) = effect.sample(world.tick);
-        let rotation = effect_rotation(effect.orientation, effect.rotation, camera.rotation);
-        *pulse = Pulse {
-            position_size: Vec3::from_array(effect.position).extend((size / 2.).trunc() * 2.),
-            opacity: Vec4::new(alpha / 255., effect.image as u8 as f32, 0., 0.),
-            tint: Vec4::from_array(
-                art.palette(effect.palette)
-                    .map(|v| f32::from(v) * 4. / 255.),
-            ),
-            basis_x: (rotation * Vec3::X).extend(0.),
-            basis_y: (rotation * Vec3::Y).extend(0.),
-        };
-    }
     for (entity, projection) in &views {
-        settings.world_from_clip = world_from_view * projection.get_clip_from_view().inverse();
-        settings.clip_from_world = settings.world_from_clip.inverse();
+        settings.clip_from_world = projection.get_clip_from_view() * view_from_world;
+        for (pulse, effect) in settings.pulses.iter_mut().zip(&effects) {
+            *pulse = Pulse::default();
+            let size = (effect.size / 2.).trunc() * 2.;
+            if size <= 0. {
+                continue;
+            }
+            let rotation = effect_rotation(effect.orientation, effect.rotation, camera.rotation);
+            *pulse = Pulse {
+                center: settings.clip_from_world * Vec3::from_array(effect.position).extend(1.),
+                right: settings.clip_from_world * (rotation * Vec3::X * size).extend(0.),
+                up: settings.clip_from_world * (rotation * Vec3::Y * size).extend(0.),
+                opacity: Vec4::new(
+                    effect.alpha(world.tick) / 255.,
+                    effect.image as u8 as f32,
+                    0.,
+                    0.,
+                ),
+                tint: Vec4::from_array(
+                    art.palette(effect.palette)
+                        .map(|v| f32::from(v) * 4. / 255.),
+                ),
+            };
+        }
         commands
             .entity(entity)
             .insert((settings.clone(), Atlas(textures.clone())));
     }
+    let loaded =
+        ready.get() && textures.iter().all(|texture| images.contains(texture)) && !views.is_empty();
     for &id in world.refractions.keys() {
-        if ready.get()
-            && textures.iter().all(|texture| images.contains(texture))
-            && !views.is_empty()
-        {
+        if loaded {
             applied.ack(Request::Refraction(id));
         } else {
             applied.loading(Request::Refraction(id));
@@ -169,6 +173,7 @@ struct Pipeline {
     layout: BindGroupLayoutDescriptor,
     sampler: Sampler,
     id: CachedRenderPipelineId,
+    ripple: CachedRenderPipelineId,
     mesh: CachedRenderPipelineId,
 }
 fn prepare(
@@ -192,20 +197,41 @@ fn prepare(
             ),
         ),
     );
-    let id = cache.queue_render_pipeline(RenderPipelineDescriptor {
-        label: Some("resonance/refraction".into()),
-        layout: vec![layout.clone()],
-        vertex: fullscreen.to_vertex_state(),
-        fragment: Some(FragmentState {
-            shader: server.load("embedded://resonance_presentation/field_refraction.wgsl"),
-            targets: vec![Some(ColorTargetState {
-                format: TextureFormat::Bgra8Unorm,
-                blend: None,
-                write_mask: ColorWrites::ALL,
-            })],
+    let shader = server.load("embedded://resonance_presentation/field_refraction.wgsl");
+    let definitions = vec![bevy::shader::ShaderDefVal::UInt(
+        "REFRACTION_LIMIT".into(),
+        REFRACTION_LIMIT as u32,
+    )];
+    let [id, ripple] = [
+        (fullscreen.to_vertex_state(), "fragment", None),
+        (
+            VertexState {
+                shader: shader.clone(),
+                shader_defs: definitions.clone(),
+                entry_point: Some("quad_vertex".into()),
+                ..default()
+            },
+            "quad_fragment",
+            Some(BlendState::ALPHA_BLENDING),
+        ),
+    ]
+    .map(|(vertex, entry_point, blend)| {
+        cache.queue_render_pipeline(RenderPipelineDescriptor {
+            label: Some(format!("resonance/refraction/{entry_point}").into()),
+            layout: vec![layout.clone()],
+            vertex,
+            fragment: Some(FragmentState {
+                shader: shader.clone(),
+                shader_defs: definitions.clone(),
+                entry_point: Some(entry_point.into()),
+                targets: vec![Some(ColorTargetState {
+                    format: TextureFormat::Bgra8Unorm,
+                    blend,
+                    write_mask: ColorWrites::ALL,
+                })],
+            }),
             ..default()
-        }),
-        ..default()
+        })
     });
     let mesh = cache.queue_render_pipeline(super::field_capture::pipeline(
         layout.clone(),
@@ -219,6 +245,7 @@ fn prepare(
             ..default()
         }),
         id,
+        ripple,
         mesh,
     });
 }
@@ -228,7 +255,7 @@ struct Bindings {
     identity: Option<([TextureViewId; 2], BufferId, TextureViewId)>,
     views: HashMap<TextureViewId, BindGroup>,
 }
-#[allow(clippy::too_many_arguments, clippy::type_complexity)] // One camera's capture, depth and prepared GPU bindings.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn render(
     view: ViewQuery<(
         &ViewTarget,
@@ -259,6 +286,9 @@ fn render(
     let Some(mesh_pipeline) = cache.get_render_pipeline(pipeline.mesh) else {
         return;
     };
+    let Some(ripple_pipeline) = cache.get_render_pipeline(pipeline.ripple) else {
+        return;
+    };
     let [Some(atlas), Some(air)] = atlas.0.each_ref().map(|handle| images.get(handle)) else {
         return;
     };
@@ -274,8 +304,7 @@ fn render(
         bindings.identity = Some(identity);
         bindings.views.clear();
     }
-    // Warm both ping-pong bindings once, even when there is no live ripple.
-    // A field with no ripple otherwise incurs no extra full-screen draw.
+    // Warm both ping-pong bindings before skipping inactive frames.
     if settings.parameters.x == 0.
         && meshes.0.is_empty()
         && settings.screen_copy.x == 0.
@@ -321,6 +350,8 @@ fn render(
     pass.set_pipeline(gpu_pipeline);
     pass.set_bind_group(0, &bindings.views[&post.source.id()], &[index.index()]);
     pass.draw(0..3, 0..1);
+    pass.set_pipeline(ripple_pipeline);
+    pass.draw(0..6, 0..settings.parameters.x as u32);
     drop(pass);
     if !meshes.0.is_empty() {
         let buffer = mesh_buffer.get_or_insert_with(|| RawBufferVec::new(BufferUsages::VERTEX));

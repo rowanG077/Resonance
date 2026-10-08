@@ -55,7 +55,8 @@ impl Wings {
         }?;
         Some(WingEntrance {
             weight,
-            delay: f32::from(self.style == WingStyle::Feathered && pass < Self::LAYERS - 1),
+            // The translucent layers hold the opening pose during the cross-fade.
+            delay: f32::from(pass < Self::LAYERS - 1),
         })
     }
 
@@ -292,7 +293,6 @@ impl GameWorld {
                 let size = 2. + (self.random() & 3) as f32;
                 let fall = -((self.random() & 7) as f32) / 16.;
                 self.emit_billboard(crate::effect::BillboardEffect {
-                    field_lighting: true,
                     recipe: 0,
                     uv: Some([16., 192., 32., 208.].map(|v| v / 256.)),
                     born: self.tick,

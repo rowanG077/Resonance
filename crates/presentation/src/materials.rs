@@ -208,6 +208,10 @@ pub(super) struct TitleSurface {
     pub constant_color: bool,
     /// Clamp the texture/color product before fog and framebuffer blending.
     pub clamp_color: bool,
+    /// Apply particle opacity to byte-valued vertex alpha before interpolation.
+    pub vertex_alpha: bool,
+    /// Smallest covered alpha value, in byte units, after tinting.
+    pub alpha_cutoff: u8,
     pub blend: Option<Blend>,
     pub depth_test: bool,
     pub depth_write: bool,
@@ -233,6 +237,8 @@ impl Default for TitleSurface {
             vertex_color: true,
             constant_color: false,
             clamp_color: false,
+            vertex_alpha: false,
+            alpha_cutoff: 1,
             blend: None,
             depth_test: true,
             depth_write: true,
@@ -263,6 +269,7 @@ pub(super) struct SurfaceUniform {
     shade_colors: [Vec4; 2],
     fog_color: Vec4,
     fog_range: Vec4,
+    alpha_cutoff: f32,
 }
 impl From<&TitleSurface> for SurfaceUniform {
     fn from(value: &TitleSurface) -> Self {
@@ -278,6 +285,7 @@ impl From<&TitleSurface> for SurfaceUniform {
                 .fog_range
                 .truncate()
                 .extend(if value.field_fog { 1. } else { 0. }),
+            alpha_cutoff: f32::from(value.alpha_cutoff) / 255.,
         }
     }
 }
@@ -288,6 +296,7 @@ pub(super) struct SurfaceKey {
     field_lighting: bool,
     constant_color: bool,
     clamp_color: bool,
+    vertex_alpha: bool,
     depth_test: bool,
     depth_write: bool,
     blend: Option<Blend>,
@@ -301,6 +310,7 @@ impl From<&TitleSurface> for SurfaceKey {
             field_lighting: material.toon_ramp.is_some(),
             constant_color: material.constant_color,
             clamp_color: material.clamp_color,
+            vertex_alpha: material.vertex_alpha,
             depth_test: material.depth_test,
             depth_write: material.depth_write,
             blend: material.blend,
@@ -353,6 +363,12 @@ impl Material for TitleSurface {
             descriptor.vertex.shader_defs.push("FIELD_LIGHTING".into());
             if let Some(fragment) = &mut descriptor.fragment {
                 fragment.shader_defs.push("FIELD_LIGHTING".into());
+            }
+        }
+        if key.bind_group_data.vertex_alpha {
+            descriptor.vertex.shader_defs.push("VERTEX_ALPHA".into());
+            if let Some(fragment) = &mut descriptor.fragment {
+                fragment.shader_defs.push("VERTEX_ALPHA".into());
             }
         }
         if key.bind_group_data.constant_color

@@ -1,33 +1,31 @@
 //! Clustered light shafts and a contracting flash with inward rays.
 use super::{palette, particle};
 use crate::{
-    effect::{BillboardEffect, Fade, SpriteOrientation},
+    effect::{Fade, SpriteOrientation},
     world::random,
 };
-use resonance_content::effect::STREAK_SPRITE;
+use resonance_content::effect::sprite::STREAK_SPRITE;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn aura(
     center: [f32; 3],
     born: u32,
     age: u32,
-    owner: i32,
     camera: [f32; 3],
     color: i32,
     offset: f32,
     rng: &mut u32,
-    out: &mut Vec<BillboardEffect>,
+    out: &mut super::Births,
 ) {
     const GROWTH: f32 = 3.;
     const SPARK_THRESHOLD: f32 = 100.;
     random(rng);
     let mut glow = particle(center, born, palette(color, rng), 6);
-    glow.field_lighting = false;
     glow.size = [age as f32 * GROWTH; 2];
     glow.rgba[3] = 70;
     glow.fade = Fade::Linear(-5.);
     glow.controller = Some(crate::effect::BillboardController::CameraOffset {
-        emitter: owner,
+        emitter: None,
         center,
         distance: offset,
     });
@@ -54,24 +52,23 @@ pub(super) fn aura(
 pub(super) fn crown(
     center: [f32; 3],
     born: u32,
-    color: i32,
+    color: u16,
     radius: f32,
     spread: f32,
     rng: &mut u32,
-    out: &mut Vec<BillboardEffect>,
+    out: &mut super::Births,
 ) {
     const SPOKES: u32 = 72;
-    let variation = (spread as u32 / 2).max(1);
+    let variation = spread as u32 / 2;
     for spoke in 1..=SPOKES {
-        let color = palette(color, rng);
         let size = [
             (8 + random(rng) % 5) as f32,
             (100 + random(rng) % 100) as f32,
         ];
         let (sin, cos) = (spoke as f32 * 360. / SPOKES as f32).to_radians().sin_cos();
         let direction = [
-            cos * (spread + (random(rng) % variation) as f32),
-            sin * (spread + (random(rng) % variation) as f32),
+            cos * (spread + super::stream::spread(rng, variation) as f32),
+            sin * (spread + super::stream::spread(rng, variation) as f32),
             100.,
         ];
         let speed = (20 + random(rng) % 20) as f32;
@@ -88,16 +85,13 @@ pub(super) fn crown(
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct RisingOrbs {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RisingOrbs {
     pub palette: i32,
     pub radius: f32,
     pub size: f32,
     pub variation: u32,
-    pub lighting: bool,
     pub speed_variation: u32,
-    pub alpha: u8,
-    pub fade: f32,
     pub interval: u32,
     pub preserve_particles: bool,
     pub drifting: bool,
@@ -110,28 +104,31 @@ impl RisingOrbs {
         tick: u32,
         (owner, actor): (i32, &crate::Actor),
         rng: &mut u32,
-        out: &mut Vec<BillboardEffect>,
+        out: &mut super::Births,
     ) {
         random(rng);
         if !tick.is_multiple_of(self.interval) {
             return;
         }
-        const MOTE_SPRITES: [u16; 3] = [crate::effect::ORB_SPRITE, 12, 69];
+        const MOTE_SPRITES: [u16; 3] = [
+            crate::effect::ORB_SPRITE,
+            crate::effect::TRAIL_GLOW_SPRITE,
+            crate::effect::SEAL_SPARK_SPRITE,
+        ];
         const WHITE_MOTE: usize = 2;
         let style = if self.drifting {
             random(rng) as usize % MOTE_SPRITES.len()
         } else {
             0
         };
-        let color = if style == WHITE_MOTE {
+        let color = if !self.drifting {
+            self.palette as u16
+        } else if self.palette >= 105 {
+            palette(self.palette, rng)
+        } else if style == WHITE_MOTE {
             u16::from(crate::effect::NEUTRAL_PALETTE)
         } else {
-            palette(self.palette, rng)
-                + if self.drifting {
-                    (random(rng) % 4) as u16
-                } else {
-                    0
-                }
+            self.palette as u16 + (random(rng) % 4) as u16
         };
         let size = (self.size + (random(rng) % self.variation) as f32)
             * if style == WHITE_MOTE { 1.2 } else { 1. };
@@ -148,7 +145,7 @@ impl RisingOrbs {
         let angle = (random(rng) % 360) as f32;
         let (sin, cos) = angle.to_radians().sin_cos();
         let radius = if self.drifting {
-            (random(rng) % (self.radius as u32).max(1)) as f32
+            super::stream::spread(rng, self.radius as u32) as f32
         } else {
             self.radius
         };
@@ -169,16 +166,14 @@ impl RisingOrbs {
             p.owner = Some(owner);
         }
         p.size = [size; 2];
-        p.rgba[3] = self.alpha;
-        p.fade = Fade::Linear(self.fade);
-        p.field_lighting = self.lighting;
+        p.fade = Fade::Linear(-1.);
         out.push(p);
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct Bloom {
-    pub palette: i32,
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Bloom {
+    pub palette: u16,
     pub lifetime: u32,
     pub count: u32,
     pub size: [f32; 2],
@@ -191,36 +186,34 @@ impl Bloom {
         born: u32,
         speed: f32,
         rng: &mut u32,
-        out: &mut Vec<BillboardEffect>,
+        out: &mut super::Births,
     ) {
         for _ in 0..self.count {
-            let color = palette(self.palette, rng);
             let size =
                 std::array::from_fn(|i| self.size[i] + (random(rng) % self.variation[i]) as f32);
             let angle = 90. - (random(rng) % 360) as f32;
             let (sin, cos) = angle.to_radians().sin_cos();
-            let mut p = particle(center, born, color, self.lifetime + 1);
+            let mut p = particle(center, born, self.palette, self.lifetime + 1);
             p.recipe = STREAK_SPRITE;
             p.orientation = SpriteOrientation::World;
             p.rotation = [90., angle, 0.];
             p.velocity = [sin * speed, 0., cos * speed];
             p.size = size;
             p.rgba[3] = 150;
-            p.field_lighting = false;
             out.push(p);
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct Rising {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Rising {
     pub palette: i32,
     pub radius: f32,
     pub size: [f32; 2],
     pub variation: [u32; 2],
     pub alpha: u8,
     pub rise: u32,
-    pub world: bool,
+    pub interval: u32,
     pub lifetime: u32,
 }
 impl Rising {
@@ -228,11 +221,15 @@ impl Rising {
         &self,
         center: [f32; 3],
         born: u32,
+        clock: u32,
         camera: [f32; 3],
         rng: &mut u32,
-        out: &mut Vec<BillboardEffect>,
+        out: &mut super::Births,
     ) {
         random(rng);
+        if self.interval == 0 || !clock.is_multiple_of(self.interval) {
+            return;
+        }
         let size = std::array::from_fn(|i| self.size[i] + (random(rng) % self.variation[i]) as f32);
         let speed = (random(rng) % self.rise) as f32 / 100.;
         let angle = (random(rng) % 360) as f32;
@@ -245,16 +242,14 @@ impl Rising {
         p.velocity[2] = speed;
         p.size = size;
         p.rgba[3] = self.alpha;
-        if self.world {
-            p.orientation = SpriteOrientation::World;
-            p.rotation = [90., 0., camera[0].atan2(-camera[1]).to_degrees()];
-        }
+        p.orientation = SpriteOrientation::World;
+        p.rotation = [90., 0., camera[0].atan2(-camera[1]).to_degrees()];
         out.push(p);
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct Shafts {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Shafts {
     pub palette: i32,
     pub interval: u32,
     pub radius: f32,
@@ -265,7 +260,7 @@ pub(super) struct Shafts {
 }
 
 impl Shafts {
-    pub fn emit(&self, center: [f32; 3], born: u32, rng: &mut u32, out: &mut Vec<BillboardEffect>) {
+    pub fn emit(&self, center: [f32; 3], born: u32, rng: &mut u32, out: &mut super::Births) {
         const FADE_TICKS: u32 = 40;
         const PEAK_ALPHA: f32 = 50.;
         let size = |rng: &mut u32| {
@@ -303,8 +298,8 @@ impl Shafts {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct Convergence {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Convergence {
     pub palette: i32,
     pub size: f32,
     pub growth: f32,
@@ -313,7 +308,7 @@ pub(super) struct Convergence {
 }
 
 impl Convergence {
-    pub fn emit(&self, center: [f32; 3], born: u32, rng: &mut u32, out: &mut Vec<BillboardEffect>) {
+    pub fn emit(&self, center: [f32; 3], born: u32, rng: &mut u32, out: &mut super::Births) {
         const RAYS: usize = 100;
         const SPEED: f32 = 20.;
         let mut flash = particle(center, born, self.palette as u16, 600);
@@ -333,13 +328,16 @@ impl Convergence {
             let angle = (random(rng) % 360) as f32 - 90.;
             let (sin, cos) = angle.to_radians().sin_cos();
             let radius = (self.radius + random(rng) % self.spread) as f32;
-            let mut p = particle(center, born, color, (radius / SPEED) as u32 + 1);
+            let mut p = particle(center, born, color, 1);
             p.recipe = STREAK_SPRITE;
             p.orientation = SpriteOrientation::World;
             p.anchor = resonance_content::effect::VerticalAnchor::Bottom;
             p.position[0] -= sin * radius;
             p.position[2] -= cos * radius;
-            p.velocity = [sin * SPEED, 0., cos * SPEED];
+            let path: [f32; 3] = std::array::from_fn(|i| center[i] - p.position[i]);
+            let distance = path.iter().map(|v| v * v).sum::<f32>().sqrt();
+            p.lifetime = (distance / SPEED) as u32 + 1;
+            p.velocity = super::normalized(path).map(|v| v * SPEED);
             p.rotation = [90., angle, 0.];
             p.size = size;
             p.rgba[3] = alpha;

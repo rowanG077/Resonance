@@ -31,9 +31,9 @@ pub use scheduler::EventRuntime;
 pub use world::{
     ACTOR_CONTACT_HEIGHT, Actor, ActorContact, ActorMotion, ActorRole, Appearance, Attachment,
     AudioCommand, BoneAdjustment, BoneScale, BoneTarget, CameraTrack, Emote, Enemy, EventRecord,
-    Face, Fade, FieldTransition, GameWorld, MusicCommand, Overlay, OverlayKind, Particle,
-    PlayerSize, SavePoint, SceneDestination, SpriteOverlay, TreasureChest, TreasureKind,
-    TreasureReward, Trigger, TriggerShape, VoicePlayback, WorldTransition,
+    Face, Fade, FieldTransition, GameWorld, MusicCommand, Overlay, OverlayKind, PlayerSize,
+    SavePoint, SceneDestination, SpriteOverlay, TreasureChest, TreasureKind, TreasureReward,
+    Trigger, TriggerShape, VoicePlayback, WorldTransition,
 };
 mod operation;
 pub use operation::{Operation, Outcome, Progress};

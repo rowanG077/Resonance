@@ -152,6 +152,7 @@ impl Session {
             FieldEntry {
                 services: None,
                 attachments: Default::default(),
+                effect_palette: Default::default(),
                 allow_incomplete_scripts: false,
                 kind: Default::default(),
                 menu_data: None,

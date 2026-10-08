@@ -16,11 +16,11 @@ use bevy::{
     prelude::*,
 };
 use resonance_content::{
-    effect::{FieldEffects, FlutterRecipe, RefractionRecipe, VerticalAnchor},
+    effect::{FieldEffects, RefractionRecipe, VerticalAnchor},
     field::FieldAssets,
 };
 use resonance_events::effect::{Blend, SpriteOrientation};
-use std::{borrow::Cow, collections::BTreeMap, fs, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 const EMOTES: usize = 0;
 const STATUS: usize = 1;
@@ -38,7 +38,6 @@ pub(super) struct Artwork {
     materials: Vec<Handle<TitleSurface>>,
     warm_mesh: Handle<Mesh>,
     draws: Vec<Vec<(Entity, Handle<Mesh>)>>,
-    particles: BTreeMap<i32, (FlutterRecipe, usize)>,
     sprite_materials: BTreeMap<u16, SpriteMaterials>,
     overlay_materials: BTreeMap<u32, Vec<SpriteMaterials>>,
     refraction_texture: [Handle<Image>; 2],
@@ -80,12 +79,24 @@ impl Artwork {
         surfaces: &mut Assets<TitleSurface>,
         files: Option<&resonance_content::prepared::Files>,
     ) -> Result<Self> {
-        let spec: FieldEffects = if let Some(files) = files {
+        let mut spec: FieldEffects = if let Some(files) = files {
             files.json(&field.effects)?
         } else {
             serde_json::from_slice(&fs::read(root.join(&field.effects))?)?
         };
         spec.validate()?;
+        for (&kind, leaf) in &field.particles {
+            spec.sprites.insert(
+                kind.try_into()?,
+                resonance_content::effect::SpriteRecipe {
+                    texture: leaf.texture.clone(),
+                    uv: leaf.uv,
+                    additive: false,
+                    frames: Vec::new(),
+                    repeat: false,
+                },
+            );
+        }
         let emotes = load_image(server, &spec.emote_texture, false);
         let status = load_image(server, &spec.status_texture, true);
         let mut textures = vec![emotes.clone(), status.clone()];
@@ -124,19 +135,6 @@ impl Artwork {
                 index
             })
         };
-        let particles = field
-            .particles
-            .iter()
-            .map(|(&kind, recipe)| {
-                (
-                    kind,
-                    (
-                        recipe.clone(),
-                        register(&recipe.texture, Blend::Alpha, true),
-                    ),
-                )
-            })
-            .collect();
         let mut variants = |path: &str| {
             Blend::ALL.map(|mode| std::array::from_fn(|fog| register(path, mode, fog != 0)))
         };
@@ -180,7 +178,6 @@ impl Artwork {
             materials,
             warm_mesh: meshes.add(Quad::mesh(std::iter::once(&warm))),
             draws: Vec::new(),
-            particles,
             sprite_materials,
             overlay_materials,
             refraction_texture,
@@ -219,13 +216,13 @@ fn load_image(server: &AssetServer, path: &str, nearest: bool) -> Handle<Image> 
         .load(path.to_owned())
 }
 
-struct Quad {
+pub(super) struct Quad {
     positions: [[f32; 3]; 4],
     uv: [f32; 4],
     color: [f32; 4],
 }
 impl Quad {
-    fn new(
+    pub(super) fn new(
         center: Vec3,
         rotation: Quat,
         size: [f32; 2],
@@ -238,8 +235,6 @@ impl Quad {
             VerticalAnchor::Center => [(size[1] / 2.).trunc(); 2],
             VerticalAnchor::Bottom => [size[1], 0.],
             VerticalAnchor::Top => [0., size[1]],
-            VerticalAnchor::UpperHalf => [(size[1] / 2.).trunc(), 0.],
-            VerticalAnchor::LowerHalf => [0., (size[1] / 2.).trunc()],
         };
         let up = rotation * Vec3::Y * above;
         let down = rotation * Vec3::Y * below;
@@ -255,7 +250,7 @@ impl Quad {
             color,
         }
     }
-    fn mesh<'a>(quads: impl IntoIterator<Item = &'a Self>) -> Mesh {
+    pub(super) fn mesh<'a>(quads: impl IntoIterator<Item = &'a Self>) -> Mesh {
         let mut positions = Vec::new();
         let mut uv = Vec::new();
         let mut colors = Vec::new();
@@ -292,7 +287,7 @@ pub(super) fn effect_rotation(
     }
 }
 
-#[allow(clippy::too_many_arguments)] // Cooked images, live state, current joint transforms, and sprite submission.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn render(
     mut commands: Commands,
     state: State,
@@ -309,8 +304,7 @@ pub(super) fn render(
     }
     let world = &state.get().events.world;
     if art.draws.is_empty() {
-        // Keep a prepared draw for each material so the first visible particle
-        // does not wait for a mesh upload or a material-binding change.
+        // Prepare each material before the first visible particle.
         let warm = meshes.get(&art.warm_mesh).unwrap().clone();
         art.draws = art
             .materials
@@ -343,9 +337,6 @@ pub(super) fn render(
         if world.paralysis.is_some() {
             applied.loading(Request::Paralysis);
         }
-        for particle in &world.particles {
-            applied.loading(Request::Particle(particle.handle));
-        }
         return;
     }
     let camera = super::field_view::camera_transform(camera);
@@ -353,54 +344,28 @@ pub(super) fn render(
     let forward = Vec3::Z.cross(side);
     let brightness = world.brightness();
     let mut quads = Vec::new();
-    for particle in &world.particles {
-        let Some((recipe, layer)) = art.particles.get(&particle.kind) else {
-            continue;
-        };
-        let Some(flutter) = &particle.flutter else {
-            continue;
-        };
-        let [x, y, z] = flutter.rotation.map(f32::to_radians);
-        let (position, size, rgba) = particle.sample(world.tick);
-        let rgb = rgba.map(|v| v * 4. / 255. * brightness);
-        let quad = Quad::new(
-            Vec3::from_array(position),
-            Quat::from_euler(EulerRot::ZYX, z, y, x),
-            [size, size / recipe.aspect_ratio],
-            recipe.uv,
-            [rgb[0], rgb[1], rgb[2], rgba[3].min(255.) / 255.],
-            VerticalAnchor::Center,
-        );
-        quads.push((EFFECTS, particle.handle, *layer, quad));
-        applied.ack(Request::Particle(particle.handle));
-    }
-    for (&id, effect) in &world.billboards {
-        if world.tick < effect.born || !effect.alive(world.tick) {
+    let mut particles: Vec<_> = world.billboards.iter().collect();
+    particles.sort_unstable_by_key(|(_, effect)| effect.draw_order);
+    let mut previous_blend = Blend::Additive;
+    for (&id, effect) in particles {
+        if world.tick < effect.born {
             continue;
         }
         let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
             continue;
         };
         let rotation = effect_rotation(effect.orientation, effect.rotation, camera.rotation);
-        let mut rgba = effect.rgba;
-        if let Some(palette) = effect
-            .palette
-            .and_then(|index| art.spec.palette.get(usize::from(index)))
-        {
-            for channel in 0..3 {
-                if rgba[channel] == resonance_events::effect::NEUTRAL_TINT {
-                    rgba[channel] = palette[channel];
-                }
-            }
-        }
-        // Scene fades apply to lit and unlit effects alike.
-        let rgb =
-            rgba.map(|v| (f32::from(v) * effect.intensity).min(255.) * 4. / 255. * brightness);
-        let mode = effect.blend.unwrap_or(if recipe.additive {
+        let rgba = effect.rgba;
+        let rgb = rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
+        let mut mode = effect.blend.unwrap_or(if recipe.additive {
             Blend::Additive
         } else {
             Blend::Alpha
         });
+        if mode == Blend::Previous {
+            mode = previous_blend;
+        }
+        previous_blend = mode;
         let (materials, uv) = if let Some((resource, image)) = effect.texture {
             (
                 &art.overlay_materials[&resource][usize::from(image)],
@@ -426,7 +391,7 @@ pub(super) fn render(
             ],
             effect.anchor,
         );
-        quads.push((EFFECTS, effect.draw_order as i32, layer, quad));
+        quads.push((EFFECTS, layer, quad));
         applied.ack(Request::Billboard(id));
     }
     let roots: BTreeMap<_, _> = actors
@@ -434,16 +399,18 @@ pub(super) fn render(
         .filter(|(p, _)| p.part == 0)
         .map(|(p, rig)| (p.actor, (p, rig)))
         .collect();
-    let emotes = world.emotes.iter().map(|(&id, emote)| {
+    let mut emotes: Vec<_> = world.emotes.iter().collect();
+    emotes.sort_unstable_by_key(|(_, emote)| emote.draw_order);
+    let emotes = emotes.into_iter().map(|(&id, emote)| {
         (
             Request::Emote(id),
             emote.actor,
             ("Bone_atama", [0., 0., 128.]),
-            Cow::Owned(resonance_events::emote::sprites(
+            resonance_events::emote::sprites(
                 emote.kind,
                 world.tick.saturating_sub(emote.start_tick),
                 emote.phase,
-            )),
+            ),
             emote.offset,
             EMOTES,
         )
@@ -452,11 +419,8 @@ pub(super) fn render(
         (
             Request::Paralysis,
             symbol.actor,
-            (
-                art.spec.paralysis.anchor.as_str(),
-                art.spec.paralysis.missing_anchor_offset,
-            ),
-            Cow::Borrowed(art.spec.paralysis.frame(usize::from(symbol.frame))),
+            ("Bone_atama", [0.; 3]),
+            vec![resonance_events::emote::paralysis(symbol.frame)],
             [0.; 3],
             STATUS,
         )
@@ -502,16 +466,15 @@ pub(super) fn render(
             for vertex in &mut quad.positions {
                 *vertex = (center + camera.rotation * Vec3::from_array(*vertex)).to_array();
             }
-            quads.push((EFFECTS + EFFECT_UI_OFFSET, layer as i32, layer, quad));
+            quads.push((EFFECTS + EFFECT_UI_OFFSET, layer, quad));
         }
         applied.ack(request);
     }
     // Only adjacent, compatible draws may merge; translucent overlap is ordered.
-    quads.sort_by_key(|(pass, id, _, _)| (*pass, *id));
     let mut used = vec![0; art.materials.len()];
-    for (order, run) in quads.chunk_by(|a, b| (a.0, a.2) == (b.0, b.2)).enumerate() {
-        let (pass, _, layer, _) = run[0];
-        let batch = Quad::mesh(run.iter().map(|(_, _, _, quad)| quad));
+    for (order, run) in quads.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)).enumerate() {
+        let (pass, layer, _) = run[0];
+        let batch = Quad::mesh(run.iter().map(|(_, _, quad)| quad));
         let (entity, mesh) = if let Some((entity, mesh)) = art.draws[layer].get(used[layer]) {
             *meshes.get_mut(mesh).unwrap() = batch;
             (*entity, mesh.clone())
@@ -609,8 +572,6 @@ mod tests {
             (VerticalAnchor::Center, [1., 1., -1., -1.]),
             (VerticalAnchor::Bottom, [3., 3., 0., 0.]),
             (VerticalAnchor::Top, [0., 0., -3., -3.]),
-            (VerticalAnchor::UpperHalf, [1., 1., 0., 0.]),
-            (VerticalAnchor::LowerHalf, [0., 0., -1., -1.]),
         ] {
             let quad = Quad::new(
                 Vec3::ZERO,

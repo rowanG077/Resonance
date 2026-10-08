@@ -132,6 +132,20 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     out.instance_index = vertex_no_morph.instance_index;
 #endif
 
+#ifdef VERTEX_ALPHA
+#ifdef VERTEX_COLORS
+#ifdef BINDLESS
+    let particle_slot = mesh[vertex_no_morph.instance_index].material_and_lightmap_bind_group_slot & 0xffffu;
+#else
+    let particle_slot = 0u;
+#endif
+    let particle_material = surface_data(particle_slot);
+    let opacity = particle_material.tint.a;
+    let vertex_tint = vec4<f32>(particle_material.ambient_color.rgb, round(opacity * 255.0));
+    out.color = floor(round(out.color * 255.0) * vertex_tint / 256.0) / 255.0;
+#endif
+#endif
+
 #ifdef VISIBILITY_RANGE_DITHER
     out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
         vertex_no_morph.instance_index, mesh_world_from_local[3]);

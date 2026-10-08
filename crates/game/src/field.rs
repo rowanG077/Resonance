@@ -41,6 +41,7 @@ pub struct FieldEntry {
     pub kind: EntryKind,
     pub services: Option<Arc<crate::authored::FieldServices>>,
     pub attachments: attachments::Attachments,
+    pub effect_palette: resonance_events::effect::Palette,
     pub play_time: crate::clock::PlayTime,
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
@@ -1350,7 +1351,9 @@ fn start_with_entry(
             .attachments = poses;
     }
     let (mut world, memory) = entry.persistent.into_world();
+    world.effect_palette = entry.effect_palette;
     world.current_field = Some(assets.map_id);
+    world.ring_scenery = resonance_content::field::RingScenery::for_field(assets.map_id);
     if let Some((party, menu)) = world.party.as_mut().zip(resources.menu_data.as_ref()) {
         party.travel.enter_field(&menu.world_map, assets.map_id);
     }

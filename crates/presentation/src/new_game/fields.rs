@@ -150,6 +150,10 @@ impl FieldPackage {
         let menu: resonance_content::menu_data::MenuData =
             self.files.json("game/menu-data.json")?;
         menu.validate()?;
+        let effects: resonance_content::effect::FieldEffects =
+            self.files.json(&self.assets.effects)?;
+        effects.validate()?;
+        entry.effect_palette = resonance_events::effect::Palette(effects.palette);
         entry.menu_data = Some(Arc::new(menu));
         entry.text = Arc::new(self.files.json("game/text.json")?);
         entry.services = Some(self.services.clone());

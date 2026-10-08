@@ -59,73 +59,57 @@ pub enum BubblePhase {
     Float,
 }
 
+impl SorcerersRing {
+    const MODES: &[(Self, [u8; 2])] = &[
+        (Self::Disabled, [0, 0]),
+        (Self::Fire, [1, 0]),
+        (Self::Fire, [2, 0]),
+        (Self::Shrink, [3, 0]),
+        (Self::Mana, [4, 0]),
+        (Self::ElectricOrb(ElectricOrbKind::Sylvarant), [5, 0]),
+        (Self::Radar, [6, 0]),
+        (Self::Water, [7, 0]),
+        (Self::Wind, [8, 0]),
+        (Self::LongRangeFire, [9, 0]),
+        (Self::Sunlight, [10, 0]),
+        (Self::ElectricOrb(ElectricOrbKind::Tethealla), [11, 0]),
+        (Self::Bomb, [12, 0]),
+        (Self::Lightning(LightningColor::Blue), [13, 0]),
+        (Self::Lightning(LightningColor::Yellow), [13, 1]),
+        (Self::Lightning(LightningColor::Red), [13, 2]),
+        (Self::Ice, [14, 0]),
+        (Self::Earthquake, [15, 0]),
+        (Self::Darkness, [16, 0]),
+        (Self::Sound, [17, 0]),
+        (Self::AnimalCall(CallColor::Pink), [18, 0]),
+        (Self::AnimalCall(CallColor::White), [18, 1]),
+        (Self::AnimalCall(CallColor::Blue), [18, 2]),
+        (Self::Bubble(BubblePhase::Release), [19, 0]),
+        (Self::Bubble(BubblePhase::Float), [19, 1]),
+    ];
+}
 impl TryFrom<[u8; 2]> for SorcerersRing {
     type Error = String;
-
-    fn try_from([mode, variant]: [u8; 2]) -> Result<Self, String> {
-        Ok(match (mode, variant) {
-            (0, 0) => Self::Disabled,
-            (1 | 2, 0) => Self::Fire,
-            (3, 0) => Self::Shrink,
-            (4, 0) => Self::Mana,
-            (5, 0) => Self::ElectricOrb(ElectricOrbKind::Sylvarant),
-            (6, 0) => Self::Radar,
-            (7, 0) => Self::Water,
-            (8, 0) => Self::Wind,
-            (9, 0) => Self::LongRangeFire,
-            (10, 0) => Self::Sunlight,
-            (11, 0) => Self::ElectricOrb(ElectricOrbKind::Tethealla),
-            (12, 0) => Self::Bomb,
-            (13, 0) => Self::Lightning(LightningColor::Blue),
-            (13, 1) => Self::Lightning(LightningColor::Yellow),
-            (13, 2) => Self::Lightning(LightningColor::Red),
-            (14, 0) => Self::Ice,
-            (15, 0) => Self::Earthquake,
-            (16, 0) => Self::Darkness,
-            (17, 0) => Self::Sound,
-            (18, 0) => Self::AnimalCall(CallColor::Pink),
-            (18, 1) => Self::AnimalCall(CallColor::White),
-            (18, 2) => Self::AnimalCall(CallColor::Blue),
-            (19, 0) => Self::Bubble(BubblePhase::Release),
-            (19, 1) => Self::Bubble(BubblePhase::Float),
-            _ => {
-                return Err(format!(
-                    "invalid Sorcerer's Ring mode/variant {mode}/{variant}"
-                ));
-            }
-        })
+    fn try_from(input: [u8; 2]) -> Result<Self, String> {
+        Self::MODES
+            .iter()
+            .find(|(_, wire)| *wire == input)
+            .map(|(ring, _)| *ring)
+            .ok_or_else(|| {
+                format!(
+                    "invalid Sorcerer's Ring mode/variant {}/{}",
+                    input[0], input[1]
+                )
+            })
     }
 }
-
 impl From<SorcerersRing> for [u8; 2] {
     fn from(ring: SorcerersRing) -> Self {
-        use SorcerersRing::*;
-        match ring {
-            Disabled => [0, 0],
-            Fire => [1, 0],
-            Shrink => [3, 0],
-            Mana => [4, 0],
-            ElectricOrb(ElectricOrbKind::Sylvarant) => [5, 0],
-            Radar => [6, 0],
-            Water => [7, 0],
-            Wind => [8, 0],
-            LongRangeFire => [9, 0],
-            Sunlight => [10, 0],
-            ElectricOrb(ElectricOrbKind::Tethealla) => [11, 0],
-            Bomb => [12, 0],
-            Lightning(LightningColor::Blue) => [13, 0],
-            Lightning(LightningColor::Yellow) => [13, 1],
-            Lightning(LightningColor::Red) => [13, 2],
-            Ice => [14, 0],
-            Earthquake => [15, 0],
-            Darkness => [16, 0],
-            Sound => [17, 0],
-            AnimalCall(CallColor::Pink) => [18, 0],
-            AnimalCall(CallColor::White) => [18, 1],
-            AnimalCall(CallColor::Blue) => [18, 2],
-            Bubble(BubblePhase::Release) => [19, 0],
-            Bubble(BubblePhase::Float) => [19, 1],
-        }
+        SorcerersRing::MODES
+            .iter()
+            .find(|(kind, _)| *kind == ring)
+            .unwrap()
+            .1
     }
 }
 

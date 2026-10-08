@@ -85,7 +85,8 @@ impl Animation {
         if self.blend_ticks == 0 {
             return 1.;
         }
-        (self.animation_tick(tick).saturating_sub(self.start_tick) as f32 / self.blend_ticks as f32)
+        (self.animation_tick(tick).saturating_sub(self.start_tick) as f32
+            / (self.blend_ticks as f32 + 1.))
             .min(1.)
     }
     pub fn sample(&self, tick: u32, presentation_delay: u32, duration: f32) -> f32 {

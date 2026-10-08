@@ -8,7 +8,8 @@ use crate::{
     field_resources::binding::Resources,
 };
 use anyhow::{Context, Result, ensure};
-use resonance_content::field::ActorAssets;
+use resonance_content::field::{ActorAssets, LOCAL_MODEL_RESOURCES};
+const FIRST_LOCAL_SECTION: usize = 16;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
@@ -281,10 +282,13 @@ impl Sources {
         for (id, bytes) in field.models()? {
             self.insert(u32::from(id), bytes.to_vec(), decoded)?;
         }
-        for (index, _) in field.sections().filter(|(index, _)| *index >= 16) {
+        for (index, _) in field
+            .sections()
+            .filter(|(index, _)| *index >= FIRST_LOCAL_SECTION)
+        {
             if crate::animation::is_animation(field.source_section(index)?) {
                 self.animations.push((
-                    0xffee0000 + (index - 16) as u32,
+                    LOCAL_MODEL_RESOURCES.start + (index - FIRST_LOCAL_SECTION) as u32,
                     field.decoded.animation(field.source_section(index)?)?,
                 ));
             }
@@ -391,37 +395,39 @@ pub(crate) fn cook_field(
         };
         assets.add(&binder, id, &name, bytes, bytes, &[])?;
     }
-    // MAP-local model handles address slots starting at section 16.
-    for (index, kind) in physical.sections().filter(|(index, ..)| *index >= 16) {
+    use resonance_content::field::RingScenery;
+    for (index, kind) in physical
+        .sections()
+        .filter(|(index, ..)| *index >= FIRST_LOCAL_SECTION)
+    {
         if !matches!(kind, MemberKind::Actor | MemberKind::Model) {
             continue;
         }
+        let slot = index - FIRST_LOCAL_SECTION;
+        let resource = LOCAL_MODEL_RESOURCES.start + slot as u32;
         let bytes = physical.source_section(index)?;
-        if crate::field_resources::controller_capture(map_id, index) {
-            assets.actors.push(cook_captured_model(
+        let ring_model = match (slot, RingScenery::for_field(map_id)) {
+            (0, RingScenery::Bubble) => Some(cook_captured_model(output, resource, bytes)?),
+            (0, RingScenery::Sunlight) => Some(cook_textured_model(
                 output,
-                resonance_content::field::LOCAL_MODEL_RESOURCES.start + (index - 16) as u32,
+                resource,
                 bytes,
-            )?);
-            continue;
-        }
-        if let Some(palette) = crate::field_resources::controller_palette(map_id, index) {
-            assets.actors.push(cook_textured_model(
-                output,
-                resonance_content::field::LOCAL_MODEL_RESOURCES.start + (index - 16) as u32,
+                physical.source_section(index + 1)?,
+            )?),
+            _ => None,
+        };
+        if let Some(model) = ring_model {
+            assets.actors.push(model);
+        } else {
+            assets.add(
+                &binder,
+                resource,
+                &format!("field-{map_id}-object-{slot}"),
                 bytes,
-                physical.source_section(palette)?,
-            )?);
-            continue;
+                bytes,
+                &[],
+            )?;
         }
-        assets.add(
-            &binder,
-            0xffee0000 + (index - 16) as u32,
-            &format!("field-{map_id}-object-{}", index - 16),
-            bytes,
-            bytes,
-            &[],
-        )?;
     }
     let wings = original.source(&resources.colette_wings)?;
     assets.add(

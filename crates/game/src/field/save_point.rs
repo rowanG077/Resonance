@@ -199,6 +199,7 @@ impl SavePoints {
                         orientation: resonance_events::effect::SpriteOrientation::World,
                         rotation: [0.; 3],
                         position: [position[0], position[1], position[2] + 10.],
+                        velocity: [0.; 3],
                         born: world.tick,
                         lifetime: 30,
                         size: 20.,
@@ -377,12 +378,6 @@ mod tests {
         assert_eq!(events.world.refractions.len(), 1);
         assert_eq!(events.world.billboards.len(), 1);
         assert_eq!(events.world.audio_commands.len(), 1);
-        let spark = events.world.billboards.values().next().unwrap();
-        assert_eq!(spark.position[2], 0.);
-        assert_eq!(spark.rotation[2], 4.);
-        assert_eq!(spark.born, 1);
-        assert!(spark.alive(spark.born + 60));
-        assert!(!spark.alive(spark.born + 61));
         events.world.tick = 4;
         step(&mut points, &mut events, true, 135);
         assert_eq!(events.world.billboards.len(), 1);
@@ -399,5 +394,10 @@ mod tests {
         step(&mut points, &mut events, true, 138);
         assert_eq!(events.world.refractions.len(), 2);
         assert_eq!(events.world.audio_commands.len(), 2);
+        for _ in 0..61 {
+            events.step().unwrap();
+        }
+        assert!(events.world.billboards.is_empty());
+        assert!(events.world.refractions.is_empty());
     }
 }

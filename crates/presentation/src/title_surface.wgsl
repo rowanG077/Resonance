@@ -2,8 +2,7 @@
 #import bevy_pbr::mesh_bindings::mesh
 #import resonance::surface_bindings::{surface_data, sample_primary, sample_secondary, sample_toon}
 #ifdef CLAMP_COLOR
-#import bevy_pbr::mesh_view_bindings::view
-#import resonance::effect_color::quantize
+#import resonance::effect_color::dithered_bytes
 #endif
 #ifdef DISTANCE_FOG
 #import bevy_pbr::mesh_view_bindings::fog as view_fog
@@ -17,7 +16,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let slot = 0u;
 #endif
     let material = surface_data(slot);
-    let tint = material.tint;
+    var tint = material.tint;
+#ifdef VERTEX_ALPHA
+#ifdef VERTEX_COLORS
+    tint.a = 1.0;
+#endif
+#endif
     let uv_offsets = material.uv_offsets;
     let shades = material.shade_colors;
 #ifdef CONSTANT_COLOR
@@ -26,6 +30,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = vec4<f32>(1.0);
 #ifdef VERTEX_COLORS
     color *= in.color;
+#ifdef CLAMP_COLOR
+    // Expand byte opacity to a 0–256 multiplier before texture modulation.
+    let opacity = round(in.color.a * 255.);
+    color.a = (opacity + floor(opacity / 128.)) / 256.;
+#endif
 #endif
     var texture_color = vec4<f32>(1.0);
 #ifdef VERTEX_UVS_A
@@ -37,14 +46,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let secondary = sample_secondary(slot, in.uv_b * material.uv_scales.zw + uv_offsets.zw);
     texture_color *= secondary;
     color *= secondary;
-#endif
-#ifdef CLAMP_COLOR
-    // Filtered particle alpha is rounded before testing coverage.
-    color.a = round(color.a * 255.) / 255.;
-    if color.a <= 1.0/255.0 { discard; }
-#else
-    // Preserve transparent holes in both the color and focus depth layers.
-    if color.a < 1.0/255.0 { discard; }
 #endif
 #ifdef FIELD_LIGHTING
 #ifdef VERTEX_NORMALS
@@ -65,15 +66,27 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #endif
 #endif
 #ifndef FIELD_LIGHTING
+#ifdef VERTEX_ALPHA
+    // Model tints are rounded at the vertices before interpolation.
+    color = vec4<f32>(color.rgb * 4., color.a);
+#else
     if material.ambient_color.w != 0.0 {
         color = vec4<f32>(min(color.rgb * material.ambient_color.rgb / 64.0,
             vec3<f32>(1.0)), color.a);
     }
 #endif
+#endif
     color *= tint;
 #endif
 #ifdef CLAMP_COLOR
-    color = vec4<f32>(quantize(color.rgb, vec2<f32>(in.position.x, view.viewport.w - in.position.y)), color.a);
+    // Filtered particle alpha is rounded before testing coverage.
+    color.a = floor(color.a * 255. + 0.5) / 255.;
+#endif
+    if color.a < material.alpha_cutoff { discard; }
+#ifdef CLAMP_COLOR
+    // One-byte opacity covers geometry but contributes no blended color.
+    if color.a == 1. / 255. { color.a = 0.; }
+    color = vec4<f32>(dithered_bytes(color.rgb, in.position.xy) / 255., color.a);
 #endif
     var fog_range = material.fog_range.xyz;
     var fog_color = material.fog_color.rgb;
@@ -93,7 +106,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             // GX exponential curves operate on the clamped depth fraction.
             fog = 1.0 - exp2(-8.0 * pow(fog, fog_range.z));
         }
+#ifdef CLAMP_COLOR
+        fog = round(fog * 256.) / 256.;
+#endif
         color = vec4<f32>(mix(color.rgb, fog_color, fog), color.a);
     }
+#ifdef CLAMP_COLOR
+    // Store six-bit channels only after fog has been mixed into the color.
+    color = vec4<f32>(floor(clamp(color.rgb, vec3<f32>(0.), vec3<f32>(1.)) * (255. / 4.)) / 63., color.a);
+#endif
     return color;
 }

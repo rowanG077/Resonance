@@ -1,6 +1,74 @@
 //! Head symbols with individual entrances and repeating gestures.
 use resonance_content::effect::{Sprite, VerticalAnchor};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Ellipsis,
+    Distress,
+    ColorBurst,
+    Steam,
+    Blush,
+    Exclamation,
+    Question,
+    Music,
+    Heart,
+    Hidden,
+    Sweat,
+    SweatDrops,
+    Sleep,
+    Hearts,
+    Surprise,
+    Anger,
+}
+impl TryFrom<i32> for Kind {
+    type Error = &'static str;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        use Kind::*;
+        const KINDS: [Kind; 20] = [
+            Ellipsis,
+            Distress,
+            ColorBurst,
+            Steam,
+            Blush,
+            Exclamation,
+            Question,
+            Music,
+            Heart,
+            Hidden,
+            Sweat,
+            SweatDrops,
+            Sleep,
+            Hearts,
+            Surprise,
+            Anger,
+            Hidden,
+            Hidden,
+            Hidden,
+            Hidden,
+        ];
+        usize::try_from(value)
+            .ok()
+            .and_then(|i| KINDS.get(i))
+            .copied()
+            .ok_or("unknown emote recipe")
+    }
+}
+
+const FRAME_UPDATES: u32 = 8;
+
+impl Kind {
+    pub(crate) fn phase(self, effect_tick: u32, random: u32) -> u32 {
+        match self {
+            Self::ColorBurst => random % FRAME_UPDATES,
+            Self::Distress | Self::Steam | Self::Sleep => {
+                effect_tick.wrapping_add(1) % FRAME_UPDATES
+            }
+            _ => random,
+        }
+    }
+}
+
 const ATLAS_SIZE: f32 = 256.;
 
 fn glyph(x: f32, z: f32, size: f32, rect: [f32; 4]) -> Sprite {
@@ -14,15 +82,30 @@ fn glyph(x: f32, z: f32, size: f32, rect: [f32; 4]) -> Sprite {
     }
 }
 
-pub fn sprites(kind: u16, tick: u32, phase: u32) -> Vec<Sprite> {
+pub fn paralysis(frame: u8) -> Sprite {
+    let top = if frame == 0 { 16. } else { 0. };
+    Sprite {
+        size: [72., 24.],
+        ..glyph(0., 64., 72., [137., top, 184., top + 15.])
+    }
+}
+
+pub fn sprites(kind: Kind, tick: u32, phase: u32) -> Vec<Sprite> {
+    use Kind::*;
     if tick == 0 {
         return Vec::new();
     }
     let clock = phase.wrapping_add(tick - 1);
+    let frame = clock / FRAME_UPDATES;
+    // A mark becomes visible on the update after its interval ends.
+    let marks = (tick - 1 + phase.wrapping_add(1) % 16) / 16;
     let entrance = (tick as f32 * 6. - 15.).clamp(0., 52.);
     let mut sprites = Vec::new();
-    if matches!(kind, 0 | 1 | 4..=8 | 10 | 12) {
-        let left = if kind == 5 { 96. } else { 0. };
+    if matches!(
+        kind,
+        Ellipsis | Distress | Blush | Exclamation | Question | Music | Heart | Sweat | Sleep
+    ) {
+        let left = if matches!(kind, Exclamation) { 96. } else { 0. };
         sprites.push(glyph(
             24.,
             82.,
@@ -32,19 +115,16 @@ pub fn sprites(kind: u16, tick: u32, phase: u32) -> Vec<Sprite> {
     }
     let mut mark = |x, z, size, rect| sprites.push(glyph(x, z, size, rect));
     match kind {
-        0 => {
-            for &x in [12., 24., 36.]
-                .iter()
-                .take((tick.saturating_add(1) / 16).min(3) as usize)
-            {
+        Ellipsis => {
+            for &x in [12., 24., 36.].iter().take(marks as usize) {
                 mark(x, 90., 52., [223., 144., 255., 176.]);
             }
         }
-        1 => {
-            let left = 96. + ((tick + 5) / 8 % 3) as f32 * 32.;
+        Distress => {
+            let left = 96. + (frame % 3) as f32 * 32.;
             mark(28., 90., entrance, [left, 112., left + 32., 144.]);
         }
-        2 => {
+        ColorBurst => {
             let poses = if (clock / 8) % 2 == 0 {
                 [
                     (-20., 24., 50., 192., 50.),
@@ -77,34 +157,32 @@ pub fn sprites(kind: u16, tick: u32, phase: u32) -> Vec<Sprite> {
                 sprites.push(sprite);
             }
         }
-        3 => {
-            let left = (((tick + 5) / 8) % 2) as f32 * 48.;
+        Steam => {
+            let left = (frame % 2) as f32 * 48.;
             mark(32., 66., 80., [left, 176., left + 48., 224.]);
         }
-        4 => {
-            for &x in [10., 22., 34., 46.]
-                .iter()
-                .take((tick.saturating_add(1) / 16).min(4) as usize)
-            {
+        Blush => {
+            for &x in [10., 22., 34., 46.].iter().take(marks as usize) {
                 let mut sprite = glyph(x, 64., 52., [192., 112., 224., 144.]);
                 sprite.vertical_anchor = VerticalAnchor::Bottom;
                 sprites.push(sprite);
             }
         }
-        5..=7 => {
+        Exclamation | Question | Music => {
             const BANG_ENTRANCE: [f32; 12] =
                 [35., 40., 50., 55., 65., 70., 80., 90., 80., 74., 62., 54.];
             let (x, z, size, left) = match kind {
-                5 => (24., 60., BANG_ENTRANCE[(tick as usize - 1).min(11)], 96.),
-                6 => (28., 64., entrance, 64.),
-                _ => (28., 64., entrance, 32.),
+                Exclamation => (24., 60., BANG_ENTRANCE[(tick as usize - 1).min(11)], 96.),
+                Question => (28., 64., entrance, 64.),
+                Music => (28., 64., entrance, 32.),
+                _ => unreachable!(),
             };
             let mut sprite = glyph(x, z, size, [left, 144., left + 32., 176.]);
             sprite.vertical_anchor = VerticalAnchor::Bottom;
             sprites.push(sprite);
         }
-        8 => mark(24., 90., entrance, [32., 112., 64., 144.]),
-        10 => {
+        Heart => mark(24., 90., entrance, [32., 112., 64., 144.]),
+        Sweat => {
             let mut sprite = glyph(
                 27.,
                 133. - tick.saturating_sub(12).min(5) as f32 * 4.,
@@ -114,7 +192,7 @@ pub fn sprites(kind: u16, tick: u32, phase: u32) -> Vec<Sprite> {
             sprite.vertical_anchor = VerticalAnchor::Top;
             sprites.push(sprite);
         }
-        11 => {
+        SweatDrops => {
             let elapsed = (tick - 1) % 20;
             let t = elapsed as f32;
             for (x, z, vx, vz, rotation) in [
@@ -133,11 +211,11 @@ pub fn sprites(kind: u16, tick: u32, phase: u32) -> Vec<Sprite> {
                 sprites.push(sprite);
             }
         }
-        12 => {
-            let left = 128. + ((tick + 5) / 8 % 3) as f32 * 32.;
+        Sleep => {
+            let left = 128. + (frame % 3) as f32 * 32.;
             mark(24., 86., entrance, [left, 144., left + 32., 176.]);
         }
-        13 => {
+        Hearts => {
             const HEART_BEAT: u32 = 32;
             const HEARTS: [[(f32, f32, f32); 4]; 2] = [
                 [
@@ -171,7 +249,7 @@ pub fn sprites(kind: u16, tick: u32, phase: u32) -> Vec<Sprite> {
                 sprites.push(sprite);
             }
         }
-        14 => {
+        Surprise => {
             const FAN_ENTRANCE: [[(f32, f32); 4]; 3] = [
                 [(6., 41.), (13., 37.), (16., 32.), (20., 25.)],
                 [(8., 46.), (17., 42.), (22., 35.), (26., 27.)],
@@ -187,8 +265,23 @@ pub fn sprites(kind: u16, tick: u32, phase: u32) -> Vec<Sprite> {
                 sprites.push(sprite);
             }
         }
-        15 => mark(10., 32., 30., [223., 176., 255., 208.]),
-        _ => {}
+        Anger => mark(10., 32., 30., [223., 176., 255., 208.]),
+        Hidden => {}
     }
     sprites
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progressive_symbols_start_empty_for_every_random_phase() {
+        for kind in [Kind::Ellipsis, Kind::Blush] {
+            for phase in 0..16 {
+                assert_eq!(sprites(kind, 1, phase).len(), 1);
+                assert_eq!(sprites(kind, 17, phase).len(), 2);
+            }
+        }
+    }
 }
