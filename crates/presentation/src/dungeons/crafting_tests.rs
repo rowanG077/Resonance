@@ -1,11 +1,10 @@
 //! Exercise the Luin shopkeeper through the field menu service.
-use super::Fixture;
 use super::*;
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn luin_crafting_returns_to_the_shopkeeper_and_restores_control() -> Result<()> {
-    let mut field = enter(Fixture::Martel, 461, None)?;
+    let mut field = enter(MARTEL_START, 461, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     assert!(field.events.interact(310)?);
     advance_until(&mut field, |f| {

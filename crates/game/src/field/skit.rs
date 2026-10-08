@@ -195,6 +195,7 @@ impl FieldSession {
             &mut self.events,
             crate::skit::Input {
                 confirm: input.interact,
+                skip_dialogue: input.skip_dialogue,
                 cancel: input.cancel,
                 direction: if input.direction[1] > 0.5 {
                     -1
@@ -203,7 +204,7 @@ impl FieldSession {
                 } else {
                     0
                 },
-                accelerate: input.accelerate_dialogue,
+                accelerate: input.accelerate_dialogue || input.skip_dialogue,
                 skip: input.menu || input.start,
             },
         )? {

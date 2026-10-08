@@ -1,5 +1,5 @@
 //! Scene completion and visible speakers, independent of dialogue wording.
-use super::Fixture;
+use super::super::destinations::*;
 use super::{enter, replay};
 use anyhow::Result;
 
@@ -11,7 +11,7 @@ fn iselia_scenes_keep_one_lloyd_and_visible_speakers() -> Result<()> {
         (197, 20_305_000, 20_307_000),
         (193, 20_307_000, 20_308_000),
     ] {
-        let mut field = enter(Fixture::Iselia, map, Some(story))?;
+        let mut field = enter(ISELIA_RANCH, map, Some(story))?;
         let mut heard_kratos = false;
         let mut full_party = false;
         let battles = replay(&mut field, |f| {

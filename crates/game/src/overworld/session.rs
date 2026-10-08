@@ -561,6 +561,7 @@ impl Session {
                         0
                     },
                     accelerate: input.accelerate_dialogue,
+                    skip_dialogue: false,
                     skip: input.skip_skit,
                 },
             )? {

@@ -66,6 +66,8 @@ pub struct FieldInput {
     pub interact: bool,
     /// Held accept accelerates dialogue without repeating interaction/advance edges.
     pub accelerate_dialogue: bool,
+    /// Testing: advance dialogue without waiting for spoken audio.
+    pub skip_dialogue: bool,
     /// Open the currently announced skit (GameCube Z / keyboard Z).
     pub skit: bool,
     pub cancel: bool,
@@ -132,6 +134,38 @@ impl FieldSession {
     /// do not take control and are intentionally excluded from this query.
     pub fn player_has_control(&self) -> bool {
         self.authored_entry.is_none() && self.field_control_available()
+    }
+    pub fn can_skip_event(&self) -> bool {
+        (!self.player_has_control() || self.events.world.blocked_by_movie())
+            && !self.menu_is_open()
+            && !self
+                .dialogue_scene()
+                .0
+                .choices
+                .values()
+                .any(|c| c.operation.is_pending())
+    }
+
+    /// One ordinary simulation update; caller handles area loads between batches.
+    pub fn skip_event_step(&mut self) -> anyhow::Result<bool> {
+        if !self.can_skip_event() {
+            return Ok(true);
+        }
+        self.events.world.voice = None;
+        if let Some(movie) = &self.events.world.movie
+            && movie.operation.is_pending()
+        {
+            movie.operation.complete(None).map_err(anyhow::Error::msg)?;
+        }
+        self.events
+            .world
+            .skip_battle_as_victory()
+            .map_err(anyhow::Error::msg)?;
+        self.step(FieldInput {
+            skip_dialogue: true,
+            ..Default::default()
+        })?;
+        Ok(false)
     }
     pub fn menu_is_open(&self) -> bool {
         self.menu.is_some() || self.shop.is_some() || self.crafting.is_some()
@@ -971,10 +1005,15 @@ impl FieldSession {
             .map(|(&slot, _)| slot);
         for (slot, player) in &mut self.dialogue {
             let accepts_input = choice_slot.is_none_or(|choice| choice == *slot);
-            for voice in player.step(
-                (input.interact || input.cancel) && choice_slot.is_none(),
-                input.accelerate_dialogue && accepts_input,
-            )? {
+            let voices = if input.skip_dialogue && choice_slot.is_none() {
+                player.skip_step()?
+            } else {
+                player.step(
+                    (input.interact || input.cancel) && choice_slot.is_none(),
+                    input.accelerate_dialogue && accepts_input,
+                )?
+            };
+            for voice in voices {
                 self.events.world.audio_commands.push(match voice {
                     crate::dialogue::VoiceAction::Play(id) => {
                         self.events.world.voice = Some(resonance_events::VoicePlayback {
@@ -1542,6 +1581,47 @@ mod tests {
             vec![4, 0, 0, 0, 0x20ff],
             ResourceLibrary::default(),
         ))
+    }
+
+    #[test]
+    fn skipping_finishes_a_blocking_movie_even_with_player_input_enabled() {
+        let mut code = vec![4, 0, 0, 0];
+        native(&mut code, NativeCall::PlayMovieBlocking, &[1]);
+        code.push(0x20ff);
+        let mut field = session(runtime(
+            code,
+            ResourceLibrary {
+                movies: [1].into(),
+                ..Default::default()
+            },
+        ));
+        field.events.world.input_enabled = true;
+        field.events.world.mapped_input_disabled = false;
+        assert!(field.player_has_control());
+        assert!(field.can_skip_event());
+        assert!(!field.skip_event_step().unwrap());
+        assert!(!field.events.world.blocked_by_movie());
+        assert!(field.skip_event_step().unwrap());
+    }
+
+    #[test]
+    fn skipping_stops_for_a_choice_without_selecting_it() {
+        let mut field = choice_session();
+        for _ in 0..200 {
+            if field.skip_event_step().unwrap() {
+                break;
+            }
+        }
+        assert!(!field.can_skip_event());
+        assert!(
+            field
+                .events
+                .world
+                .choices
+                .values()
+                .any(|choice| choice.operation.is_pending())
+        );
+        assert!(!field.player_has_control());
     }
 
     fn session(events: EventRuntime) -> FieldSession {

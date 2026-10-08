@@ -27,11 +27,15 @@ struct Span {
     start: u64,
     end: u64,
     source: u64,
+    source_end: u64,
+    rate: u64,
 }
 struct Shared {
     failure: Arc<AtomicBool>,
     clock: Arc<Clock>,
     paused: AtomicBool,
+    double_speed: AtomicBool,
+    suspended: AtomicBool,
     stopped: AtomicBool,
     ended: AtomicBool,
     rendered: AtomicU64,
@@ -43,6 +47,13 @@ pub struct Handle {
     pub epoch: u64,
 }
 impl Handle {
+    /// Pause or accelerate playback without changing the source's own pause state.
+    pub fn set_transport(&self, paused: bool, double_speed: bool) {
+        self.shared.suspended.store(paused, Ordering::Release);
+        self.shared
+            .double_speed
+            .store(double_speed, Ordering::Release);
+    }
     pub fn pause(&self) {
         self.shared.paused.store(true, Ordering::Release);
     }
@@ -53,7 +64,7 @@ impl Handle {
         self.shared.stopped.store(true, Ordering::Release);
     }
     pub fn is_paused(&self) -> bool {
-        self.shared.paused.load(Ordering::Acquire)
+        self.shared.paused.load(Ordering::Acquire) || self.shared.suspended.load(Ordering::Acquire)
     }
     pub fn position(&self) -> Duration {
         duration(self.audible_frames())
@@ -71,7 +82,8 @@ impl Handle {
         let Some(span) = spans.iter().rev().find(|s| s.start <= audible) else {
             return 0;
         };
-        span.source + audible.min(span.end).saturating_sub(span.start)
+        (span.source + audible.min(span.end).saturating_sub(span.start) * span.rate)
+            .min(span.source_end)
     }
     pub fn empty(&self) -> bool {
         self.shared.stopped.load(Ordering::Acquire)
@@ -134,6 +146,8 @@ impl Control {
                 failure: self.failure.clone(),
                 clock: self.clock.clone(),
                 paused: AtomicBool::new(paused),
+                double_speed: AtomicBool::new(false),
+                suspended: AtomicBool::new(false),
                 stopped: AtomicBool::new(false),
                 ended: AtomicBool::new(false),
                 rendered: AtomicU64::new(0),
@@ -210,6 +224,7 @@ impl Mixer {
             let state = &playing.handle.shared;
             if state.stopped.load(Ordering::Acquire)
                 || state.paused.load(Ordering::Acquire)
+                || state.suspended.load(Ordering::Acquire)
                 || state.ended.load(Ordering::Acquire)
             {
                 continue;
@@ -219,25 +234,42 @@ impl Mixer {
                 .0
                 .saturating_sub(self.frame)
                 .min(output.len() as u64) as usize;
+            let rate = if state.double_speed.load(Ordering::Acquire) {
+                2
+            } else {
+                1
+            };
             let mut count = 0;
+            let mut consumed = 0;
             for frame in &mut output[start..] {
-                let Some(left) = playing.source.next() else {
-                    if !playing.source.is_pending() {
-                        state.ended.store(true, Ordering::Release);
-                    }
+                let mut samples = [0.; 2];
+                let mut read = 0;
+                for _ in 0..rate {
+                    let Some(left) = playing.source.next() else {
+                        if !playing.source.is_pending() {
+                            state.ended.store(true, Ordering::Release);
+                        }
+                        break;
+                    };
+                    let right = playing
+                        .source
+                        .next()
+                        .context("incomplete stereo source frame")?;
+                    ensure!(
+                        left.is_finite() && right.is_finite(),
+                        "nonfinite source PCM"
+                    );
+                    samples[0] += left;
+                    samples[1] += right;
+                    read += 1;
+                }
+                if read == 0 {
                     break;
-                };
-                let right = playing
-                    .source
-                    .next()
-                    .context("incomplete stereo source frame")?;
-                ensure!(
-                    left.is_finite() && right.is_finite(),
-                    "nonfinite source PCM"
-                );
-                frame[0] += left;
-                frame[1] += right;
+                }
+                frame[0] += samples[0] / read as f32;
+                frame[1] += samples[1] / read as f32;
                 count += 1;
+                consumed += read;
             }
             if count > 0 {
                 let source = state.rendered.load(Ordering::Relaxed);
@@ -245,20 +277,26 @@ impl Mixer {
                     start: self.frame + start as u64,
                     end: self.frame + start as u64 + count,
                     source,
+                    source_end: source + consumed,
+                    rate,
                 };
                 let mut spans = state.timeline.lock().expect("audio timeline poisoned");
                 if let Some(previous) = spans.back_mut()
                     && previous.end == span.start
-                    && previous.source + previous.end - previous.start == source
+                    && previous.rate == rate
+                    && previous.source_end == source
+                    && previous.source_end
+                        == previous.source + (previous.end - previous.start) * rate
                 {
                     previous.end = span.end;
+                    previous.source_end = span.source_end;
                 } else {
                     if spans.len() == 512 {
                         spans.pop_front();
                     }
                     spans.push_back(span);
                 }
-                state.rendered.store(source + count, Ordering::Release);
+                state.rendered.store(source + consumed, Ordering::Release);
             }
         }
         // All source destruction happens here, never in the device callback.

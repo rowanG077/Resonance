@@ -12,7 +12,8 @@ const WIDTH: u32 = 584;
 const ROW_TOP: u32 = 90;
 const ROW_HEIGHT: u32 = 25;
 const FOOTER_TOP: u32 = ROW_TOP + ROW_HEIGHT * PAGE_SIZE as u32 + 10;
-const HEIGHT: u32 = FOOTER_TOP + 90;
+const BUTTON_TOP: u32 = FOOTER_TOP + 90;
+const HEIGHT: u32 = BUTTON_TOP + 34;
 const LAYER: usize = 28;
 
 #[derive(Component)]
@@ -32,7 +33,10 @@ pub(super) fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        pixels(&Menu::default()),
+        pixels(
+            &Menu::default(),
+            &super::super::testing::Controls::default(),
+        ),
         TextureFormat::Rgba8UnormSrgb,
         default(),
     );
@@ -74,8 +78,16 @@ pub(super) fn row_at(cursor: Vec2, size: Vec2) -> Option<usize> {
     (row < PAGE_SIZE).then_some(row)
 }
 
+pub(super) fn testing_button_at(cursor: Vec2, size: Vec2) -> Option<usize> {
+    let point = (cursor - size / 2.) / scale(size) + Vec2::new(WIDTH as f32, HEIGHT as f32) / 2.;
+    ((16. ..WIDTH as f32 - 16.).contains(&point.x)
+        && (BUTTON_TOP as f32..(HEIGHT - 8) as f32).contains(&point.y))
+    .then(|| ((point.x - 16.) / ((WIDTH - 32) as f32 / 3.)) as usize)
+}
+
 pub(super) fn update(
     menu: Res<Menu>,
+    testing: Res<super::super::testing::Controls>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     mut camera: Single<&mut Camera, With<OverlayCamera>>,
     mut panel: Single<&mut Transform, With<Panel>>,
@@ -89,14 +101,14 @@ pub(super) fn update(
     if let Some(window) = window {
         panel.scale = Vec3::splat(scale(Vec2::new(window.width(), window.height())));
     }
-    if menu.is_changed()
+    if (menu.is_changed() || testing.is_changed())
         && let Some(mut image) = images.get_mut(&art.image)
     {
-        image.data = Some(pixels(&menu));
+        image.data = Some(pixels(&menu, &testing));
     }
 }
 
-fn pixels(menu: &Menu) -> Vec<u8> {
+fn pixels(menu: &Menu, testing: &super::super::testing::Controls) -> Vec<u8> {
     let mut rgba = [13, 20, 32, 250].repeat((WIDTH * HEIGHT) as usize);
     let white = [226, 235, 246, 255];
     let muted = [154, 174, 194, 255];
@@ -203,6 +215,34 @@ fn pixels(menu: &Menu) -> Vec<u8> {
         "1-0 GO   SHIFT TAB OR ESC CLOSE",
         muted,
     );
+    for (index, label) in [
+        if testing.double_speed {
+            "F6 SPEED 2X"
+        } else {
+            "F6 SPEED 1X"
+        },
+        if testing.paused {
+            "F7 RESUME"
+        } else {
+            "F7 PAUSE"
+        },
+        if testing.skipping {
+            "F8 CANCEL"
+        } else {
+            "F8 SKIP EVENT"
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let left = 16 + index as u32 * ((WIDTH - 32) / 3);
+        for y in BUTTON_TOP..HEIGHT - 8 {
+            for x in left..left + (WIDTH - 32) / 3 - 4 {
+                put(&mut rgba, x, y, [32, 69, 80, 255]);
+            }
+        }
+        text(&mut rgba, left + 8, BUTTON_TOP + 5, label, accent);
+    }
     rgba
 }
 
