@@ -555,6 +555,68 @@ mod tests {
     use resonance_events::input::Button;
 
     #[test]
+    #[ignore = "requires locally cooked Dirk scenes and a graphics device"]
+    fn fireplace_window_stays_visible_during_the_key_crest_conversation() -> Result<()> {
+        use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
+        let root = PathBuf::from(std::env::var("RESONANCE_WORLD_ASSETS")?);
+        let field = crate::field_test::Scene::story(&root, 374, 501_000, |_| Ok(()))?;
+        let checkpoint = resonance_game::field::FieldCheckpoint {
+            map_id: 374,
+            position: [1., 15., -3.],
+            heading: 180.,
+            camera: None,
+            allow_incomplete_scripts: false,
+            played_ticks: None,
+            progress: field.events.save_progress()?,
+        };
+        let inputs: Vec<_> = (0..1401)
+            .step_by(6)
+            .map(|update| {
+                serde_json::json!({
+                    "update": update,
+                    "buttons": if update % 12 == 0 { vec!["accept"] } else { vec![] }
+                })
+            })
+            .collect();
+        let sequence: FieldSequence = serde_json::from_value(serde_json::json!({
+            "resolution": {"width": 1280, "height": 720},
+            "scene": {"arrival": {"checkpoint": checkpoint}},
+            "at": {"kind": "tick", "update": 0},
+            "updates": 1401, "renders_per_update": 1,
+            "capture_frames": [200, 1400], "inputs": inputs
+        }))?;
+        let directory = tempfile::tempdir()?;
+        let output = directory.path().join("frames");
+        super::super::capture_field_sequence(&root, &output, &sequence)?;
+        for frame in sequence.capture_frames {
+            let image = Image::from_buffer(
+                &fs::read(output.join(format!("frame-{frame:04}.png")))?,
+                ImageType::Extension("png"),
+                CompressedImageFormats::NONE,
+                true,
+                ImageSampler::default(),
+                default(),
+            )?
+            .try_into_dynamic()?
+            .to_rgb8();
+            // The right window pane should show greenery throughout the light animation.
+            // Check its area, allowing smoke and small shading differences.
+            let green = (125..155)
+                .flat_map(|y| (300..330).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let [r, g, b] = image.get_pixel(x, y).0.map(u16::from);
+                    g > 30 && g > r && g > b
+                })
+                .count();
+            ensure!(
+                green > 30 * 30 / 2,
+                "window obscured at frame {frame}: {green} green pixels"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn held_controls_survive_movement_changes_and_press_again_after_release() {
         let sequence: FieldSequence = serde_json::from_value(serde_json::json!({
             "updates": 15, "renders_per_update": 1,

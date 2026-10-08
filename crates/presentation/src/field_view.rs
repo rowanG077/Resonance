@@ -1615,10 +1615,14 @@ fn load_art(
         .iter()
         .map(|a| (a.resource, a.parts.clone()))
         .chain(manifest.parts.iter().map(|p| {
-            (
-                SCENERY_RESOURCE_BASE + u32::from(p.resource),
-                vec![p.clone()],
-            )
+            let mut part = p.clone();
+            if DrawStage::scenery(part.resource) == Some(DrawStage::Foreground) {
+                // Light panels must not occlude scenery submitted after them.
+                for material in &mut part.materials {
+                    material.depth_write &= !material.blend;
+                }
+            }
+            (SCENERY_RESOURCE_BASE + u32::from(p.resource), vec![part])
         }))
     {
         let parts = parts
