@@ -102,6 +102,9 @@ clock. Simulation remains at 60000/1001 updates per second.
 | Performance overlay / snapshot | F3 / F4 | — |
 | Development quicksave / quickload | F5 / F9 | — |
 | Location test selector | Shift+Tab | — |
+| Test speed 1× / 2× | F6 | — |
+| Pause / resume | F7 | — |
+| Skip current cutscene / cancel skip | F8 | — |
 
 Combat is not implemented yet. Replay testing skips battles as victories, without
 awarding loot, so the original field events can continue. Use
@@ -117,6 +120,11 @@ room. Martel starts before the ring pickup; later checkpoints include the
 Sorcerer's Ring. Disk saves are unchanged.
 At the Palmacosta Ranch end checkpoint, use the Radar ring to reveal the final
 teleporter, then interact with it.
+
+The location selector also has speed, pause and event-skip buttons. F8 runs the
+current cutscene to completion, preserving story progress, even while paused.
+It stops for choices and menus that need your input. Battles resolve as victories
+without loot; skipped dialogue and one-shot sounds are silent. F7 resumes play.
 
 From the menu's bottom row, press Down to select the party. Field leader and
 formation order are saved independently; Escape cancels a pending exchange.

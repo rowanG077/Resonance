@@ -8,7 +8,7 @@ fn generator_blocks_reach_the_lift_and_drop_from_ledges() -> Result<()> {
         (303, [-250., -150., 150.], [-675., -150., 0.], 100),
         (301, [500., 150., 0.], [-675., 150., 0.], 350),
     ] {
-        let mut field = enter(Fixture::Generator, 279, None)?;
+        let mut field = enter(BASE_GENERATOR, 279, None)?;
         advance_until(&mut field, FieldSession::player_has_control)?;
         if block == 301 {
             field.actor_mut(300).position = [-825., 150., 0.];
@@ -20,21 +20,8 @@ fn generator_blocks_reach_the_lift_and_drop_from_ledges() -> Result<()> {
             interact: true,
             ..Default::default()
         })?;
-        for _ in 0..ticks {
-            let camera = field.events.world.field_camera.as_ref().unwrap();
-            let angle = -(camera.target[0] - camera.position[0])
-                .atan2(camera.target[1] - camera.position[1]);
-            field.step(FieldInput {
-                held_buttons: [resonance_events::input::Button::Accept]
-                    .into_iter()
-                    .collect(),
-                direction: [-angle.cos(), angle.sin()],
-                ..Default::default()
-            })?;
-        }
-        for _ in 0..30 {
-            field.step(FieldInput::default())?;
-        }
+        push(&mut field, [-1., 0.], ticks)?;
+        super::ticks(&mut field, 30, FieldInput::default())?;
         assert_eq!(field.actor(block).position, expected);
         assert!(field.player_has_control());
     }
@@ -44,7 +31,7 @@ fn generator_blocks_reach_the_lift_and_drop_from_ledges() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn forest_cliff_jumps_reach_each_ledge() -> Result<()> {
-    let mut field = configured(Fixture::Martel, 193, |entry| {
+    let mut field = configured(MARTEL_START, 193, |entry| {
         entry
             .persistent
             .memory
@@ -100,9 +87,9 @@ fn forest_cliff_jumps_reach_each_ledge() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn stacked_blocks_can_be_moved_in_martel_triet_and_palmacosta() -> Result<()> {
     for (fixture, map, block) in [
-        (Fixture::Martel, 308, 5003),
-        (Fixture::FireSeal, 220, 5000),
-        (Fixture::Palmacosta, 202, 1001),
+        (MARTEL_START, 308, 5003),
+        (TRIET_START, 220, 5000),
+        (PALMACOSTA_RANCH, 202, 1001),
     ] {
         let mut field = enter(fixture, map, (map == 308).then_some(107_000))?;
         advance_until(&mut field, FieldSession::player_has_control)?;
@@ -135,22 +122,7 @@ fn stacked_blocks_can_be_moved_in_martel_triet_and_palmacosta() -> Result<()> {
         let directions: &[f32] = if map == 308 { &[1., -1.] } else { &[1.] };
         for &sign in directions {
             let before = field.actor(6000).position[1];
-            for _ in 0..50 {
-                let camera = field.events.world.field_camera.as_ref().unwrap();
-                let [x, y] = std::array::from_fn(|i| camera.target[i] - camera.position[i]);
-                let direction = if x.abs() > y.abs() {
-                    [-sign * x.signum(), 0.]
-                } else {
-                    [0., sign * y.signum()]
-                };
-                field.step(FieldInput {
-                    held_buttons: [resonance_events::input::Button::Accept]
-                        .into_iter()
-                        .collect(),
-                    direction,
-                    ..Default::default()
-                })?;
-            }
+            push(&mut field, [0., sign], 50)?;
             assert!(
                 (field.actor(6000).position[1] - before) * sign > 100.,
                 "map {map}: {:?}",
@@ -164,6 +136,26 @@ fn stacked_blocks_can_be_moved_in_martel_triet_and_palmacosta() -> Result<()> {
                 "map {map}: block did not fall"
             );
         }
+    }
+    Ok(())
+}
+
+fn push(field: &mut Scene, direction: [f32; 2], count: usize) -> Result<()> {
+    for _ in 0..count {
+        let camera = field.events.world.field_camera.as_ref().unwrap();
+        let angle =
+            -(camera.target[0] - camera.position[0]).atan2(camera.target[1] - camera.position[1]);
+        let angle = (angle / std::f32::consts::FRAC_PI_2).round() * std::f32::consts::FRAC_PI_2;
+        field.step(FieldInput {
+            held_buttons: [resonance_events::input::Button::Accept]
+                .into_iter()
+                .collect(),
+            direction: [
+                angle.cos() * direction[0] + angle.sin() * direction[1],
+                -angle.sin() * direction[0] + angle.cos() * direction[1],
+            ],
+            ..Default::default()
+        })?;
     }
     Ok(())
 }

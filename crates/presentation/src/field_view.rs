@@ -669,8 +669,11 @@ pub(super) fn gather_controls(
     pads: Query<&Gamepad>,
     mut controls: ResMut<Controls>,
     dungeons: Option<Res<super::dungeons::Menu>>,
+    testing: Option<Res<super::testing::Controls>>,
 ) {
-    if dungeons.is_some_and(|menu| menu.blocked()) {
+    if dungeons.is_some_and(|menu| menu.blocked())
+        || testing.is_some_and(|c| c.paused || c.skipping)
+    {
         *controls = Controls::default();
         return;
     }
@@ -801,7 +804,11 @@ pub(super) fn advance_live(
     mut exit: MessageWriter<AppExit>,
     resident: Res<super::loading::Resident>,
     options: Res<super::RunOptions>,
+    testing: Option<Res<super::testing::Controls>>,
 ) {
+    if testing.is_some_and(|c| c.skipping) {
+        return;
+    }
     let Some(session) = &mut session else {
         controls.clear_actions();
         return;

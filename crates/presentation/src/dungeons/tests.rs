@@ -7,7 +7,7 @@ mod fog;
 mod iselia;
 #[path = "movement_tests.rs"]
 mod movement;
-use super::{destinations::Fixture, new_game};
+use super::{destinations::*, new_game};
 use anyhow::{Context, Result};
 use resonance_game::field::{FieldInput, FieldSession};
 use std::{path::PathBuf, sync::Arc};
@@ -33,6 +33,23 @@ fn location_menu_pages_and_shortcuts_select_visible_rows() {
     assert!(!menu.select_row(remaining));
     menu.turn_page(true);
     assert_eq!(menu.page_start(), 0);
+
+    use bevy::prelude::*;
+    let mut world = World::new();
+    menu.state = super::State::AwaitRelease;
+    world.insert_resource(menu);
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::KeyW);
+    keys.press(KeyCode::Enter);
+    keys.clear();
+    world.insert_resource(keys);
+    super::controls(&mut world);
+    assert!(world.resource::<Menu>().blocked());
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .release(KeyCode::Enter);
+    super::controls(&mut world);
+    assert!(!world.resource::<Menu>().blocked());
 }
 
 #[test]
@@ -93,24 +110,21 @@ fn location_menu_checkpoints_are_playable() -> Result<()> {
 fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()> {
     let root = assets_root()?;
     let mut cache = Default::default();
-    for (map, portal, final_room) in [
-        (350, [150., 0.], 350),
-        (307, [0., 2775.], 309),
-        (220, [-2131., -154.], 221),
-        (9, [-2555., -611.], 10),
-        (509, [11., 2000.], 510),
-        (366, [-852., 2321.], 369),
-        (275, [-1000., 950.], 276),
-        (206, [0., 875.], 207),
-        (214, [0., 1060.], 217),
-        (196, [2065., 6100.], 197),
-        (227, [600., -2.], 232),
-        (149, [0., 4860.], 535),
+    for (destination, portal, final_room) in [
+        (OSSA_END, [150., 0.], 350),
+        (MARTEL_END, [0., 2775.], 309),
+        (TRIET_END, [-2131., -154.], 221),
+        (THODA_END, [-2555., -611.], 10),
+        (BALACRUF_END, [11., 2000.], 510),
+        (MANA_END, [-852., 2321.], 369),
+        (BASE_END, [-1000., 950.], 276),
+        (PALMACOSTA_END, [0., 875.], 207),
+        (ASGARD_END, [0., 1060.], 217),
+        (ISELIA_END, [2065., 6100.], 197),
+        (REMOTE_ISLAND_END, [600., -2.], 232),
+        (SALVATION_END, [0., 4860.], 535),
     ] {
-        let destination = super::DESTINATIONS
-            .iter()
-            .find(|d| d.map == map && (d.name.contains("BEFORE") || d.name.ends_with("END")))
-            .unwrap();
+        let map = destination.map;
         let package = new_game::FieldPackage::prepare(&root, map, &mut cache, || false)?;
         let entry = destination.entry(
             Arc::new(package.files.json("game/session-data.json")?),
@@ -289,20 +303,18 @@ fn assets_root() -> Result<PathBuf> {
     ))
 }
 fn configured(
-    destination: Fixture,
+    destination: Destination,
     map: u32,
     configure: impl FnOnce(&mut resonance_game::field::FieldEntry) -> Result<()>,
 ) -> Result<Scene> {
     let root = assets_root()?;
     let package = new_game::FieldPackage::prepare(&root, map, &mut Default::default(), || false)?;
     let data = Arc::new(package.files.json("game/session-data.json")?);
-    let mut entry = destination
-        .destination()
-        .entry(data, new_game::available_fields(&root)?)?;
+    let mut entry = destination.entry(data, new_game::available_fields(&root)?)?;
     configure(&mut entry)?;
     Scene::enter(&package, entry)
 }
-fn enter(destination: Fixture, map: u32, story: Option<i32>) -> Result<Scene> {
+fn enter(destination: Destination, map: u32, story: Option<i32>) -> Result<Scene> {
     configured(destination, map, |entry| {
         if let Some(story) = story {
             entry
@@ -380,7 +392,7 @@ fn advance_until(field: &mut Scene, mut ready: impl FnMut(&FieldSession) -> bool
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn martel_golem_battle_creates_a_pushable_block() -> Result<()> {
-    let mut field = enter(Fixture::Martel, 308, Some(107_000))?;
+    let mut field = enter(MARTEL_START, 308, Some(107_000))?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     let golem = *field
         .events
@@ -411,7 +423,7 @@ fn martel_golem_battle_creates_a_pushable_block() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
-    let mut field = enter(Fixture::GuardEntrance, 267, Some(1_105_000))?;
+    let mut field = enter(BASE_ENTRANCE, 267, Some(1_105_000))?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     // Controlled approach to the exit, then ordinary movement through its
     // opening door and transition. This does not replay the cell escape.
@@ -479,7 +491,7 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
     use resonance_events::ring::{ElectricOrbKind, SorcerersRing};
-    let mut field = enter(Fixture::GuardEntrance, 268, Some(1_105_100))?;
+    let mut field = enter(BASE_ENTRANCE, 268, Some(1_105_100))?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     field.party_mut().travel.sorcerers_ring =
         SorcerersRing::ElectricOrb(ElectricOrbKind::Sylvarant);
@@ -585,7 +597,7 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn asgard_guard_alarm_starts_battle_and_resumes_the_room() -> Result<()> {
-    let mut field = configured(Fixture::Asgard, 210, |entry| {
+    let mut field = configured(ASGARD_RANCH, 210, |entry| {
         entry
             .persistent
             .memory
@@ -605,7 +617,7 @@ fn asgard_guard_alarm_starts_battle_and_resumes_the_room() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn asgard_kvar_preparation_can_restore_a_party_with_empty_slots() -> Result<()> {
-    let mut field = enter(Fixture::Asgard, 213, None)?;
+    let mut field = enter(ASGARD_RANCH, 213, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     assert!(field.events.trigger(6001, false)?);
     advance_until(&mut field, |field| {
@@ -630,7 +642,7 @@ fn asgard_kvar_preparation_can_restore_a_party_with_empty_slots() -> Result<()> 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn rheaird_rider_finishes_his_seated_pose_blend_while_attached() -> Result<()> {
-    let mut field = enter(Fixture::Generator, 278, Some(2_404_000))?;
+    let mut field = enter(BASE_GENERATOR, 278, Some(2_404_000))?;
     field.events.world.event_flags.insert(190); // The generator is ready.
     advance_until(&mut field, |field| {
         field.events.world.actors.get(&1).is_some_and(|actor| {
@@ -666,7 +678,7 @@ fn rheaird_rider_finishes_his_seated_pose_blend_while_attached() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn rheaird_crash_runs_the_debris_effect_and_restores_control() -> Result<()> {
     // Field 416's arrival branch compares story against 0x24B288.
-    let mut field = enter(Fixture::Generator, 416, Some(2_405_000))?;
+    let mut field = enter(BASE_GENERATOR, 416, Some(2_405_000))?;
     advance_until(&mut field, |field| {
         field
             .events
@@ -688,7 +700,7 @@ fn mana_lamps_bind_the_animated_flame_texture() -> Result<()> {
     let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
     let assets: resonance_content::field::FieldAssets =
         serde_json::from_slice(&std::fs::read(root.join("fields/map-362.json"))?)?;
-    let mut field = enter(Fixture::Mana, 362, None)?;
+    let mut field = enter(MANA_START, 362, None)?;
     advance_until(&mut field, |field| {
         field.events.world.render_settings.get(&128) == Some(&1)
     })?;
@@ -727,7 +739,7 @@ fn mana_lamps_bind_the_animated_flame_texture() -> Result<()> {
 }
 
 fn mana_intro() -> Result<Scene> {
-    let mut field = enter(Fixture::Mana, 362, None)?;
+    let mut field = enter(MANA_START, 362, None)?;
     advance_until(&mut field, |field| {
         field.events.world.field_transition.is_some()
     })?;
@@ -788,7 +800,7 @@ fn mana_reunion_restores_both_groups_with_empty_slots() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn palmacosta_teleport_lands_before_the_arrival_fade_reveals_the_player() -> Result<()> {
-    let mut field = configured(Fixture::Palmacosta, 206, |entry| {
+    let mut field = configured(PALMACOSTA_RANCH, 206, |entry| {
         // The south teleporter places Lloyd 82 units above the room floor.
         entry.position = [0., -722., 82.];
         entry.heading = 180.;
@@ -823,7 +835,7 @@ fn palmacosta_teleport_lands_before_the_arrival_fade_reveals_the_player() -> Res
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn palmacosta_post_boss_exit_runs_the_ranch_destruction() -> Result<()> {
-    let mut field = configured(Fixture::Palmacosta, 198, |entry| {
+    let mut field = configured(PALMACOSTA_RANCH, 198, |entry| {
         // The defeated Magnius scene writes 6100 before its ChangeField to 198.
         // Keep the selector's story stage so this catches its skipped cutscene.
         entry
@@ -866,7 +878,7 @@ fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
     for (map, start_y, target_y, boundary) in
         [(194, 625., 900., 675.5), (196, 1950., 2280., 2099.74)]
     {
-        let mut field = enter(Fixture::Iselia, map, None)?;
+        let mut field = enter(ISELIA_RANCH, map, None)?;
         advance_until(&mut field, FieldSession::player_has_control)?;
         let id = *field
             .events
@@ -917,7 +929,7 @@ fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn iselia_damage_spheres_keep_moving() -> Result<()> {
     for (map, first, count) in [(194, 3021, 8), (196, 3301, 13)] {
-        let mut field = enter(Fixture::Iselia, map, None)?;
+        let mut field = enter(ISELIA_RANCH, map, None)?;
         advance_until(&mut field, FieldSession::player_has_control)?;
         // Let reverse clips cross zero before measuring: they previously moved
         // once, then froze together at the first sample for the rest of play.
@@ -949,7 +961,7 @@ fn iselia_damage_spheres_keep_moving() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
-    let mut field = enter(Fixture::Iselia, 194, None)?;
+    let mut field = enter(ISELIA_RANCH, 194, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     let player = field.events.world.controlled_actor;
     // Controlled approaches isolate the native choice and treasure service without
@@ -1012,7 +1024,7 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
-    let mut field = enter(Fixture::Iselia, 193, Some(20_307_000))?;
+    let mut field = enter(ISELIA_RANCH, 193, Some(20_307_000))?;
     replay(&mut field, |f| f.events.world.field_transition.is_some())?;
     assert_eq!(field.story_progress()?, 20_308_000);
     let party = field.party();
@@ -1032,7 +1044,7 @@ fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
-    let mut field = enter(Fixture::FireSeal, 219, None)?;
+    let mut field = enter(TRIET_START, 219, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     // This chest is a scripted model actor, so its animation drives the lid.
     let chest = field.actor(8300).clone();
@@ -1069,7 +1081,7 @@ fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn triet_memory_circle_replaces_sealed_geometry_when_unlocked() -> Result<()> {
-    let mut field = enter(Fixture::FireSeal, 220, None)?;
+    let mut field = enter(TRIET_START, 220, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     let point = &field.events.world.save_points[0];
     let id = point.actor;
@@ -1102,10 +1114,7 @@ fn triet_memory_circle_replaces_sealed_geometry_when_unlocked() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn seal_scene_retains_particle_tails_after_removing_the_emitter() -> Result<()> {
-    for (destination, map, emitter) in [
-        (Fixture::FireSeal, 221, 2000),
-        (Fixture::AirSeal, 510, 1023),
-    ] {
+    for (destination, map, emitter) in [(TRIET_START, 221, 2000), (BALACRUF_START, 510, 1023)] {
         let mut field = enter(destination, map, None)?;
         advance_until(&mut field, |field| {
             field
@@ -1146,7 +1155,7 @@ fn seal_scene_retains_particle_tails_after_removing_the_emitter() -> Result<()> 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn balacruf_light_column_stops_before_remiel_descends() -> Result<()> {
-    let mut field = enter(Fixture::AirSeal, 510, None)?;
+    let mut field = enter(BALACRUF_START, 510, None)?;
     let (mut saw_column, mut saw_remiel) = (false, false);
     replay(&mut field, |field| {
         let world = &field.events.world;
@@ -1168,7 +1177,7 @@ fn balacruf_light_column_stops_before_remiel_descends() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn triet_seal_scripted_wings_animate_and_emit_sparks() -> Result<()> {
-    let mut field = enter(Fixture::Wings, Fixture::Wings.destination().map, None)?;
+    let mut field = enter(FIRST_WINGS, FIRST_WINGS.map, None)?;
     let mut saw_wings = false;
     let battles = replay(&mut field, |field| {
         let world = &field.events.world;
@@ -1197,7 +1206,7 @@ fn triet_seal_scripted_wings_animate_and_emit_sparks() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
     use resonance_events::ring::SorcerersRing;
-    let mut field = enter(Fixture::WaterSeal, 9, None)?;
+    let mut field = enter(THODA_START, 9, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     for (target, flag, ring) in [
         (102, 150, SorcerersRing::Fire),
@@ -1250,7 +1259,7 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked Iselia fields; no devices"]
 fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> {
-    let mut field = enter(Fixture::Martel, 332, Some(2500))?;
+    let mut field = enter(MARTEL_START, 332, Some(2500))?;
     field.party_mut().formation = vec![1, 2, 3];
     advance_until(&mut field, FieldSession::player_has_control)?;
     assert!(field.events.trigger(2002, false)?);
@@ -1275,7 +1284,7 @@ fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> 
 #[test]
 #[ignore = "requires locally cooked Martel fields; no devices"]
 fn martel_selector_starts_before_the_golem_scene_and_ring_pickup() -> Result<()> {
-    let mut field = enter(Fixture::Martel, 308, None)?;
+    let mut field = enter(MARTEL_START, 308, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     assert_eq!(field.story_progress()?, 104_000);
     let party = field.party();
@@ -1307,7 +1316,7 @@ fn martel_selector_starts_before_the_golem_scene_and_ring_pickup() -> Result<()>
 #[test]
 #[ignore = "requires locally cooked Thoda seal; no devices"]
 fn thoda_seal_finishes_after_colette_releases_her_wings() -> Result<()> {
-    let mut field = configured(Fixture::WaterSeal, 10, |entry| {
+    let mut field = configured(THODA_START, 10, |entry| {
         entry
             .persistent
             .memory
@@ -1338,9 +1347,7 @@ fn thoda_bridge_targets_a_live_material_and_scrolls() -> Result<()> {
     );
     let package = new_game::FieldPackage::prepare(&root, 6, &mut Default::default(), || false)?;
     let data = Arc::new(package.files.json("game/session-data.json")?);
-    let mut entry = Fixture::WaterSeal
-        .destination()
-        .entry(data, new_game::available_fields(&root)?)?;
+    let mut entry = THODA_START.entry(data, new_game::available_fields(&root)?)?;
     entry
         .persistent
         .memory
@@ -1402,7 +1409,7 @@ fn thoda_bridge_targets_a_live_material_and_scrolls() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked Mana bridge assets; no devices"]
 fn mana_enemies_respect_closed_bridge_barriers() -> Result<()> {
-    let mut field = configured(Fixture::Mana, 366, |entry| {
+    let mut field = configured(MANA_START, 366, |entry| {
         entry
             .persistent
             .memory
@@ -1450,7 +1457,7 @@ fn mana_enemies_respect_closed_bridge_barriers() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked Triet town; no devices"]
 fn triet_genis_returns_to_idle_after_getup() -> Result<()> {
-    let mut field = configured(Fixture::FireSeal, 485, |entry| {
+    let mut field = configured(TRIET_START, 485, |entry| {
         entry
             .persistent
             .memory
@@ -1483,9 +1490,11 @@ fn story_scenes_reach_their_next_stage() -> Result<()> {
     for (map, before, after, trigger) in [
         (347, 1_305_000, 1_402_000, Some(3003)),
         (276, 1_107_000, 1_108_000, None),
+        (276, 2_401_000, 2_402_000, None),
         (535, 2_302_000, 2_303_000, None),
+        (376, 10_101_000, 10_101_500, Some(1005)),
     ] {
-        let mut field = configured(Fixture::FireSeal, map, |entry| {
+        let mut field = configured(TRIET_START, map, |entry| {
             entry
                 .persistent
                 .memory
@@ -1497,17 +1506,44 @@ fn story_scenes_reach_their_next_stage() -> Result<()> {
             advance_until(&mut field, FieldSession::player_has_control)?;
             assert!(field.events.trigger(trigger, false)?);
         }
-        until(&mut field, dialogue_input(), |f| {
-            skip_battle(f)?;
-            if let Some(movie) = &f.events.world.movie
-                && movie.operation.is_pending()
-            {
-                movie.operation.complete(None).map_err(anyhow::Error::msg)?;
+        until(&mut field, FieldInput::default(), |f| {
+            Ok(!f.player_has_control() || f.events.world.blocked_by_movie())
+        })?;
+        for tick in 0..SCENE_TIMEOUT {
+            let choosing = field
+                .events
+                .world
+                .choices
+                .values()
+                .any(|c| c.operation.is_pending());
+            let done = if choosing {
+                // Skipping leaves choices to the player; this route takes the first option.
+                field.step(FieldInput {
+                    interact: tick % 2 == 0,
+                    ..dialogue_input()
+                })?;
+                false
+            } else {
+                field.skip_event_step()?
+            };
+            let Scene { field, audio } = &mut field;
+            audio.step(field)?;
+            if done || field.events.world.field_transition.is_some() {
+                break;
             }
-            Ok(f.story_progress()? >= after)
-        })
-        .with_context(|| format!("scene {map}"))?;
-        if map == 276 {
+            anyhow::ensure!(
+                tick + 1 < SCENE_TIMEOUT,
+                "scene {map}: cutscene skip timed out"
+            );
+        }
+        assert!(
+            field.story_progress()? >= after,
+            "scene {map}: skipping stopped at story {:?}, choices={:?}, transition={:?}",
+            field.story_progress(),
+            field.events.world.choices,
+            field.events.world.field_transition
+        );
+        if map == 276 && before == 1_107_000 {
             let party = field.events.world.party.as_ref().unwrap();
             assert_eq!(
                 (party.members[1].ex_gems[0], party.members[1].ex_skills[0]),
@@ -1525,7 +1561,7 @@ fn story_scenes_reach_their_next_stage() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn first_fire_bridge_returns_control() -> Result<()> {
-    let mut field = enter(Fixture::FireSeal, 220, Some(1_302_000))?;
+    let mut field = enter(TRIET_START, 220, Some(1_302_000))?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     let position = field.actor(5020).position;
     field.actor_mut(1).position = [position[0], position[1] + 250., position[2] - 70.];
@@ -1553,7 +1589,7 @@ fn first_fire_bridge_returns_control() -> Result<()> {
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn post_base_triet_scene() -> Result<()> {
-    let mut field = enter(Fixture::FireSeal, 527, Some(1_202_000))?;
+    let mut field = enter(TRIET_START, 527, Some(1_202_000))?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     assert_eq!(field.story_progress()?, 1_203_000);
     Ok(())

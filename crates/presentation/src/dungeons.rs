@@ -91,7 +91,7 @@ fn available(world: &World) -> bool {
         && !world.contains_resource::<super::saves::WorldLoad>()
 }
 
-fn controls(world: &mut World) {
+pub(super) fn controls(world: &mut World) {
     let keys = world.resource::<ButtonInput<KeyCode>>().clone();
     let mouse = world.get_resource::<ButtonInput<MouseButton>>();
     let clicked = mouse.is_some_and(|buttons| buttons.just_pressed(MouseButton::Left));
@@ -107,9 +107,33 @@ fn controls(world: &mut World) {
             )
         });
     let available = available(world);
+    if clicked
+        && world.resource::<Menu>().open()
+        && let Some(button) = world
+            .query::<&Window>()
+            .iter(world)
+            .next()
+            .and_then(|window| {
+                overlay::testing_button_at(
+                    window.cursor_position()?,
+                    Vec2::new(window.width(), window.height()),
+                )
+            })
+    {
+        super::testing::press(world, button);
+        if button == 2 {
+            world.resource_mut::<Menu>().state = State::AwaitRelease;
+        }
+        return;
+    }
     world.resource_scope(|world, mut menu: Mut<Menu>| {
         if matches!(menu.state, State::AwaitRelease)
-            && keys.get_pressed().next().is_none()
+            && !keys.any_pressed([
+                KeyCode::Enter,
+                KeyCode::Space,
+                KeyCode::Tab,
+                KeyCode::Escape,
+            ])
             && !mouse_held
         {
             menu.state = State::Closed;
@@ -146,6 +170,10 @@ fn controls(world: &mut World) {
             return;
         }
         if !menu.open() {
+            return;
+        }
+        if keys.just_pressed(KeyCode::F8) {
+            menu.state = State::AwaitRelease;
             return;
         }
         if keys.just_pressed(KeyCode::Escape) {

@@ -1,5 +1,5 @@
 //! Fog updates the camera without invalidating scene materials.
-use super::Fixture;
+use super::super::destinations::*;
 use super::{advance_until, configured, enter, mission, replay, skip_battle};
 use crate::{field_view, materials::TitleSurface};
 use anyhow::Result;
@@ -9,7 +9,7 @@ use resonance_game::field::{FieldInput, FieldSession};
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn radar_updates_camera_fog_and_restores_the_room_without_material_changes() -> Result<()> {
-    let mut field = enter(Fixture::Palmacosta, 201, None)?;
+    let mut field = enter(PALMACOSTA_RANCH, 201, None)?;
     advance_until(&mut field, FieldSession::player_has_control)?;
     field.party_mut().travel.sorcerers_ring = resonance_events::ring::SorcerersRing::Radar;
     let original = field.events.world.fog().cloned();
@@ -72,7 +72,7 @@ fn radar_updates_camera_fog_and_restores_the_room_without_material_changes() -> 
 #[test]
 #[ignore = "requires locally cooked Mana seal; no devices"]
 fn mana_seal_finishes_and_clears_its_fog() -> Result<()> {
-    let mut field = configured(Fixture::Mana, 369, |entry| {
+    let mut field = configured(MANA_START, 369, |entry| {
         entry
             .persistent
             .memory

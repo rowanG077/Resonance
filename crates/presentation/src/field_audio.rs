@@ -270,6 +270,7 @@ impl Assets {
             stereo: true,
             levels: [127; 3],
             in_field: true,
+            skipping: Default::default(),
         };
         (
             FieldSource {
@@ -295,13 +296,18 @@ pub(super) struct Control {
     stereo: bool,
     levels: [u8; 3],
     in_field: bool,
+    skipping: Arc<AtomicBool>,
 }
 type Completions = Arc<Mutex<VecDeque<(u64, Arc<AtomicBool>)>>>;
 type VoiceRequests = Arc<Mutex<VecDeque<(u32, Arc<AtomicBool>)>>>;
 
 impl resonance_game::dialogue::VoiceFeedback for Control {
     fn begin(&self, resource: u32) -> Arc<AtomicBool> {
-        let complete = Arc::new(AtomicBool::new(false));
+        let skipping = self.skipping.load(Ordering::Acquire);
+        let complete = Arc::new(AtomicBool::new(skipping));
+        if skipping {
+            return complete;
+        }
         let mut requests = self
             .voice_requests
             .lock()
@@ -326,6 +332,18 @@ enum Message {
 #[derive(Resource, Default)]
 pub(super) struct Trace(pub Vec<serde_json::Value>);
 impl Control {
+    pub(super) fn set_skipping(&self, skipping: bool) -> Result<()> {
+        if self.skipping.swap(skipping, Ordering::AcqRel) != skipping && skipping {
+            for (_, token) in self.voice_requests.lock().unwrap().drain(..) {
+                token.store(true, Ordering::Release);
+            }
+            for (_, token) in self.completions.lock().unwrap().drain(..) {
+                token.store(true, Ordering::Release);
+            }
+            self.enqueue(Message::Script(AudioCommand::StopVoice))?;
+        }
+        Ok(())
+    }
     fn enqueue(&self, message: Message) -> Result<()> {
         self.send
             .try_send(message)
@@ -368,8 +386,15 @@ impl Control {
         }
         Ok(())
     }
-    fn send(&self, command: AudioCommand) -> Result<()> {
+    fn send(&self, mut command: AudioCommand) -> Result<()> {
         self.check()?;
+        if self.skipping.load(Ordering::Acquire) {
+            match &mut command {
+                AudioCommand::Voice(_) | AudioCommand::Sound { .. } => return Ok(()),
+                AudioCommand::MusicVolume { duration_ticks, .. } => *duration_ticks = 0,
+                _ => {}
+            }
+        }
         if let AudioCommand::Voice(id) = command {
             let mut requests = self
                 .voice_requests

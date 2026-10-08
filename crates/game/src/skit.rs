@@ -55,6 +55,7 @@ pub struct Input {
     pub cancel: bool,
     pub direction: i8,
     pub accelerate: bool,
+    pub skip_dialogue: bool,
     pub skip: bool,
 }
 
@@ -130,7 +131,7 @@ impl Playback {
         crate::dialogue::step_requests(
             &mut self.events.world,
             &mut self.dialogue,
-            choice_slot.is_none() && (input.confirm || input.cancel),
+            choice_slot.is_none() && (input.confirm || input.cancel || input.skip_dialogue),
             input.accelerate || input.confirm && choice_slot.is_some(),
         )?;
         if let Some(slot) = choice_slot {

@@ -70,6 +70,9 @@ pub enum Key {
     Start,
     Quicksave,
     Quickload,
+    TestSpeed,
+    Pause,
+    SkipEvent,
 }
 impl Key {
     fn event(self, state: bevy::input::ButtonState) -> bevy::input::keyboard::KeyboardInput {
@@ -94,6 +97,9 @@ impl Key {
             Self::Start => (KeyCode::Home, Logical::Home),
             Self::Quicksave => (KeyCode::F5, Logical::F5),
             Self::Quickload => (KeyCode::F9, Logical::F9),
+            Self::TestSpeed => (KeyCode::F6, Logical::F6),
+            Self::Pause => (KeyCode::F7, Logical::F7),
+            Self::SkipEvent => (KeyCode::F8, Logical::F8),
         };
         bevy::input::keyboard::KeyboardInput {
             key_code,
@@ -521,7 +527,9 @@ pub(crate) fn record_live(
 }
 fn attach(app: &mut App, mixer: &resonance_playback::Control) -> Result<()> {
     crate::playthrough::attach::<crate::field_audio::FieldSource>(app.world_mut(), mixer)?;
-    crate::playthrough::attach::<crate::GameAudio>(app.world_mut(), mixer)
+    crate::playthrough::attach::<crate::GameAudio>(app.world_mut(), mixer)?;
+    crate::testing::audio(app.world_mut());
+    Ok(())
 }
 fn wait_ready(app: &mut App, initial: bool) -> Result<()> {
     app.insert_resource(TimeUpdateStrategy::ManualDuration(

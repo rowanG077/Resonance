@@ -33,6 +33,7 @@ mod dungeons;
 mod field_warm;
 mod loading;
 mod renderer;
+mod testing;
 pub use display::Resolution;
 mod choice_cursor;
 mod draw_order;
@@ -447,6 +448,7 @@ fn build_app_with_display(
         field_ui::transition_failure.after(new_game::transition),
     );
     dungeons::install(&mut app, capture_only);
+    testing::install(&mut app);
     if !capture_only {
         audio_output::install(&mut app, silent)?;
     } else {
