@@ -182,12 +182,19 @@ impl WalkMesh {
             };
             let (low, high) = actor.collision_bounds();
             let mut center = std::array::from_fn(|i| (low[i] + high[i]) * 0.5);
-            if actor.instance != block.instance {
-                // The player's floor can be slightly below a supporting block.
-                // Keep ordinary step clearance while pushing across that edge.
-                center[2] += (support.height - target[2]).clamp(0., MAX_STEP_HEIGHT);
+            let mut half_size = std::array::from_fn(|i| (high[i] - low[i]) * 0.5);
+            if actor.instance == block.instance {
+                // Filled pits can sit slightly above the surrounding floor.
+                let floor = self
+                    .block_surface(target, actor.instance)
+                    .unwrap_or(support.height);
+                center[2] += (floor - target[2]).clamp(0., MAX_STEP_HEIGHT);
+            } else {
+                // Feet can clear an ordinary step, even before the player's
+                // center reaches the supporting surface.
+                center[2] += MAX_STEP_HEIGHT * 0.5;
+                half_size[2] -= MAX_STEP_HEIGHT * 0.5;
             }
-            let half_size = std::array::from_fn(|i| (high[i] - low[i]) * 0.5);
             let end = [center[0] + delta[0], center[1] + delta[1], center[2]];
             !self.solids.iter().any(|solid| {
                 solid.owner != block.instance
@@ -315,6 +322,34 @@ impl WalkMesh {
         let surface =
             self.walking_surface(proposed, |z| (z - proposed[2]).abs() <= MAX_STEP_HEIGHT)?;
         Some([proposed[0], proposed[1], surface.height])
+    }
+    /// An authored landing can end just outside the floor while the feet overlap it.
+    pub(super) fn landing_near(&self, point: [f32; 3], radius: f32) -> Option<[f32; 3]> {
+        let mut nearest = None;
+        for (triangle, attributes) in self.surfaces() {
+            if !CollisionQuery::Player.accepts(*attributes) {
+                continue;
+            }
+            for edge in 0..3 {
+                let (a, b) = (triangle[edge], triangle[(edge + 1) % 3]);
+                let delta: [f32; 3] = std::array::from_fn(|i| b[i] - a[i]);
+                let length = delta[0] * delta[0] + delta[1] * delta[1];
+                if length == 0. {
+                    continue;
+                }
+                let t = (((point[0] - a[0]) * delta[0] + (point[1] - a[1]) * delta[1]) / length)
+                    .clamp(0., 1.);
+                let candidate: [f32; 3] = std::array::from_fn(|i| a[i] + t * delta[i]);
+                let distance = (candidate[0] - point[0]).hypot(candidate[1] - point[1]);
+                if distance <= radius
+                    && (candidate[2] - point[2]).abs() <= MAX_STEP_HEIGHT
+                    && nearest.is_none_or(|(best, _)| distance < best)
+                {
+                    nearest = Some((distance, candidate));
+                }
+            }
+        }
+        nearest.map(|(_, point)| point)
     }
     pub(super) fn blocked(&self, point: [f32; 3], query: CollisionQuery, owner: u64) -> bool {
         self.blocked_segment(point, point, query, owner)
