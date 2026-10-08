@@ -1,7 +1,8 @@
 //! Shared block controls; room scripts retain ownership of puzzle responses.
 use super::{FieldInput, navigation::WalkMesh};
 use resonance_content::field::ServiceMotion;
-use resonance_events::{Animation, EventRuntime, GameWorld, input::Button};
+use resonance_events::input::Button;
+use resonance_events::{Animation, EventRuntime, GameWorld};
 
 const GRIP_DISTANCE: f32 = 125.;
 const CELL: f32 = 150.;
@@ -337,22 +338,33 @@ mod tests {
             ..Default::default()
         }
     }
+    fn grab(events: &mut EventRuntime, mesh: &WalkMesh, blocks: &mut Blocks) {
+        step(
+            events,
+            mesh,
+            blocks,
+            FieldInput {
+                interact: true,
+                ..Default::default()
+            },
+        );
+    }
+    fn hold_cell(
+        events: &mut EventRuntime,
+        mesh: &WalkMesh,
+        blocks: &mut Blocks,
+        direction: [f32; 2],
+    ) {
+        for _ in 0..MOVE_UPDATES {
+            step(events, mesh, blocks, held(direction));
+        }
+    }
     #[test]
     fn pushing_and_pulling_select_the_native_motion_banks() {
         for (direction, slot, displacement) in [([0., -1.], 36, -150.), ([0., 1.], 40, 150.)] {
             let (mut events, mesh, mut blocks) = room();
-            step(
-                &mut events,
-                &mesh,
-                &mut blocks,
-                FieldInput {
-                    interact: true,
-                    ..Default::default()
-                },
-            );
-            for _ in 0..50 {
-                step(&mut events, &mesh, &mut blocks, held(direction));
-            }
+            grab(&mut events, &mesh, &mut blocks);
+            hold_cell(&mut events, &mesh, &mut blocks, direction);
             assert_eq!(events.world.actors[&2].position, [0., displacement, 0.]);
             let animation = events.world.actors[&1].animation.as_ref().unwrap();
             assert_eq!(animation.resource, FIELD_SERVICE_MOTION_RESOURCE_BASE + 1);
@@ -365,19 +377,9 @@ mod tests {
         let block = events.world.actors.get_mut(&2).unwrap();
         block.role = ActorRole::Ordinary;
         block.pushable = true;
-        step(
-            &mut events,
-            &mesh,
-            &mut blocks,
-            FieldInput {
-                interact: true,
-                ..Default::default()
-            },
-        );
+        grab(&mut events, &mesh, &mut blocks);
         assert_eq!(events.world.grabbed_block, Some(2));
-        for _ in 0..50 {
-            step(&mut events, &mesh, &mut blocks, held([0., -1.]));
-        }
+        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
         assert_eq!(events.world.actors[&2].position, [0., -150., 0.]);
         events.world.actors.get_mut(&2).unwrap().pushable = false;
         step(&mut events, &mesh, &mut blocks, held([0.; 2]));
@@ -399,15 +401,7 @@ mod tests {
     #[test]
     fn released_button_finishes_the_cell_then_returns_control() {
         let (mut events, mesh, mut blocks) = room();
-        step(
-            &mut events,
-            &mesh,
-            &mut blocks,
-            FieldInput {
-                interact: true,
-                ..Default::default()
-            },
-        );
+        grab(&mut events, &mesh, &mut blocks);
         assert_eq!(events.world.actors[&1].position, [0., 125., 0.]);
         step(&mut events, &mesh, &mut blocks, held([0., -1.]));
         let started = events.world.actors[&1]
@@ -443,18 +437,8 @@ mod tests {
                 wall.model_collision = Some(resonance_content::test_support::solid_box(low, high));
                 events.world.insert_actor(3, wall);
             }
-            step(
-                &mut events,
-                &mesh,
-                &mut blocks,
-                FieldInput {
-                    interact: true,
-                    ..Default::default()
-                },
-            );
-            for _ in 0..MOVE_UPDATES {
-                step(&mut events, &mesh, &mut blocks, held([0., 1.]));
-            }
+            grab(&mut events, &mesh, &mut blocks);
+            hold_cell(&mut events, &mesh, &mut blocks, [0., 1.]);
             let moved = if moves { CELL } else { 0. };
             assert_eq!(events.world.actors[&2].position, [0., moved, 0.]);
             assert_eq!(
@@ -470,24 +454,147 @@ mod tests {
         let mut obstacle = events.world.actors[&2].clone();
         obstacle.position = [0., -150., 0.];
         events.world.insert_actor(3, obstacle);
-        step(
-            &mut events,
-            &mesh,
-            &mut blocks,
-            FieldInput {
-                interact: true,
-                ..Default::default()
-            },
-        );
-        for _ in 0..50 {
-            step(&mut events, &mesh, &mut blocks, held([0., -1.]));
-        }
+        grab(&mut events, &mesh, &mut blocks);
+        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
         assert_eq!(events.world.actors[&2].position, [0., 0., 0.]);
         events.world.actors.get_mut(&3).unwrap().model_collision = None;
-        for _ in 0..50 {
+        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
+        assert_eq!(events.world.actors[&2].position, [0., -150., 0.]);
+    }
+
+    #[test]
+    fn blocks_cross_a_slightly_raised_filled_pit_and_leave_it_again() {
+        let (mut events, mesh, mut blocks) = room();
+        let mut filled = events.world.actors[&2].clone();
+        filled.pushable = false;
+        filled.position = [0., -2. * CELL, 1. - CELL];
+        // Scenery solids already include clearance for a walking character.
+        let collision = Arc::make_mut(filled.model_collision.as_mut().unwrap());
+        for vertex in &mut collision.solids[0].vertices {
+            vertex[0] *= 115. / 75.;
+            vertex[1] *= 115. / 75.;
+        }
+        events.world.insert_actor(3, filled);
+        grab(&mut events, &mesh, &mut blocks);
+        for cell in 1..=3 {
+            if cell == 2 {
+                let mut ceiling = Actor::new(4, [0.; 3]);
+                ceiling.model_collision = Some(resonance_content::test_support::solid_box(
+                    [-75., -375., CELL + 0.5],
+                    [75., -225., 2. * CELL],
+                ));
+                events.world.insert_actor(4, ceiling);
+                hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
+                assert_eq!(events.world.actors[&2].position[1], -CELL);
+                events.world.actors.remove(&4);
+            }
+            for _ in 0..MOVE_UPDATES {
+                blocks.settle(&mut events.world, &mesh);
+                step(&mut events, &mesh, &mut blocks, held([0., -1.]));
+            }
+            blocks.settle(&mut events.world, &mesh);
+            assert_eq!(events.world.actors[&2].position[1], -CELL * cell as f32);
+        }
+        assert_eq!(events.world.actors[&2].position[2], 0.);
+    }
+
+    #[test]
+    fn a_pit_allows_a_push_and_then_a_fall_onto_the_floor_below() {
+        let (mut events, _, mut blocks) = room();
+        let lower = events.world.actors[&2].clone();
+        events.world.insert_actor(3, lower);
+        for id in [1, 2] {
+            events.world.actors.get_mut(&id).unwrap().position[2] = CELL;
+        }
+        let mesh = WalkMesh::new(
+            &[
+                (resonance_content::field::CollisionQuery::Block as u32, 0.),
+                ((1 << 19) | (1 << 22), CELL),
+            ]
+            .map(|(surface, z)| CollisionGroup {
+                surface,
+                vertices: vec![
+                    [-1000., -1000., z],
+                    [1000., -1000., z],
+                    [1000., 1000., z],
+                    [-1000., 1000., z],
+                ],
+                triangles: vec![[0, 1, 2], [0, 2, 3]],
+            }),
+        )
+        .unwrap();
+        grab(&mut events, &mesh, &mut blocks);
+        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
+        assert_eq!(events.world.actors[&2].position, [0., -CELL, CELL]);
+        for _ in 0..20 {
+            blocks.settle(&mut events.world, &mesh);
             step(&mut events, &mesh, &mut blocks, held([0., -1.]));
         }
-        assert_eq!(events.world.actors[&2].position, [0., -150., 0.]);
+        assert_eq!(events.world.actors[&2].position, [0., -CELL, 0.]);
+        assert!(events.player_has_control());
+    }
+
+    #[test]
+    fn a_forbidden_surface_cannot_be_bypassed_using_the_floor_below() {
+        let (mut events, _, mut blocks) = room();
+        let mut ground = CollisionGroup {
+            surface: 0,
+            vertices: vec![
+                [-1000., -1000., 0.],
+                [1000., -1000., 0.],
+                [1000., 1000., 0.],
+                [-1000., 1000., 0.],
+            ],
+            triangles: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let mut tile = ground.clone();
+        tile.surface = resonance_content::field::CollisionQuery::Block as u32;
+        tile.vertices = vec![
+            [-100., -225., 20.],
+            [100., -225., 20.],
+            [100., -75., 20.],
+            [-100., -75., 20.],
+        ];
+        let mesh = WalkMesh::new(&[ground.clone(), tile.clone()]).unwrap();
+        grab(&mut events, &mesh, &mut blocks);
+        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
+        assert_eq!(events.world.actors[&2].position, [0.; 3]);
+
+        // An allowed platform above the tile supplies the actual supporting floor.
+        for vertex in &mut ground.vertices {
+            vertex[2] = 30.;
+        }
+        let mesh = WalkMesh::new(&[ground, tile]).unwrap();
+        for id in [1, 2] {
+            events.world.actors.get_mut(&id).unwrap().position[2] = 30.;
+        }
+        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
+        assert_eq!(events.world.actors[&2].position, [0., -CELL, 30.]);
+    }
+
+    #[test]
+    fn the_moving_block_cannot_supply_the_players_floor_over_a_gap() {
+        let (mut events, _, mut blocks) = room();
+        let platform = CollisionGroup {
+            surface: 0,
+            vertices: vec![
+                [-1000., 0., 0.],
+                [1000., 0., 0.],
+                [1000., 1000., 0.],
+                [-1000., 1000., 0.],
+            ],
+            triangles: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let mut pit = platform.clone();
+        for vertex in &mut pit.vertices {
+            vertex[1] -= 1000.;
+            vertex[2] -= CELL;
+        }
+        let mesh = WalkMesh::new(&[platform, pit]).unwrap();
+        grab(&mut events, &mesh, &mut blocks);
+        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
+        assert_eq!(events.world.actors[&2].position, [0.; 3]);
+        assert_eq!(events.world.actors[&1].position, [0., GRIP_DISTANCE, 0.]);
     }
 
     #[test]
@@ -501,18 +608,8 @@ mod tests {
             vertex[1] *= 0.02;
         }
         events.world.insert_actor(3, wall);
-        step(
-            &mut events,
-            &mesh,
-            &mut blocks,
-            FieldInput {
-                interact: true,
-                ..Default::default()
-            },
-        );
-        for _ in 0..MOVE_UPDATES {
-            step(&mut events, &mesh, &mut blocks, held([0., -1.]));
-        }
+        grab(&mut events, &mesh, &mut blocks);
+        hold_cell(&mut events, &mesh, &mut blocks, [0., -1.]);
         assert_eq!(events.world.actors[&2].position, [0.; 3]);
     }
 
@@ -562,15 +659,7 @@ mod tests {
             blocks.settle(&mut events.world, &mesh);
             assert!(events.world.actors[&2].position[2] >= 0.);
             if tick == 1 {
-                step(
-                    &mut events,
-                    &mesh,
-                    &mut blocks,
-                    FieldInput {
-                        interact: true,
-                        ..Default::default()
-                    },
-                );
+                grab(&mut events, &mesh, &mut blocks);
                 assert_eq!(events.world.grabbed_block, None);
             }
         }
@@ -616,15 +705,7 @@ mod tests {
         let mut filled = Actor::new(267, [-1340., -1375., -949.]);
         filled.model_collision = Some(collision);
         events.world.insert_actor(5001, filled);
-        step(
-            &mut events,
-            &mesh,
-            &mut blocks,
-            FieldInput {
-                interact: true,
-                ..Default::default()
-            },
-        );
+        grab(&mut events, &mesh, &mut blocks);
         assert_eq!(events.world.grabbed_block, Some(2));
         for _ in 0..50 {
             blocks.settle(&mut events.world, &mesh);
@@ -639,9 +720,7 @@ mod tests {
                 "block sank into the filled pit: {z}"
             );
         }
-        for _ in 0..MOVE_UPDATES {
-            step(&mut events, &mesh, &mut blocks, held([1., 0.]));
-        }
+        hold_cell(&mut events, &mesh, &mut blocks, [1., 0.]);
         assert_eq!(events.world.actors[&2].position[..2], [-1190., -1375.]);
         Ok(())
     }
@@ -649,15 +728,7 @@ mod tests {
     fn pause_or_replaced_block_releases_the_grip() {
         for replace in [false, true] {
             let (mut events, mesh, mut blocks) = room();
-            step(
-                &mut events,
-                &mesh,
-                &mut blocks,
-                FieldInput {
-                    interact: true,
-                    ..Default::default()
-                },
-            );
+            grab(&mut events, &mesh, &mut blocks);
             step(&mut events, &mesh, &mut blocks, held([0.; 2]));
             assert_eq!(
                 events.world.actors[&1].animation.as_ref().unwrap().slot,
