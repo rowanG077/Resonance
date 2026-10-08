@@ -122,34 +122,44 @@ impl WalkMesh {
             }
             let next = actor.position[2] - BLOCK_FALL_STEP;
             actor.position[2] = self
-                .block_surface(actor.position, actor.instance)
-                .map_or(next, |floor| next.max(floor));
+                .block_surface(
+                    actor.position,
+                    actor.instance,
+                    BLOCK_FLOOR_REACH,
+                    NO_BLOCK_SUPPORT,
+                )
+                .map_or(next, |floor| next.max(floor.height));
         }
     }
 
     pub(super) fn block_supported(&self, actor: &resonance_events::Actor) -> bool {
-        self.block_surface(actor.position, actor.instance)
-            .is_some_and(|height| (height - actor.position[2]).abs() < 0.01)
+        self.block_surface(
+            actor.position,
+            actor.instance,
+            BLOCK_FLOOR_REACH,
+            NO_BLOCK_SUPPORT,
+        )
+        .is_some_and(|floor| (floor.height - actor.position[2]).abs() < 0.01)
     }
 
-    fn block_surface(&self, point: [f32; 3], owner: u64) -> Option<f32> {
-        self.model_floors
-            .iter()
-            .filter(|(id, _)| *id != owner)
-            .map(|(_, surface)| (surface, true))
-            .chain(self.triangles.iter().map(|surface| (surface, false)))
-            .filter_map(|((triangle, attributes), model)| {
-                // Only upward-facing model surfaces can support a block.
-                if (model && surface_normal(*triangle)[2] <= 0.)
-                    || (!model && attributes & NO_BLOCK_SUPPORT != 0)
-                    || !CollisionQuery::Block.accepts(*attributes)
-                {
-                    return None;
-                }
+    fn block_surface(
+        &self,
+        point: [f32; 3],
+        owner: u64,
+        drop: f32,
+        excluded_attributes: u32,
+    ) -> Option<GroundSurface> {
+        self.surfaces(Some(owner))
+            .filter(|(_, attributes)| attributes & excluded_attributes == 0)
+            .filter_map(|(triangle, attributes)| {
                 let z = height(*triangle, point)?;
-                ((z - point[2]).abs() <= BLOCK_FLOOR_REACH).then_some(z)
+                (z <= point[2] + MAX_STEP_HEIGHT && z >= point[2] - drop).then(|| GroundSurface {
+                    height: z,
+                    attributes: *attributes,
+                    normal: surface_normal(*triangle),
+                })
             })
-            .max_by(f32::total_cmp)
+            .max_by(|a, b| a.height.total_cmp(&b.height))
     }
     pub(super) fn can_move_block(
         &self,
@@ -169,32 +179,31 @@ impl WalkMesh {
                 actor.position[1] + delta[1],
                 actor.position[2],
             ];
-            let support = self.surface_within(target, |z, attributes| {
-                query.accepts(attributes)
-                    && if actor.instance == block.instance {
-                        z <= target[2] + MAX_STEP_HEIGHT
-                    } else {
-                        (z - target[2]).abs() <= FLOOR_REACH
-                    }
-            });
-            let Some(support) = support else {
+            let surface = if actor.instance == block.instance {
+                // Pit surfaces permit entry but do not support a block's weight.
+                self.block_surface(target, block.instance, f32::INFINITY, 0)
+            } else {
+                self.surface_within(target, Some(block.instance), |z, attributes| {
+                    query.accepts(attributes) && (z - target[2]).abs() <= FLOOR_REACH
+                })
+            };
+            let Some(surface) = surface else {
                 return false;
             };
+            // A forbidden tile cannot be bypassed using a floor beneath it.
+            if !query.accepts(surface.attributes) {
+                return false;
+            }
             let (low, high) = actor.collision_bounds();
             let mut center = std::array::from_fn(|i| (low[i] + high[i]) * 0.5);
             let mut half_size = std::array::from_fn(|i| (high[i] - low[i]) * 0.5);
             if actor.instance == block.instance {
-                // Filled pits can sit slightly above the surrounding floor.
-                let floor = self
-                    .block_surface(target, actor.instance)
-                    .unwrap_or(support.height);
-                center[2] += (floor - target[2]).clamp(0., MAX_STEP_HEIGHT);
-            } else {
-                // Feet can clear an ordinary step, even before the player's
-                // center reaches the supporting surface.
-                center[2] += MAX_STEP_HEIGHT * 0.5;
-                half_size[2] -= MAX_STEP_HEIGHT * 0.5;
+                center[2] += (surface.height - target[2]).clamp(0., MAX_STEP_HEIGHT);
             }
+            // Both bodies must clear a step at their leading edge, before their
+            // centers reach it. Filled pits can sit just above the surrounding floor.
+            center[2] += MAX_STEP_HEIGHT * 0.5;
+            half_size[2] -= MAX_STEP_HEIGHT * 0.5;
             let end = [center[0] + delta[0], center[1] + delta[1], center[2]];
             !self.solids.iter().any(|solid| {
                 solid.owner != block.instance
@@ -215,9 +224,12 @@ impl WalkMesh {
         })
     }
 
-    fn surfaces(&self) -> impl Iterator<Item = &([[f32; 3]; 3], u32)> {
+    fn surfaces(&self, excluding: Option<u64>) -> impl Iterator<Item = &Surface> {
         self.model_floors
             .iter()
+            .filter(move |(owner, (triangle, _))| {
+                Some(*owner) != excluding && surface_normal(*triangle)[2] > 0.
+            })
             .map(|(_, surface)| surface)
             .chain(self.triangles.iter())
     }
@@ -291,7 +303,7 @@ impl WalkMesh {
         if let Some(z) = self.height(point, f32::MAX) {
             return Some([point[0], point[1], z]);
         }
-        self.surfaces()
+        self.surfaces(None)
             .filter(|(_, attributes)| CollisionQuery::Player.accepts(*attributes))
             .filter_map(|(vertices, _)| {
                 let center =
@@ -326,7 +338,7 @@ impl WalkMesh {
     /// An authored landing can end just outside the floor while the feet overlap it.
     pub(super) fn landing_near(&self, point: [f32; 3], radius: f32) -> Option<[f32; 3]> {
         let mut nearest = None;
-        for (triangle, attributes) in self.surfaces() {
+        for (triangle, attributes) in self.surfaces(None) {
             if !CollisionQuery::Player.accepts(*attributes) {
                 continue;
             }
@@ -377,7 +389,7 @@ impl WalkMesh {
         ) {
             return None;
         }
-        let surface = self.surface_within(proposed, |z, attributes| {
+        let surface = self.surface_within(proposed, None, |z, attributes| {
             (z - proposed[2]).abs() <= MAX_STEP_HEIGHT && CollisionQuery::Enemy.accepts(attributes)
         })?;
         Some([proposed[0], proposed[1], surface.height])
@@ -429,26 +441,27 @@ impl WalkMesh {
         }
     }
     pub fn surface(&self, point: [f32; 3], max_step: f32) -> Option<GroundSurface> {
-        self.surface_within(point, |z, _| (z - point[2]).abs() <= max_step)
+        self.surface_within(point, None, |z, _| (z - point[2]).abs() <= max_step)
     }
     pub fn surface_below(&self, point: [f32; 3]) -> Option<GroundSurface> {
-        self.surface_within(point, |z, _| z <= point[2])
+        self.surface_within(point, None, |z, _| z <= point[2])
     }
     fn walking_surface(
         &self,
         point: [f32; 3],
         accepts: impl Fn(f32) -> bool,
     ) -> Option<GroundSurface> {
-        self.surface_within(point, |z, attributes| {
+        self.surface_within(point, None, |z, attributes| {
             CollisionQuery::Player.accepts(attributes) && accepts(z)
         })
     }
     fn surface_within(
         &self,
         point: [f32; 3],
+        excluding: Option<u64>,
         accepts: impl Fn(f32, u32) -> bool,
     ) -> Option<GroundSurface> {
-        self.surfaces()
+        self.surfaces(excluding)
             .filter_map(|(triangle, attributes)| {
                 height(*triangle, point).map(|z| (z, triangle, *attributes))
             })
