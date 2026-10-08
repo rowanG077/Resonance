@@ -59,6 +59,57 @@ fn enemy_resources() -> ResourceLibrary {
 }
 
 #[test]
+fn genis_fireball_travels_with_a_fading_trail_and_cancels_with_its_owner() {
+    let cast = script(&[(
+        Call::CreateEffectEmitter,
+        &[
+            5000, -1700, 1782, 847, 0, 51, 0, 0, 100, 78, 0, 0, -3110, 438, 100, 0, 0, 0,
+        ],
+    )]);
+    let cancel = script(&[(Call::DespawnActor, &[5000])]);
+    let mut events = interactive_effect(&cast, &cancel);
+    steps(&mut events, 39);
+    let midpoint = events.world.actors[&5000].position;
+    let near = |position: [f32; 3], target: [f32; 3]| {
+        position
+            .into_iter()
+            .zip(target)
+            .all(|(a, b)| (a - b).abs() < 0.01)
+    };
+    assert!(near(midpoint, [-2405., 1110., 473.5]));
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .any(|p| p.position[0] > midpoint[0])
+    );
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .any(|p| p.alpha(events.tick()) < 160.)
+    );
+    steps(&mut events, 39);
+    assert!(near(
+        events.world.actors[&5000].position,
+        [-3110., 438., 100.]
+    ));
+    steps(&mut events, 12);
+    assert!(events.world.billboards.is_empty());
+
+    let mut events = interactive_effect(&cast, &cancel);
+    steps(&mut events, 5);
+    assert!(!events.world.billboards.is_empty());
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert!(!events.world.actors.contains_key(&5000));
+    steps(&mut events, 2);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn script_can_enable_and_disable_a_pushable_model_after_spawn() {
     let mut world = GameWorld::default();
     world.insert_actor(5000, Actor::new(267, [0.; 3]));
@@ -521,6 +572,7 @@ fn emitter_removal_obeys_the_current_tail_policy() {
         assert!(!events.world.billboards.is_empty());
         assert!(events.trigger(42, true).unwrap());
         events.step().unwrap();
+        steps(&mut events, 2);
         assert_eq!(!events.world.billboards.is_empty(), survives);
         assert_eq!(!events.world.refractions.is_empty(), survives);
         finish_effects(&mut events);
@@ -594,6 +646,8 @@ fn rheaird_crash_debris_moves_without_spinning_and_expires() {
         let speed = debris.velocity.iter().map(|v| v * v).sum::<f32>().sqrt();
         assert!((speed - 2.61).abs() < 0.0001);
         events.step().unwrap();
+        assert_eq!(events.world.billboards[&1].position, debris.position);
+        events.step().unwrap();
         let moved = &events.world.billboards[&1];
         assert!(moved.position[0] > debris.position[0]);
         assert!(moved.position[1] < debris.position[1]);
@@ -601,7 +655,7 @@ fn rheaird_crash_debris_moves_without_spinning_and_expires() {
         assert_eq!(moved.rotation, [0.; 3]);
         assert_eq!(debris.alpha(debris.born), 255.);
         assert!(debris.alpha(debris.born + 162) < 255.);
-        for _ in 1..163 {
+        for _ in 2..164 {
             events.step().unwrap();
         }
         assert!(events.world.billboards.is_empty());
@@ -609,7 +663,7 @@ fn rheaird_crash_debris_moves_without_spinning_and_expires() {
 }
 
 #[test]
-fn stopped_seal_emitter_stops_spawning_and_despawn_clears_its_particles() {
+fn stopped_seal_emitter_leaves_a_finite_particle_tail() {
     let setup = script(&[(
         Call::CreateEffectEmitter,
         &emitter(13, 8, &[35, 35, 25, 10, 25, 600, 180]),
@@ -625,6 +679,8 @@ fn stopped_seal_emitter_stops_spawning_and_despawn_clears_its_particles() {
     assert!(events.world.billboards.values().all(|p| p.born <= stopped));
     events.world.actors.remove(&500);
     events.step().unwrap();
+    assert!(!events.world.billboards.is_empty());
+    steps(&mut events, 200);
     assert!(events.world.billboards.is_empty());
 }
 
@@ -646,50 +702,50 @@ fn angel_lights_converge_and_leave_no_permanent_trails() {
 }
 
 #[test]
-fn descending_seal_lights_reach_the_receiving_character() {
-    let mut args = emitter(31, -2, &[33, 500, 300, 1, 10, 50, 50, 255, -15, 20]);
-    args[1..4].copy_from_slice(&[200, 300, 1200]);
-    let mut world = controlled_world();
-    world.insert_actor(2, Actor::new(2, [200., 300., 0.]));
-    let mut events = runtime(
-        program(&script(&[(Call::CreateEffectEmitter, &args)]), &[0x20ff]),
-        Default::default(),
-        world,
-    );
-    steps(&mut events, 130);
+fn seal_blessing_descends_then_releases_an_expanding_sphere() {
+    let mut args = emitter(31, -2, &[35, 20, 300, 1, 1, 50, 50, 255, -15, 20]);
+    args[1..4].copy_from_slice(&[200, 300, 100]);
+    let release = script(&[(Call::SetActorProperty, &[500, 33, 2])]);
+    let mut events = interactive_effect(&script(&[(Call::CreateEffectEmitter, &args)]), &release);
+    steps(&mut events, 30);
     let center = events.world.actors[&500].position;
-    assert_eq!(&center[..2], &[200., 300.]);
-    assert!(center[2] > 0. && center[2] < resonance_events::ACTOR_CONTACT_HEIGHT);
+    assert_eq!(center, [200., 300., 52.]);
+    assert!(events.world.billboards.is_empty());
+    events.trigger(42, true).unwrap();
+    steps(&mut events, 5);
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .all(|p| p.position == center && p.size[0] > 0.)
+    );
+    assert!(!events.world.billboards.is_empty());
+    steps(&mut events, 30);
+    assert!(events.world.billboards.is_empty());
 }
 
 #[test]
-fn remiel_rays_travel_toward_the_orb_in_both_transformations() {
-    for (preset, parameters, center) in [
-        (27, vec![33, 1500, -30, 1000, 150], [0., 0., 0.]),
-        (28, vec![33, 100], [0., -100., 0.]),
-    ] {
-        let mut events = interactive_effect(
-            &script(&[(Call::CreateEffectEmitter, &emitter(preset, 0, &parameters))]),
-            &[0x20ff],
-        );
-        events.step().unwrap();
-        let (&id, ray) = events
-            .world
-            .billboards
-            .iter()
-            .find(|(_, p)| p.recipe == resonance_content::effect::STREAK_SPRITE)
-            .unwrap();
-        let distance = |p: [f32; 3]| {
-            (0..3)
-                .map(|i| (p[i] - center[i]).powi(2))
-                .sum::<f32>()
-                .sqrt()
-        };
-        let start = distance(ray.position);
-        assert!(start > 50.);
-        steps(&mut events, 30);
-        assert!(distance(events.world.billboards[&id].position) < start * 0.6);
-    }
+fn arrival_rays_converge_toward_the_flash() {
+    let mut events = interactive_effect(
+        &script(&[(
+            Call::CreateEffectEmitter,
+            &emitter(27, 0, &[33, 1500, -30, 1000, 150]),
+        )]),
+        &[0x20ff],
+    );
+    events.step().unwrap();
+    let (&id, ray) = events
+        .world
+        .billboards
+        .iter()
+        .find(|(_, p)| p.recipe == resonance_content::effect::STREAK_SPRITE)
+        .unwrap();
+    let distance = |p: [f32; 3]| p.into_iter().map(|v| v * v).sum::<f32>().sqrt();
+    let start = distance(ray.position);
+    assert!(start > 50.);
+    steps(&mut events, 30);
+    assert!(distance(events.world.billboards[&id].position) < start * 0.6);
 }
 
 #[test]
@@ -955,37 +1011,6 @@ fn model_particles_animate_and_expire_without_aliasing_actor_handles() {
     assert!((permanent.rotation[2] - 1.2).abs() < 0.0001);
     assert_eq!(permanent.scale, [1.5, 1., 1.]);
     assert_eq!(events.world.actors[&1].position, [99.; 3]);
-}
-
-#[test]
-fn rising_motes_use_the_current_despawn_cleanup_flag() {
-    for (initial, changed, survives) in [(0, 1, false), (1, 0, true)] {
-        let setup = script(&[(
-            Call::CreateEffectEmitter,
-            &emitter(15, 120, &[48, 58, 8, 16, 0, 560, 128, 64, 5, initial]),
-        )]);
-        let remove = script(&[
-            (Call::SetActorProperty, &[500, 122, changed]),
-            (Call::DespawnActor, &[500]),
-        ]);
-        let mut events = interactive_effect(&setup, &remove);
-        steps(&mut events, 6);
-        assert!(!events.world.billboards.is_empty());
-        assert!(events.trigger(42, true).unwrap());
-        events.step().unwrap();
-        assert!(!events.world.actors.contains_key(&500));
-        assert_eq!(!events.world.billboards.is_empty(), survives);
-        if survives {
-            let (handle, mote) = events.world.billboards.iter().next().unwrap();
-            let (handle, height, alpha) = (*handle, mote.position[2], mote.alpha(events.tick()));
-            steps(&mut events, 30);
-            let mote = &events.world.billboards[&handle];
-            assert!(mote.position[2] > height);
-            assert!(mote.alpha(events.tick()) < alpha);
-            steps(&mut events, 300);
-            assert!(events.world.billboards.is_empty());
-        }
-    }
 }
 
 #[test]
@@ -1516,7 +1541,6 @@ fn wing_profiles_follow_their_models_and_keep_instance_state_isolated() {
         steps(&mut events, 4);
         assert_eq!(events.world.billboards.len(), 1);
         let spark = events.world.billboards.values().next().unwrap();
-        assert_eq!(spark.recipe, resonance_content::effect::WING_SPARK_SPRITE);
         assert!((285. ..=316.).contains(&spark.position[0]));
         assert!((-15. ..=16.).contains(&spark.position[1]));
         events
@@ -1640,13 +1664,13 @@ fn sparse_attachments_emit_each_tick_with_affine_parents_fractional_rate_and_pos
             .map(|p| (p.born, p.position))
             .collect::<Vec<_>>(),
         [
-            (0, [2., 0., 3.]),
             (1, [2., 0., 3.]),
-            (2, [4., 0., 3.]),
-            (3, [6., 0., 3.]),
-            (4, [8., 0., 3.]),
-            (5, [8., 0., 3.]), // An invalidated node preserves the coordinate registers.
-            (6, [0.; 3]),      // A missing actor resets them, as in Iselia's locator setup.
+            (2, [2., 0., 3.]),
+            (3, [4., 0., 3.]),
+            (4, [6., 0., 3.]),
+            (5, [8., 0., 3.]),
+            (6, [8., 0., 3.]), // An invalidated node preserves the coordinate registers.
+            (7, [0.; 3]),      // A missing actor resets them, as in Iselia's locator setup.
         ]
     );
 }
@@ -2475,7 +2499,7 @@ fn eraser_rate_preserves_the_scripted_impact_cue() {
     assert!((0. ..70.).contains(&animation.sample(events.tick(), 0, 70.)));
     assert_eq!(
         events.world.billboards.values().next().unwrap().born,
-        events.tick()
+        events.tick() + 1
     );
     assert!(matches!(
         events.world.audio_commands.as_slice(),
@@ -2501,6 +2525,8 @@ fn billboard_angle_is_absolute_and_independent_of_spin_and_growth() {
             Default::default(),
         );
         let degrees = angle as f32 / 100.;
+        assert_eq!(events.world.billboards[&1].rotation, [0., 0., degrees]);
+        events.step().unwrap();
         assert_eq!(events.world.billboards[&1].rotation, [0., 0., degrees]);
         events.step().unwrap();
         let effect = &events.world.billboards[&1];
@@ -2541,6 +2567,7 @@ fn general_shims_run_non_title_events_with_shared_state_and_ordered_waits() {
     native(&mut main, Call::YieldCommand, &[0, 2]);
     main.push(0x20ff);
     let mut child = Vec::new();
+    native(&mut child, Call::YieldCommand, &[0, 0]);
     native(
         &mut child,
         Call::CreateSceneActor,

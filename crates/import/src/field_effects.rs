@@ -1,5 +1,4 @@
 //! Bind field effects to shared textures and parsed animation recipes.
-mod emotes;
 mod recipe;
 mod sprites;
 #[cfg(test)]
@@ -107,7 +106,6 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
             sprite: sprite(source.refraction.sprite)?,
             displacement: source.refraction.displacement,
         },
-        emotes: source.emotes,
         mouth_cycle: source.mouth_cycle,
     };
     effects.validate()?;

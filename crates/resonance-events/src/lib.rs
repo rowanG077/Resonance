@@ -6,6 +6,7 @@ mod attachments;
 pub mod authored;
 mod autonomy;
 mod emitter;
+pub mod emote;
 mod enemy_source;
 pub use ambient::AmbientSound;
 pub mod battle;

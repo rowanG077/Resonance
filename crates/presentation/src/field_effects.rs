@@ -1,7 +1,7 @@
 //! Camera-facing sprites from cooked recipes and live event state.
 use super::sparse_animation::affine::Helper as TransformHelper;
 use super::{
-    draw_order::{CONTACT_SHADOWS, DrawOrder, EFFECT_UI_OFFSET, EFFECTS},
+    draw_order::{DrawOrder, EFFECT_UI_OFFSET, EFFECTS},
     field_animation::Rig,
     field_audit::{Applied, Request},
     field_view::{ActorPart, State},
@@ -16,11 +16,11 @@ use bevy::{
     prelude::*,
 };
 use resonance_content::{
-    effect::{EmoteTrack, FieldEffects, FlutterRecipe, RefractionRecipe, VerticalAnchor},
+    effect::{FieldEffects, FlutterRecipe, RefractionRecipe, VerticalAnchor},
     field::FieldAssets,
 };
 use resonance_events::effect::{Blend, SpriteOrientation};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{borrow::Cow, collections::BTreeMap, fs, path::Path};
 
 const EMOTES: usize = 0;
 const STATUS: usize = 1;
@@ -37,9 +37,8 @@ pub(super) struct Artwork {
     textures: Vec<Handle<Image>>,
     materials: Vec<Handle<TitleSurface>>,
     warm_mesh: Handle<Mesh>,
-    draws: Vec<(Entity, Handle<Mesh>)>,
+    draws: Vec<Vec<(Entity, Handle<Mesh>)>>,
     particles: BTreeMap<i32, (FlutterRecipe, usize)>,
-    shadow: (resonance_content::field::ContactShadow, usize),
     sprite_materials: BTreeMap<u16, SpriteMaterials>,
     overlay_materials: BTreeMap<u32, Vec<SpriteMaterials>>,
     refraction_texture: [Handle<Image>; 2],
@@ -138,10 +137,6 @@ impl Artwork {
                 )
             })
             .collect();
-        let shadow = (
-            field.contact_shadow.clone(),
-            register(&field.contact_shadow.texture, Blend::Alpha, true),
-        );
         let mut variants = |path: &str| {
             Blend::ALL.map(|mode| std::array::from_fn(|fog| register(path, mode, fog != 0)))
         };
@@ -188,12 +183,11 @@ impl Artwork {
             particles,
             sprite_materials,
             overlay_materials,
-            shadow,
             refraction_texture,
         })
     }
     pub fn despawn(&mut self, world: &mut World) {
-        for (entity, _) in self.draws.drain(..) {
+        for (entity, _) in self.draws.drain(..).flatten() {
             world.despawn(entity);
         }
     }
@@ -314,6 +308,28 @@ pub(super) fn render(
         return;
     }
     let world = &state.get().events.world;
+    if art.draws.is_empty() {
+        // Keep a prepared draw for each material so the first visible particle
+        // does not wait for a mesh upload or a material-binding change.
+        let warm = meshes.get(&art.warm_mesh).unwrap().clone();
+        art.draws = art
+            .materials
+            .iter()
+            .map(|material| {
+                let mesh = meshes.add(warm.clone());
+                let entity = commands
+                    .spawn((
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(material.clone()),
+                        Transform::default(),
+                        NoFrustumCulling,
+                        EffectDraw,
+                    ))
+                    .id();
+                vec![(entity, mesh)]
+            })
+            .collect();
+    }
     let Some(camera) = &world.field_camera else {
         return;
     };
@@ -358,35 +374,14 @@ pub(super) fn render(
         quads.push((EFFECTS, particle.handle, *layer, quad));
         applied.ack(Request::Particle(particle.handle));
     }
-    let collision = world.ring_shadows().next().map(|_| state.get().collision());
-    for position in world.ring_shadows() {
-        if let Some(surface) = collision.as_ref().and_then(|c| c.surface_below(position)) {
-            let (spec, layer) = &art.shadow;
-            let quad = Quad::new(
-                Vec3::new(
-                    position[0],
-                    position[1],
-                    surface.height + spec.height_offset,
-                ),
-                Quat::from_rotation_arc(Vec3::Z, Vec3::from_array(surface.normal)),
-                [40.; 2],
-                [0., 0., spec.uv_size[0], spec.uv_size[1]],
-                [0., 0., 1., 64. / 255.],
-                VerticalAnchor::Center,
-            );
-            quads.push((CONTACT_SHADOWS, 0, *layer, quad));
-        }
-    }
     for (&id, effect) in &world.billboards {
+        if world.tick < effect.born || !effect.alive(world.tick) {
+            continue;
+        }
         let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
             continue;
         };
-        // Camera-facing sprites use only roll; model and refraction planes can tilt.
-        let angles = match effect.orientation {
-            SpriteOrientation::Camera => [0., 0., effect.rotation[2]],
-            SpriteOrientation::World => effect.rotation,
-        };
-        let rotation = effect_rotation(effect.orientation, angles, camera.rotation);
+        let rotation = effect_rotation(effect.orientation, effect.rotation, camera.rotation);
         let mut rgba = effect.rgba;
         if let Some(palette) = effect
             .palette
@@ -398,13 +393,9 @@ pub(super) fn render(
                 }
             }
         }
-        // Unlit effects still respect the incoming field's initial black hold.
-        let brightness = if effect.field_lighting || world.fade.is_none() {
-            brightness
-        } else {
-            1.
-        };
-        let rgb = rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
+        // Scene fades apply to lit and unlit effects alike.
+        let rgb =
+            rgba.map(|v| (f32::from(v) * effect.intensity).min(255.) * 4. / 255. * brightness);
         let mode = effect.blend.unwrap_or(if recipe.additive {
             Blend::Additive
         } else {
@@ -418,7 +409,7 @@ pub(super) fn render(
         } else {
             (
                 &art.sprite_materials[&effect.recipe],
-                recipe.uv_at(world.tick.saturating_sub(effect.born) + 1),
+                recipe.uv_at(world.tick.saturating_sub(effect.born) + effect.texture_phase),
             )
         };
         let layer = materials[mode as usize][usize::from(effect.field_fog)];
@@ -435,7 +426,7 @@ pub(super) fn render(
             ],
             effect.anchor,
         );
-        quads.push((EFFECTS, id, layer, quad));
+        quads.push((EFFECTS, effect.draw_order as i32, layer, quad));
         applied.ack(Request::Billboard(id));
     }
     let roots: BTreeMap<_, _> = actors
@@ -447,8 +438,12 @@ pub(super) fn render(
         (
             Request::Emote(id),
             emote.actor,
-            art.spec.emotes.get(&emote.kind),
-            world.tick.saturating_sub(emote.start_tick) as usize,
+            ("Bone_atama", [0., 0., 128.]),
+            Cow::Owned(resonance_events::emote::sprites(
+                emote.kind,
+                world.tick.saturating_sub(emote.start_tick),
+                emote.phase,
+            )),
             emote.offset,
             EMOTES,
         )
@@ -457,17 +452,17 @@ pub(super) fn render(
         (
             Request::Paralysis,
             symbol.actor,
-            Some(&art.spec.paralysis),
-            usize::from(symbol.frame),
+            (
+                art.spec.paralysis.anchor.as_str(),
+                art.spec.paralysis.missing_anchor_offset,
+            ),
+            Cow::Borrowed(art.spec.paralysis.frame(usize::from(symbol.frame))),
             [0.; 3],
             STATUS,
         )
     });
-    for (request, actor, track, age, offset, layer) in emotes.chain(paralysis) {
-        let Some(track) = track else {
-            continue;
-        };
-        let sprites = track.frame(age);
+    for (request, actor, (anchor_name, fallback), sprites, offset, layer) in emotes.chain(paralysis)
+    {
         if sprites.is_empty() {
             applied.ack(request);
             continue;
@@ -482,15 +477,17 @@ pub(super) fn render(
         let Some(actor) = world.actors.get(&actor) else {
             continue;
         };
-        let Some(anchor) = anchor_position(rig, track, actor.position, &names, &helper) else {
+        let Some(anchor) =
+            anchor_position(rig, anchor_name, fallback, actor.position, &names, &helper)
+        else {
             continue;
         };
-        for sprite in sprites {
+        for sprite in sprites.iter() {
             let [x, y, z] = std::array::from_fn(|i| sprite.offset[i] + offset[i]);
-            let center = anchor + side * x + forward * y + Vec3::Z * z;
-            let rotation = camera.rotation * Quat::from_rotation_z(sprite.rotation.to_radians());
-            let quad = Quad::new(
-                center,
+            let center = (anchor + side * x + forward * y + Vec3::Z * z).trunc();
+            let rotation = Quat::from_rotation_z(sprite.rotation.to_radians());
+            let mut quad = Quad::new(
+                Vec3::ZERO,
                 rotation,
                 sprite.size,
                 sprite.uv,
@@ -502,17 +499,20 @@ pub(super) fn render(
                 ],
                 sprite.vertical_anchor,
             );
+            for vertex in &mut quad.positions {
+                *vertex = (center + camera.rotation * Vec3::from_array(*vertex)).to_array();
+            }
             quads.push((EFFECTS + EFFECT_UI_OFFSET, layer as i32, layer, quad));
         }
         applied.ack(request);
     }
     // Only adjacent, compatible draws may merge; translucent overlap is ordered.
     quads.sort_by_key(|(pass, id, _, _)| (*pass, *id));
-    let mut used = 0;
-    for run in quads.chunk_by(|a, b| (a.0, a.2) == (b.0, b.2)) {
+    let mut used = vec![0; art.materials.len()];
+    for (order, run) in quads.chunk_by(|a, b| (a.0, a.2) == (b.0, b.2)).enumerate() {
         let (pass, _, layer, _) = run[0];
         let batch = Quad::mesh(run.iter().map(|(_, _, _, quad)| quad));
-        let (entity, mesh) = if let Some((entity, mesh)) = art.draws.get(used) {
+        let (entity, mesh) = if let Some((entity, mesh)) = art.draws[layer].get(used[layer]) {
             *meshes.get_mut(mesh).unwrap() = batch;
             (*entity, mesh.clone())
         } else {
@@ -520,35 +520,40 @@ pub(super) fn render(
             let entity = commands
                 .spawn((Transform::default(), NoFrustumCulling, EffectDraw))
                 .id();
-            art.draws.push((entity, mesh.clone()));
+            art.draws[layer].push((entity, mesh.clone()));
             (entity, mesh)
         };
         commands.entity(entity).insert((
             Mesh3d(mesh),
             MeshMaterial3d(art.materials[layer].clone()),
             Visibility::Inherited,
-            DrawOrder(pass, used),
+            DrawOrder(pass, order),
         ));
-        used += 1;
+        used[layer] += 1;
     }
-    for &(entity, _) in art.draws.iter().skip(used) {
-        commands.entity(entity).insert(Visibility::Hidden);
+    let warm = meshes.get(&art.warm_mesh).unwrap().clone();
+    for (draws, used) in art.draws.iter().zip(used) {
+        for (entity, mesh) in draws.iter().skip(used) {
+            *meshes.get_mut(mesh).unwrap() = warm.clone();
+            commands.entity(*entity).insert(Visibility::Inherited);
+        }
     }
 }
 
 fn anchor_position(
     rig: &Rig,
-    track: &EmoteTrack,
+    anchor: &str,
+    fallback: [f32; 3],
     actor: [f32; 3],
     names: &Query<&Name>,
     helper: &TransformHelper,
 ) -> Option<Vec3> {
-    match rig.bone(&track.anchor, names).ok()? {
+    match rig.bone(anchor, names).ok()? {
         Some(bone) => helper
             .compute_global_transform(bone)
             .ok()
             .map(|t| t.translation()),
-        None => Some(Vec3::from_array(actor) + Vec3::from_array(track.missing_anchor_offset)),
+        None => Some(Vec3::from_array(actor) + Vec3::from_array(fallback)),
     }
 }
 
@@ -579,15 +584,9 @@ mod tests {
         let unlabeled = world.spawn(Transform::IDENTITY).id();
         let mut sample = |nodes: &[Entity], offset| {
             let rig = Rig::new(nodes.iter().map(|&e| (e, Transform::IDENTITY)).collect());
-            let track = EmoteTrack {
-                anchor: "Bone_atama".into(),
-                missing_anchor_offset: offset,
-                intro: Vec::new(),
-                cycle: vec![Vec::new()],
-            };
             world
                 .run_system_once(move |names: Query<&Name>, helper: TransformHelper| {
-                    anchor_position(&rig, &track, [10., 20., 30.], &names, &helper)
+                    anchor_position(&rig, "Bone_atama", offset, [10., 20., 30.], &names, &helper)
                 })
                 .unwrap()
         };

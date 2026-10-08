@@ -91,10 +91,6 @@ fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Resul
             recipe.effects.sprites[&0].uv,
             [0., 64., 63., 127.].map(|v| v / 256.)
         );
-        assert_eq!(
-            recipe.effects.emotes.keys().copied().collect::<Vec<_>>(),
-            (0..20).collect::<Vec<_>>()
-        );
         let archive =
             crate::all_assets::roles::declared_path(&original.join("files"), &recipe.archive)?;
         let (images, _) = textures(&original, &output, &recipe.archive)?;

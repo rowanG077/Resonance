@@ -27,6 +27,12 @@ pub struct FieldSequence {
     /// Compact field restart for paired oracle cases; no transient VM state.
     #[serde(default)]
     pub checkpoint: Option<resonance_game::field::FieldCheckpoint>,
+    /// Scenario bytecode for a controlled command-driven effect comparison.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<Vec<u16>>,
+    /// Register a random input after fixture setup, before effect commands run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub random_seed: Option<EffectSeed>,
     /// Use copied progress for an arrival scene instead of loading a free-control save.
     #[serde(default)]
     pub scene_entry: bool,
@@ -54,6 +60,14 @@ pub struct FieldSequence {
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct EffectSeed {
+    pub update: u32,
+    pub state: u32,
+    #[serde(default)]
+    pub effect_tick: Option<u32>,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct FieldIsolation {
     pub background: [u8; 3],
     pub visible_actors: Vec<i32>,
@@ -69,6 +83,9 @@ pub struct FieldIsolation {
     /// Frozen renderer inputs for the effect-base delta suite, reapplied after each update.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<super::effect_probe::EffectProbe>,
+    /// Stationary scenery for refraction tests, alongside live effects.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub backdrop: Vec<super::effect_probe::EffectProbe>,
     /// Replace frozen inputs at these update numbers without reloading the field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub samples: BTreeMap<u32, EffectSample>,
@@ -95,8 +112,29 @@ pub struct FieldMovement {
 }
 impl FieldSequence {
     pub(super) fn validate(&self) -> Result<()> {
+        if let Some(seed) = &self.random_seed {
+            ensure!(
+                self.script.is_some() && seed.update < self.updates,
+                "effect random seed requires a script and an update inside the sequence"
+            );
+        }
+        if let Some(script) = &self.script {
+            ensure!(
+                self.checkpoint.is_some() && self.start_tick == Some(0),
+                "effect script requires a checkpoint and starts at update zero"
+            );
+            symphonia_script::Program::decode(
+                &script
+                    .iter()
+                    .flat_map(|v| v.to_be_bytes())
+                    .collect::<Vec<_>>(),
+            )?;
+        }
         if let Some(isolation) = &self.isolation {
-            ensure!(isolation.effects.len() <= 128, "too many effect probes");
+            ensure!(
+                isolation.effects.len() + isolation.backdrop.len() <= 128,
+                "too many effect probes"
+            );
             for (&update, sample) in &isolation.samples {
                 ensure!(
                     update < self.updates && sample.effects.len() <= 128,
@@ -106,6 +144,7 @@ impl FieldSequence {
             for effect in isolation
                 .effects
                 .iter()
+                .chain(&isolation.backdrop)
                 .chain(isolation.samples.values().flat_map(|s| &s.effects))
             {
                 effect.validate()?;
@@ -168,6 +207,7 @@ pub(super) struct Recording {
     settled: u32,
     frame: u32,
     captured: u32,
+    presenting: bool,
     battle_victories: usize,
     since: Instant,
 }
@@ -184,6 +224,7 @@ pub(super) fn install(app: &mut App, output: &Path, spec: &FieldSequence) -> Res
         settled: 0,
         frame: 0,
         captured: 0,
+        presenting: false,
         battle_victories: 0,
         since: Instant::now(),
     })
@@ -192,7 +233,8 @@ pub(super) fn install(app: &mut App, output: &Path, spec: &FieldSequence) -> Res
         PostUpdate,
         capture
             .after(bevy::transform::TransformSystems::Propagate)
-            .after(bevy::asset::AssetEventSystems),
+            .after(bevy::asset::AssetEventSystems)
+            .after(crate::field_audit::check),
     );
     Ok(())
 }
@@ -212,11 +254,16 @@ fn advance(
         return;
     }
     if recording.since.elapsed().as_secs() > 60 + u64::from(frame_count) / 20 {
-        error!("field sequence timed out");
+        error!(
+            frame = recording.frame,
+            tick = session.0.events.tick(),
+            "field sequence timed out"
+        );
         exit.write(AppExit::error());
         return;
     }
-    if recording.settled < 20
+    if recording.presenting
+        || recording.settled < 20
         || recording.frame >= recording.spec.updates * recording.spec.renders_per_update
     {
         return;
@@ -252,9 +299,32 @@ fn advance(
                     world.refractions.clear();
                 }
             }
-            for (&id, actor) in &mut world.actors {
-                actor.appearance.model_hidden = !isolation.visible_actors.contains(&id);
-                actor.casts_shadow = false;
+            if recording.spec.script.is_none() || update == 0 {
+                for (&id, actor) in &mut world.actors {
+                    actor.appearance.model_hidden = !isolation.visible_actors.contains(&id);
+                    actor.casts_shadow = false;
+                    if recording.spec.script.is_some() {
+                        // A borrowed effect stage need not have floor under its actors.
+                        actor.grounded = false;
+                        if id == world.controlled_actor {
+                            if let Some(ai) = &mut actor.autonomy {
+                                ai.activity = resonance_events::Activity::Idle;
+                                ai.remaining = i32::MAX;
+                                ai.initialized = true;
+                            }
+                        } else {
+                            actor.autonomy = None;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(seed) = &recording.spec.random_seed
+            && seed.update == update
+        {
+            session.0.events.world.random_state = seed.state;
+            if let Some(tick) = seed.effect_tick {
+                session.0.effect_clock = resonance_game::clock::PresentationClock::new(tick);
             }
         }
         let movement = recording
@@ -265,6 +335,21 @@ fn advance(
             .find(|m| m.update <= update);
         if let Some(camera) = &mut session.0.events.world.field_camera {
             camera.view_aspect_ratio = recording.spec.resolution.aspect();
+        }
+        if let Some(camera) = recording
+            .spec
+            .isolation
+            .as_ref()
+            .and_then(|i| i.camera.as_ref())
+        {
+            let world = &mut session.0.events.world;
+            world.camera = None;
+            let rig = world.field_camera.as_mut().unwrap();
+            rig.motion = None;
+            rig.position = camera.position;
+            rig.target = camera.target;
+            rig.current_mut().position_bounds = camera.position.map(|v| [v; 2]);
+            rig.current_mut().target_bounds = camera.target.map(|v| [v; 2]);
         }
         if let Err(error) = session.0.step(resonance_game::field::FieldInput {
             direction: movement.map_or(recording.spec.direction, |m| m.direction),
@@ -295,15 +380,15 @@ fn advance(
                 effect.apply(world, index as i32 + 1);
             }
         }
-        if let Some(camera) = recording
-            .spec
-            .isolation
-            .as_ref()
-            .and_then(|i| i.camera.as_ref())
-        {
-            let rig = session.0.events.world.field_camera.as_mut().unwrap();
-            rig.position = camera.position;
-            rig.target = camera.target;
+        if let Some(isolation) = &recording.spec.isolation {
+            for (index, effect) in isolation.backdrop.iter().enumerate() {
+                let world = &mut session.0.events.world;
+                let id = -(index as i32 + 1);
+                effect.apply(world, id);
+                if let Some(sprite) = world.billboards.get_mut(&id) {
+                    sprite.field_fog = true;
+                }
+            }
         }
         if !recording.spec.battle_victories.is_empty() {
             let result = (|| -> Result<()> {
@@ -337,6 +422,7 @@ fn advance(
         }
     }
     recording.frame += 1;
+    recording.presenting = true;
 }
 #[allow(clippy::too_many_arguments)] // Readiness, current poses and GPU readback.
 fn capture(
@@ -346,6 +432,7 @@ fn capture(
     art: Res<Art>,
     ready: Res<crate::RenderReady>,
     refraction: Res<crate::field_refraction::Ready>,
+    applied: Res<crate::field_audit::Applied>,
     target: Res<crate::Framebuffer>,
     roots: Query<(Entity, &ActorPart)>,
     children: Query<&Children>,
@@ -383,6 +470,21 @@ fn capture(
     {
         return;
     }
+    // A spawned model may need several render updates to instantiate. Keep the
+    // simulation on its birth update until the model can be captured. Dialogue
+    // initialization needs another game update, so it must not block this gate.
+    if !recording.presenting
+        || !applied
+            .model_particles_ready(session.0.events.tick())
+            .expect("field sequence model effects did not become ready")
+        || roots.iter().any(|(_, p)| !p.prepared)
+        || session.0.events.world.actors.iter().any(|(id, actor)| {
+            art.models.contains_key(&actor.resource) && !art.instances.contains_key(id)
+        })
+    {
+        return;
+    }
+    recording.presenting = false;
     let frame = recording.frame - 1;
     if recording.frame == recording.spec.updates * recording.spec.renders_per_update {
         recording.frame += 1;
@@ -395,7 +497,8 @@ fn capture(
     let path = recording.output.join(format!("frame-{frame:04}.png"));
     let world = &session.0.events.world;
     let state = serde_json::json!({
-        "frame":frame, "tick":world.tick, "effect_tick":world.effect_tick, "audio_device":false,
+        "frame":frame, "tick":world.tick, "effect_tick":world.effect_tick,
+        "random_state":world.random_state, "audio_device":false,
         "resolution":recording.spec.resolution,
         "output_stage":"framebuffer",
         "input_enabled":world.input_enabled,

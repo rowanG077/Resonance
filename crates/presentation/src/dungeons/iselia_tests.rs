@@ -5,6 +5,21 @@ use anyhow::Result;
 
 #[test]
 #[ignore = "requires locally cooked Iselia scenes; no devices"]
+fn genis_attacks_the_guards_and_the_party_escapes() -> Result<()> {
+    let mut field = enter(MARTEL_START, 193, Some(304_000))?;
+    super::advance_until(&mut field, |f| f.player_has_control())?;
+    assert!(field.events.trigger(3004, true)?);
+    replay(&mut field, |f| f.events.world.field_transition.is_some())?;
+    assert_eq!(field.story_progress()?, 306_000);
+    assert_eq!(
+        field.events.world.field_transition.as_ref().unwrap().map,
+        192
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires locally cooked Iselia scenes; no devices"]
 fn iselia_scenes_keep_one_lloyd_and_visible_speakers() -> Result<()> {
     for (map, story, end) in [
         (195, 20_303_000, 20_305_000),

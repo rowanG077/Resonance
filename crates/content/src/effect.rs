@@ -1,7 +1,5 @@
 //! Camera-facing sprite content.
 pub const FIELD_PALETTE_COLORS: usize = 110;
-/// Wing spark artwork uses a dedicated atlas rectangle.
-pub const WING_SPARK_SPRITE: u16 = 256;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -101,7 +99,6 @@ pub struct FieldEffects<Image = String> {
     pub palette: Vec<[u8; 4]>,
     pub refraction: RefractionRecipe<Image>,
     pub air_refraction: SpriteRecipe<Image>,
-    pub emotes: BTreeMap<u16, EmoteTrack>,
     pub mouth_cycle: Vec<u8>,
 }
 pub const SMOKE_SPRITE: u16 = 1;
@@ -214,7 +211,6 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.version == FIELD_EFFECTS_VERSION
-                && self.emotes.len() <= 256
                 && self.sprites.len() <= 256
                 && self.sprites.contains_key(&10)
                 && self.sprites.contains_key(&11)
@@ -263,7 +259,7 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
                 && self.mouth_cycle.iter().all(|f| *f < 8),
             "invalid mouth animation"
         );
-        for track in self.emotes.values().chain([&self.paralysis]) {
+        for track in [&self.paralysis] {
             ensure!(
                 !track.anchor.is_empty()
                     && track.missing_anchor_offset.iter().all(|v| v.is_finite())

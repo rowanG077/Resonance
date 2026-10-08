@@ -6,15 +6,17 @@ pub(super) struct Inputs {
     preset: i32,
     sprite: u16,
     parameters: [i32; 10],
+    impact_texture: Option<(u32, u8)>,
 }
 
 impl Emitter {
-    pub fn from_native(a: &[i32]) -> Result<Self, String> {
+    pub fn from_native(a: &[i32], impact_texture: Option<(u32, u8)>) -> Result<Self, String> {
         if a.len() != 18 {
             return Err("invalid emitter arguments".into());
         }
         let inputs = Inputs {
             preset: a[5],
+            impact_texture,
             sprite: a[4] as u16,
             parameters: a[8..].try_into().unwrap(),
         };
@@ -62,9 +64,41 @@ impl Inputs {
     fn decode(&self) -> Result<Config, String> {
         let a = &self.parameters;
         Ok(match self.preset {
-            0..=3 | 9 | 15..=17 | 24 | 28 | 30 | 33 | 36 | 48 | 54 | 55 | 75 => {
+            0 => Config::Fire {
+                size: nonnegative(a[0])? as f32,
+            },
+            1..=3 | 9 | 17 | 24 | 33 | 36 | 54 | 55 | 75 => {
                 Config::Stream(Box::new(stream::Stream::decode(self.preset, *a)?))
             }
+            15 | 30 => Config::RisingOrbs(super::rays::RisingOrbs {
+                palette: palette(a[0])?,
+                radius: nonnegative(a[1])? as f32,
+                size: a[2] as f32,
+                variation: a[3].max(1) as u32,
+                lighting: a[4] & 1 != 0,
+                speed_variation: a[5].max(1) as u32,
+                alpha: if self.preset == 15 {
+                    255
+                } else {
+                    a[6].clamp(0, 255) as u8
+                },
+                fade: if self.preset == 15 { -1. } else { a[7] as f32 },
+                interval: a[8].max(1) as u32,
+                preserve_particles: self.preset == 15 && a[9] != 1,
+                drifting: self.preset == 30,
+            }),
+            16 => Config::Crown {
+                palette: palette(a[0])?,
+                radius: a[1] as f32,
+                spread: a[2] as f32,
+            },
+            34 => Config::Bloom(super::rays::Bloom {
+                palette: palette(a[0])?,
+                lifetime: nonnegative(a[1])? as u32,
+                count: bounded(a[2], 0, BILLBOARD_LIMIT as i32)? as u32,
+                size: [a[3] as f32, a[5] as f32],
+                variation: [a[4].max(1) as u32, a[6].max(1) as u32],
+            }),
             26 => Config::Shafts(super::rays::Shafts {
                 palette: palette(a[0])?,
                 interval: a[1].max(1) as u32,
@@ -81,26 +115,35 @@ impl Inputs {
                 radius: a[3].max(0) as u32,
                 spread: a[4].max(1) as u32,
             }),
+            28 => Config::Aura {
+                palette: palette(a[0])?,
+                offset: a[1] as f32,
+            },
             11 => Config::Gathering {
                 delay: nonnegative(a[0])?,
             },
             12 => Config::Glow {
                 palette: palette(a[0])?,
                 size: a[1],
+                retire_with_emitter: a[9] != 0,
+            },
+            14 => Config::Portal {
+                palette: palette(a[0])?,
+                size: nonnegative(a[1])? as f32,
             },
             19 => Config::Charge {
                 palette: palette(a[0])?,
                 radius: a[3],
+                updates: bounded(a[1], 1, i32::MAX)? as u32,
+                target: [a[4] as f32, a[5] as f32, a[6] as f32],
+                travelling: a[2] != 0,
             },
-            13 => Config::Scatter {
-                palette: palette(a[0])?,
-                size: a[1],
-                variation: nonnegative(a[2])?,
-                mote_size: a[3],
-                mote_variation: nonnegative(a[4])?,
-                life: nonnegative(a[5])?,
-                mote_life: nonnegative(a[6])?,
-            },
+            13 => Config::Scatter(super::scatter::Scatter {
+                palette: palette(a[0])? as u16,
+                size: [a[1] as f32, a[3] as f32],
+                variation: [a[2].max(1) as u32, a[4].max(1) as u32],
+                lifetime: [nonnegative(a[5])? as u32 + 1, nonnegative(a[6])? as u32 + 1],
+            }),
             18 => Config::Travel {
                 sprite: crate::effect::ORB_SPRITE,
                 palette: 33,
@@ -144,7 +187,13 @@ impl Inputs {
                 clear: a[8],
                 blend: a[9],
             },
-            46 | 47 | 66 => Config::Travel {
+            66 => Config::Projectile {
+                size: nonnegative(a[1])? as f32,
+                fade: a[3] as f32 / 16.,
+                target: [a[4] as f32, a[5] as f32, a[6] as f32],
+                texture: self.impact_texture,
+            },
+            46 | 47 => Config::Travel {
                 sprite: if self.preset == 47 {
                     self.sprite
                 } else {
@@ -153,7 +202,7 @@ impl Inputs {
                 palette: palette(a[0])?,
                 size: a[1],
                 burst_size: a[2],
-                fade: if self.preset == 66 { a[3] / 16 } else { a[3] },
+                fade: a[3],
                 target: [a[4], a[5], a[6]],
                 curvature: 0.,
                 afterimages: self.preset == 46,
@@ -163,6 +212,21 @@ impl Inputs {
                 opening: a[1],
                 pulse: a[2],
                 spark: a[3],
+            },
+            48 => Config::Rising(super::rays::Rising {
+                palette: palette(a[0])?,
+                radius: nonnegative(a[1])? as f32,
+                size: [a[2] as f32, a[4] as f32],
+                variation: [a[3].max(1) as u32, a[5].max(1) as u32],
+                alpha: bounded(a[6], 0, 255)? as u8,
+                rise: a[7].max(1) as u32,
+                world: a[8] != 0,
+                lifetime: nonnegative(a[9])? as u32 + 1,
+            }),
+            51 => Config::Fireball {
+                size: nonnegative(a[0])? as f32,
+                updates: bounded(a[1], 1, i32::MAX)? as u32,
+                target: [a[4] as f32, a[5] as f32, a[6] as f32],
             },
             60 => Config::Cardinal {
                 count: bounded(a[0], 0, 4)?,
@@ -194,10 +258,10 @@ mod tests {
             let mut args = [0; 18];
             args[5] = preset;
             args[8] = 33;
-            let mut emitter = Emitter::from_native(&args).unwrap();
+            let mut emitter = Emitter::from_native(&args, None).unwrap();
             for palette in [-1, 109, i32::MAX] {
                 args[8] = palette;
-                assert!(Emitter::from_native(&args).is_err());
+                assert!(Emitter::from_native(&args, None).is_err());
                 assert!(emitter.property(113, Some(palette)).is_err());
                 assert_eq!(emitter.property(113, None).unwrap(), 33);
             }
@@ -205,14 +269,16 @@ mod tests {
     }
 
     #[test]
-    fn changing_a_seal_parameter_preserves_its_destination() {
-        let mut emitter = Emitter::from_native(&[
-            500, 0, 0, 0, 0, 31, 0, 0, 33, 20, 60, 1, 10, 20, 20, 255, 0, 0,
-        ])
+    fn changing_seal_opacity_preserves_its_descent() {
+        let mut emitter = Emitter::from_native(
+            &[
+                500, 0, 0, 0, 0, 31, 0, 0, 33, 20, 60, 1, 10, 20, 20, 255, 0, 0,
+            ],
+            None,
+        )
         .unwrap();
-        let target = [40., 10., 20.];
-        emitter.aim_at(target);
         let mut actor = crate::Actor::new(0, [0.; 3]);
+        actor.set_movement_speed(-2.);
         let mut random = 1;
         let mut output = super::super::Births::default();
         for tick in 0..=5 {
@@ -224,31 +290,36 @@ mod tests {
                     (500, actor.position),
                     &mut actor,
                     tick,
+                    tick,
                     [0.; 3],
                     &mut random,
                     &mut output,
                 )
                 .unwrap();
         }
-        assert_eq!(actor.position, target);
+        assert_eq!(actor.position, [0., 0., -48.]);
         assert_eq!(output.particles.last().unwrap().rgba[3], 128);
     }
 
     #[test]
     fn invalid_count_updates_leave_a_usable_emitter() {
-        let mut emitter =
-            Emitter::from_native(&[500, 0, 0, 0, 0, 60, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-                .unwrap();
+        let mut emitter = Emitter::from_native(
+            &[500, 0, 0, 0, 0, 60, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            None,
+        )
+        .unwrap();
         for count in [-1, 5, i32::MAX] {
             assert!(emitter.property(113, Some(count)).is_err());
             assert_eq!(emitter.property(113, None).unwrap(), 4);
         }
     }
     #[test]
-    fn stream_updates_are_atomic_and_release_can_be_restarted() {
-        let mut emitter =
-            Emitter::from_native(&[500, 0, 0, 0, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-                .unwrap();
+    fn fire_size_can_change_and_emission_can_pause_and_restart() {
+        let mut emitter = Emitter::from_native(
+            &[500, 0, 0, 0, 0, 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            None,
+        )
+        .unwrap();
         assert_eq!(emitter.property(113, Some(120)).unwrap(), 60);
         assert_eq!(emitter.property(113, None).unwrap(), 120);
         assert!(emitter.property(PHASE_PROPERTY, Some(-1)).is_err());
@@ -259,14 +330,17 @@ mod tests {
             .step(
                 (500, [0.; 3]),
                 &mut actor,
-                0,
+                2,
+                4,
                 [0.; 3],
                 &mut random,
                 &mut output,
             )
             .unwrap();
         assert!(!output.particles.is_empty());
-        assert!(output.particles.iter().all(|p| p.lifetime == 120));
+        assert_eq!(output.particles.len(), 2);
+        assert!(output.particles[0].size[0] >= 120.);
+        assert!(output.particles[1].size[0] >= 60.);
         emitter.property(PHASE_PROPERTY, Some(2)).unwrap();
         output.particles.clear();
         for tick in 1..20 {
@@ -274,6 +348,7 @@ mod tests {
                 .step(
                     (500, [0.; 3]),
                     &mut actor,
+                    tick,
                     tick,
                     [0.; 3],
                     &mut random,
@@ -287,7 +362,8 @@ mod tests {
             .step(
                 (500, [0.; 3]),
                 &mut actor,
-                20,
+                22,
+                24,
                 [0.; 3],
                 &mut random,
                 &mut output,

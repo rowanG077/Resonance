@@ -76,6 +76,7 @@ impl StunEffect {
 /// An expanding world-space ripple that refracts the scene behind its plane.
 #[derive(Debug, Clone)]
 pub struct RefractionPulse {
+    pub draw_order: usize,
     pub operation: Option<crate::Operation>,
     pub owner: Option<i32>,
     pub image: RefractionImage,
@@ -229,10 +230,8 @@ impl crate::GameWorld {
         self.particles.push(particle);
         Ok(handle)
     }
-    pub fn emit_billboard(&mut self, effect: BillboardEffect) -> Result<i32, String> {
-        if self.billboards.len() >= BILLBOARD_LIMIT {
-            return Err("billboard effect limit exceeded".into());
-        }
+    pub fn emit_billboard(&mut self, mut effect: BillboardEffect) -> Result<i32, String> {
+        effect.draw_order = self.effect_draw_order()?;
         let handle = self.allocate_effect()?;
         self.billboards.insert(handle, effect);
         Ok(handle)
@@ -241,10 +240,26 @@ impl crate::GameWorld {
         if self.refractions.len() >= 16 {
             return Err("refraction effect limit exceeded".into());
         }
+        effect.draw_order = self.effect_draw_order()?;
         let handle = self.allocate_effect()?;
         effect.born = self.tick;
         self.refractions.insert(handle, effect);
         Ok(handle)
+    }
+    fn effect_draw_order(&self) -> Result<usize, String> {
+        let mut occupied = [false; BILLBOARD_LIMIT];
+        for order in self
+            .billboards
+            .values()
+            .map(|p| p.draw_order)
+            .chain(self.refractions.values().map(|p| p.draw_order))
+        {
+            occupied[order] = true;
+        }
+        occupied
+            .iter()
+            .position(|used| !used)
+            .ok_or_else(|| "billboard effect limit exceeded".into())
     }
     pub(crate) fn allocate_effect(&mut self) -> Result<i32, String> {
         self.next_particle = self
@@ -416,11 +431,15 @@ impl CharacterLight {
 
 #[derive(Debug, Clone)]
 pub struct BillboardEffect {
+    /// Vacated positions are reused in the shared update and translucent draw order.
+    pub draw_order: usize,
     pub operation: Option<crate::Operation>,
     pub owner: Option<i32>,
     pub field_lighting: bool,
     pub field_fog: bool,
     pub recipe: u16,
+    /// Starting age within the sprite's texture animation.
+    pub texture_phase: u32,
     /// Optional atlas rectangle for effects that use a fixed crop.
     pub uv: Option<[f32; 4]>,
     /// Optional scene texture resource and image index.
@@ -429,6 +448,7 @@ pub struct BillboardEffect {
     pub anchor: resonance_content::effect::VerticalAnchor,
     /// Palette index; neutral RGB channels preserve its color.
     pub palette: Option<u16>,
+    pub intensity: f32,
     pub born: u32,
     pub lifetime: u32,
     pub position: [f32; 3],
@@ -452,6 +472,17 @@ pub enum SpriteOrientation {
 #[derive(Debug, Clone)]
 pub(crate) enum BillboardController {
     Orbit(crate::emitter::Orbit),
+    Wander {
+        direction: [f32; 3],
+        speed: f32,
+    },
+    Drift {
+        direction: [f32; 3],
+        speed: f32,
+    },
+    Accelerate {
+        multiplier: f32,
+    },
     Flutter(Flutter),
     CameraOffset {
         emitter: i32,
@@ -472,7 +503,7 @@ pub enum Fade {
         after: u32,
         lifetime: u32,
     },
-    /// Fade by eight alpha units per tick near expiry.
+    /// Fade by eight alpha units per tick, retaining the last positive level until expiry.
     Tail {
         after: u32,
     },
@@ -489,7 +520,7 @@ impl Fade {
             Self::Linear(delta) => (alpha + delta * age as f32).floor(),
             Self::RiseFall { rise_ticks, step } => {
                 let ramp = if age <= rise_ticks {
-                    age.max(1) as f32
+                    age as f32
                 } else {
                     (2 * rise_ticks + 1) as f32 - age as f32
                 };
@@ -499,7 +530,14 @@ impl Fade {
                 let duration = lifetime.saturating_sub(after).max(1);
                 alpha * (1. - age.saturating_sub(after) as f32 / duration as f32).clamp(0., 1.)
             }
-            Self::Tail { after } => (alpha - 8. * age.saturating_sub(after) as f32).max(0.),
+            Self::Tail { after } => {
+                let minimum = if alpha > 0. {
+                    (alpha - 1.).rem_euclid(8.) + 1.
+                } else {
+                    0.
+                };
+                (alpha - 8. * age.saturating_sub(after) as f32).max(minimum)
+            }
         }
     }
 }
@@ -511,16 +549,19 @@ pub struct Paralysis {
 impl Default for BillboardEffect {
     fn default() -> Self {
         Self {
+            draw_order: 0,
             operation: None,
             owner: None,
             field_lighting: false,
             field_fog: true,
             recipe: 0,
+            texture_phase: 1,
             uv: None,
             texture: None,
             orientation: SpriteOrientation::Camera,
             anchor: resonance_content::effect::VerticalAnchor::Center,
             palette: None,
+            intensity: 1.,
             born: 0,
             lifetime: 0,
             position: [0.; 3],
@@ -596,6 +637,32 @@ impl BillboardEffect {
 }
 
 impl crate::GameWorld {
+    pub(crate) fn step_wandering_billboards(&mut self) {
+        let mut effects: Vec<_> = self.billboards.values_mut().collect();
+        effects.sort_unstable_by_key(|effect| effect.draw_order);
+        for effect in effects {
+            let change: fn(&mut [f32; 3], &mut u32) = match &effect.controller {
+                Some(BillboardController::Wander { .. }) => crate::emitter::scatter::wander,
+                Some(BillboardController::Drift { .. }) => crate::emitter::scatter::drift,
+                _ => continue,
+            };
+            if let Some(
+                BillboardController::Wander { direction, speed }
+                | BillboardController::Drift { direction, speed },
+            ) = &mut effect.controller
+            {
+                if effect.born == self.tick {
+                    change(direction, &mut self.random_state);
+                    let velocity = emission::normalized(*direction).map(|v| v * *speed);
+                    for i in 0..3 {
+                        effect.position[i] += velocity[i];
+                    }
+                }
+                change(direction, &mut self.random_state);
+                effect.velocity = emission::normalized(*direction).map(|v| v * *speed);
+            }
+        }
+    }
     pub(crate) fn step_billboards(&mut self, effect_tick: u32) -> Result<(), String> {
         self.billboards.retain(|_, effect| {
             effect.alive(self.tick) && effect.owner.is_none_or(|id| self.actors.contains_key(&id))
@@ -611,6 +678,9 @@ impl crate::GameWorld {
         });
         let mut trails = Vec::new();
         for effect in self.billboards.values_mut() {
+            if self.tick <= effect.born {
+                continue;
+            }
             if matches!(&effect.controller, Some(BillboardController::Orbit(orbit)) if orbit.trail)
             {
                 let mut trail = effect.clone();
@@ -651,7 +721,11 @@ impl crate::GameWorld {
                     }
                     effect.position = std::array::from_fn(|i| center[i] - direction[i] * *distance);
                 }
-                None => {}
+                Some(BillboardController::Accelerate { multiplier }) => {
+                    effect.velocity.iter_mut().for_each(|v| *v *= *multiplier);
+                }
+                Some(BillboardController::Wander { .. } | BillboardController::Drift { .. })
+                | None => {}
             }
             effect.step();
         }

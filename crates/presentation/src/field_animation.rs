@@ -80,7 +80,15 @@ fn sample_clip<'a>(
     let duration = spec.duration_seconds * resonance_content::ANIMATION_HZ;
     let mut time = animation.sample(tick, 0, duration);
     if delay != 0. && duration > 0. {
-        time = (time - delay).rem_euclid(duration);
+        time -= delay;
+        if time < 0. || time > duration {
+            let phase = time.rem_euclid(duration);
+            time = if phase == 0. && time > 0. {
+                duration
+            } else {
+                phase
+            };
+        }
     }
     Some((
         &clips.get(&handles[index]).expect("prepared sparse clip").0,
@@ -109,11 +117,16 @@ pub(super) fn sample(
             .iter()
             .chain(actor.scenery_animations.values())
         {
-            let delay = actor
-                .wings
-                .as_ref()
-                .map_or(0., |w| w.layer(part.pass, world.effect_tick).pose_delay);
-            let Some((clip, time, _)) = sample_clip(
+            let delay = actor.wings.as_ref().map_or(0., |w| {
+                if let Some(entrance) =
+                    w.entrance(part.pass, world.tick.saturating_sub(animation.start_tick))
+                {
+                    entrance.delay
+                } else {
+                    w.layer(part.pass, world.effect_tick).pose_delay
+                }
+            });
+            let Some((clip, mut time, _)) = sample_clip(
                 &model.spec,
                 &model.clips,
                 &clips,
@@ -124,11 +137,28 @@ pub(super) fn sample(
             ) else {
                 continue;
             };
-            for (i, pose) in rig
+            let echo_entrance = actor
+                .wings
+                .as_ref()
+                .and_then(|w| w.layer(part.pass, world.effect_tick).echo)
+                .and_then(|echo| echo.entrance_weight(world.tick));
+            if echo_entrance.is_some() {
+                time = 0.;
+            }
+            for (i, mut pose) in rig
                 .sample_tracks(clip, time)
                 .expect("validated animation must evaluate")
             {
                 let entity = rig.bones[i].0;
+                if let Some(weight) = echo_entrance {
+                    let rest = rig.bones[i].1;
+                    pose = Frame::sample(rest.into(), 0, rig.bind_channels[i]).mix(
+                        pose,
+                        rest,
+                        rig.bind_channels[i],
+                        weight,
+                    );
+                }
                 if let Ok(mut transform) = nodes.get_mut(entity) {
                     affine.set(entity, &mut transform, pose.pose);
                 }
@@ -267,16 +297,21 @@ pub(super) fn blend(
 ) {
     let world = &state.get().events.world;
     for (part, mut rig) in &mut rigs {
-        let animation = world
-            .actors
-            .get(&part.actor)
-            .and_then(|a| a.animation.as_ref());
+        let actor = &world.actors[&part.actor];
+        let animation = actor.animation.as_ref();
         let key = animation.map(|a| (a.source, a.resource, a.slot, a.start_tick));
         if key != rig.clip {
             rig.from = rig.presented.clone();
             rig.clip = key;
         }
-        let weight = animation.map_or(1., |a| a.blend_weight(world.tick));
+        let weight = animation.map_or(1., |a| {
+            actor
+                .wings
+                .as_ref()
+                .and_then(|w| w.entrance(part.pass, world.tick.saturating_sub(a.start_tick)))
+                .map(|entrance| entrance.weight)
+                .unwrap_or_else(|| a.blend_weight(world.tick))
+        });
         for i in 0..rig.bones.len() {
             let entity = rig.bones[i].0;
             if let Ok(mut transform) = nodes.get_mut(entity) {

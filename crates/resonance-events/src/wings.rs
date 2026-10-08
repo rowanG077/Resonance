@@ -9,10 +9,14 @@ use resonance_content::{
 pub(crate) const AUTOMATIC_WINGS: i32 = 90021;
 const ECHO_INTERVAL: u32 = 8;
 const ECHO_LIFETIME: u32 = 2 * ECHO_INTERVAL;
+const LAYER_POSE_DELAYS: [f32; 3] = [6., 8., 0.];
+const IDLE_RATE: f32 = 0.002;
+const FEATHER_PULSE_AMPLITUDE: f32 = 0.125;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WingStyle {
     Layered,
+    Feathered,
     Echo,
 }
 
@@ -25,29 +29,56 @@ pub struct Wings {
 
 pub struct WingLayer<'a> {
     pub alpha: u8,
+    pub scale: f32,
     pub pose_delay: f32,
     pub uv_offset: f32,
+    pub uv_texture: usize,
     pub echo: Option<&'a WingEcho>,
     pub visible: bool,
 }
 
+pub struct WingEntrance {
+    pub weight: f32,
+    pub delay: f32,
+}
+
 impl Wings {
     pub const LAYERS: u8 = 3;
+
+    pub fn entrance(&self, pass: u8, age: u32) -> Option<WingEntrance> {
+        let weight = match self.style {
+            WingStyle::Layered | WingStyle::Feathered if age == 1 => {
+                Some(f32::from(pass + 1) / f32::from(Self::LAYERS))
+            }
+            WingStyle::Echo if pass == Self::LAYERS - 1 && age <= 2 => Some(age as f32 / 3.),
+            _ => None,
+        }?;
+        Some(WingEntrance {
+            weight,
+            delay: f32::from(self.style == WingStyle::Feathered && pass < Self::LAYERS - 1),
+        })
+    }
 
     pub fn layer(&self, pass: u8, tick: u32) -> WingLayer<'_> {
         let base = pass == Self::LAYERS - 1;
         let echo = (!base)
             .then(|| self.echoes.get(usize::from(pass)))
             .flatten();
-        let layered = self.style == WingStyle::Layered;
+        let layered = self.style != WingStyle::Echo;
+        let phase = ((tick % 360) as f32).to_radians();
         WingLayer {
+            scale: if self.style == WingStyle::Feathered && !base {
+                1. + FEATHER_PULSE_AMPLITUDE * if pass == 0 { phase.sin() } else { phase.cos() }
+            } else {
+                1.
+            },
             alpha: if layered {
                 [127, 63, 255][usize::from(pass)]
             } else {
                 255
             },
-            pose_delay: if layered && !base {
-                2. * f32::from(pass + 1)
+            pose_delay: if layered {
+                LAYER_POSE_DELAYS[usize::from(pass)]
             } else if echo.is_some() {
                 -1.
             } else {
@@ -58,6 +89,7 @@ impl Wings {
             } else {
                 0.
             },
+            uv_texture: usize::from(self.style == WingStyle::Feathered),
             visible: layered || base || echo.is_some(),
             echo,
         }
@@ -66,6 +98,7 @@ impl Wings {
 
 impl Actor {
     pub fn set_wings(&mut self, style: WingStyle) {
+        self.autonomy = None;
         self.wings = Some(Wings {
             style,
             attachment: None,
@@ -80,7 +113,7 @@ impl Actor {
         self.scripted_animation = true;
         self.blend = Some(crate::effect::Blend::Additive);
         if let Some(animation) = &mut self.animation {
-            animation.blend_ticks = 2;
+            animation.blend_ticks = if style == WingStyle::Echo { 2 } else { 0 };
         }
     }
 }
@@ -94,6 +127,11 @@ pub struct WingEcho {
 }
 
 impl WingEcho {
+    pub fn entrance_weight(&self, tick: u32) -> Option<f32> {
+        let age = tick.saturating_sub(self.born);
+        (age <= 2).then_some(age as f32 / 3.)
+    }
+
     pub fn scale(&self, tick: u32) -> [f32; 3] {
         let age = tick.saturating_sub(self.born) as f32;
         [1. + 0.02 * age, 1. + 0.02 * age, 1. + 0.05 * age]
@@ -102,11 +140,7 @@ impl WingEcho {
     pub fn rgba(&self, tick: u32) -> [u8; 4] {
         let age = tick.saturating_sub(self.born).min(ECHO_LIFETIME);
         let tint = 64 - 4 * age;
-        let alpha = if age == 0 {
-            255
-        } else {
-            (32 * age.min(ECHO_LIFETIME - age)).min(255)
-        };
+        let alpha = (32 * age.min(ECHO_LIFETIME - age)).min(255);
         [tint as u8, tint as u8, 64, alpha as u8]
     }
 }
@@ -157,7 +191,7 @@ impl GameWorld {
                 .is_some_and(|a| a.instance == instance);
             if !current || !enabled || parent != Some(owner) {
                 if current {
-                    self.despawn_scene_actors(AUTOMATIC_WINGS);
+                    self.despawn_scene_actors(AUTOMATIC_WINGS, resources);
                 }
                 self.automatic_wings = None;
             }
@@ -187,7 +221,7 @@ impl GameWorld {
                 self.tick,
             );
             // Flight wings advance at 0.2% of the normal animation speed.
-            animation.rate = 0.002;
+            animation.rate = IDLE_RATE;
             actor.animation = Some(animation);
             self.insert_actor(AUTOMATIC_WINGS, actor);
             self.automatic_wings = Some((self.actors[&AUTOMATIC_WINGS].instance, parent));
@@ -259,7 +293,8 @@ impl GameWorld {
                 let fall = -((self.random() & 7) as f32) / 16.;
                 self.emit_billboard(crate::effect::BillboardEffect {
                     field_lighting: true,
-                    recipe: resonance_content::effect::WING_SPARK_SPRITE,
+                    recipe: 0,
+                    uv: Some([16., 192., 32., 208.].map(|v| v / 256.)),
                     born: self.tick,
                     lifetime: 21,
                     position,
