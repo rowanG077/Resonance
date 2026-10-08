@@ -461,9 +461,8 @@ fn capture(
     {
         return;
     }
-    // A spawned model may need several render updates to instantiate. Keep the
-    // simulation on its birth update until the model can be captured. Dialogue
-    // initialization needs another game update, so it must not block this gate.
+    // Short-lived models must be ready in their birth update, as in live play.
+    // Waiting here would hide flicker caused by delayed scene instantiation.
     let models_ready = match applied.model_particles_ready(session.0.events.tick()) {
         Ok(ready) => ready,
         Err(error) => {
@@ -471,8 +470,14 @@ fn capture(
             return;
         }
     };
+    if !models_ready {
+        recording.failure.record(
+            anyhow::anyhow!("model particle missed its birth update"),
+            &mut exit,
+        );
+        return;
+    }
     if !recording.presenting
-        || !models_ready
         || !ready.0.load(std::sync::atomic::Ordering::Relaxed)
         || !refraction.get()
         || roots.iter().any(|(_, p)| !p.prepared)

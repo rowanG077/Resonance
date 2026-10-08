@@ -164,6 +164,7 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
         prepare,
         audit::begin,
         instances,
+        super::field_model_particles::spawn,
         super::field_model_particles::sync,
         pose,
         super::field_animation::bind,

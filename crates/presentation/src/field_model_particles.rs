@@ -7,7 +7,7 @@ use super::{
     materials::{MaterialSlot, TitleSurface},
     scene::SampledImages,
 };
-use bevy::{prelude::*, world_serialization::WorldInstanceReady};
+use bevy::{ecs::entity::EntityHashMap, prelude::*};
 use resonance_events::effect::{Blend, SpriteOrientation};
 use std::collections::BTreeSet;
 
@@ -24,20 +24,80 @@ pub(super) struct Part {
     handle: i32,
     resource: u32,
     index: usize,
-    phase: Phase,
+    prepared: bool,
     materials: Vec<Handle<TitleSurface>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Phase {
-    Instantiating,
-    BindingMaterials,
-    Ready,
 }
 
 impl Part {
     pub(super) fn prepared(&self) -> bool {
-        self.phase == Phase::Ready
+        self.prepared
+    }
+}
+
+fn instantiate(world: &mut World, root: Entity, scene: &Handle<WorldAsset>) {
+    // All field models are loaded before play. Instantiate short-lived effects
+    // immediately so their lifetime cannot run out while their scene is queued.
+    world.resource_scope(|world, scenes: Mut<Assets<WorldAsset>>| {
+        let registry = world.resource::<AppTypeRegistry>().clone();
+        let mut entities = EntityHashMap::default();
+        scenes
+            .get(scene)
+            .expect("loaded model particle scene")
+            .write_to_world_with(world, &mut entities, &registry)
+            .expect("model particle scene components");
+        for entity in entities.values() {
+            if world.get::<ChildOf>(*entity).is_none() {
+                world.entity_mut(*entity).insert(ChildOf(root));
+            }
+        }
+    });
+}
+
+pub(super) fn spawn(
+    state: State,
+    art: Res<Art>,
+    mut commands: Commands,
+    roots: Query<&Part>,
+    mut surfaces: ResMut<Assets<TitleSurface>>,
+    mut images: ResMut<Assets<Image>>,
+    mut sampled: ResMut<SampledImages>,
+) {
+    if !art.ready {
+        return;
+    }
+    let retained: BTreeSet<_> = roots.iter().map(|part| (part.handle, part.index)).collect();
+    for (&handle, particle) in &state.get().events.world.model_particles {
+        let Some(parts) = art.models.get(&particle.resource) else {
+            continue;
+        };
+        for (index, part) in parts.iter().enumerate() {
+            if retained.contains(&(handle, index)) {
+                continue;
+            }
+            let materials = part
+                .surfaces(&mut images, &mut sampled)
+                .into_iter()
+                .map(|mut surface| {
+                    material(&mut surface, particle.blend);
+                    surfaces.add(surface)
+                })
+                .collect();
+            let root = commands
+                .spawn((
+                    Transform::default(),
+                    Visibility::Hidden,
+                    Part {
+                        handle,
+                        resource: particle.resource,
+                        index,
+                        prepared: false,
+                        materials,
+                    },
+                ))
+                .id();
+            let scene = part.scene.clone();
+            commands.queue(move |world: &mut World| instantiate(world, root, &scene));
+        }
     }
 }
 
@@ -98,8 +158,6 @@ pub(super) fn sync(
     children: Query<&Children>,
     slots: Query<&MaterialSlot>,
     mut surfaces: ResMut<Assets<TitleSurface>>,
-    mut images: ResMut<Assets<Image>>,
-    mut sampled: ResMut<SampledImages>,
     mut applied: ResMut<Applied>,
 ) {
     if !art.ready {
@@ -112,7 +170,6 @@ pub(super) fn sync(
         .map_or(Quat::IDENTITY, |camera| {
             super::field_view::camera_transform(camera).rotation
         });
-    let mut retained = BTreeSet::new();
     for (entity, mut part, mut transform, mut visibility) in &mut roots {
         let Some(particle) = world
             .model_particles
@@ -128,19 +185,14 @@ pub(super) fn sync(
         } else {
             Visibility::Hidden
         };
-        retained.insert((part.handle, part.index));
         let request = Request::ModelParticle(part.handle, part.index);
-        if part.phase == Phase::Instantiating {
-            applied.loading(request);
-            continue;
-        }
         orient_model_roots(
             entity,
             effect_rotation(particle.orientation, [0.; 3], camera),
             &children,
             &mut nodes,
         );
-        if part.phase == Phase::BindingMaterials {
+        if !part.prepared {
             for child in children.iter_descendants(entity) {
                 let Ok(slot) = slots.get(child) else { continue };
                 let index = slot
@@ -156,15 +208,14 @@ pub(super) fn sync(
                             particle: part.handle,
                             vertex_color: spec.vertex_color,
                         });
-                    part.phase = Phase::Ready;
                     continue;
                 }
                 commands.entity(child).insert((
                     MeshMaterial3d(part.materials[index].clone()),
                     DrawOrder(MODEL_EFFECTS + spec.draw_order, part.handle as usize),
                 ));
-                part.phase = Phase::Ready;
             }
+            part.prepared = true;
         }
         transform.translation = Vec3::from_array(particle.position);
         transform.scale = Vec3::from_array(particle.scale);
@@ -202,51 +253,49 @@ pub(super) fn sync(
             applied.loading(request);
         }
     }
-    for (&handle, particle) in &world.model_particles {
-        let Some(parts) = art.models.get(&particle.resource) else {
-            continue;
-        };
-        for (index, part) in parts.iter().enumerate() {
-            if retained.contains(&(handle, index)) {
-                continue;
-            }
-            let materials = part
-                .surfaces(&mut images, &mut sampled)
-                .into_iter()
-                .map(|mut surface| {
-                    material(&mut surface, particle.blend);
-                    surfaces.add(surface)
-                })
-                .collect();
-            commands
-                .spawn((
-                    WorldAssetRoot(part.scene.clone()),
-                    Transform::default(),
-                    Visibility::Hidden,
-                    Part {
-                        handle,
-                        resource: particle.resource,
-                        index,
-                        phase: Phase::Instantiating,
-                        materials,
-                    },
-                ))
-                .observe(
-                    |event: On<WorldInstanceReady>, mut parts: Query<&mut Part>| {
-                        if let Ok(mut part) = parts.get_mut(event.entity) {
-                            part.phase = Phase::BindingMaterials;
-                        }
-                    },
-                );
-            applied.loading(Request::ModelParticle(handle, index));
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bevy::{ecs::system::RunSystemOnce, transform::helper::TransformHelper};
+
+    #[test]
+    fn loaded_particle_scene_is_available_in_its_birth_update() {
+        let mut app = App::new();
+        app.init_resource::<Assets<WorldAsset>>()
+            .register_type::<Transform>()
+            .register_type::<GlobalTransform>()
+            .register_type::<ChildOf>()
+            .register_type::<Children>()
+            .register_type::<MaterialSlot>();
+        let mut scene = World::new();
+        let parent = scene.spawn(Transform::from_xyz(3., 0., 0.)).id();
+        scene.spawn((ChildOf(parent), Transform::IDENTITY, MaterialSlot(0)));
+        let scene = app
+            .world_mut()
+            .resource_mut::<Assets<WorldAsset>>()
+            .add(WorldAsset::new(scene));
+        let root = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .run_system_once(move |mut commands: Commands| {
+                let scene = scene.clone();
+                commands.queue(move |world: &mut World| instantiate(world, root, &scene));
+            })
+            .unwrap();
+        let parent = app.world().get::<Children>(root).unwrap()[0];
+        let mesh = app.world().get::<Children>(parent).unwrap()[0];
+        assert_eq!(
+            app.world().get::<MaterialSlot>(mesh),
+            Some(&MaterialSlot(0))
+        );
+        assert_eq!(
+            app.world().get::<Transform>(parent).unwrap().translation.x,
+            3.
+        );
+        app.world_mut().despawn(root);
+        assert!(app.world().get_entity(mesh).is_err());
+    }
 
     #[test]
     fn particle_placement_preserves_layout_and_stretches_on_world_axes() {
