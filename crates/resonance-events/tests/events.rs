@@ -69,13 +69,13 @@ fn script_can_enable_and_disable_a_pushable_model_after_spawn() {
     let child = script(&[(Call::SetActorProperty, &[5000, 19, 2])]);
     let mut events = runtime(program(&main, &child), Default::default(), world);
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
-    assert!(events.world.actors[&5000].pushable());
+    assert!(events.world.actors[&5000].pushable);
     assert_eq!(events.world.actors[&5000].radius, 50.);
     events.world.input_enabled = true;
     assert!(events.trigger(42, true).unwrap());
     events.step().unwrap();
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
-    assert!(!events.world.actors[&5000].pushable());
+    assert!(!events.world.actors[&5000].pushable);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn patrol_properties_update_enemy_movement() {
                 actor.path.count = 1;
                 actor.path.points[0] = [100., 0., 0.];
             }
-            27 => assert!(actor.enemy.as_ref().unwrap().random_turns),
+            27 => assert_ne!(actor.enemy.as_ref().unwrap().random_turns, 0),
             _ => unreachable!(),
         }
         events.world.input_enabled = true;
@@ -422,7 +422,7 @@ fn movement_behavior_changes_resume_chasing_and_grab_queries_follow_live_blocks(
     fragment.autonomy = Some(Autonomy::new(Behavior::Stationary, 3., fragment.position));
     world.insert_actor(FRAGMENT, fragment);
     let mut block = Actor::new(1, [300., 0., 0.]);
-    block.role = ActorRole::Pushable;
+    block.pushable = true;
     world.insert_actor(BLOCK, block);
     world.grabbed_block = Some(BLOCK);
     let mut events = runtime(program(&setup, &query), Default::default(), world);
@@ -677,7 +677,7 @@ fn remiel_rays_travel_toward_the_orb_in_both_transformations() {
             .world
             .billboards
             .iter()
-            .find(|(_, p)| p.owner == Some(500))
+            .find(|(_, p)| p.recipe == resonance_content::effect::STREAK_SPRITE)
             .unwrap();
         let distance = |p: [f32; 3]| {
             (0..3)
@@ -689,6 +689,34 @@ fn remiel_rays_travel_toward_the_orb_in_both_transformations() {
         assert!(start > 50.);
         steps(&mut events, 30);
         assert!(distance(events.world.billboards[&id].position) < start * 0.6);
+    }
+}
+
+#[test]
+fn angel_aura_stays_behind_the_character_when_the_camera_moves() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(55, 0, &[98, 15, 15, 0, 50, 0, 25, 5]),
+    )]);
+    let mut events = interactive_effect(&setup, &[0x20ff]);
+    let mut camera = camera::CameraRig::default();
+    camera.cameras[0].follow = true;
+    camera.cameras[0].axes = [false; 3];
+    camera.cameras[0].actor = 500;
+    events.world.field_camera = Some(camera);
+    for eye in [[100., 0., 50.], [0., 100., 50.]] {
+        events.world.field_camera.as_mut().unwrap().cameras[0].position = eye;
+        events.step().unwrap();
+        let expected = [-eye[0] / 100. * 15., -eye[1] / 100. * 15., 0.];
+        assert_eq!(
+            events
+                .world
+                .billboards
+                .values()
+                .map(|p| p.position)
+                .collect::<Vec<_>>(),
+            vec![expected]
+        );
     }
 }
 
@@ -844,6 +872,48 @@ fn bone_scale_tweens_from_bind_pose_and_survives_other_controller_commands() {
     assert_eq!(interrupted.sample(1, bind), [0.5, 1., 1.5]);
     assert_eq!(interrupted.sample(2, bind), [0.; 3]);
     assert_eq!(scale.sample(3, bind), [0., 1., 2.]);
+}
+
+#[test]
+fn bound_particles_move_grow_fade_and_expire() {
+    const RECIPE: i32 = 10;
+    const GROWTH: i32 = 135;
+    let leaf = ParticleKind::Flutter(resonance_content::effect::FlutterRecipe {
+        texture: "leaf.png".into(),
+        uv: [0., 0., 1., 1.],
+        aspect_ratio: 1.,
+        palette: vec![[255; 4]],
+        fall_speed: 2.,
+        fall_variation: 0.,
+        spin: 1.,
+    });
+    for kind in [ParticleKind::Glow, leaf] {
+        let flutter = matches!(kind, ParticleKind::Flutter(_));
+        let setup = script(&[
+            (
+                Call::CreateParticle,
+                &[RECIPE, 4, 0, 0, 10, 1, 0, 0, 20, 100, -10, 0, 0],
+            ),
+            (Call::SetEffectProperty, &[1, GROWTH, 200]),
+        ]);
+        let resources = ResourceLibrary {
+            particles: [(RECIPE, kind)].into(),
+            ..Default::default()
+        };
+        let mut events = runtime(program(&setup, &[0x20ff]), resources, GameWorld::default());
+        assert_eq!(events.world.particles.len(), 1);
+        steps(&mut events, 2);
+        let (position, size, rgba) = events.world.particles[0].sample(events.tick());
+        if flutter {
+            assert_eq!(position[2], 6.);
+        } else {
+            assert_eq!(position, [2., 0., 10.]);
+        }
+        assert_eq!(size, 24.);
+        assert_eq!(rgba[3], 80.);
+        steps(&mut events, 3);
+        assert!(events.world.particles.is_empty());
+    }
 }
 
 #[test]
@@ -1030,7 +1100,7 @@ fn scene_script_keys_address_the_first_instance_and_despawn_every_copy() {
     assert_eq!(events.world.actors.len(), 2);
     let first = &events.world.actors[&1010];
     assert_eq!(first.position, [10., 20., 30.]);
-    assert_eq!(first.properties[&8], 80);
+    assert_eq!(first.opacity, 80);
     let copy = events
         .world
         .actors
@@ -1040,7 +1110,7 @@ fn scene_script_keys_address_the_first_instance_and_despawn_every_copy() {
         .1;
     assert_eq!(copy.position, [40., 50., 60.]);
     assert_ne!(first.instance, copy.instance);
-    assert!(!copy.properties.contains_key(&8));
+    assert_eq!(copy.opacity, 255);
     let remove = script(&[(Call::DespawnActor, &[1010])]);
     let events = runtime(
         program(&remove, &[0x20ff]),
@@ -1102,7 +1172,7 @@ fn invisible_interaction_actors_remain_ring_targets_while_ordinary_locators_do_n
     assert!(!ordinary.projectile_target());
     assert!(interaction.projectile_target());
     assert_eq!(interaction.role, ActorRole::Interaction);
-    assert_eq!(events.world.actors[&3].properties[&48], 1);
+    assert!(events.world.actors[&3].ring_contact_disabled);
     assert!(!events.world.actors[&3].projectile_target());
     assert!(events.world.actors[&4].projectile_target());
 }
@@ -1412,80 +1482,94 @@ fn model(slots: impl IntoIterator<Item = u16>, duration_ticks: u32) -> ModelReso
 }
 
 #[test]
-fn scripted_colette_wings_emit_sparks_from_their_own_model() {
+fn wing_profiles_follow_their_models_and_keep_instance_state_isolated() {
     use resonance_content::animation::{Bone, Skeleton, Transform, TransformChannels};
-    // The fire-seal scene loads NPC 356, not the automatic flight accessory.
-    let resource = 0x0002_0164;
-    let wings = ModelResource {
-        names: vec!["tip".into()],
-        attachments: ModelAttachments {
-            skeleton: Some(Arc::new(Skeleton {
-                bones: vec![Bone {
-                    name: "tip".into(),
-                    parent: None,
-                    bind_channels: TransformChannels(0),
-                    bind: Transform {
-                        translation: [100., 0., 0.],
-                        ..Default::default()
-                    },
-                }],
-            })),
+    let resource = 10;
+    for id in [20, 30] {
+        let wings = ModelResource {
+            names: vec!["tip".into()],
+            attachments: ModelAttachments {
+                skeleton: Some(Arc::new(Skeleton {
+                    bones: vec![Bone {
+                        name: "tip".into(),
+                        parent: None,
+                        bind_channels: TransformChannels(0),
+                        bind: Transform {
+                            translation: [100., 0., 0.],
+                            ..Default::default()
+                        },
+                    }],
+                })),
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        ..Default::default()
-    };
-    let resources = ResourceLibrary {
-        models: [(resource, wings)].into(),
-        ..Default::default()
-    };
-    let mut world = GameWorld::default();
-    world.insert_actor(90021, Actor::new(resource, [200., 0., 0.]));
-    let mut events = runtime(program(&[0x20ff], &[0x20ff]), resources, world);
-    steps(&mut events, 4);
-    assert_eq!(events.world.billboards.len(), 1);
-    let spark = events.world.billboards.values().next().unwrap();
-    assert_eq!(spark.recipe, resonance_content::effect::WING_SPARK_SPRITE);
-    assert!((285. ..=316.).contains(&spark.position[0]));
-    assert!((-15. ..=16.).contains(&spark.position[1]));
-    events
-        .world
-        .actors
-        .get_mut(&90021)
-        .unwrap()
-        .appearance
-        .model_hidden = true;
-    steps(&mut events, 4);
-    assert_eq!(events.world.billboards.len(), 1);
-
-    events
-        .world
-        .insert_actor(2, Actor::new(resource, [1000., 0., 0.]));
-    let wing = events.world.actors.get_mut(&90021).unwrap();
-    wing.appearance.model_hidden = false;
-    wing.attachment = Some(resonance_events::Attachment {
-        actor: 2,
-        bone: "tip".into(),
-    });
-    events.step().unwrap();
-    events.world.actors.remove(&2);
-    steps(&mut events, 4);
-    let spark = events.world.billboards.values().last().unwrap();
-    assert!((1385. ..=1416.).contains(&spark.position[0]));
-
-    // A replacement wing must not inherit the old instance's attachment frame.
-    let mut replacement = Actor::new(resource, [200., 0., 0.]);
-    replacement.attachment = Some(resonance_events::Attachment {
-        actor: 2,
-        bone: "tip".into(),
-    });
-    events.world.insert_actor(90021, replacement);
-    assert!(
+        };
+        let resources = ResourceLibrary {
+            models: [(resource, wings)].into(),
+            ..Default::default()
+        };
+        let mut world = GameWorld::default();
+        let mut wing = Actor::new(resource, [200., 0., 0.]);
+        wing.set_wings(WingStyle::Layered);
+        world.insert_actor(id, wing);
+        let mut events = runtime(program(&[0x20ff], &[0x20ff]), resources, world);
+        steps(&mut events, 4);
+        assert_eq!(events.world.billboards.len(), 1);
+        let spark = events.world.billboards.values().next().unwrap();
+        assert_eq!(spark.recipe, resonance_content::effect::WING_SPARK_SPRITE);
+        assert!((285. ..=316.).contains(&spark.position[0]));
+        assert!((-15. ..=16.).contains(&spark.position[1]));
         events
-            .step()
-            .unwrap_err()
-            .to_string()
-            .contains("first pose")
+            .world
+            .actors
+            .get_mut(&id)
+            .unwrap()
+            .appearance
+            .model_hidden = true;
+        steps(&mut events, 4);
+        assert_eq!(events.world.billboards.len(), 1);
+
+        events
+            .world
+            .insert_actor(2, Actor::new(resource, [1000., 0., 0.]));
+        let wing = events.world.actors.get_mut(&id).unwrap();
+        wing.appearance.model_hidden = false;
+        wing.attachment = Some(resonance_events::Attachment {
+            actor: 2,
+            bone: "tip".into(),
+        });
+        events.step().unwrap();
+        events.world.actors.remove(&2);
+        steps(&mut events, 4);
+        let spark = events.world.billboards.values().last().unwrap();
+        assert!((1385. ..=1416.).contains(&spark.position[0]));
+
+        // A replacement wing must not inherit the old instance's attachment frame.
+        let mut replacement = Actor::new(resource, [200., 0., 0.]);
+        replacement.set_wings(WingStyle::Layered);
+        replacement.attachment = Some(resonance_events::Attachment {
+            actor: 2,
+            bone: "tip".into(),
+        });
+        events.world.insert_actor(id, replacement);
+        assert!(events.step().is_err());
+    }
+    let mut world = GameWorld::default();
+    let mut wing = Actor::new(resource, [200., 0., 0.]);
+    wing.set_wings(WingStyle::Echo);
+    world.insert_actor(40, wing);
+    let mut events = runtime(
+        program(&[0x20ff], &[0x20ff]),
+        ResourceLibrary::default(),
+        world,
     );
+    steps(&mut events, 8);
+    events.world.actors.get_mut(&40).unwrap().position[0] = 400.;
+    steps(&mut events, 8);
+    let wings = events.world.actors[&40].wings.as_ref().unwrap();
+    let echoes = [0, 1].map(|pass| wings.layer(pass, events.tick()).echo.unwrap());
+    assert_eq!(echoes.map(|echo| echo.position[0]), [200., 400.]);
+    assert_eq!(echoes[0].rgba(events.tick()), [32, 32, 64, 255]);
 }
 
 #[test]
@@ -1579,7 +1663,7 @@ fn explicit_party_selection_recreates_the_actor_but_alias_and_query_preserve_it(
         let mut actor = Actor::new(1, [2., 3., 4.]);
         actor.face(90.);
         actor.target_heading = 140.;
-        actor.properties.insert(46, 1);
+        actor.depth_write = false;
         actor.appearance.expression = 3;
         actor.appearance.eyes = Some(EyeBlink { frame: 2, tick: 10 });
         world.insert_actor(1, actor);
@@ -1591,13 +1675,13 @@ fn explicit_party_selection_recreates_the_actor_but_alias_and_query_preserve_it(
         assert_eq!((actor.heading, actor.target_heading), (90., 140.));
         if selection > 0 && selection != CONTROLLED_ACTOR {
             assert_ne!(actor.instance, instance);
-            assert!(actor.properties.is_empty());
+            assert!(actor.depth_write);
             assert_eq!(actor.appearance.expression, 0);
             assert!(actor.appearance.eyes.is_none());
             assert!(actor.appearance.hidden_nodes.contains(&7));
         } else {
             assert_eq!(actor.instance, instance);
-            assert_eq!(actor.properties[&46], 1);
+            assert!(!actor.depth_write);
             assert_eq!(actor.appearance.eyes.unwrap().tick, 10);
         }
     }
@@ -2561,6 +2645,20 @@ fn actor_color_channels_start_at_native_neutral_and_retain_byte_values() {
 }
 
 #[test]
+fn a_script_can_enable_culling_for_an_initially_unculled_actor() {
+    for property in [13, 14] {
+        let mut actor = Actor::new(1, [0.; 3]);
+        actor.cull_outside_view = false;
+        let mut world = GameWorld::default();
+        world.insert_actor(1, actor);
+        let code = script(&[(Call::SetActorProperty, &[1, property, 0])]);
+        let events = runtime(program(&code, &[0x20ff]), Default::default(), world);
+        assert!(events.world.actors[&1].cull_outside_view);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    }
+}
+
+#[test]
 fn depth_property_returns_the_previous_bit_and_changes_presentation_state() {
     let mut code = Vec::new();
     native(
@@ -2634,13 +2732,13 @@ fn dialogue_completion_resumes_only_its_caller_and_cannot_fire_twice() {
     let dialogue = events.world.dialogue[&0].operation.clone();
     dialogue.advance(8).unwrap(); // Text is ready; dismissal is still pending.
     steps(&mut events, 10);
-    assert_eq!(events.world.render_settings.get(&1), Some(&9));
-    assert!(!events.world.render_settings.contains_key(&0));
+    assert_eq!(events.world.texture_bindings.get(&1), Some(&9));
+    assert!(!events.world.texture_bindings.contains_key(&0));
     dialogue.complete(None).unwrap();
     events.step().unwrap();
-    assert!(!events.world.render_settings.contains_key(&0));
+    assert!(!events.world.texture_bindings.contains_key(&0));
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.get(&0), Some(&7));
+    assert_eq!(events.world.texture_bindings.get(&0), Some(&7));
     assert_eq!(events.active_instances(), 0);
     assert!(dialogue.complete(None).is_err());
 }
@@ -2679,23 +2777,23 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
         let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
         assert_eq!(events.world.choices[&1].selected_line, 3);
         steps(&mut events, 4);
-        assert!(events.world.render_settings.is_empty());
+        assert!(events.world.texture_bindings.is_empty());
         let choice = events.world.choices.get_mut(&1).unwrap();
         choice.selected_line = 4;
         let callback = choice.clone();
         choice.finish(reason).unwrap();
         events.step().unwrap();
-        assert!(events.world.render_settings.is_empty());
+        assert!(events.world.texture_bindings.is_empty());
         events.world.dialogue[&1].operation.complete(None).unwrap();
         events.step().unwrap();
-        assert!(events.world.render_settings.is_empty());
+        assert!(events.world.texture_bindings.is_empty());
         events.step().unwrap();
         assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), 5);
         assert_eq!(
             events.memory().read(0x24, Width::S32).unwrap(),
             expected_reason
         );
-        assert_eq!(events.world.render_settings[&0], 42);
+        assert_eq!(events.world.texture_bindings[&0], 42);
         assert_eq!(events.active_instances(), 0);
         assert!(callback.finish(reason).is_err());
         events.cancel();
@@ -2756,7 +2854,7 @@ fn external_media_wait_15_also_waits_for_dialogue_voice() {
             events.step().unwrap();
         }
         assert_eq!(
-            events.world.render_settings.len(),
+            events.world.texture_bindings.len(),
             1,
             "decoded voice is ready, but its end wait must remain blocked"
         );
@@ -2764,9 +2862,9 @@ fn external_media_wait_15_also_waits_for_dialogue_voice() {
             events.world.voice = None;
         }
         events.step().unwrap();
-        assert_eq!(events.world.render_settings.len(), 1);
+        assert_eq!(events.world.texture_bindings.len(), 1);
         events.step().unwrap();
-        assert_eq!(events.world.render_settings.len(), 2);
+        assert_eq!(events.world.texture_bindings.len(), 2);
     }
 }
 
@@ -2783,11 +2881,11 @@ fn satisfied_service_waits_preserve_separate_resume_updates() {
         Default::default(),
         Default::default(),
     );
-    assert!(events.world.render_settings.is_empty());
+    assert!(events.world.texture_bindings.is_empty());
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.len(), 1);
+    assert_eq!(events.world.texture_bindings.len(), 1);
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.len(), 2);
+    assert_eq!(events.world.texture_bindings.len(), 2);
     assert_eq!(events.active_instances(), 0);
 }
 
@@ -2807,25 +2905,25 @@ fn movie_waits_follow_decoding_presentation_and_completion_not_elapsed_ticks() {
     let mut events = runtime(program(&main, &[0x20ff]), resources, Default::default());
     let movie = events.world.movie.as_ref().unwrap().operation.clone();
     steps(&mut events, 20);
-    assert!(events.world.render_settings.is_empty());
+    assert!(events.world.texture_bindings.is_empty());
     movie.advance(0).unwrap();
     events.step().unwrap();
-    assert!(events.world.render_settings.is_empty());
+    assert!(events.world.texture_bindings.is_empty());
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.len(), 1);
+    assert_eq!(events.world.texture_bindings.len(), 1);
     movie.advance(11).unwrap();
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.len(), 1);
+    assert_eq!(events.world.texture_bindings.len(), 1);
     movie.advance(12).unwrap();
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.len(), 1);
+    assert_eq!(events.world.texture_bindings.len(), 1);
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.len(), 2);
+    assert_eq!(events.world.texture_bindings.len(), 2);
     movie.complete(None).unwrap();
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.len(), 2);
+    assert_eq!(events.world.texture_bindings.len(), 2);
     events.step().unwrap();
-    assert_eq!(events.world.render_settings.len(), 3);
+    assert_eq!(events.world.texture_bindings.len(), 3);
     assert_eq!(events.active_instances(), 0);
 }
 
@@ -2844,7 +2942,7 @@ fn cancelling_a_scene_stops_its_scripts_and_invalidates_movie_callbacks() {
     assert!(callback.complete(None).is_err());
     events.step().unwrap();
     assert_eq!(events.active_instances(), 0);
-    assert!(events.world.render_settings.is_empty());
+    assert!(events.world.texture_bindings.is_empty());
 }
 
 #[test]
@@ -3412,7 +3510,7 @@ fn actor_luck_commands_reroll_once_and_read_equipment_bonuses_without_a_field_ac
         world,
     );
     assert_eq!(
-        events.world.render_settings,
+        events.world.texture_bindings,
         [(0, 55), (1, 0), (2, 14), (3, 290), (4, 59), (5, 0)].into()
     );
     assert_eq!(events.world.random_state, 191992145);

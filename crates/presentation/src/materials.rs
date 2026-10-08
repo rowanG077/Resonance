@@ -8,6 +8,7 @@ use bevy::{
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d, Material2dKey},
 };
+use resonance_events::effect::Blend;
 
 #[cfg(test)]
 #[path = "surface_shader_tests.rs"]
@@ -207,9 +208,7 @@ pub(super) struct TitleSurface {
     pub constant_color: bool,
     /// Clamp the texture/color product before fog and framebuffer blending.
     pub clamp_color: bool,
-    pub blend: bool,
-    pub additive: bool,
-    pub subtractive: bool,
+    pub blend: Option<Blend>,
     pub depth_test: bool,
     pub depth_write: bool,
     pub cull: resonance_content::CullFace,
@@ -234,9 +233,7 @@ impl Default for TitleSurface {
             vertex_color: true,
             constant_color: false,
             clamp_color: false,
-            blend: false,
-            additive: false,
-            subtractive: false,
+            blend: None,
             depth_test: true,
             depth_write: true,
             cull: resonance_content::CullFace::Back,
@@ -293,9 +290,7 @@ pub(super) struct SurfaceKey {
     clamp_color: bool,
     depth_test: bool,
     depth_write: bool,
-    blend: bool,
-    additive: bool,
-    subtractive: bool,
+    blend: Option<Blend>,
     cull: resonance_content::CullFace,
 }
 
@@ -309,8 +304,6 @@ impl From<&TitleSurface> for SurfaceKey {
             depth_test: material.depth_test,
             depth_write: material.depth_write,
             blend: material.blend,
-            additive: material.additive,
-            subtractive: material.subtractive,
             cull: material.cull,
         }
     }
@@ -372,7 +365,7 @@ impl Material for TitleSurface {
                 fragment.shader_defs.push("CLAMP_COLOR".into());
             }
             for target in fragment.targets.iter_mut().flatten() {
-                if key.bind_group_data.subtractive {
+                if key.bind_group_data.blend == Some(Blend::Subtractive) {
                     let component = BlendComponent {
                         src_factor: BlendFactor::One,
                         dst_factor: BlendFactor::One,
@@ -382,7 +375,7 @@ impl Material for TitleSurface {
                         color: component,
                         alpha: component,
                     });
-                } else if key.bind_group_data.additive {
+                } else if key.bind_group_data.blend == Some(Blend::Additive) {
                     let component = BlendComponent {
                         src_factor: BlendFactor::SrcAlpha,
                         dst_factor: BlendFactor::One,
@@ -392,7 +385,7 @@ impl Material for TitleSurface {
                         color: component,
                         alpha: component,
                     });
-                } else if !key.bind_group_data.blend {
+                } else if key.bind_group_data.blend.is_none() {
                     target.blend = None;
                 }
             }

@@ -19,7 +19,7 @@ use resonance_content::{
     effect::{EmoteTrack, FieldEffects, FlutterRecipe, RefractionRecipe, VerticalAnchor},
     field::FieldAssets,
 };
-use resonance_events::effect::SpriteOrientation;
+use resonance_events::effect::{Blend, SpriteOrientation};
 use std::{collections::BTreeMap, fs, path::Path};
 
 const EMOTES: usize = 0;
@@ -87,56 +87,63 @@ impl Artwork {
             serde_json::from_slice(&fs::read(root.join(&field.effects))?)?
         };
         spec.validate()?;
-        let mut textures: Vec<Handle<Image>> = Vec::new();
-        let mut materials = Vec::new();
+        let emotes = load_image(server, &spec.emote_texture, false);
+        let status = load_image(server, &spec.status_texture, true);
+        let mut textures = vec![emotes.clone(), status.clone()];
+        let mut materials: Vec<_> = [emotes.clone(), status]
+            .map(|color| {
+                surfaces.add(TitleSurface {
+                    color: Some(color),
+                    // World symbols share the UI atlas, with linear sampling.
+                    sampling: Some(emotes.clone()),
+                    blend: Some(Blend::Alpha),
+                    depth_test: false,
+                    depth_write: false,
+                    cull: resonance_content::CullFace::None,
+                    ..default()
+                })
+            })
+            .into();
         let mut shared = BTreeMap::new();
         let mut register = |path: &str, blend, field_fog| {
             let key = (path.to_owned(), blend, field_fog);
-            if let Some(&index) = shared.get(&key) {
-                return index;
-            }
-            let index = materials.len();
-            let color = load_image(server, path, index == STATUS);
-            // Status pixels share the UI atlas, but world symbols use a linear sampler.
-            let sampling = if index == STATUS {
-                textures[EMOTES].clone()
-            } else {
-                color.clone()
-            };
-            textures.push(color.clone());
-            materials.push(surfaces.add(TitleSurface {
-                color: Some(color),
-                sampling: Some(sampling),
-                field_fog,
-                blend: true,
-                additive: blend == 1,
-                subtractive: blend == 2,
-                clamp_color: index > STATUS,
-                depth_test: index > STATUS,
-                depth_write: false,
-                cull: resonance_content::CullFace::None,
-                ..default()
-            }));
-            if index > STATUS {
-                shared.insert(key, index);
-            }
-            index
+            *shared.entry(key).or_insert_with(|| {
+                let index = materials.len();
+                let color = load_image(server, path, false);
+                textures.push(color.clone());
+                materials.push(surfaces.add(TitleSurface {
+                    color: Some(color.clone()),
+                    sampling: Some(color),
+                    field_fog,
+                    blend: Some(blend),
+                    clamp_color: true,
+                    depth_test: true,
+                    depth_write: false,
+                    cull: resonance_content::CullFace::None,
+                    ..default()
+                }));
+                index
+            })
         };
-        register(&spec.emote_texture, 0, false);
-        register(&spec.status_texture, 0, false);
         let particles = field
             .particles
             .iter()
-            .map(|(&kind, recipe)| (kind, (recipe.clone(), register(&recipe.texture, 0, true))))
+            .map(|(&kind, recipe)| {
+                (
+                    kind,
+                    (
+                        recipe.clone(),
+                        register(&recipe.texture, Blend::Alpha, true),
+                    ),
+                )
+            })
             .collect();
         let shadow = (
             field.contact_shadow.clone(),
-            register(&field.contact_shadow.texture, 0, true),
+            register(&field.contact_shadow.texture, Blend::Alpha, true),
         );
         let mut variants = |path: &str| {
-            std::array::from_fn(|mode| {
-                std::array::from_fn(|fog| register(path, mode as u8, fog != 0))
-            })
+            Blend::ALL.map(|mode| std::array::from_fn(|fog| register(path, mode, fog != 0)))
         };
         let sprite_materials = spec
             .sprites
@@ -338,18 +345,14 @@ pub(super) fn render(
             continue;
         };
         let [x, y, z] = flutter.rotation.map(f32::to_radians);
-        let rgb = particle.rgba.map(|v| v * 4. / 255. * brightness);
+        let (position, size, rgba) = particle.sample(world.tick);
+        let rgb = rgba.map(|v| v * 4. / 255. * brightness);
         let quad = Quad::new(
-            Vec3::from_array(particle.position),
+            Vec3::from_array(position),
             Quat::from_euler(EulerRot::ZYX, z, y, x),
-            [particle.size, particle.size / recipe.aspect_ratio],
+            [size, size / recipe.aspect_ratio],
             recipe.uv,
-            [
-                rgb[0],
-                rgb[1],
-                rgb[2],
-                particle.alpha(world.tick).clamp(0., 255.) / 255.,
-            ],
+            [rgb[0], rgb[1], rgb[2], rgba[3].min(255.) / 255.],
             VerticalAnchor::Center,
         );
         quads.push((EFFECTS, particle.handle, *layer, quad));
@@ -395,16 +398,18 @@ pub(super) fn render(
                 }
             }
         }
-        let brightness = if effect.field_lighting {
+        // Unlit effects still respect the incoming field's initial black hold.
+        let brightness = if effect.field_lighting || world.fade.is_none() {
             brightness
         } else {
             1.
         };
         let rgb = rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
-        let mode = effect
-            .blend_mode
-            .filter(|mode| *mode < 3)
-            .unwrap_or(u8::from(recipe.additive));
+        let mode = effect.blend.unwrap_or(if recipe.additive {
+            Blend::Additive
+        } else {
+            Blend::Alpha
+        });
         let (materials, uv) = if let Some((resource, image)) = effect.texture {
             (
                 &art.overlay_materials[&resource][usize::from(image)],
@@ -416,7 +421,7 @@ pub(super) fn render(
                 recipe.uv_at(world.tick.saturating_sub(effect.born) + 1),
             )
         };
-        let layer = materials[usize::from(mode)][usize::from(effect.field_fog)];
+        let layer = materials[mode as usize][usize::from(effect.field_fog)];
         let quad = Quad::new(
             Vec3::from_array(effect.position),
             rotation,

@@ -53,7 +53,7 @@ fn sprite_property(
         return None;
     };
     let previous = match selector {
-        8 => actor.properties.get(&8).copied().unwrap_or(0),
+        8 => i32::from(actor.opacity),
         15 => sprite.alpha_step as i32,
         30..=32 => (sprite.scale[(selector - 30) as usize] * 100.) as i32,
         4 | 37 => actor.heading as i32,
@@ -66,7 +66,7 @@ fn sprite_property(
             4 => actor.target_heading = value as f32,
             8 => {
                 overlay.rgba[3] = value as u8;
-                actor.properties.insert(8, i32::from(value as u8));
+                actor.opacity = value as u8;
             }
             15 => sprite.alpha_step = value as f32,
             30..=32 => sprite.scale[(selector - 30) as usize] = value as f32 / 100.,
@@ -486,7 +486,7 @@ impl NativeHost<'_> {
                         self.world
                             .actors
                             .get(id)
-                            .is_some_and(crate::Actor::pushable)
+                            .is_some_and(|actor| actor.pushable)
                     });
                     return Ok(NativeResult::Continue(Some(block.unwrap_or(0))));
                 }
@@ -497,17 +497,16 @@ impl NativeHost<'_> {
                     1..=3 => actor.position[(a[1] - 1) as usize] as i32,
                     4 => actor.heading as i32,
                     MOVEMENT_SPEED => actor.movement_speed() as i32,
-                    7 => actor.properties.get(&7).copied().unwrap_or(0),
-                    8 => actor.properties.get(&8).copied().unwrap_or(255),
+                    7 => i32::from(actor.heading_lock),
+                    8 => i32::from(actor.opacity),
                     9 => i32::from(!actor.collidable),
                     10 => i32::from(!actor.grounded),
                     11 => i32::from(!actor.casts_shadow),
                     12 => i32::from(actor.appearance.model_hidden),
-                    13 | 14 => actor
-                        .properties
-                        .get(&a[1])
-                        .copied()
-                        .unwrap_or(i32::from(!actor.cull_outside_view)),
+                    13 | 14 => i32::from(
+                        actor.culling_flags[(a[1] - 13) as usize]
+                            .unwrap_or(!actor.cull_outside_view),
+                    ),
                     15 => {
                         actor
                             .autonomy
@@ -516,9 +515,9 @@ impl NativeHost<'_> {
                             .radius as i32
                     }
                     16 => i32::from(actor.appearance.expression),
-                    17 => actor.interaction_label(),
+                    17 => actor.interaction_label,
                     18 => i32::from(actor.model_collision.is_some()),
-                    19 => i32::from(actor.pushable()),
+                    19 => i32::from(actor.pushable),
                     20 => i32::from(actor.contact_event),
                     21..=22 => actor.enemy.as_ref().map_or(0, |enemy| {
                         i32::from(enemy.event_parameters[(a[1] - 21) as usize] as u16)
@@ -531,29 +530,22 @@ impl NativeHost<'_> {
                         .enemy
                         .as_ref()
                         .map_or(0, |enemy| i32::from(enemy.behavior)),
-                    27 => actor.enemy.as_ref().map_or(0, |enemy| {
-                        actor
-                            .properties
-                            .get(&27)
-                            .copied()
-                            .unwrap_or(i32::from(enemy.random_turns))
-                    }),
-                    30..=32 => actor.properties.get(&a[1]).copied().unwrap_or(100),
+                    27 => actor
+                        .enemy
+                        .as_ref()
+                        .map_or(0, |enemy| i32::from(enemy.random_turns)),
+                    30..=32 => actor.scale_percent[(a[1] - 30) as usize],
                     34 => actor.autonomy.as_ref().map_or(0, |ai| ai.behavior as i32),
-                    35 | 36 => actor.properties.get(&a[1]).copied().unwrap_or(0),
+                    35 | 36 => actor.tilt[(a[1] - 35) as usize],
                     37 => actor.heading as i32,
-                    TOON_LIGHTING => actor
-                        .properties
-                        .get(&TOON_LIGHTING)
-                        .copied()
-                        .unwrap_or_else(|| {
-                            i32::from(
-                                self.resources
-                                    .model(actor.resource)
-                                    .is_some_and(|model| model.toon_lighting),
-                            )
-                        }),
-                    39 => actor.properties.get(&39).copied().unwrap_or(2),
+                    TOON_LIGHTING => actor.toon_lighting.map(i32::from).unwrap_or_else(|| {
+                        i32::from(
+                            self.resources
+                                .model(actor.resource)
+                                .is_some_and(|model| model.toon_lighting),
+                        )
+                    }),
+                    39 => i32::from(actor.draw_layer),
                     DISABLE_SECONDARY_MOTION => {
                         i32::from(actor.appearance.secondary_motion_disabled)
                     }
@@ -567,12 +559,10 @@ impl NativeHost<'_> {
                         .enemy
                         .as_ref()
                         .map_or(0, |enemy| reaction_code(enemy.reaction)),
-                    41 | 48 | 50 => actor.properties.get(&a[1]).copied().unwrap_or(0),
-                    42..=44 => actor
-                        .properties
-                        .get(&a[1])
-                        .copied()
-                        .unwrap_or(i32::from(crate::effect::NEUTRAL_TINT)),
+                    41 => i32::from(actor.unlit),
+                    48 => i32::from(actor.ring_contact_disabled),
+                    50 => i32::from(actor.interaction_disabled),
+                    42..=44 => i32::from(actor.tint[(a[1] - 42) as usize]),
                     46 => i32::from(!actor.depth_write),
                     45 => actor.blend.map_or(0, |blend| blend as i32),
                     _ => unreachable!(),
@@ -581,7 +571,7 @@ impl NativeHost<'_> {
                     match a[1] {
                         7 => {
                             let flags = a[2] & 15;
-                            actor.properties.insert(7, flags);
+                            actor.heading_lock = flags as u8;
                             if flags == 0 {
                                 actor.appearance.fixed_heading = None;
                             } else if previous == 0 {
@@ -592,7 +582,7 @@ impl NativeHost<'_> {
                         MOVEMENT_SPEED => actor.set_movement_speed(a[2] as f32),
                         1..=3 => actor.position[(a[1] - 1) as usize] = a[2] as f32,
                         8 => {
-                            actor.properties.insert(8, i32::from(a[2] as u8));
+                            actor.opacity = a[2] as u8;
                             actor.visible = a[2] as u8 != 0;
                         }
                         9 => actor.collidable = a[2] & 1 == 0,
@@ -600,15 +590,17 @@ impl NativeHost<'_> {
                         11 => actor.casts_shadow = a[2] & 1 == 0,
                         12 => actor.appearance.model_hidden = a[2] & 1 != 0,
                         13 | 14 => {
-                            let other = if a[1] == 13 { 14 } else { 13 };
-                            actor.properties.insert(a[1], a[2] & 1);
-                            actor.cull_outside_view = a[2] & 1 == 0
-                                && actor.properties.get(&other).copied().unwrap_or(0) == 0;
+                            actor.culling_flags[(a[1] - 13) as usize] = Some(a[2] & 1 != 0);
+                            actor.cull_outside_view = !actor
+                                .culling_flags
+                                .into_iter()
+                                .flatten()
+                                .any(|disabled| disabled);
                         }
                         15 => actor.autonomy.as_mut().unwrap().radius = a[2] as f32,
                         16 => actor.appearance.expression = a[2] as u8,
                         17 => {
-                            actor.properties.insert(17, i32::from(a[2] as i16));
+                            actor.interaction_label = i32::from(a[2] as i16);
                         }
                         18 => {
                             actor.model_collision = if a[2] & 1 != 0 {
@@ -624,8 +616,8 @@ impl NativeHost<'_> {
                             };
                         }
                         19 => {
-                            actor.properties.insert(19, a[2] & 1);
-                            if actor.pushable() {
+                            actor.pushable = a[2] & 1 != 0;
+                            if actor.pushable {
                                 actor.radius = 50.;
                             }
                         }
@@ -657,8 +649,7 @@ impl NativeHost<'_> {
                         }
                         27 => {
                             if let Some(enemy) = &mut actor.enemy {
-                                enemy.random_turns = a[2] as u8 != 0;
-                                actor.properties.insert(27, i32::from(a[2] as u8));
+                                enemy.random_turns = a[2] as u8;
                             }
                         }
                         20 => actor.contact_event = a[2] & 1 != 0,
@@ -674,12 +665,10 @@ impl NativeHost<'_> {
                         }
                         37 => actor.face(a[2] as f32),
                         TOON_LIGHTING => {
-                            actor
-                                .properties
-                                .insert(TOON_LIGHTING, i32::from(a[2] as u8));
+                            actor.toon_lighting = Some(a[2] as u8);
                         }
                         39 => {
-                            actor.properties.insert(39, i32::from(a[2] as i8));
+                            actor.draw_layer = a[2] as i8;
                         }
                         DISABLE_SECONDARY_MOTION => {
                             actor.appearance.secondary_motion_disabled = a[2] & 1 != 0
@@ -713,15 +702,14 @@ impl NativeHost<'_> {
                             require(a[2] & 7 <= 2, "actor blend mode is not implemented")?;
                             actor.blend = Some((a[2] & 7).try_into()?);
                         }
-                        30..=32 | 35 | 36 => {
-                            actor.properties.insert(a[1], a[2]);
-                        }
+                        30..=32 => actor.scale_percent[(a[1] - 30) as usize] = a[2],
+                        35 | 36 => actor.tilt[(a[1] - 35) as usize] = a[2],
                         42..=44 => {
-                            actor.properties.insert(a[1], i32::from(a[2] as u8));
+                            actor.tint[(a[1] - 42) as usize] = a[2] as u8;
                         }
-                        41 | 48 | 50 => {
-                            actor.properties.insert(a[1], a[2] & 1);
-                        }
+                        41 => actor.unlit = a[2] & 1 != 0,
+                        48 => actor.ring_contact_disabled = a[2] & 1 != 0,
+                        50 => actor.interaction_disabled = a[2] & 1 != 0,
                         _ => unreachable!(),
                     }
                 }
@@ -765,13 +753,12 @@ impl NativeHost<'_> {
             }
             NativeCall::ConfigureRendering => match a[0] {
                 0..=7 => {
-                    self.world.render_settings.insert(a[0], a[1]);
+                    self.world.texture_bindings.insert(a[0], a[1]);
                 }
                 128 => {
-                    self.world.render_settings.insert(128, i32::from(a[1] != 0));
+                    self.world.texture_animation_enabled = a[1] != 0;
                 }
                 129 => {
-                    self.world.render_settings.insert(129, 0);
                     self.world.texture_animation_tick = 0;
                 }
                 _ => return Err("render configuration command is not implemented".into()),
@@ -786,6 +773,7 @@ impl NativeHost<'_> {
                         grounded: false,
                         collidable: false,
                         casts_shadow: false,
+                        opacity: 0,
                         ..Actor::new(resource, [a[2] as f32, a[3] as f32, 0.])
                     },
                 );
@@ -1081,11 +1069,8 @@ impl NativeHost<'_> {
                         } else {
                             crate::ActorRole::Ordinary
                         },
-                        properties: if locator {
-                            [(17, 0), (48, i32::from(!interaction))].into()
-                        } else {
-                            Default::default()
-                        },
+                        interaction_label: if locator { 0 } else { 2 },
+                        ring_contact_disabled: locator && !interaction,
                         animation,
                         ..Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32])
                     },
@@ -1221,26 +1206,9 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::CreateParticle => {
-                if [
-                    crate::effect::STATION_GLOW_SPRITE,
-                    crate::effect::CAMERA_DISC_SPRITE,
-                    crate::effect::WORLD_GLOW_SPRITE,
-                    crate::effect::ORB_SPRITE,
-                    crate::effect::RING_SPRITE,
-                    crate::effect::STAR_SPRITE,
-                    crate::effect::SPINNING_STAR_SPRITE,
-                    crate::effect::ELECTRIC_SPARK_SPRITE,
-                ]
-                .map(i32::from)
-                .contains(&a[0])
-                {
+                let Some(kind) = self.resources.particles.get(&a[0]) else {
                     return self.field(op, a, memory);
-                }
-                let kind = self
-                    .resources
-                    .particles
-                    .get(&a[0])
-                    .ok_or("particle kind is not cooked")?;
+                };
                 require(
                     (0..=0x7fff).contains(&a[1])
                         && (a[12] == 0 || matches!(kind, crate::ParticleKind::Flutter(_))),

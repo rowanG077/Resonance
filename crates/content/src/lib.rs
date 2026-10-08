@@ -1,6 +1,7 @@
 //! Cooked asset contracts shared by the importer and game.
 use serde::{Deserialize, Serialize};
 pub mod animation;
+pub mod appearance;
 pub mod effect;
 pub mod field;
 pub mod field_audio;

@@ -34,8 +34,6 @@ impl PlayerSize {
 pub enum ActorRole {
     Ordinary,
     Interaction,
-    /// Native class 4 scenery falls onto the floor and can be moved as a block.
-    Pushable,
 }
 
 #[derive(Debug, Clone)]
@@ -56,16 +54,30 @@ pub struct Actor {
     /// Read-only actors use a strict depth test; ordinary actors test and write
     /// depth, including equal-depth fragments. This is presentation state.
     pub depth_write: bool,
-    pub blend: Option<crate::model_particle::Blend>,
+    pub blend: Option<crate::effect::Blend>,
     pub animation: Option<Animation>,
     /// Independent scenery motion layers, sampled over its base animation.
     pub scenery_animations: BTreeMap<i8, Animation>,
-    pub properties: BTreeMap<i32, i32>,
+    pub scale_percent: [i32; 3],
+    pub tilt: [i32; 2],
+    pub tint: [u8; 3],
+    pub opacity: u8,
+    pub heading_lock: u8,
+    pub interaction_label: i32,
+    pub pushable: bool,
+    pub ring_contact_disabled: bool,
+    pub interaction_disabled: bool,
+    pub unlit: bool,
+    pub toon_lighting: Option<u8>,
+    pub draw_layer: i8,
     pub heading: f32,
     pub target_heading: f32,
     pub turn_speed: f32,
     pub appearance: Appearance,
+    pub wings: Option<crate::Wings>,
     pub cull_outside_view: bool,
+    /// Script overrides are separate from the actor's initial visibility policy.
+    pub(crate) culling_flags: [Option<bool>; 2],
     /// Last actor update's view test; animation and secondary motion share it.
     pub animation_culled: bool,
     pub grounded: bool,
@@ -111,7 +123,7 @@ pub struct Enemy {
     pub behavior: u8,
     pub normal_speed: f32,
     pub alert_speed: f32,
-    pub random_turns: bool,
+    pub random_turns: u8,
     pub chase_on_sight: bool,
     pub sight_angle: f32,
     pub sight_distance: f32,
@@ -128,39 +140,14 @@ impl Enemy {
     }
 }
 impl Actor {
-    fn scale_percent(&self) -> [i32; 3] {
-        std::array::from_fn(|axis| {
-            self.properties
-                .get(&(30 + axis as i32))
-                .copied()
-                .unwrap_or(100)
-        })
-    }
     pub fn model_scale(&self) -> [f32; 3] {
-        self.scale_percent().map(|scale| scale as f32 / 100.)
+        self.scale_percent.map(|scale| scale as f32 / 100.)
     }
     pub fn tilt_degrees(&self) -> [f32; 2] {
-        [35, 36].map(|property| self.properties.get(&property).copied().unwrap_or(0) as f32)
-    }
-    pub fn interaction_label(&self) -> i32 {
-        self.properties.get(&17).copied().unwrap_or(2)
-    }
-    /// Property 19 can turn an ordinary model into a movable block after spawn.
-    pub fn pushable(&self) -> bool {
-        self.properties
-            .get(&19)
-            .map_or(self.role == ActorRole::Pushable, |value| value & 1 != 0)
+        self.tilt.map(|angle| angle as f32)
     }
     pub fn ring_contact_enabled(&self) -> bool {
-        self.properties.get(&48).is_none_or(|value| value & 1 == 0)
-    }
-    pub(crate) fn station_color(&self) -> [u8; 3] {
-        std::array::from_fn(|i| {
-            self.properties
-                .get(&(42 + i as i32))
-                .copied()
-                .unwrap_or(i32::from(crate::effect::NEUTRAL_TINT)) as u8
-        })
+        !self.ring_contact_disabled
     }
 
     /// Model displacement does not move the actor's navigation or script origin.
@@ -180,7 +167,7 @@ impl Actor {
     }
 
     fn local_vector(&self, point: [f32; 3]) -> [f32; 3] {
-        let scale = self.scale_percent();
+        let scale = self.scale_percent;
         let [x, y, z] = std::array::from_fn(|i| point[i] * scale[i] as f32 / 100.);
         let [tilt_x, tilt_y] = self.tilt_degrees();
         let (sx, cx) = tilt_x.to_radians().sin_cos();
@@ -236,7 +223,7 @@ impl Actor {
             .model_collision
             .iter()
             .flat_map(|mesh| {
-                if self.pushable() && !mesh.floors.is_empty() {
+                if self.pushable && !mesh.floors.is_empty() {
                     &mesh.floors
                 } else {
                     &mesh.solids
@@ -296,12 +283,25 @@ impl Actor {
             blend: None,
             animation: None,
             scenery_animations: BTreeMap::new(),
-            properties: BTreeMap::new(),
+            scale_percent: [100; 3],
+            tilt: [0; 2],
+            tint: [crate::effect::NEUTRAL_TINT; 3],
+            opacity: 255,
+            heading_lock: 0,
+            interaction_label: 2,
+            pushable: false,
+            ring_contact_disabled: false,
+            interaction_disabled: false,
+            unlit: false,
+            toon_lighting: None,
+            draw_layer: 2,
             heading: 0.,
             target_heading: 0.,
             turn_speed: 5.,
             appearance: Appearance::default(),
+            wings: None,
             cull_outside_view: true,
+            culling_flags: [None; 2],
             animation_culled: false,
             grounded: true,
             collidable: true,
@@ -417,6 +417,7 @@ pub struct Appearance {
     pub eyes: Option<crate::EyeBlink>,
     pub mouth: Option<Face>,
     pub expression: u8,
+    pub costume_frame: u8,
     pub model_hidden: bool,
     pub secondary_motion_disabled: bool,
     pub hidden_nodes: std::collections::BTreeSet<u16>,
@@ -522,6 +523,17 @@ pub struct Particle {
     pub flutter: Option<crate::effect::Flutter>,
 }
 impl Particle {
+    pub fn sample(&self, tick: u32) -> ([f32; 3], f32, [f32; 4]) {
+        let age = tick.saturating_sub(self.born) as f32;
+        let position = if self.flutter.is_some() {
+            self.position
+        } else {
+            std::array::from_fn(|axis| self.position[axis] + self.velocity[axis] * age)
+        };
+        let mut rgba = self.rgba;
+        rgba[3] = self.alpha(tick).max(0.);
+        (position, self.size + self.size_delta * age, rgba)
+    }
     pub fn alive(&self, tick: u32) -> bool {
         tick - self.born <= self.lifetime && self.alpha(tick) >= 0.
     }
@@ -546,7 +558,7 @@ pub struct GameWorld {
     pub effect_tick: u32,
     /// The owning scene's map, also available to its nested skit scripts.
     pub current_field: Option<u32>,
-    /// Native runtime EA9 bit 7. Ordinary starts and New Game Plus clear it.
+    /// Debug sessions are disabled for ordinary starts and New Game Plus.
     pub debug_session: bool,
     pub skit: Option<crate::skit::Scene>,
     pub skit_request: Option<crate::skit::Request>,
@@ -554,7 +566,6 @@ pub struct GameWorld {
     pub actors: BTreeMap<i32, Actor>,
     pub(crate) duplicate_actors: BTreeMap<i32, i32>,
     pub(crate) automatic_wings: Option<(u64, u64)>,
-    pub(crate) wing_attachment: Option<crate::wings::RetainedAttachment>,
     pub(crate) actor_order: Vec<i32>,
     pub(crate) next_actor_instance: u64,
     pub camera: Option<CameraTrack>,
@@ -565,8 +576,9 @@ pub struct GameWorld {
     pub overlays: BTreeMap<i32, Overlay>,
     pub effect_settings: BTreeMap<(i32, i32), [i32; 3]>,
     pub character_lights: BTreeMap<i32, crate::effect::CharacterLight>,
-    pub render_settings: BTreeMap<i32, i32>,
-    /// Native field callback clock, held while ConfigureRendering(128, 0).
+    pub texture_bindings: BTreeMap<i32, i32>,
+    pub texture_animation_enabled: bool,
+    /// Texture clock, held while texture animation is disabled.
     pub texture_animation_tick: u64,
     /// Running clock sampled by the last enabled field texture callback.
     pub texture_animation_effect_tick: u32,
@@ -581,8 +593,7 @@ pub struct GameWorld {
     pub(crate) field_exit: Option<crate::field_exit::DoorExit>,
     pub preload_field: Option<u32>,
     pub movie: Option<crate::dialogue::Movie>,
-    /// The original external-media service also owns spoken dialogue. The
-    /// game audio adapter supplies its duration on the gameplay clock.
+    /// Spoken dialogue duration is supplied by the game audio adapter.
     pub voice: Option<VoicePlayback>,
     pub field_camera: Option<crate::camera::CameraRig>,
     pub input_enabled: bool,

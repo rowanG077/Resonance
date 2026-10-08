@@ -263,10 +263,10 @@ impl NativeHost<'_> {
                 actor.grounded = false;
                 actor.casts_shadow = false;
                 actor.depth_write = false;
-                actor.blend = Some(crate::model_particle::Blend::Additive);
-                actor.properties.insert(8, 64);
-                actor.properties.insert(17, 5);
-                actor.properties.insert(39, -1);
+                actor.blend = Some(crate::effect::Blend::Additive);
+                actor.opacity = 64;
+                actor.interaction_label = 5;
+                actor.draw_layer = -1;
                 self.world.insert_actor(a[0], actor);
             }
             NativeCall::CreateSavePoint | NativeCall::CreateSealedSavePoint => {
@@ -663,11 +663,8 @@ impl NativeHost<'_> {
                 actor.collidable = false;
                 actor.grounded = false;
                 actor.casts_shadow = false;
-                for channel in 42..=44 {
-                    actor.properties.insert(channel, 64);
-                }
                 actor.emitter = Some(emitter);
-                actor.properties.insert(5, a[7]);
+                actor.set_movement_speed(a[7] as f32);
                 self.world.insert_actor(a[0], actor);
             }
             NativeCall::BindEffectTexture => {
@@ -893,7 +890,13 @@ impl NativeHost<'_> {
                                 crate::effect::SpriteOrientation::Camera
                             }
                         }
-                        145 => effect.blend_mode = Some(a[2] as u8 & 3),
+                        145 => {
+                            effect.blend = if a[2] & 3 == 3 {
+                                None
+                            } else {
+                                Some(a[2].try_into()?)
+                            }
+                        }
                         PARTICLE_MODE => {
                             const PROPORTIONAL_FADE: i32 = 8;
                             require(a[2] == PROPORTIONAL_FADE, "unsupported particle mode")?;
@@ -1222,7 +1225,7 @@ impl NativeHost<'_> {
                 source.collidable = false;
                 source.casts_shadow = false;
                 source.visible = false;
-                source.properties.insert(17, 0);
+                source.interaction_label = 0;
                 source.enemy_source = Some(crate::enemy_source::EnemySource::new(
                     a[1], enemy, a[17], a[18],
                 )?);
@@ -1292,9 +1295,9 @@ impl NativeHost<'_> {
                 actor.face(a[4] as f32);
                 actor.visible = !locator;
                 actor.interaction_anchor = locator;
-                actor.properties.insert(17, if locator { 0 } else { 2 });
+                actor.interaction_label = if locator { 0 } else { 2 };
                 if locator && op == NativeCall::SpawnActor {
-                    actor.properties.insert(48, 1);
+                    actor.ring_contact_disabled = true;
                 }
                 if op != NativeCall::SpawnActor {
                     // Scenery carries its own collision
@@ -1303,14 +1306,14 @@ impl NativeHost<'_> {
                     actor.collidable = false;
                     actor.casts_shadow = false;
                     actor.cull_outside_view = false;
-                    actor.properties.insert(14, 1);
+                    actor.culling_flags = [None, Some(true)];
                     actor.appearance.model_hidden = op == NativeCall::SpawnCollisionActor;
                     if op == NativeCall::SpawnSceneryActor {
                         const BLOCK_RADIUS: f32 = 50.;
                         const GRAB_HINT: i32 = 20;
-                        actor.role = crate::ActorRole::Pushable;
+                        actor.pushable = true;
                         actor.radius = BLOCK_RADIUS;
-                        actor.properties.insert(17, GRAB_HINT);
+                        actor.interaction_label = GRAB_HINT;
                     }
                     actor.model_collision = Some(
                         self.resources
@@ -1334,18 +1337,13 @@ impl NativeHost<'_> {
                         )
                     });
                 }
-                if a[0] == crate::COLETTE_WINGS_ACTOR {
-                    actor.collidable = false;
-                    actor.contact = crate::ActorContact::None;
-                    actor.grounded = false;
-                    actor.casts_shadow = false;
-                    actor.cull_outside_view = false;
-                    actor.depth_write = false;
-                    actor.blend = Some(crate::model_particle::Blend::Additive);
-                    actor.scripted_animation = true;
-                    if let Some(animation) = &mut actor.animation {
-                        animation.blend_ticks = 2;
+                // Authored wing slots select the profile once, at the script boundary.
+                match a[0] {
+                    crate::wings::AUTOMATIC_WINGS | 90024 => {
+                        actor.set_wings(crate::WingStyle::Layered)
                     }
+                    90026 => actor.set_wings(crate::WingStyle::Echo),
+                    _ => {}
                 }
                 let id = if a[0] == 0 {
                     self.world.unaddressable_actor_key()?
@@ -1821,13 +1819,12 @@ impl NativeHost<'_> {
             actor.position,
         ));
         actor.autonomy.as_mut().unwrap().radius = a[14] as f32;
-        actor.properties.insert(27, i32::from(a[12] as u8));
         actor.enemy = Some(crate::world::Enemy {
             event: a[9] as u16,
             behavior: a[11] as u8,
             normal_speed: a[7].max(0) as f32,
             alert_speed: a[8].max(0) as f32,
-            random_turns: a[12] as u8 != 0,
+            random_turns: a[12] as u8,
             chase_on_sight: a[13] as u8 != 0,
             sight_angle: 90.,
             sight_distance: 600.,

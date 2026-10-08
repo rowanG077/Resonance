@@ -61,7 +61,7 @@ impl super::FieldSession {
         };
         let actor = &self.events.world.actors[&id];
         // Actor property 17 selects its interaction label; zero suppresses it.
-        FieldAction::from_id(actor.interaction_label() as u32)
+        FieldAction::from_id(actor.interaction_label as u32)
     }
 }
 

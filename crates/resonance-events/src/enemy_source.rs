@@ -4,9 +4,6 @@ use crate::{Actor, GameWorld};
 
 const MATERIALIZE_TICKS: u32 = 120;
 const GROW_TICKS: u32 = 90;
-const OPACITY: i32 = 8;
-const SCALE: [i32; 3] = [30, 31, 32];
-const TINT: [i32; 3] = [42, 43, 44];
 const FULL_SCALE: u32 = 100;
 const INITIAL_WIDTH: u32 = 10;
 const INITIAL_HEIGHT: u32 = 300;
@@ -76,19 +73,13 @@ impl GameWorld {
                 Phase::Materializing(elapsed) => {
                     let grown = (*elapsed + 1).min(GROW_TICKS);
                     actor.visible = true;
-                    actor
-                        .properties
-                        .insert(OPACITY, (grown * COLOR_STEP) as i32);
+                    actor.opacity = (grown * COLOR_STEP) as u8;
                     let width = INITIAL_WIDTH + grown;
                     let height =
                         INITIAL_HEIGHT - grown * (INITIAL_HEIGHT - FULL_SCALE) / GROW_TICKS;
-                    for (axis, scale) in SCALE.into_iter().zip([width, width, height]) {
-                        actor.properties.insert(axis, scale as i32);
-                    }
+                    actor.scale_percent = [width, width, height].map(|s| s as i32);
                     let tint = FULL_TINT - grown * COLOR_STEP;
-                    for channel in TINT {
-                        actor.properties.insert(channel, tint as i32);
-                    }
+                    actor.tint = [tint as u8; 3];
                     if *elapsed < MATERIALIZE_TICKS {
                         *elapsed += 1;
                         continue;

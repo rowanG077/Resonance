@@ -414,7 +414,7 @@ fn martel_golem_battle_creates_a_pushable_block() -> Result<()> {
         .actors
         .get(&5000)
         .context("defeated golem block")?;
-    assert!(block.pushable());
+    assert!(block.pushable);
     assert!(block.model_collision.is_some());
     assert!(field.events.exploration_error.is_none());
     Ok(())
@@ -702,19 +702,19 @@ fn mana_lamps_bind_the_animated_flame_texture() -> Result<()> {
         serde_json::from_slice(&std::fs::read(root.join("fields/map-362.json"))?)?;
     let mut field = enter(MANA_START, 362, None)?;
     advance_until(&mut field, |field| {
-        field.events.world.render_settings.get(&128) == Some(&1)
+        field.events.world.texture_animation_enabled
     })?;
     let [track] = assets.texture_animations.as_slice() else {
         anyhow::bail!("missing Mana flame atlas");
     };
     let world = &field.events.world;
-    let actor = &world.actors[&track.actor.resolve(&world.render_settings)];
+    let actor = &world.actors[&track.actor.resolve(&world.texture_bindings)];
     assert_eq!(
         actor.resource,
         resonance_content::field::SCENERY_RESOURCE_BASE + 2
     );
     assert!(actor.visible);
-    let texture = track.texture.resolve(&world.render_settings);
+    let texture = track.texture.resolve(&world.texture_bindings);
     let flames = assets.parts.iter().find(|part| part.resource == 2).unwrap();
     assert!(
         flames
@@ -1178,24 +1178,35 @@ fn balacruf_light_column_stops_before_remiel_descends() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn triet_seal_scripted_wings_animate_and_emit_sparks() -> Result<()> {
     let mut field = enter(FIRST_WINGS, FIRST_WINGS.map, None)?;
-    let mut saw_wings = false;
+    let mut previous_pose = None;
+    let (mut moved, mut emitted) = (false, false);
     let battles = replay(&mut field, |field| {
         let world = &field.events.world;
-        saw_wings |= world
-            .actors
-            .get(&resonance_events::COLETTE_WINGS_ACTOR)
-            .is_some_and(|wing| {
-                wing.resource == 0x0002_0164
-                    && wing
-                        .animation
-                        .as_ref()
-                        .is_some_and(|a| matches!(a.slot, 80 | 84) && a.rate > 0.)
-                    && world
-                        .billboards
-                        .values()
-                        .any(|spark| spark.recipe == resonance_content::effect::WING_SPARK_SPRITE)
-            });
-        saw_wings && field.player_has_control()
+        if let Some(wing) = world.actors.values().find(|actor| {
+            actor.wings.is_some() && actor.attachment.as_ref().is_some_and(|a| a.actor == 2)
+        }) {
+            let resources = field.events.resources();
+            let animation = wing.animation.as_ref().expect("wings must animate");
+            let pose = resources.attachment_pose(wing).expect("prepared wing pose");
+            let sample = animation.sample(world.tick, 0, animation.duration_ticks as f32);
+            let matrices: Vec<_> = resources
+                .model(wing.resource)
+                .unwrap()
+                .names
+                .iter()
+                .map(|name| pose.sample_matrix(name, sample).unwrap())
+                .collect();
+            assert!(!matrices.is_empty());
+            if let Some((instance, previous)) = &previous_pose {
+                moved |= *instance == wing.instance && *previous != matrices;
+            }
+            previous_pose = Some((wing.instance, matrices));
+            emitted |= world
+                .billboards
+                .values()
+                .any(|spark| spark.recipe == resonance_content::effect::WING_SPARK_SPRITE);
+        }
+        moved && emitted && field.player_has_control()
     })?;
     assert!(battles > 0);
     assert_eq!(mission(&field, 0x40), 1_303_000);
@@ -1331,7 +1342,10 @@ fn thoda_seal_finishes_after_colette_releases_her_wings() -> Result<()> {
             .events
             .world
             .actors
-            .get(&resonance_events::COLETTE_WINGS_ACTOR)
+            .values()
+            .find(|actor| {
+                actor.wings.is_some() && actor.attachment.as_ref().is_some_and(|a| a.actor == 2)
+            })
             .is_some_and(|a| a.visible);
         wings && f.player_has_control() && mission(f, 0xc4) == 21_000
     })?;
@@ -1370,9 +1384,9 @@ fn thoda_bridge_targets_a_live_material_and_scrolls() -> Result<()> {
         })
         .context("missing exterior bridge callback")?;
     let world = &field.events.world;
-    assert_eq!(world.render_settings.get(&128), Some(&1));
-    let id = bridge.actor.resolve(&world.render_settings);
-    let texture = bridge.texture.resolve(&world.render_settings);
+    assert!(world.texture_animation_enabled);
+    let id = bridge.actor.resolve(&world.texture_bindings);
+    let texture = bridge.texture.resolve(&world.texture_bindings);
     let actor = world.actors.get(&id).context("bridge actor is absent")?;
     assert!(actor.visible);
     let model = assets

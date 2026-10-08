@@ -760,7 +760,7 @@ impl Cast {
                         length * (1. + amount),
                     ];
                     model.rgba = [64, 64, blue, (alpha * amount) as u8];
-                    model.blend = crate::model_particle::Blend::Additive;
+                    model.blend = crate::effect::Blend::Additive;
                 }
             }
             Ability::Bubble(_) => {
@@ -1061,7 +1061,5 @@ fn muzzle_height(world: &GameWorld, resources: &ResourceLibrary, id: i32) -> Res
         model.attachment_pose_delay,
         clip.duration_ticks as f32,
     );
-    Ok(pose.sample_offset(BONE, sample, [0.; 3])?[2]
-        * actor.properties.get(&32).copied().unwrap_or(100) as f32
-        / 100.)
+    Ok(pose.sample_offset(BONE, sample, [0.; 3])?[2] * actor.scale_percent[2] as f32 / 100.)
 }

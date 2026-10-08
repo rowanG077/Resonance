@@ -99,14 +99,14 @@ fn stacked_blocks_can_be_moved_in_martel_triet_and_palmacosta() -> Result<()> {
             upper.position = [-890., -925., -700.];
         }
         upper.visible = true;
-        upper.properties.insert(19, 1);
-        upper.properties.insert(17, 20);
+        upper.pushable = true;
+        upper.interaction_label = 20;
         upper.radius = 50.;
         field.events.world.insert_actor(6000, upper);
         if map != 308 {
             let mut support = field.actor(block).clone();
             support.position[1] -= 150.;
-            support.properties.insert(19, 0);
+            support.pushable = false;
             field.events.world.insert_actor(6001, support);
         }
         ticks(&mut field, 30, FieldInput::default())?;

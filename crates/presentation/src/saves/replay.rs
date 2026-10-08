@@ -469,7 +469,7 @@ pub(crate) fn record_live(
                         "autonomy":autonomy,"position":actor.position,"heading":actor.heading,
                         "target_heading":actor.target_heading,
                         "model_scale":actor.model_scale(),
-                        "model_alpha":actor.properties.get(&8).copied().unwrap_or(255),
+                        "model_alpha":actor.opacity,
                         "animation":actor.animation.as_ref().map(|a|serde_json::json!({
                             "slot":a.slot,"sample":a.sample(field.events.tick(),0,a.duration_ticks as f32),
                             "rate":a.rate,"blend":a.blend_weight(field.events.tick())}))

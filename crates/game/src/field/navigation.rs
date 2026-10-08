@@ -117,7 +117,7 @@ impl WalkMesh {
         moving: Option<i32>,
     ) {
         for (&id, actor) in &mut world.actors {
-            if moving == Some(id) || !actor.pushable() || actor.motion.is_some() {
+            if moving == Some(id) || !actor.pushable || actor.motion.is_some() {
                 continue;
             }
             let next = actor.position[2] - BLOCK_FALL_STEP;
@@ -238,7 +238,7 @@ impl WalkMesh {
                         .collect();
                     // Block solids include clearance for walking characters. A swept
                     // body supplies its own clearance, so use the physical block faces.
-                    let body_planes = (actor.pushable() && !mesh.floors.is_empty()).then(|| {
+                    let body_planes = (actor.pushable && !mesh.floors.is_empty()).then(|| {
                         mesh.floors
                             .iter()
                             .flat_map(|group| actor.collision_triangles(group))

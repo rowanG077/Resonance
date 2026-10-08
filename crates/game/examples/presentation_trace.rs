@@ -277,7 +277,7 @@ fn main() -> Result<()> {
         if w.input_enabled {
             println!(
                 "tick {tick}: player control; render settings {:?}",
-                w.render_settings
+                w.texture_bindings
             );
             if !exit
                 || exit_started

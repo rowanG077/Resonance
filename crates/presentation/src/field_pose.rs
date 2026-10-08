@@ -225,7 +225,12 @@ pub(super) fn attachments(
         let Some(actor) = world.actors.get(&part.actor) else {
             continue;
         };
-        let Some(attachment) = &actor.attachment else {
+        let Some(attachment) = actor
+            .wings
+            .as_ref()
+            .and_then(|w| w.layer(part.pass, world.effect_tick).echo)
+            .map_or(actor.attachment.as_ref(), |echo| echo.attachment.as_ref())
+        else {
             continue;
         };
         let owner = actors

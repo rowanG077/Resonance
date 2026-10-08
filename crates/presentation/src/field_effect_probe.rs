@@ -2,8 +2,10 @@
 use anyhow::{Result, ensure};
 use resonance_events::{
     GameWorld,
-    effect::{BillboardEffect, Fade, Flutter, RefractionImage, RefractionPulse, SpriteOrientation},
-    model_particle::{Blend, ModelParticle},
+    effect::{
+        BillboardEffect, Blend, Fade, Flutter, RefractionImage, RefractionPulse, SpriteOrientation,
+    },
+    model_particle::ModelParticle,
 };
 use serde::{Deserialize, Serialize};
 
@@ -75,7 +77,11 @@ impl EffectProbe {
                 sprite.size = self.size;
                 sprite.rgba = self.rgba;
                 sprite.orientation = orientation;
-                sprite.blend_mode = Some(self.blend);
+                sprite.blend = Some(
+                    i32::from(self.blend)
+                        .try_into()
+                        .expect("validated probe blend"),
+                );
                 sprite.field_fog = false;
                 world.billboards.insert(id, sprite);
             }

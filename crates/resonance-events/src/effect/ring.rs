@@ -102,7 +102,7 @@ impl Visuals {
                 let mut glow = sprite(super::GLOW_SPRITE, size + variation(random, 16), lifetime);
                 glow.uv = Some(PROJECTILE_GLOW_UV);
                 glow.rgba = [rgb[0], rgb[1], rgb[2], 247];
-                glow.blend_mode = Some(1);
+                glow.blend = Some(crate::effect::Blend::Additive);
                 glow.rotation[2] = variation(random, 256) - 3.;
                 glow.angular_velocity[2] = -3.;
                 glow.size_delta = shrink;
@@ -124,7 +124,7 @@ impl Visuals {
             );
             spark.rgba = [inner[0], inner[1], inner[2], 247];
             spark.uv = Some(PROJECTILE_GLOW_UV);
-            spark.blend_mode = Some(1);
+            spark.blend = Some(crate::effect::Blend::Additive);
             spark.velocity = if impact {
                 std::array::from_fn(|i| {
                     let spread = if i == 2 {
@@ -155,7 +155,7 @@ impl Visuals {
             let angle = -(((age - 1) * SAMPLES + sample + 1) as f32 * TURN_PER_SAMPLE).to_radians();
             let mut dot = sprite(super::GLOW_SPRITE, 8. + variation(random, 16), 16);
             dot.uv = Some(PROJECTILE_GLOW_UV);
-            dot.blend_mode = Some(1);
+            dot.blend = Some(crate::effect::Blend::Additive);
             dot.position =
                 std::array::from_fn(|i| self.velocity[i] * sample as f32 / SAMPLES as f32);
             dot.position[0] += RADIUS * angle.cos() * cos;
@@ -208,7 +208,7 @@ impl Visuals {
             for _ in 0..4 {
                 let size = age as f32 * 2.;
                 let mut dot = sprite(super::GLOW_SPRITE, size, lifetime + 1);
-                dot.blend_mode = Some(0);
+                dot.blend = Some(crate::effect::Blend::Alpha);
                 dot.rgba = if dark {
                     [0, 0, 0, 252]
                 } else {
@@ -384,7 +384,7 @@ impl Visuals {
                 size + variation(random, spread),
                 2 + variation(random, 16) as u32,
             );
-            glow.blend_mode = Some(1);
+            glow.blend = Some(crate::effect::Blend::Additive);
             glow.position[2] = HEIGHT;
             glow.rgba = [rgb[0], rgb[1], rgb[2], 184];
             glow.size_delta = if size == 200. {
@@ -407,7 +407,11 @@ impl Visuals {
         ] {
             let mut wave = sprite(image, 21., 31);
             wave.rgba = [rgb[0], rgb[1], rgb[2], 200];
-            wave.blend_mode = Some(u8::from(image == super::WORLD_GLOW_SPRITE));
+            wave.blend = Some(if image == super::WORLD_GLOW_SPRITE {
+                super::Blend::Additive
+            } else {
+                super::Blend::Alpha
+            });
             wave.size_delta = 20.;
             self.add(wave);
         }
