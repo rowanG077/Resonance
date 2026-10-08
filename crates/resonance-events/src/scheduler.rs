@@ -919,6 +919,14 @@ impl EventRuntime {
             }
         }
         self.remove_cancelled_dialogue();
+        if result.is_ok() && std::mem::take(&mut self.world.restore_battle_music) {
+            self.world
+                .audio_commands
+                .push(crate::AudioCommand::MusicVolume {
+                    volume: 127,
+                    duration_ticks: 0,
+                });
+        }
         result
     }
     /// Authored roots request control until released; their callbacks keep the
