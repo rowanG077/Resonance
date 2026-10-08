@@ -554,24 +554,26 @@ fn quake_finishes_and_stops_shaking() {
 
 #[test]
 fn controlled_actor_wait_finishes_the_vertical_motion_before_resuming() {
-    let setup = script(&[
-        (Call::MoveActor, &[CONTROLLED_ACTOR, 0, 0, -100, 20]),
-        (Call::YieldCommand, &[4, CONTROLLED_ACTOR]),
-        (Call::SetEventBit, &[42]),
-    ]);
-    let mut world = GameWorld::default();
-    world.controlled_actor = 7;
-    let mut actor = Actor::new(7, [0.; 3]);
-    actor.grounded = false;
-    world.insert_actor(7, actor);
-    let mut events = runtime(program(&setup, &[0x20ff]), Default::default(), world);
-    for _ in 0..6 {
+    for wait in [4, 6] {
+        let setup = script(&[
+            (Call::MoveActor, &[CONTROLLED_ACTOR, 0, 0, -100, 20]),
+            (Call::YieldCommand, &[wait, CONTROLLED_ACTOR]),
+            (Call::SetEventBit, &[42]),
+        ]);
+        let mut world = GameWorld::default();
+        world.controlled_actor = 7;
+        let mut actor = Actor::new(7, [0.; 3]);
+        actor.grounded = false;
+        world.insert_actor(7, actor);
+        let mut events = runtime(program(&setup, &[0x20ff]), Default::default(), world);
+        for _ in 0..6 {
+            events.step().unwrap();
+            assert!(!events.world.event_flags.contains(&42));
+        }
         events.step().unwrap();
-        assert!(!events.world.event_flags.contains(&42));
+        assert!(events.world.event_flags.contains(&42));
+        assert_eq!(events.world.actors[&7].position, [0., 0., -100.]);
     }
-    events.step().unwrap();
-    assert!(events.world.event_flags.contains(&42));
-    assert_eq!(events.world.actors[&7].position, [0., 0., -100.]);
 }
 
 #[test]

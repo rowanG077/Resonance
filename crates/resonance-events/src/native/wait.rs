@@ -24,7 +24,7 @@ impl Command {
             1 => Self::Resource,
             2 => Self::DialogueClosed,
             3 => Self::DialogueReady,
-            4 => Self::ActorMotion,
+            4 | 6 => Self::ActorMotion,
             7 => Self::ActorAnimation,
             8 => Self::Camera,
             9..=13 => Self::CameraPath(code as u8),
