@@ -14,6 +14,7 @@ const THODA_STAIRS: u32 = 8;
 const THODA_PUZZLE: u32 = 9;
 const THODA_SEAL: u32 = 10;
 const ASGARD_CONVEYOR: u32 = 213;
+const TRIET_SEAL: u32 = 221;
 const SYLVARANT_BASE_HALL: u32 = 270;
 const MARTEL_SEAL: u32 = 307;
 const MANA_LAMPS: u32 = 362;
@@ -107,6 +108,12 @@ pub(crate) fn profiles() -> BTreeMap<u32, Vec<FieldTextureAnimation>> {
             vec![scroll(BACKGROUND, Setting(0), [-1. / 60., 0.])],
         ),
         (
+            TRIET_SEAL,
+            (0..=1)
+                .map(|texture| scroll(Setting(2), Setting(texture), [0., -0.002]))
+                .collect(),
+        ),
+        (
             BALACRUF_WIND,
             vec![scroll(Setting(0), Fixed(0), [0., -0.01])],
         ),
@@ -174,6 +181,21 @@ mod tests {
             for track in tracks {
                 track.validate()?;
             }
+        }
+        let seal_settings = BTreeMap::from([(0, 1), (1, 2), (2, 1005)]);
+        let seal = &profiles[&TRIET_SEAL];
+        assert_eq!(
+            seal.iter()
+                .map(|track| (
+                    track.actor.resolve(&seal_settings),
+                    track.texture.resolve(&seal_settings)
+                ))
+                .collect::<Vec<_>>(),
+            [(1005, 1), (1005, 2)]
+        );
+        for track in seal {
+            assert_ne!(track.offset(60, 0), track.offset(0, 0));
+            assert_eq!(track.offset(60, 100), track.offset(60, 0));
         }
         assert_eq!(profiles[&MANA_BRIDGES][0].offset(1000, 0), [0., -2.]);
         let lamps = &profiles[&MANA_LAMPS][0];
