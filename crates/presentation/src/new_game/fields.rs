@@ -211,7 +211,7 @@ impl FieldPackage {
             &self.assets,
             entry,
         )?;
-        field.voice_durations = self.audio.voice_durations();
+        field.events.world.voice_durations = self.audio.voice_durations();
         field.prepare_skits(&self.files)?;
         Ok(field)
     }

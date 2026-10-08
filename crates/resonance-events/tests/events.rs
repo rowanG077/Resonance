@@ -3189,41 +3189,26 @@ fn satisfied_service_waits_preserve_separate_resume_updates() {
 }
 
 #[test]
-fn movie_waits_follow_decoding_presentation_and_completion_not_elapsed_ticks() {
+fn voice_commands_ignore_unqualified_ids_and_honor_playback_waits() {
+    let voice = 0xa0001;
     let main = script(&[
-        (Call::PlayMovie, &[8]),
-        (Call::YieldCommand, &[14, 0]),
-        (Call::ConfigureRendering, &[0, 1]),
-        (Call::YieldCommand, &[19, 12]),
-        (Call::ConfigureRendering, &[1, 2]),
+        (Call::PlayVoice, &[24]),
+        (Call::PlayVoice, &[voice]),
         (Call::YieldCommand, &[15, 0]),
-        (Call::ConfigureRendering, &[2, 3]),
+        (Call::PlayVoice, &[-1]),
     ]);
-    let mut resources = ResourceLibrary::default();
-    resources.movies.insert(8);
-    let mut events = runtime(program(&main, &[0x20ff]), resources, Default::default());
-    let movie = events.world.movie.as_ref().unwrap().operation.clone();
-    steps(&mut events, 20);
-    assert!(events.world.texture_bindings.is_empty());
-    movie.advance(0).unwrap();
-    events.step().unwrap();
-    assert!(events.world.texture_bindings.is_empty());
-    events.step().unwrap();
-    assert_eq!(events.world.texture_bindings.len(), 1);
-    movie.advance(11).unwrap();
-    events.step().unwrap();
-    assert_eq!(events.world.texture_bindings.len(), 1);
-    movie.advance(12).unwrap();
-    events.step().unwrap();
-    assert_eq!(events.world.texture_bindings.len(), 1);
-    events.step().unwrap();
-    assert_eq!(events.world.texture_bindings.len(), 2);
-    movie.complete(None).unwrap();
-    events.step().unwrap();
-    assert_eq!(events.world.texture_bindings.len(), 2);
-    events.step().unwrap();
-    assert_eq!(events.world.texture_bindings.len(), 3);
+    let mut world = GameWorld::default();
+    world.voice_durations = Arc::new([(voice as u32, 4)].into());
+    let mut events = runtime(program(&main, &[0x20ff]), Default::default(), world);
+    assert!(events.world.movie.is_none());
+    assert_eq!(events.world.voice.as_ref().unwrap().resource, voice as u32);
+    steps(&mut events, 2);
+    assert!(events.active_instances() > 0);
+    steps(&mut events, 4);
     assert_eq!(events.active_instances(), 0);
+    assert!(events.world.voice.is_none());
+    assert!(matches!(events.world.audio_commands.as_slice(),
+        [resonance_events::AudioCommand::Voice(id), resonance_events::AudioCommand::StopVoice] if *id == voice as u32));
 }
 
 #[test]

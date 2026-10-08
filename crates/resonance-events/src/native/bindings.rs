@@ -95,7 +95,7 @@ impl Host for NativeHost<'_> {
         PlaySoundSimple(2) -> () = field;
         SetActorAmbientSound(4) -> () = field;
         PlayMovieBlocking(1) -> () = dispatch;
-        PlayMovie(1) -> () = dispatch;
+        PlayVoice(1) -> () = dispatch;
         CreatePortrait(13) -> () = skit;
         LoadPortrait(1) -> i32 = skit;
         WaitMediaPosition(1) -> () = skit;

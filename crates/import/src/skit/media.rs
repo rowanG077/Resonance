@@ -6,7 +6,7 @@ use symphonia_script::NativeCall;
 
 pub(super) fn requests(bytes: &[u8]) -> Result<BTreeSet<u32>> {
     let mut requested = BTreeSet::new();
-    for arguments in crate::field_resources::literal_arguments(bytes, NativeCall::PlayMovie, 1)? {
+    for arguments in crate::field_resources::literal_arguments(bytes, NativeCall::PlayVoice, 1)? {
         let id = arguments[0].context("dynamic skit media request")?;
         if id != -1 {
             requested.insert(id as u32);

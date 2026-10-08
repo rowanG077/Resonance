@@ -109,7 +109,6 @@ pub struct FieldSession {
     skits: skit::Skits,
     pub active_skit: Option<SkitPlayback>,
     skit_programs: BTreeMap<u16, skit::Prepared>,
-    pub voice_durations: Arc<BTreeMap<u32, u32>>,
     pub voice_feedback: Option<Arc<dyn crate::dialogue::VoiceFeedback>>,
     /// Actor -> first update of its current continuous dialogue mouth cycle.
     pub talking: BTreeMap<i32, u32>,
@@ -268,7 +267,6 @@ impl FieldSession {
             },
             blocks: Default::default(),
             action_hints: Default::default(),
-            voice_durations: Default::default(),
             voice_feedback: None,
             talking: Default::default(),
             walkmesh: navigation::WalkMesh::new(&assets.ground)?,
@@ -980,7 +978,7 @@ impl FieldSession {
                             .as_ref()
                             .map_or(3, |p| u16::from(p.settings.preferences.message_speed)),
                     )?
-                    .with_voice_durations(self.voice_durations.clone())
+                    .with_voice_durations(self.events.world.voice_durations.clone())
                     .with_voice_feedback(self.voice_feedback.clone()),
                 );
             }
@@ -1009,7 +1007,12 @@ impl FieldSession {
                         self.events.world.voice = Some(resonance_events::VoicePlayback {
                             resource: id,
                             end_tick: self.events.world.tick.saturating_add(
-                                self.voice_durations.get(&id).copied().unwrap_or(0),
+                                self.events
+                                    .world
+                                    .voice_durations
+                                    .get(&id)
+                                    .copied()
+                                    .unwrap_or(0),
                             ),
                         });
                         resonance_events::AudioCommand::Voice(id)
@@ -1639,7 +1642,6 @@ mod tests {
             skits: Default::default(),
             active_skit: None,
             skit_programs: BTreeMap::new(),
-            voice_durations: Default::default(),
             voice_feedback: None,
             talking: Default::default(),
             events,

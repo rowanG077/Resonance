@@ -575,6 +575,7 @@ pub struct GameWorld {
     pub movie: Option<crate::dialogue::Movie>,
     /// Spoken dialogue duration is supplied by the game audio adapter.
     pub voice: Option<VoicePlayback>,
+    pub voice_durations: std::sync::Arc<BTreeMap<u32, u32>>,
     pub field_camera: Option<crate::camera::CameraRig>,
     pub input_enabled: bool,
     pub menu_disabled: bool,
@@ -1042,7 +1043,7 @@ impl GameWorld {
     pub fn blocked_by_movie(&self) -> bool {
         self.movie
             .as_ref()
-            .is_some_and(|movie| movie.blocking && movie.operation.is_pending())
+            .is_some_and(|movie| movie.operation.is_pending())
     }
     pub fn brightness(&self) -> f32 {
         1. - self.fade.as_ref().map_or(255., |f| f.alpha(self.tick)) as u8 as f32 / 255.

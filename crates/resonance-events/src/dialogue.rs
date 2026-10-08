@@ -290,8 +290,6 @@ impl Choice {
 #[derive(Debug, Clone)]
 pub struct Movie {
     pub resource: u32,
-    /// Full-screen story playback owns the scene until it completes.
-    pub blocking: bool,
     /// Ready means decoded frames can be presented; position is the presented
     /// frame index. Complete only after playback ends or the player skips.
     pub operation: Operation,

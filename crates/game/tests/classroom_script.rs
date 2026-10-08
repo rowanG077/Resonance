@@ -3604,7 +3604,7 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
 fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
     let audio: resonance_content::field_audio::FieldAudio = cooked("fields/map-340-audio.json");
     let mut session = classroom(Default::default());
-    session.voice_durations = Arc::new(
+    session.events.world.voice_durations = Arc::new(
         audio
             .voices
             .iter()
@@ -3618,7 +3618,7 @@ fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
             })
             .collect(),
     );
-    let required = session.voice_durations[&655379];
+    let required = session.events.world.voice_durations[&655379];
     let mut started = None;
     let mut mouth_moved = false;
     for _ in 0..20000 {
