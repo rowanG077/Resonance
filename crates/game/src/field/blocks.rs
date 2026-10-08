@@ -645,6 +645,10 @@ mod tests {
                 "block sank into the filled pit: {z}"
             );
         }
+        for _ in 0..MOVE_UPDATES {
+            step(&mut events, &mesh, &mut blocks, held([1., 0.]));
+        }
+        assert_eq!(events.world.actors[&2].position[..2], [-1190., -1375.]);
         Ok(())
     }
     #[test]

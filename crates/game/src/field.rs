@@ -726,7 +726,13 @@ impl FieldSession {
                         && !*grabbing
                         && (!scripted_control || actor.motion.is_none())
                     {
-                        walkmesh.resolve_player(previous, actor.position, player_fall, event_paused)
+                        walkmesh
+                            .resolve_player(previous, actor.position, player_fall, event_paused)
+                            .or_else(|| {
+                                (!scripted_control && !event_paused)
+                                    .then(|| walkmesh.landing_near(actor.position, actor.radius))
+                                    .flatten()
+                            })
                     } else if actor.enemy.is_some() {
                         walkmesh.resolve_enemy(actor.position, actor.instance)
                     } else {

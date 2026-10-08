@@ -200,7 +200,14 @@ impl Wait {
                     .actors
                     .get(id)
                     .and_then(|a| a.animation.as_ref())
-                    .is_none_or(|a| a.elapsed(world.tick, 0) >= a.duration_ticks as f32));
+                    .is_none_or(|a| {
+                        let frame = a.elapsed(world.tick, 0);
+                        if a.script_rate() < 0. {
+                            frame <= 0.
+                        } else {
+                            frame >= a.duration_ticks as f32
+                        }
+                    }));
             }
             Self::ActorAnimationFrame(id, frame) => {
                 // Native model time is in 30-Hz authored frames; cooked poses
