@@ -4,6 +4,20 @@ use super::enter;
 use anyhow::Result;
 
 #[test]
+#[ignore = "requires locally cooked Dirk scenes; no devices"]
+fn balcony_conversation_finishes_and_returns_to_the_house() -> Result<()> {
+    let mut field = enter(MARTEL_START, 373, Some(502_000))?;
+    field.replay(|f| Ok(f.events.world.field_transition.is_some()))?;
+    assert_eq!(field.story_progress()?, 504_000);
+    assert_eq!(
+        field.events.world.field_transition.as_ref().unwrap().map,
+        375
+    );
+    assert!(field.events.world.movie.is_none());
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires locally cooked Iselia scenes; no devices"]
 fn genis_attacks_the_guards_and_the_party_escapes() -> Result<()> {
     let mut field = enter(MARTEL_START, 193, Some(304_000))?;

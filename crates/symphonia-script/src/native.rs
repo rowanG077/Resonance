@@ -102,7 +102,7 @@ native_calls! {
     SetActorAmbientSound = 0x53,
     PlayMovieBlocking = 0x54,
     Unknown55 = 0x55,
-    PlayMovie = 0x56,
+    PlayVoice = 0x56,
     CreatePortrait = 0x57,
     LoadPortrait = 0x58,
     WaitMediaPosition = 0x59,

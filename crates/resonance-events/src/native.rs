@@ -820,7 +820,7 @@ impl NativeHost<'_> {
                     .effect_settings
                     .insert((a[0], a[1]), [a[2], a[3], a[4]]);
             }
-            NativeCall::PlayMovieBlocking | NativeCall::PlayMovie if a[0] != -1 => {
+            NativeCall::PlayMovieBlocking => {
                 let resource = u32::try_from(a[0]).map_err(|_| "invalid movie ID")?;
                 require(
                     self.resources.movies.contains(&resource),
@@ -828,26 +828,38 @@ impl NativeHost<'_> {
                 )?;
                 let movie = Movie {
                     resource,
-                    blocking: op == NativeCall::PlayMovieBlocking,
                     operation: self.world.operations.begin()?,
                 };
                 self.world.voice = None;
-                *self.wait = Some(if movie.blocking {
-                    Wait::Complete(movie.operation.clone())
-                } else {
-                    Wait::Ready(movie.operation.clone())
-                });
+                *self.wait = Some(Wait::Complete(movie.operation.clone()));
                 if let Some(old) = self.world.movie.replace(movie) {
                     old.operation.cancel();
                 }
                 return Ok(NativeResult::Suspend);
             }
-            NativeCall::PlayMovie => {
-                require(a[0] == -1, "unsupported movie control")?;
-                if let Some(movie) = &self.world.movie
-                    && movie.operation.is_pending()
-                {
-                    movie.operation.complete(None)?;
+            NativeCall::PlayVoice => {
+                // Voice IDs pair a bank in the high half with a line in the low half.
+                // A bare line number does not select a stream.
+                if a[0] == -1 {
+                    self.world.voice = None;
+                    self.world
+                        .audio_commands
+                        .push(crate::AudioCommand::StopVoice);
+                } else if a[0] as u32 >> 16 != 0 {
+                    let resource = a[0] as u32;
+                    let duration = self
+                        .world
+                        .voice_durations
+                        .get(&resource)
+                        .ok_or("voice is not cooked")?;
+                    self.world.voice = Some(crate::VoicePlayback {
+                        resource,
+                        end_tick: self.world.tick.saturating_add(*duration),
+                    });
+                    self.world
+                        .audio_commands
+                        .push(crate::AudioCommand::Voice(resource));
+                    return self.yield_update();
                 }
             }
             NativeCall::ShowChoice => {
@@ -1287,7 +1299,7 @@ impl NativeHost<'_> {
             && matches!(
                 call,
                 NativeCall::DespawnActor
-                    | NativeCall::PlayMovie
+                    | NativeCall::PlayVoice
                     | NativeCall::YieldCommand
                     | NativeCall::SetActorProperty
                     | NativeCall::SetActorPathPoint

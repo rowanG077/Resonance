@@ -148,11 +148,17 @@ fn arguments(script: &[u8], call: NativeCall, arity: usize) -> Result<Option<BTr
 }
 
 fn voices(script: &[u8]) -> Result<BTreeSet<u32>> {
+    let mut voices = BTreeSet::new();
+    for args in crate::field_resources::literal_arguments(script, NativeCall::PlayVoice, 1)? {
+        let id = args[0].context("dynamic field voice request")? as u32;
+        if id != u32::MAX && id >> 16 != 0 {
+            voices.insert(id);
+        }
+    }
     let offset = scenario::parse_header(script)?.auxiliary_offset();
     if offset == 0 {
-        return Ok(BTreeSet::new());
+        return Ok(voices);
     }
-    let mut voices = BTreeSet::new();
     for message in message::parse(
         script
             .get(offset..)
@@ -198,6 +204,23 @@ fn voices(script: &[u8]) -> Result<BTreeSet<u32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_voice_dependencies_require_a_bank_and_a_line() {
+        let mut source =
+            String::from(".scenario\n.code_base 4\n.word 4\n.word 0\n.word 0\n.word 0\n");
+        for id in [24, -1, 0xa0001] {
+            source.push_str(&format!(
+                "push.s32 {id}\ncalc 0\narg\nproc {}\n",
+                NativeCall::PlayVoice as u8,
+            ));
+        }
+        source.push_str("end\n");
+        assert_eq!(
+            voices(&scenario::assemble(&source).unwrap()).unwrap(),
+            [0xa0001].into()
+        );
+    }
 
     #[test]
     fn sound_dependencies_do_not_require_a_local_bank_switch() -> Result<()> {

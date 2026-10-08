@@ -1298,7 +1298,7 @@ fn capture_field_cached(
         }
         (assets, session)
     };
-    session.voice_durations = if let Some(package) = packages.get(&assets.map_id) {
+    session.events.world.voice_durations = if let Some(package) = packages.get(&assets.map_id) {
         package.audio.voice_durations()
     } else {
         super::field_audio::Assets::load(&root, assets.map_id)?.voice_durations()
