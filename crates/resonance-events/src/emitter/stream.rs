@@ -12,7 +12,6 @@ pub(crate) struct Stream {
     pub(super) count: u32,
     pub(super) radius: [f32; 2],
     pub(super) filled: bool,
-    pub(super) converge: bool,
     pub(super) size_variation: [f32; 2],
     pub(super) speed_variation: f32,
     pub(super) speed_scale: f32,
@@ -23,9 +22,7 @@ pub(crate) struct Stream {
     pub(super) camera_offset: Option<f32>,
     pub(super) inherit_appearance: bool,
     pub(super) owned: bool,
-    pub(super) preserve_particles: bool,
     pub(super) limit: Option<u32>,
-    pub(super) flash: Option<BillboardEffect>,
 }
 impl Stream {
     #[allow(clippy::too_many_arguments)]
@@ -34,7 +31,6 @@ impl Stream {
         state: &mut State,
         owner: i32,
         center: [f32; 3],
-        camera: [f32; 3],
         actor: &crate::Actor,
         born: u32,
         tick: u32,
@@ -42,12 +38,6 @@ impl Stream {
         out: &mut Vec<BillboardEffect>,
     ) {
         let s = self;
-        let center = if s.converge {
-            let direction = normalized([camera[0], camera[1], 0.]);
-            std::array::from_fn(|i| center[i] + direction[i] * s.camera_offset.unwrap_or(0.))
-        } else {
-            center
-        };
         let actor_speed = actor.movement_speed();
         if s.limit.is_some_and(|limit| state.emitted >= limit) {
             return;
@@ -57,15 +47,6 @@ impl Stream {
             return;
         }
         let speed = actor_speed * s.speed_scale;
-        if state.emitted == 0
-            && let Some(flash) = &s.flash
-        {
-            let mut flash = flash.clone();
-            flash.position = center;
-            flash.born = born;
-            flash.palette = s.palette.map(|color| palette(color, random));
-            out.push(flash);
-        }
         let count = s
             .limit
             .map_or(s.count, |limit| s.count.min(limit - state.emitted));
@@ -101,22 +82,10 @@ impl Stream {
                 p.velocity[1] += sin * (s.radial_speed + actor_speed * s.radial_speed_scale);
                 p.velocity[2] += speed + random_unit(random) * s.speed_variation;
             }
-            if s.converge {
-                let orbit = super::Orbit::new(center, normalized(camera), spread, 0., angle, 0.);
-                p.position = orbit.position(0);
-                p.velocity =
-                    std::array::from_fn(|i| (center[i] - p.position[i]) / p.lifetime as f32);
-                let [x, y, z] = p.velocity;
-                p.rotation = [
-                    z.atan2(x.hypot(y)).to_degrees(),
-                    0.,
-                    (-x).atan2(y).to_degrees(),
-                ];
-            }
             if s.owned {
                 p.owner = Some(owner);
             }
-            if let Some(distance) = s.camera_offset.filter(|_| !s.converge) {
+            if let Some(distance) = s.camera_offset {
                 p.controller = Some(BillboardController::CameraOffset {
                     emitter: owner,
                     center,

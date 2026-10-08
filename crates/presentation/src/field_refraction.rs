@@ -129,7 +129,9 @@ fn sync(
         .map_or(Transform::IDENTITY, super::field_view::camera_transform);
     settings.eye = camera.translation.extend(1.);
     let world_from_view = camera.to_matrix();
-    for (pulse, effect) in settings.pulses.iter_mut().zip(world.refractions.values()) {
+    let mut effects: Vec<_> = world.refractions.values().collect();
+    effects.sort_unstable_by_key(|effect| effect.draw_order);
+    for (pulse, effect) in settings.pulses.iter_mut().zip(effects) {
         let (size, alpha) = effect.sample(world.tick);
         let rotation = effect_rotation(effect.orientation, effect.rotation, camera.rotation);
         *pulse = Pulse {

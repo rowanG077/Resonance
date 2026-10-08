@@ -676,6 +676,7 @@ impl EventRuntime {
         if self.world.blocked_by_movie() {
             return Ok(());
         }
+        self.world.actors.retain(|_, actor| !actor.retiring);
         self.world.tick = self.world.tick.checked_add(1).context("clock overflow")?;
         self.world.effect_tick = effect_tick;
         if self.world.texture_animation_enabled {
@@ -852,6 +853,7 @@ impl EventRuntime {
         self.world
             .step_emitters(&self.resources)
             .map_err(anyhow::Error::msg)?;
+        self.world.step_wandering_billboards();
         services(self)?;
         self.world
             .step_ring_stations()
@@ -880,7 +882,7 @@ impl EventRuntime {
         }
         self.world
             .refractions
-            .retain(|_, effect| self.world.tick.saturating_sub(effect.born) <= effect.lifetime);
+            .retain(|_, effect| self.world.tick.saturating_sub(effect.born) < effect.lifetime);
         self.world.emotes.retain(|_, e| {
             self.world.actors.contains_key(&e.actor)
                 && e.duration

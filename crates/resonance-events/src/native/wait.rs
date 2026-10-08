@@ -58,16 +58,11 @@ impl NativeHost<'_> {
         let condition = match (command, skit) {
             (Ticks, _) => {
                 require(value >= 0, "negative wait duration")?;
-                Wait::Tick(
-                    self.world
-                        .tick
-                        .checked_add(value.max(1) as u32)
-                        .ok_or(if skit {
-                            "skit wait overflow"
-                        } else {
-                            "wait clock overflow"
-                        })?,
-                )
+                Wait::Tick(self.world.tick.checked_add(value as u32).ok_or(if skit {
+                    "skit wait overflow"
+                } else {
+                    "wait clock overflow"
+                })?)
             }
             (Resource, _) => {
                 if skit {

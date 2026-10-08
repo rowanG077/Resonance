@@ -38,6 +38,8 @@ pub enum ActorRole {
 
 #[derive(Debug, Clone)]
 pub struct Actor {
+    /// A removed actor completes its current presentation before being reclaimed.
+    pub(crate) retiring: bool,
     pub role: ActorRole,
     /// An authored scene object expires with its owning controller.
     pub(crate) operation: Option<crate::Operation>,
@@ -300,6 +302,7 @@ impl Actor {
             turn_speed: 5.,
             appearance: Appearance::default(),
             wings: None,
+            retiring: false,
             cull_outside_view: true,
             culling_flags: [None; 2],
             animation_culled: false,
@@ -785,6 +788,7 @@ pub struct EventRecord {
 }
 #[derive(Debug, Clone)]
 pub struct Emote {
+    pub phase: u32,
     pub actor: i32,
     pub kind: u16,
     pub offset: [f32; 3],
@@ -959,7 +963,7 @@ impl GameWorld {
             .ok_or_else(|| "scene actor instance limit exceeded".into())
     }
 
-    pub(crate) fn despawn_scene_actors(&mut self, script: i32) {
+    pub(crate) fn despawn_scene_actors(&mut self, script: i32, resources: &crate::ResourceLibrary) {
         let mut ids = vec![script];
         self.duplicate_actors.retain(|&id, key| {
             if *key == script {
@@ -970,32 +974,48 @@ impl GameWorld {
             }
         });
         for id in ids {
-            let preserve = self
-                .actors
-                .remove(&id)
-                .and_then(|actor| actor.emitter)
-                .is_some_and(|emitter| emitter.preserves_particles_on_despawn());
-            self.billboards.retain(|_, particle| {
+            let actor = self.actors.remove(&id);
+            use crate::emitter::ParticleCleanup;
+            let cleanup = actor
+                .as_ref()
+                .and_then(|actor| actor.emitter.as_ref())
+                .map_or(ParticleCleanup::Remove, |emitter| {
+                    emitter.particle_cleanup()
+                });
+            if let Some(mut actor) = actor
+                && resources.model(actor.resource).is_some()
+            {
+                actor.retiring = true;
+                actor.emitter = None;
+                self.actors.insert(id, actor);
+            }
+            for particle in self.billboards.values_mut() {
                 if particle.owner != Some(id) {
-                    return true;
+                    continue;
                 }
                 particle.owner = None;
-                if preserve {
-                    let age = self.tick.saturating_sub(particle.born);
-                    particle.lifetime = particle.lifetime.min(age + 40);
-                    particle.fade = crate::effect::Fade::Proportional {
-                        after: age,
-                        lifetime: particle.lifetime,
-                    };
+                let age = self.tick.saturating_sub(particle.born);
+                match cleanup {
+                    ParticleCleanup::Keep => {}
+                    ParticleCleanup::Fade { updates } => {
+                        particle.lifetime = particle.lifetime.min(age + updates);
+                        particle.fade = crate::effect::Fade::Proportional {
+                            after: age,
+                            lifetime: particle.lifetime,
+                        };
+                    }
+                    ParticleCleanup::Remove => {
+                        // Retire submitted particles after their final presentation.
+                        particle.lifetime = particle.lifetime.min(age + 2);
+                    }
                 }
-                preserve
-            });
+            }
             self.refractions.retain(|_, particle| {
                 if particle.owner != Some(id) {
                     return true;
                 }
                 particle.owner = None;
-                preserve
+                !matches!(cleanup, ParticleCleanup::Remove)
             });
             self.overlays.remove(&id);
             self.emotes.remove(&id);

@@ -8,7 +8,7 @@ use super::{
     scene::SampledImages,
 };
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
-use resonance_events::effect::Blend;
+use resonance_events::effect::{Blend, SpriteOrientation};
 use std::collections::BTreeSet;
 
 pub(super) fn material(surface: &mut TitleSurface, blend: Blend) {
@@ -52,19 +52,36 @@ pub(super) fn retire(world: &mut World) {
 type ModelNodes<'w, 's> = Query<
     'w,
     's,
-    (&'static mut Transform, &'static ChildOf),
-    (With<bevy::gltf::GltfExtras>, Without<Part>),
+    (
+        &'static mut Transform,
+        &'static ChildOf,
+        Option<&'static bevy::gltf::GltfExtras>,
+    ),
+    Without<Part>,
 >;
 
-fn reset_model_roots(root: Entity, children: &Query<&Children>, nodes: &mut ModelNodes) {
-    // Particle placement replaces the model's authored root transform.
-    // Keep child transforms so multipart effects retain their shape.
+fn orient_model_roots(
+    root: Entity,
+    rotation: Quat,
+    children: &Query<&Children>,
+    nodes: &mut ModelNodes,
+) {
+    // Face the camera inside the particle's transform, so its stretch stays
+    // on world axes. Authored child transforms retain multipart layouts.
     for child in children.iter_descendants(root) {
-        let Ok((_, parent)) = nodes.get(child) else {
+        let Ok((_, parent, Some(_))) = nodes.get(child) else {
             continue;
         };
-        if !nodes.contains(parent.parent()) {
+        if !nodes
+            .get(parent.parent())
+            .is_ok_and(|(_, _, extras)| extras.is_some())
+        {
             *nodes.get_mut(child).unwrap().0 = Transform::IDENTITY;
+        }
+    }
+    for &child in children.get(root).into_iter().flatten() {
+        if let Ok((mut transform, _, _)) = nodes.get_mut(child) {
+            transform.rotation = rotation;
         }
     }
 }
@@ -110,8 +127,13 @@ pub(super) fn sync(
             applied.loading(request);
             continue;
         }
+        orient_model_roots(
+            entity,
+            effect_rotation(particle.orientation, [0.; 3], camera),
+            &children,
+            &mut nodes,
+        );
         if part.phase == Phase::BindingMaterials {
-            reset_model_roots(entity, &children, &mut nodes);
             for child in children.iter_descendants(entity) {
                 let Ok(slot) = slots.get(child) else { continue };
                 let index = slot
@@ -139,12 +161,8 @@ pub(super) fn sync(
         }
         transform.translation = Vec3::from_array(particle.position);
         transform.scale = Vec3::from_array(particle.scale);
-        transform.rotation = effect_rotation(particle.orientation, particle.rotation, camera);
-        let brightness = if particle.field_lighting || world.fade.is_none() {
-            world.brightness()
-        } else {
-            1.
-        };
+        transform.rotation = effect_rotation(SpriteOrientation::World, particle.rotation, camera);
+        let brightness = world.brightness();
         let tint = Vec4::from_array(particle.rgba.map(|v| f32::from(v) / 255.))
             * Vec4::new(4. * brightness, 4. * brightness, 4. * brightness, 1.);
         for handle in &part.materials {
@@ -214,38 +232,48 @@ mod tests {
     use bevy::{ecs::system::RunSystemOnce, transform::helper::TransformHelper};
 
     #[test]
-    fn particle_placement_preserves_child_layout_without_scaling_twice() {
-        let mut world = World::new();
-        let particle = world
-            .spawn(Transform::from_xyz(10., 20., 30.).with_scale(Vec3::splat(0.5)))
-            .id();
-        let model = world
-            .spawn((
-                ChildOf(particle),
-                bevy::gltf::GltfExtras { value: "{}".into() },
-                Transform::from_xyz(100., 0., 0.).with_scale(Vec3::splat(3.)),
-            ))
-            .id();
-        let child = world
-            .spawn((
-                ChildOf(model),
-                bevy::gltf::GltfExtras { value: "{}".into() },
-                Transform::from_xyz(4., 0., 0.),
-            ))
-            .id();
-        world
-            .run_system_once(move |children: Query<&Children>, mut nodes: ModelNodes| {
-                reset_model_roots(particle, &children, &mut nodes);
-            })
-            .unwrap();
-        world
-            .run_system_once(move |transforms: TransformHelper| {
-                let transform = transforms.compute_global_transform(child).unwrap();
-                assert_eq!(
-                    transform.transform_point(Vec3::X * 2.),
-                    Vec3::new(13., 20., 30.)
-                );
-            })
-            .unwrap();
+    fn particle_placement_preserves_layout_and_stretches_on_world_axes() {
+        for (rotation, expected) in [
+            (Quat::IDENTITY, Vec3::new(13., 20., 30.)),
+            (
+                Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                Vec3::new(10., 20., 18.),
+            ),
+        ] {
+            let mut world = World::new();
+            let particle = world
+                .spawn(Transform::from_xyz(10., 20., 30.).with_scale(Vec3::new(0.5, 0.5, 2.)))
+                .id();
+            let scene = world.spawn((ChildOf(particle), Transform::IDENTITY)).id();
+            let model = world
+                .spawn((
+                    ChildOf(scene),
+                    bevy::gltf::GltfExtras { value: "{}".into() },
+                    Transform::from_xyz(100., 0., 0.).with_scale(Vec3::splat(3.)),
+                ))
+                .id();
+            let child = world
+                .spawn((
+                    ChildOf(model),
+                    bevy::gltf::GltfExtras { value: "{}".into() },
+                    Transform::from_xyz(4., 0., 0.),
+                ))
+                .id();
+            world
+                .run_system_once(move |children: Query<&Children>, mut nodes: ModelNodes| {
+                    orient_model_roots(particle, rotation, &children, &mut nodes);
+                })
+                .unwrap();
+            world
+                .run_system_once(move |transforms: TransformHelper| {
+                    let transform = transforms.compute_global_transform(child).unwrap();
+                    assert!(
+                        transform
+                            .transform_point(Vec3::X * 2.)
+                            .abs_diff_eq(expected, 0.0001)
+                    );
+                })
+                .unwrap();
+        }
     }
 }

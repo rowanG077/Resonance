@@ -191,6 +191,7 @@ impl SavePoints {
             if entered {
                 world
                     .emit_refraction(RefractionPulse {
+                        draw_order: 0,
                         operation: None,
                         owner: None,
                         image: resonance_events::effect::RefractionImage::Ripple,

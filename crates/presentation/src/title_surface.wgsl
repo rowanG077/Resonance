@@ -41,10 +41,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef CLAMP_COLOR
     // Filtered particle alpha is rounded before testing coverage.
     color.a = round(color.a * 255.) / 255.;
-#endif
+    if color.a <= 1.0/255.0 { discard; }
+#else
     // Preserve transparent holes in both the color and focus depth layers.
-    // Keep every nonzero eight-bit alpha value.
     if color.a < 1.0/255.0 { discard; }
+#endif
 #ifdef FIELD_LIGHTING
 #ifdef VERTEX_NORMALS
     let weights = sample_toon(slot, in.world_normal.xy).rgb;

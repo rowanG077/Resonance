@@ -355,8 +355,8 @@ fn check_effects(
     let world = &field.events.world;
     for emote in world.emotes.values() {
         ensure!(
-            effects.emotes.contains_key(&emote.kind),
-            "uncooked emitted emote {} for actor {} at tick {}",
+            emote.kind < 20,
+            "unknown emitted emote {} for actor {} at tick {}",
             emote.kind,
             emote.actor,
             world.tick

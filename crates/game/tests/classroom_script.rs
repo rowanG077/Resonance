@@ -3517,13 +3517,6 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
                     pastor_yaw.push(yaw);
                 }
             }
-            for emote in session.events.world.emotes.values() {
-                assert!(
-                    effects.emotes.contains_key(&emote.kind),
-                    "uncooked emote {}",
-                    emote.kind
-                );
-            }
             for (&id, actor) in &session.events.world.actors {
                 if let Some(animation) = &actor.animation
                     && checked_clips.insert((

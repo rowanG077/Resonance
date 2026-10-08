@@ -19,27 +19,16 @@ impl Stream {
             |value: i32| u32::try_from(value).map_err(|_| "negative emitter count".to_owned());
         let duration = |value: i32| count(value).map(|v| v.max(1));
         match recipe {
-            0..=3 => {
-                let flame = recipe == 0;
+            1..=3 => {
                 s.palette = None;
                 s.images = &[GLOW_SPRITE];
-                s.interval = if flame { 4 } else { 8 };
-                s.count = if flame { 2 } else { 1 };
+                s.interval = 8;
                 s.size_variation = [15.; 2];
                 s.sprite.velocity[2] = 2.;
                 s.speed_variation = 1.;
-                s.sprite.size_delta = if flame { -1. } else { 1. };
-                s.sprite.rgba = if flame {
-                    [255, 150, 10, 255]
-                } else {
-                    [255, 255, 255, 127]
-                };
-                s.sprite.blend = Some(if flame {
-                    crate::effect::Blend::Additive
-                } else {
-                    crate::effect::Blend::Alpha
-                });
-
+                s.sprite.size_delta = 1.;
+                s.sprite.rgba = [255, 255, 255, 127];
+                s.sprite.blend = Some(crate::effect::Blend::Alpha);
                 s.sprite.lifetime = v[0].max(60) as u32;
                 s.sprite.size = [s.sprite.lifetime as f32; 2];
                 s.sprite.fade = Fade::tail(s.sprite.lifetime);
@@ -66,24 +55,11 @@ impl Stream {
                 s.radial_speed = v[8] as f32;
                 s.size_variation = [v[9] as f32; 2];
             }
-            15 | 30 | 54 => {
+            54 => {
                 s.speed_scale = 0.01;
                 s.sprite.angular_velocity[2] = 2.;
-                s.owned = recipe != 30;
-                s.inherit_appearance = recipe == 30;
-                s.filled = recipe == 30;
-                s.images = match recipe {
-                    30 => &[10, 12, 69],
-                    54 => &[10, 7, 68],
-                    _ => &[10],
-                };
-                s.sprite.rgba[3] = alpha(v[6]);
-                s.sprite.lifetime = if v[7] > 0 { v[7] as u32 } else { 255 };
-                s.sprite.fade = Fade::Proportional {
-                    after: 0,
-                    lifetime: s.sprite.lifetime,
-                };
-
+                s.owned = true;
+                s.images = &[10, 7, 68];
                 s.palette = Some(v[0]);
                 s.radius = [v[1] as f32; 2];
                 s.sprite.size = [v[2] as f32; 2];
@@ -91,16 +67,13 @@ impl Stream {
                 s.sprite.field_lighting = v[4] & 1 != 0;
                 s.speed_variation = v[5] as f32 / 100.;
                 s.interval = count(v[8])?;
-                s.preserve_particles = recipe == 15 && v[9] != 1;
-                if recipe == 54 {
-                    s.sprite.rgba[3] = alpha(v[5]);
-                    s.sprite.lifetime = duration(v[7])?;
-                    s.sprite.fade = if v[6] == 0 {
-                        Fade::Linear(0.)
-                    } else {
-                        Fade::tail(s.sprite.lifetime)
-                    };
-                }
+                s.sprite.rgba[3] = alpha(v[5]);
+                s.sprite.lifetime = duration(v[7])?;
+                s.sprite.fade = if v[6] == 0 {
+                    Fade::Linear(0.)
+                } else {
+                    Fade::tail(s.sprite.lifetime)
+                };
             }
             33 => {
                 s.sprite.lifetime = 60;
@@ -149,19 +122,6 @@ impl Stream {
                     _ => return Err("invalid sprite orientation".into()),
                 };
             }
-            16 => {
-                s.count = 72;
-                s.limit = Some(s.count);
-                s.images = &[STREAK_SPRITE];
-                s.sprite.size = [10., 120.];
-                s.sprite.rgba[3] = 100;
-                s.sprite.velocity[2] = 8.;
-                s.sprite.lifetime = 90;
-
-                s.palette = Some(v[0]);
-                s.radius = [v[1] as f32; 2];
-                s.radial_speed = v[2] as f32 / 10.;
-            }
             17 => {
                 s.palette = Some(33);
                 s.images = &[STREAK_SPRITE];
@@ -188,51 +148,6 @@ impl Stream {
                 s.size_variation = [v[6] as f32; 2];
                 s.sprite.rgba[3] = alpha(v[7]);
                 s.sprite.fade = Fade::Linear(v[9] as f32);
-            }
-            48 => {
-                s.palette = Some(v[0]);
-                s.radius = [v[1] as f32; 2];
-                s.count = count(v[2])?;
-                s.interval = count(v[3])?;
-                s.sprite.size = [v[4] as f32; 2];
-                s.size_variation = [v[5] as f32; 2];
-                s.sprite.rgba[3] = alpha(v[6]);
-                s.sprite.position[2] = v[7] as f32 * 0.5;
-                s.sprite.field_lighting = v[8] != 0;
-                s.sprite.lifetime = duration(v[9])?;
-                s.sprite.fade = Fade::tail(s.sprite.lifetime);
-                s.filled = true;
-                s.speed_scale = 0.01;
-                s.owned = true;
-            }
-            28 => {
-                let mut glow = particle([0.; 3], 0, 0, 180);
-                glow.size = [1.; 2];
-                glow.size_delta = 3.;
-                glow.recipe = crate::effect::ORB_SPRITE;
-                glow.rgba[3] = 64;
-                glow.field_lighting = true;
-                glow.fade = Fade::Proportional {
-                    after: 0,
-                    lifetime: glow.lifetime,
-                };
-                s.images = &[STREAK_SPRITE];
-                s.converge = true;
-                s.owned = true;
-                s.sprite.orientation = SpriteOrientation::World;
-                s.sprite.size = [6., 60.];
-                s.sprite.rgba[3] = 96;
-                s.sprite.lifetime = 60;
-                s.sprite.fade = Fade::Proportional {
-                    after: s.sprite.lifetime * 2 / 3,
-                    lifetime: s.sprite.lifetime,
-                };
-                s.palette = Some(v[0]);
-                s.radius = [100.; 2];
-                s.radial_speed = -s.radius[0] / s.sprite.lifetime as f32;
-                s.interval = 4;
-                s.camera_offset = Some(v[1] as f32);
-                s.flash = Some(glow);
             }
             _ => return Err("unsupported particle preset".into()),
         }

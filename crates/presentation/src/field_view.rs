@@ -1186,12 +1186,27 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         let entry = super::new_game::Session::load(&root)?;
         (entry.assets, entry.field)
     } else {
-        let package = super::new_game::FieldPackage::prepare(
+        let mut package = super::new_game::FieldPackage::prepare(
             &root,
             checkpoint.map_or(340, |c| c.map_id),
             &mut Default::default(),
             || false,
         )?;
+        if let CaptureTarget::Sequence(sequence) = target
+            && let Some(script) = &sequence.script
+        {
+            use sha2::{Digest, Sha256};
+            package.script = script
+                .iter()
+                .flat_map(|v| v.to_be_bytes())
+                .collect::<Vec<_>>()
+                .into();
+            package.assets.script.sha256 = format!("{:x}", Sha256::digest(&package.script));
+            package.assets.files.insert(
+                package.assets.script.path.clone(),
+                package.assets.script.sha256.clone(),
+            );
+        }
         let assets = package.assets.clone();
         let entry = if let Some(checkpoint) = checkpoint {
             let data = std::sync::Arc::new(serde_json::from_slice(&fs::read(
@@ -2030,7 +2045,10 @@ fn pose(
                     .into_iter()
                     .enumerate()
                 {
-                    if binding.as_ref().is_some_and(|b| b.texture == 0) {
+                    if binding
+                        .as_ref()
+                        .is_some_and(|b| b.texture == layer.uv_texture)
+                    {
                         offsets[stage * 2] += layer.uv_offset;
                     }
                 }
@@ -2107,7 +2125,7 @@ fn pose(
         );
         transform.scale = Vec3::from_array(
             wing_echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(tick)),
-        );
+        ) * wing_layer.as_ref().map_or(1., |layer| layer.scale);
         if instance.actor == world.controlled_actor {
             transform.scale *= world.player_size.model_scale();
         }

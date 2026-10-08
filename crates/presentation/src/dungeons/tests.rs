@@ -1176,10 +1176,10 @@ fn balacruf_light_column_stops_before_remiel_descends() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
-fn triet_seal_scripted_wings_animate_and_emit_sparks() -> Result<()> {
+fn triet_seal_finishes_with_animated_wings() -> Result<()> {
     let mut field = enter(FIRST_WINGS, FIRST_WINGS.map, None)?;
     let mut previous_pose = None;
-    let (mut moved, mut emitted) = (false, false);
+    let mut moved = false;
     let battles = replay(&mut field, |field| {
         let world = &field.events.world;
         if let Some(wing) = world.actors.values().find(|actor| {
@@ -1201,12 +1201,8 @@ fn triet_seal_scripted_wings_animate_and_emit_sparks() -> Result<()> {
                 moved |= *instance == wing.instance && *previous != matrices;
             }
             previous_pose = Some((wing.instance, matrices));
-            emitted |= world
-                .billboards
-                .values()
-                .any(|spark| spark.recipe == resonance_content::effect::WING_SPARK_SPRITE);
         }
-        moved && emitted && field.player_has_control()
+        moved && field.player_has_control()
     })?;
     assert!(battles > 0);
     assert_eq!(mission(&field, 0x40), 1_303_000);

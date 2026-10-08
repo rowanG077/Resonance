@@ -49,6 +49,18 @@ pub(super) struct Applied {
     expected: BTreeSet<Request>,
 }
 impl Applied {
+    pub fn model_particles_ready(&self, tick: u32) -> Result<bool> {
+        let ready = self
+            .expected
+            .iter()
+            .filter(|request| matches!(request, Request::ModelParticle(..)))
+            .all(|request| self.requests.contains(request));
+        if !ready {
+            validate(tick, self, Instant::now())?;
+        }
+        Ok(ready)
+    }
+
     pub fn ack(&mut self, request: Request) {
         self.loading.remove(&request);
         self.requests.insert(request);
@@ -155,7 +167,13 @@ fn expected(
         expected.insert(Request::FieldDamage);
     }
     expected.extend(world.paralysis.map(|_| Request::Paralysis));
-    expected.extend(world.billboards.keys().map(|id| Request::Billboard(*id)));
+    expected.extend(
+        world
+            .billboards
+            .iter()
+            .filter(|(_, effect)| world.tick >= effect.born && effect.alive(world.tick))
+            .map(|(id, _)| Request::Billboard(*id)),
+    );
     expected.extend(world.model_particles.iter().flat_map(|(&id, p)| {
         (0..parts(p.resource).max(1)).map(move |part| Request::ModelParticle(id, part))
     }));
@@ -240,6 +258,7 @@ mod tests {
         world.emotes.insert(
             -100,
             resonance_events::Emote {
+                phase: 0,
                 actor: 1,
                 kind: 4,
                 offset: [0.; 3],
@@ -284,6 +303,7 @@ mod tests {
         validate(0, &applied, Instant::now()).unwrap();
         let pulse = world
             .emit_refraction(resonance_events::effect::RefractionPulse {
+                draw_order: 0,
                 operation: None,
                 owner: None,
                 image: resonance_events::effect::RefractionImage::Ripple,
@@ -307,15 +327,19 @@ mod tests {
     #[test]
     fn loading_is_bounded_and_acknowledgements_expire_each_frame() {
         let mut applied = Applied::default();
-        let request = Request::Attachment(1, 0);
+        let request = Request::ModelParticle(1, 0);
         applied.expected.insert(request.clone());
         applied.loading(request.clone());
+        assert!(!applied.model_particles_ready(4).unwrap());
         let since = applied.loading[&request];
         validate(4, &applied, since).unwrap();
         assert!(validate(4, &applied, since + LOAD_TIMEOUT).is_err());
         applied.ack(request);
         validate(4, &applied, since + LOAD_TIMEOUT).unwrap();
+        applied.expected.insert(Request::Dialogue(0));
+        assert!(applied.model_particles_ready(4).unwrap());
         applied.requests.clear();
+        assert!(applied.model_particles_ready(5).is_err());
         assert!(validate(5, &applied, since + LOAD_TIMEOUT).is_err());
     }
     #[test]

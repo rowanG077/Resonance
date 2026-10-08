@@ -631,26 +631,10 @@ impl NativeHost<'_> {
                 value = Some(0);
             }
             NativeCall::CreateEffectEmitter => {
-                let mut emitter = crate::emitter::Emitter::from_native(a)?;
-                // The descending seal lights gather into the character beneath them.
-                if a[5] == 31
-                    && let Some(recipient) = self
-                        .world
-                        .actors
-                        .values()
-                        .filter(|actor| (1..=9).contains(&actor.resource))
-                        .min_by(|left, right| {
-                            let distance = |actor: &Actor| {
-                                (actor.position[0] - a[1] as f32)
-                                    .hypot(actor.position[1] - a[2] as f32)
-                            };
-                            distance(left).total_cmp(&distance(right))
-                        })
-                {
-                    let mut target = recipient.position;
-                    target[2] += crate::ACTOR_CONTACT_HEIGHT * 2. / 3.;
-                    emitter.aim_at(target);
-                }
+                let emitter = crate::emitter::Emitter::from_native(
+                    a,
+                    self.world.effect_textures.get(&0).copied(),
+                )?;
                 let resource = if a[4] == 0 || a[5] == 47 {
                     0
                 } else {
@@ -679,6 +663,8 @@ impl NativeHost<'_> {
             }
             NativeCall::CreateEffectObject | NativeCall::CreateParticle => {
                 const GLOW: i32 = crate::effect::GLOW_SPRITE as i32;
+                const IMPACT_GLOW: i32 = 2;
+                const IMPACT_FLARE: i32 = 49;
                 const SMOKE: i32 = resonance_content::effect::SMOKE_SPRITE as i32;
                 const STREAK: i32 = resonance_content::effect::STREAK_SPRITE as i32;
                 const ORB: i32 = crate::effect::ORB_SPRITE as i32;
@@ -725,6 +711,7 @@ impl NativeHost<'_> {
                         "moving refraction particles are not implemented",
                     )?;
                     let handle = self.world.emit_refraction(crate::effect::RefractionPulse {
+                        draw_order: 0,
                         operation: None,
                         owner: None,
                         image: crate::effect::RefractionImage::Ripple,
@@ -747,7 +734,8 @@ impl NativeHost<'_> {
                 }
                 let supported = match a[0] {
                     STATION_GLOW => !directed,
-                    GLOW | SMOKE | EXPANDING_GLOW | STREAK | SEAL_SPARK | FALLING_SPARK => directed,
+                    GLOW | IMPACT_GLOW | IMPACT_FLARE | SMOKE | EXPANDING_GLOW | STREAK
+                    | SEAL_SPARK | FALLING_SPARK => directed,
                     CAMERA_DISC
                     | CAMERA_RING
                     | WORLD_GLOW
@@ -771,7 +759,7 @@ impl NativeHost<'_> {
                 )?;
                 let spin = match a[0] {
                     SPINNING_STAR => parameter as f32,
-                    GLOW | SMOKE | EXPANDING_GLOW | ELECTRIC_ARC => {
+                    GLOW | IMPACT_GLOW | SMOKE | EXPANDING_GLOW | ELECTRIC_ARC => {
                         if self.world.effect_tick & 1 == 0 {
                             -3.
                         } else {
@@ -806,18 +794,22 @@ impl NativeHost<'_> {
                         crate::effect::SpriteOrientation::Camera
                     },
                     palette: Some(palette as u16),
-                    // Native recipes 5/6/40 share their atlas; only facing differs.
-                    recipe: if a[0] == EXPANDING_GLOW {
+                    // Recipes 5/6/40 share their atlas; only facing differs.
+                    recipe: if a[0] == IMPACT_GLOW {
+                        GLOW
+                    } else if a[0] == EXPANDING_GLOW {
                         crate::effect::ORB_SPRITE as i32
                     } else if matches!(a[0], CAMERA_DISC | CAMERA_RING) {
                         WORLD_GLOW
-                    } else if a[0] == FALLING_SPARK {
+                    } else if matches!(a[0], FALLING_SPARK | IMPACT_FLARE) {
                         68
                     } else {
                         a[0]
                     } as u16,
                     size_delta: if a[0] == EXPANDING_GLOW { 6. } else { 0. },
-                    born: self.world.tick,
+                    blend: (a[0] == IMPACT_GLOW).then_some(crate::effect::Blend::Additive),
+                    uv: (a[0] == IMPACT_FLARE).then_some([192., 0., 254., 62.].map(|v| v / 256.)),
+                    born: self.world.tick + 1,
                     lifetime: lifetime.min(
                         if a[0] as u16 == resonance_content::effect::SMOKE_SPRITE {
                             resonance_content::effect::SMOKE_UPDATES
@@ -859,7 +851,11 @@ impl NativeHost<'_> {
                         size as f32,
                         size as f32 / if a[0] == STREAK { STREAK_ASPECT } else { 1. },
                     ],
-                    rgba: [64, 64, 64, alpha as u8],
+                    rgba: if a[0] == IMPACT_GLOW {
+                        [255, 10, 10, alpha as u8]
+                    } else {
+                        [64, 64, 64, alpha as u8]
+                    },
                     fade: effect_fade,
                     ..Default::default()
                 })?;
@@ -1243,9 +1239,11 @@ impl NativeHost<'_> {
                     if (-299..=-100).contains(&a[0]) && self.world.actors.contains_key(&target) {
                         require((0..=19).contains(&a[4]), "unknown emote recipe")?;
                         require(self.world.emotes.len() < 200, "emote limit exceeded")?;
+                        let phase = self.world.random();
                         self.world.emotes.insert(
                             a[0],
                             Emote {
+                                phase,
                                 actor: target,
                                 kind: a[4] as u16,
                                 offset: [a[1] as f32, a[2] as f32, a[3] as f32],
@@ -1339,10 +1337,18 @@ impl NativeHost<'_> {
                 }
                 // Authored wing slots select the profile once, at the script boundary.
                 match a[0] {
-                    crate::wings::AUTOMATIC_WINGS | 90024 => {
+                    crate::wings::AUTOMATIC_WINGS | 90023..=90025 => {
                         actor.set_wings(crate::WingStyle::Layered)
                     }
+                    90022 => actor.set_wings(crate::WingStyle::Feathered),
                     90026 => actor.set_wings(crate::WingStyle::Echo),
+                    90027 | 90028 => {
+                        actor.casts_shadow = false;
+                        actor.scripted_animation = true;
+                        if let Some(animation) = &mut actor.animation {
+                            animation.start_frame = 1.;
+                        }
+                    }
                     _ => {}
                 }
                 let id = if a[0] == 0 {
@@ -1353,7 +1359,7 @@ impl NativeHost<'_> {
                 self.world.insert_actor(id, actor);
             }
             NativeCall::DespawnActor => {
-                self.world.despawn_scene_actors(a[0]);
+                self.world.despawn_scene_actors(a[0], self.resources);
             }
             NativeCall::SetActorHeading => {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {

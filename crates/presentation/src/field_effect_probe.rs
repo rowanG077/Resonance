@@ -103,6 +103,7 @@ impl EffectProbe {
                 world.refractions.insert(
                     id,
                     RefractionPulse {
+                        draw_order: 0,
                         operation: None,
                         owner: None,
                         image: if *air {

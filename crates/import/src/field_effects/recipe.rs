@@ -106,23 +106,12 @@ fn effects(executable: &[u8]) -> Result<FieldEffects<Atlas>> {
         ]
         .into_iter()
         .map(|kind| Ok((kind, sprite(kind)?)))
-        .chain(std::iter::once(Ok((
-            resonance_content::effect::WING_SPARK_SPRITE,
-            SpriteRecipe {
-                texture: Atlas::Effect(0),
-                uv: [16., 192., 31., 207.].map(|v| v / 256.),
-                additive: false,
-                frames: Vec::new(),
-                repeat: false,
-            },
-        ))))
         .collect::<Result<_>>()?,
         refraction: resonance_content::effect::RefractionRecipe {
             sprite: sprite(27)?,
             displacement: [value(0x801E3828)? * 2., value(0x801E3838)? * 2.],
         },
         air_refraction: sprite(9)?,
-        emotes: emotes::tracks(),
         // Each mouth frame lasts duration + 1 updates; 0xFD loops the sequence.
         // The dialogue player enables the sequence during text reveal and speech.
         mouth_cycle: {
