@@ -185,6 +185,11 @@ impl crate::GameWorld {
         if let Some(party) = &mut self.party {
             party.battles.record(&party.formation);
         }
+        // Replay skips the combat owner that normally restores field music.
+        self.audio_commands.push(crate::AudioCommand::MusicVolume {
+            volume: 127,
+            duration_ticks: 0,
+        });
         self.battle_request = None;
         Ok(true)
     }

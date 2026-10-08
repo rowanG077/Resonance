@@ -198,6 +198,16 @@ fn temporary_battle_bypass_resumes_world_and_scripted_encounters_as_victories() 
     );
     events.step()?;
     assert!(events.player_has_control());
+    assert!(
+        matches!(
+            events.world.audio_commands.as_slice(),
+            [resonance_events::AudioCommand::MusicVolume {
+                volume: 127,
+                duration_ticks: 0
+            }]
+        ),
+        "a skipped battle restores music once"
+    );
     for address in [0x20, 0x24] {
         assert_eq!(
             events.memory().read(address, Width::S32)?,
