@@ -129,7 +129,7 @@ impl Actor {
         random: &mut impl FnMut() -> u32,
     ) -> AmbientMotion {
         let mut intent = AmbientMotion::default();
-        if self.pushable() {
+        if self.pushable {
             return intent;
         }
         let Some(ai) = &mut self.autonomy else {
@@ -287,7 +287,7 @@ impl Actor {
                         let mask = if self
                             .enemy
                             .as_ref()
-                            .is_some_and(|enemy| enemy.behavior == 1 && !enemy.random_turns)
+                            .is_some_and(|enemy| enemy.behavior == 1 && enemy.random_turns == 0)
                         {
                             127
                         } else {
@@ -357,7 +357,7 @@ mod path_tests {
             behavior: 0,
             normal_speed: 3.,
             alert_speed: 6.,
-            random_turns: false,
+            random_turns: 0,
             chase_on_sight: false,
             sight_angle: 90.,
             sight_distance: 600.,

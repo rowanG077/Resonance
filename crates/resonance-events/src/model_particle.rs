@@ -5,23 +5,8 @@ const FADE_TICKS: u32 = 32;
 const FADE_STEP: u8 = 8;
 const GRAVITY: f32 = 0.98;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Blend {
-    Alpha,
-    Additive,
-    Subtractive,
-}
-impl TryFrom<i32> for Blend {
-    type Error = String;
-    fn try_from(value: i32) -> Result<Self, String> {
-        match value & 3 {
-            0 => Ok(Self::Alpha),
-            1 => Ok(Self::Additive),
-            2 => Ok(Self::Subtractive),
-            _ => Err("inherited model-particle blend is not implemented".into()),
-        }
-    }
-}
+use crate::effect::Blend;
+
 #[derive(Debug, Clone, Copy)]
 enum Motion {
     Velocity,

@@ -23,6 +23,7 @@ use bevy::{
 };
 use material::{Composite, Surface};
 use resonance_content::model_preview::{ModelPreview, PreviewPart};
+use resonance_events::effect::Blend;
 use resonance_game::menu::preview::PreviewId;
 use resonance_model_behavior::{PoseOverrides, PreparedBehavior};
 pub(super) use source::register;
@@ -530,8 +531,11 @@ impl Part {
                 shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
                 // Fade each surface so overlapping triangles remain visible.
                 // The same prepared pipeline also handles full opacity.
-                blend: true,
-                additive: self.spec.additive,
+                blend: Some(if self.spec.additive {
+                    Blend::Additive
+                } else {
+                    Blend::Alpha
+                }),
                 depth_write: spec.depth_write,
                 cull: spec.cull,
                 ..crate::materials::TitleSurface::textured(crate::scene::sampled_image(

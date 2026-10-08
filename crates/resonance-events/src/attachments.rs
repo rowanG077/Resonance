@@ -186,7 +186,7 @@ mod tests {
                 bone: "socket".into(),
             });
             if parent.is_some() {
-                actor.properties.insert(30, 400);
+                actor.scale_percent[0] = 400;
             }
             world.insert_actor(id, actor);
         }

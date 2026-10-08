@@ -28,11 +28,11 @@ enum MaterialVariant {
     Actor {
         depth_write: bool,
         lighting: bool,
-        blend: Option<resonance_events::model_particle::Blend>,
-        additive: bool,
+        blend: Option<resonance_events::effect::Blend>,
+        two_sided: bool,
     },
     Override {
-        blend: resonance_events::model_particle::Blend,
+        blend: resonance_events::effect::Blend,
         depth_write: bool,
     },
 }
@@ -229,23 +229,23 @@ fn begin(
         for (index, part) in parts.iter().enumerate() {
             // Scripts may draw any loaded model as an actor or a model particle.
             // Warm every blend/depth key, including currently hidden geometry.
-            use resonance_events::model_particle::Blend;
+            use resonance_events::effect::Blend;
             for variant in [false, true]
                 .into_iter()
                 .flat_map(|depth_write| {
                     [false, true].into_iter().flat_map(move |lighting| {
                         [
                             (None, false),
-                            (None, true),
-                            (Some(Blend::Alpha), false),
                             (Some(Blend::Additive), false),
-                            (Some(Blend::Subtractive), false),
+                            (Some(Blend::Alpha), true),
+                            (Some(Blend::Additive), true),
+                            (Some(Blend::Subtractive), true),
                         ]
-                        .map(|(blend, additive)| MaterialVariant::Actor {
+                        .map(|(blend, two_sided)| MaterialVariant::Actor {
                             depth_write,
                             lighting,
                             blend,
-                            additive,
+                            two_sided,
                         })
                     })
                 })
@@ -273,11 +273,13 @@ fn begin(
                                 depth_write,
                                 lighting,
                                 blend,
-                                additive,
+                                two_sided,
                             } => {
-                                surface.additive = additive;
-                                if let Some(blend) = blend {
-                                    super::field_model_particles::material(&mut surface, blend);
+                                surface.blend = blend.or_else(|| {
+                                    part.spec.materials[material].blend.then_some(Blend::Alpha)
+                                });
+                                if two_sided {
+                                    surface.cull = resonance_content::CullFace::None;
                                 }
                                 surface.depth_write = depth_write;
                                 surface.toon_ramp = art.toon_ramp_for(

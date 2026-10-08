@@ -89,7 +89,7 @@ impl Blocks {
         let player = world.actors.get(&world.controlled_actor)?;
         world.actor_order().iter().copied().find(|id| {
             world.actors.get(id).is_some_and(|block| {
-                block.pushable() && block.visible && super::within_interaction_reach(player, block)
+                block.pushable && block.visible && super::within_interaction_reach(player, block)
             })
         })
     }
@@ -154,7 +154,7 @@ impl Blocks {
             && world
                 .actors
                 .get(&grip.block)
-                .is_some_and(|a| a.instance == grip.instance && a.pushable())
+                .is_some_and(|a| a.instance == grip.instance && a.pushable)
             && world
                 .actors
                 .get(&grip.player)
@@ -295,7 +295,7 @@ mod tests {
         events.world.input_enabled = true;
         events.world.insert_actor(1, Actor::new(1, [0., 120., 0.]));
         let mut block = Actor::new(2, [0.; 3]);
-        block.role = ActorRole::Pushable;
+        block.pushable = true;
         block.radius = 50.;
         let cube = resonance_content::test_support::cuboid([-75., -75., 0.], [75., 75., CELL]);
         block.model_collision = Some(Arc::new(ModelCollision {
@@ -364,7 +364,7 @@ mod tests {
         let (mut events, mesh, mut blocks) = room();
         let block = events.world.actors.get_mut(&2).unwrap();
         block.role = ActorRole::Ordinary;
-        block.properties.insert(19, 1);
+        block.pushable = true;
         step(
             &mut events,
             &mesh,
@@ -379,13 +379,7 @@ mod tests {
             step(&mut events, &mesh, &mut blocks, held([0., -1.]));
         }
         assert_eq!(events.world.actors[&2].position, [0., -150., 0.]);
-        events
-            .world
-            .actors
-            .get_mut(&2)
-            .unwrap()
-            .properties
-            .insert(19, 0);
+        events.world.actors.get_mut(&2).unwrap().pushable = false;
         step(&mut events, &mesh, &mut blocks, held([0.; 2]));
         assert_eq!(events.world.grabbed_block, None);
         assert!(events.player_has_control());
@@ -537,9 +531,9 @@ mod tests {
             }])
             .unwrap();
             let lower = events.world.actors.get_mut(&2).unwrap();
-            lower.properties.insert(19, 0);
+            lower.pushable = false;
             let mut upper = lower.clone();
-            upper.properties.insert(19, 1);
+            upper.pushable = true;
             upper.position[2] = 149.;
             events.world.insert_actor(3, upper);
             blocks.settle(&mut events.world, &mesh);
@@ -583,7 +577,7 @@ mod tests {
         assert_eq!(events.world.actors[&2].position[2], 0.);
         let mut ceiling = events.world.actors[&2].clone();
         ceiling.position[2] = 50.;
-        ceiling.properties.insert(19, 0);
+        ceiling.pushable = false;
         events.world.insert_actor(3, ceiling);
         events.world.actors.get_mut(&2).unwrap().position[2] = 5.;
         blocks.settle(&mut events.world, &mesh);

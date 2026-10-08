@@ -13,7 +13,7 @@ impl Stream {
             count: 1,
             ..Self::default()
         };
-        use resonance_content::effect::{STREAK_SPRITE, VerticalAnchor};
+        use resonance_content::effect::STREAK_SPRITE;
         let alpha = |value: i32| value.clamp(0, 255) as u8;
         let count =
             |value: i32| u32::try_from(value).map_err(|_| "negative emitter count".to_owned());
@@ -34,7 +34,11 @@ impl Stream {
                 } else {
                     [255, 255, 255, 127]
                 };
-                s.sprite.blend_mode = Some(if flame { 1 } else { 0 });
+                s.sprite.blend = Some(if flame {
+                    crate::effect::Blend::Additive
+                } else {
+                    crate::effect::Blend::Alpha
+                });
 
                 s.sprite.lifetime = v[0].max(60) as u32;
                 s.sprite.size = [s.sprite.lifetime as f32; 2];
@@ -201,25 +205,7 @@ impl Stream {
                 s.speed_scale = 0.01;
                 s.owned = true;
             }
-            26 => {
-                s.images = &[STREAK_SPRITE];
-                s.sprite.orientation = SpriteOrientation::World;
-                s.sprite.anchor = VerticalAnchor::Top;
-                s.sprite.rotation = [90., 0., 0.];
-                s.sprite.rgba[3] = alpha(v[7]);
-                s.sprite.fade = Fade::RiseFall {
-                    rise_ticks: 40,
-                    step: f32::from(s.sprite.rgba[3]) / 40.,
-                };
-                s.sprite.lifetime = 80;
-                s.palette = Some(v[0]);
-                s.interval = count(v[1])?;
-                s.radius = [v[2] as f32; 2];
-                s.sprite.size = [v[3] as f32, v[5] as f32];
-                s.size_variation = [v[4] as f32, v[6] as f32];
-                s.tilt_variation = v[8] as f32;
-            }
-            27 | 28 => {
+            28 => {
                 let mut glow = particle([0.; 3], 0, 0, 180);
                 glow.size = [1.; 2];
                 glow.size_delta = 3.;
@@ -234,36 +220,18 @@ impl Stream {
                 s.converge = true;
                 s.owned = true;
                 s.sprite.orientation = SpriteOrientation::World;
-                s.sprite.size = [
-                    6.,
-                    if recipe == 27 {
-                        v[4].max(1) as f32
-                    } else {
-                        60.
-                    },
-                ];
+                s.sprite.size = [6., 60.];
                 s.sprite.rgba[3] = 96;
-                s.sprite.lifetime = if recipe == 27 { 50 } else { 60 };
+                s.sprite.lifetime = 60;
                 s.sprite.fade = Fade::Proportional {
                     after: s.sprite.lifetime * 2 / 3,
                     lifetime: s.sprite.lifetime,
                 };
                 s.palette = Some(v[0]);
-                if recipe == 27 {
-                    s.count = 32;
-                    s.limit = Some(s.count);
-                    glow.size = [v[4].max(1) as f32; 2];
-                    glow.size_delta = 0.;
-                    glow.rgba = [128, 128, 128, 192];
-                    s.flash_rays = 8;
-                    s.radius = [v[3] as f32; 2];
-                    s.radial_speed = -s.radius[0] / s.sprite.lifetime as f32;
-                } else {
-                    s.radius = [100.; 2];
-                    s.radial_speed = -s.radius[0] / s.sprite.lifetime as f32;
-                    s.interval = 4;
-                    s.camera_offset = Some(v[1] as f32);
-                }
+                s.radius = [100.; 2];
+                s.radial_speed = -s.radius[0] / s.sprite.lifetime as f32;
+                s.interval = 4;
+                s.camera_offset = Some(v[1] as f32);
                 s.flash = Some(glow);
             }
             _ => return Err("unsupported particle preset".into()),

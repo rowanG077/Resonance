@@ -51,7 +51,7 @@ impl Transfer {
             self.operation.complete(None)?;
             return Ok(true);
         }
-        let color = world.actors[&station].station_color();
+        let color = world.actors[&station].tint;
         let mut target = world.actors[&player].position;
         target[2] += PLAYER_HEIGHT;
         if age == 0 {

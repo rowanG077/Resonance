@@ -373,13 +373,10 @@ impl FieldSession {
         actor.grounded = true;
         actor.appearance.model_hidden = false;
         actor.appearance.fixed_heading = None;
-        actor.properties.insert(8, 255);
-        for property in [7, 35, 36] {
-            actor.properties.remove(&property);
-        }
-        for property in [30, 31, 32] {
-            actor.properties.insert(property, 100);
-        }
+        actor.opacity = 255;
+        actor.heading_lock = 0;
+        actor.tilt = [0; 2];
+        actor.scale_percent = [100; 3];
         actor.scripted_animation = false;
         actor.animation = None;
         actor.autonomy = Some(resonance_events::Autonomy::new(
@@ -730,7 +727,7 @@ impl FieldSession {
                 if actor.grounded
                     && actor.attachment.is_none()
                     && actor.resource < SCENERY_RESOURCE_BASE
-                    && actor.resource != 24
+                    && !actor.interaction_anchor
                 {
                     if id != controlled_actor
                         && !event_paused
@@ -863,7 +860,7 @@ impl FieldSession {
             if actor.grounded
                 && actor.attachment.is_none()
                 && actor.resource < SCENERY_RESOURCE_BASE
-                && actor.resource != 24
+                && !actor.interaction_anchor
                 // A script can move an actor after its movement update. New
                 // actors retain their spawn height until their first update;
                 // cloth and hair must see that initial pose before grounding.
@@ -1135,7 +1132,7 @@ impl FieldSession {
             .iter()
             .filter_map(|(id, actor)| {
                 if (!actor.visible && !actor.interaction_anchor)
-                    || actor.properties.get(&50) == Some(&1)
+                    || actor.interaction_disabled
                     || !self.events.has_interaction(*id)
                 {
                     return None;
@@ -1168,7 +1165,7 @@ impl FieldSession {
         &self,
         actor: &resonance_events::Actor,
     ) -> resonance_events::effect::CharacterLight {
-        if actor.properties.get(&41) == Some(&1) {
+        if actor.unlit {
             return self
                 .events
                 .world
@@ -1664,6 +1661,24 @@ mod tests {
     }
 
     #[test]
+    fn grounding_depends_on_actor_role_instead_of_resource_number() {
+        for (resource, anchor) in [(24, false), (7, true)] {
+            let mut field = empty_session();
+            let mut actor = Actor::new(resource, [2., 2., 20.]);
+            actor.interaction_anchor = anchor;
+            actor.collidable = false;
+            field.events.world.insert_actor(100, actor);
+            for _ in 0..2 {
+                field.step(FieldInput::default()).unwrap();
+            }
+            assert_eq!(
+                field.events.world.actors[&100].position[2],
+                if anchor { 20. } else { 0. }
+            );
+        }
+    }
+
+    #[test]
     fn enemies_see_the_player_only_after_a_live_barrier_opens() {
         let mut session = empty_session();
         let world = &mut session.events.world;
@@ -1679,7 +1694,7 @@ mod tests {
             behavior: 0,
             normal_speed: 0.,
             alert_speed: 0.,
-            random_turns: false,
+            random_turns: 0,
             chase_on_sight: false,
             sight_angle: 90.,
             sight_distance: 600.,
@@ -1907,8 +1922,8 @@ mod tests {
         bridge.grounded = false;
         bridge.collidable = false;
         bridge.face(90.);
-        bridge.properties.insert(30, 200);
-        bridge.properties.insert(48, 1);
+        bridge.scale_percent[0] = 200;
+        bridge.ring_contact_disabled = true;
         bridge.model_collision = Some(Arc::new(ModelCollision {
             floors: vec![rectangle([0., 120.], [-80., 80.], 10.)],
             solids: Vec::new(),

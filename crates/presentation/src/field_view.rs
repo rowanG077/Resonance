@@ -30,6 +30,7 @@ use resonance_content::{
     HEIGHT, ScenePart, TextureBinding, WIDTH,
     field::{DrawStage, FieldAssets, MODEL_DRAW_SPAN, SCENERY_RESOURCE_BASE},
 };
+use resonance_events::effect::Blend;
 use resonance_events::{Face, effect::LightPosition};
 use resonance_game::field::{FieldInput, FieldSession};
 pub use sequence::{FieldMovement, FieldSequence};
@@ -349,7 +350,7 @@ impl Part {
                 vertex_color: spec.vertex_color,
                 multiply: super::scene::sampled_image(material.multiply.clone(), images, sampled),
                 constant_color: self.spec.outline_color_for(spec).is_some(),
-                blend: spec.blend,
+                blend: spec.blend.then_some(Blend::Alpha),
                 depth_write: spec.depth_write,
                 cull: spec.cull,
                 tint: self.spec.outline_color_for(spec).map_or(Vec4::ONE, |c| {
@@ -403,8 +404,11 @@ impl Art {
                     ),
                     toon_ramp: self.toon_ramp_for(resource, index, spec, None),
                     constant_color: part.spec.outline_color_for(spec).is_some(),
-                    blend: spec.blend,
-                    additive: resource == resonance_content::field::SAVE_POINT_RESOURCE,
+                    blend: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
+                        Some(Blend::Additive)
+                    } else {
+                        spec.blend.then_some(Blend::Alpha)
+                    },
                     depth_write: spec.depth_write,
                     // The circle's translucent shell is visible from both sides.
                     cull: if resource == resonance_content::field::SAVE_POINT_RESOURCE {
@@ -1784,8 +1788,8 @@ fn instances(
             .flat_map(|(index, part)| {
                 (0..if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                     2
-                } else if id == resonance_events::COLETTE_WINGS_ACTOR {
-                    3
+                } else if actor.wings.is_some() {
+                    resonance_events::Wings::LAYERS
                 } else {
                     1
                 })
@@ -1915,6 +1919,12 @@ fn pose(
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);
         let sealed = save_point.is_some_and(|p| !p.is_open(&world.event_flags));
         let brightness = world.brightness();
+        let wing_layer = actor
+            .wings
+            .as_ref()
+            .map(|w| w.layer(instance.pass, world.effect_tick));
+        let wing_echo = wing_layer.as_ref().and_then(|layer| layer.echo);
+        let echo_color = wing_echo.map(|echo| echo.rgba(tick));
         let reaction_tint = world
             .pose_tint(instance.actor)
             .or_else(|| actor.enemy.as_ref()?.stun_effect()?.tint(tick))
@@ -1932,7 +1942,7 @@ fn pose(
                 1.,
                 1.,
                 1.,
-                actor.properties.get(&8).copied().unwrap_or(255) as f32 / 255.,
+                echo_color.map_or_else(|| actor.opacity as f32, |rgba| f32::from(rgba[3])) / 255.,
             )
             * if actor.resource == resonance_content::field::SAVE_POINT_RESOURCE {
                 if sealed {
@@ -1942,23 +1952,21 @@ fn pose(
                 } else {
                     Vec4::new(1., 1., 1., 128. / 255.)
                 }
-            } else if instance.actor == resonance_events::COLETTE_WINGS_ACTOR {
-                Vec4::new(
-                    1.,
-                    1.,
-                    1.,
-                    [127., 63., 255.][usize::from(instance.pass)] / 255.,
-                )
+            } else if let Some(layer) = &wing_layer {
+                Vec4::new(1., 1., 1., f32::from(layer.alpha) / 255.)
             } else {
                 Vec4::ONE
             };
         let light = session.character_light(instance.actor);
-        let ambient_color = if instance.part == 0 {
-            Vec3::from_array(
-                [42, 43, 44]
-                    .map(|property| actor.properties.get(&property).copied().unwrap_or(64) as f32),
+        let ambient_color = if let Some(rgba) = echo_color {
+            Vec4::new(
+                f32::from(rgba[0]),
+                f32::from(rgba[1]),
+                f32::from(rgba[2]),
+                1.,
             )
-            .extend(1.)
+        } else if instance.part == 0 {
+            Vec3::from_array(actor.tint.map(f32::from)).extend(1.)
         } else {
             Vec4::new(64., 64., 64., 0.)
         };
@@ -1997,11 +2005,7 @@ fn pose(
                         / f32::from(variant.frames);
                 }
                 if channels.eyes == Some(binding.texture) {
-                    let frame = match actor.appearance.face {
-                        Face::Frame(frame) => frame,
-                        Face::Blink => actor.appearance.eyes.map_or(0, |eyes| eyes.frame),
-                        Face::Disabled => 0,
-                    };
+                    let frame = session.events.eye_frame(actor);
                     offset[1] += f32::from(frame) / 16.;
                     applied.ack(Request::Eyes(instance.actor));
                 }
@@ -2017,32 +2021,25 @@ fn pose(
                     applied.ack(Request::Mouth(instance.actor));
                 }
                 if channels.costume == Some(binding.texture) {
-                    const CRUXIS_CRYSTAL_RECEIVED: u16 = 24;
-                    let frame = match actor.resource {
-                        2 if world.event_flags.contains(&CRUXIS_CRYSTAL_RECEIVED) => 0,
-                        2..=4 => 3,
-                        7 => 1,
-                        _ => 0,
-                    };
-                    offset[1] += frame as f32 / 4.;
+                    offset[1] += f32::from(actor.appearance.costume_frame) / 4.;
                 }
             }
             let mut offsets = Vec4::new(offset[0], offset[1], 0., 0.);
-            if instance.actor == resonance_events::COLETTE_WINGS_ACTOR {
+            if let Some(layer) = &wing_layer {
                 for (stage, binding) in [&material.color, &material.multiply]
                     .into_iter()
                     .enumerate()
                 {
                     if binding.as_ref().is_some_and(|b| b.texture == 0) {
-                        offsets[stage * 2] += (world.effect_tick & 127) as f32 / 128.;
+                        offsets[stage * 2] += layer.uv_offset;
                     }
                 }
             }
             for animation in &art.texture_animations {
-                if animation.actor.resolve(&world.render_settings) != instance.actor {
+                if animation.actor.resolve(&world.texture_bindings) != instance.actor {
                     continue;
                 }
-                let texture = animation.texture.resolve(&world.render_settings);
+                let texture = animation.texture.resolve(&world.texture_bindings);
                 let uv = animation.offset(
                     world.texture_animation_tick,
                     world.texture_animation_effect_tick,
@@ -2068,21 +2065,20 @@ fn pose(
                 }
             });
             let uv_scales = Vec4::new(1., scales[0], 1., scales[1]);
-            const TOON_LIGHTING: i32 = 38;
             let toon_ramp = art.toon_ramp_for(
                 instance.resource,
                 instance.part,
                 material,
-                actor.properties.get(&TOON_LIGHTING).copied(),
+                actor.toon_lighting.map(i32::from),
             );
             let depth_write = material.depth_write && actor.depth_write;
-            let blend = material.blend || actor.blend.is_some() || tint.w < 1.;
-            let additive = actor.blend.map_or(
-                actor.ring_station || (save_point.is_some() && !sealed),
-                |blend| blend == resonance_events::model_particle::Blend::Additive,
-            );
-            let subtractive =
-                actor.blend == Some(resonance_events::model_particle::Blend::Subtractive);
+            let blend = actor.blend.or_else(|| {
+                if actor.ring_station || (save_point.is_some() && !sealed) {
+                    Some(Blend::Additive)
+                } else {
+                    (material.blend || tint.w < 1.).then_some(Blend::Alpha)
+                }
+            });
             if surfaces.get(&instance.materials[index]).is_some_and(|s| {
                 s.uv_offsets != offsets
                     || s.uv_scales != uv_scales
@@ -2090,8 +2086,6 @@ fn pose(
                     || s.ambient_color != ambient_color
                     || s.depth_write != depth_write
                     || s.blend != blend
-                    || s.additive != additive
-                    || s.subtractive != subtractive
                     || s.field_light != light_position
                     || s.shade_colors != shades
                     || s.toon_ramp != toon_ramp
@@ -2103,32 +2097,43 @@ fn pose(
                 surface.ambient_color = ambient_color;
                 surface.depth_write = depth_write;
                 surface.blend = blend;
-                surface.additive = additive;
-                surface.subtractive = subtractive;
                 surface.field_light = light_position;
                 surface.shade_colors = shades;
                 surface.toon_ramp = toon_ramp;
             }
         }
-        transform.translation = Vec3::from_array(actor.visual_position());
-        transform.scale = Vec3::from_array(actor.model_scale());
+        transform.translation = Vec3::from_array(
+            wing_echo.map_or_else(|| actor.visual_position(), |echo| echo.position),
+        );
+        transform.scale = Vec3::from_array(
+            wing_echo.map_or_else(|| actor.model_scale(), |echo| echo.scale(tick)),
+        );
         if instance.actor == world.controlled_actor {
             transform.scale *= world.player_size.model_scale();
         }
-        transform.rotation = Quat::from_rotation_z(
-            actor
-                .appearance
-                .fixed_heading
-                .unwrap_or(actor.heading)
-                .to_radians(),
-        ) * Quat::from_rotation_y(actor.tilt_degrees()[1].to_radians())
-            * Quat::from_rotation_x(actor.tilt_degrees()[0].to_radians());
-        *visibility =
-            if actor.visible && !actor.appearance.model_hidden && !(sealed && instance.pass != 0) {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            };
+        let [x, y, z] = wing_echo.map_or_else(
+            || {
+                [
+                    actor.tilt_degrees()[0],
+                    actor.tilt_degrees()[1],
+                    actor.appearance.fixed_heading.unwrap_or(actor.heading),
+                ]
+            },
+            |echo| echo.angles,
+        );
+        transform.rotation = Quat::from_rotation_z(z.to_radians())
+            * Quat::from_rotation_y(y.to_radians())
+            * Quat::from_rotation_x(x.to_radians());
+        *visibility = if actor.visible
+            && !actor.appearance.model_hidden
+            && !actor.animation_culled
+            && wing_layer.as_ref().is_none_or(|layer| layer.visible)
+            && !(sealed && instance.pass != 0)
+        {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
         let animation = actor.animation.as_ref().and_then(|a| {
             part.spec
                 .clips
@@ -2188,7 +2193,7 @@ fn pose(
         {
             0
         } else {
-            match actor.properties.get(&39).copied().unwrap_or(2) {
+            match actor.draw_layer {
                 -1 => DrawStage::LateActors.offset(),
                 -4 => DrawStage::TranslucentScenery.offset() + 2 * MODEL_DRAW_SPAN,
                 -3 => super::draw_order::EFFECTS + MODEL_DRAW_SPAN,

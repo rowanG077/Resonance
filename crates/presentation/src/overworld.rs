@@ -4,6 +4,7 @@ use super::{
     materials::{TitleOutput, TitleSurface},
     sparse_animation,
 };
+use resonance_events::effect::Blend;
 mod capture;
 mod cinematic;
 mod effects;
@@ -489,13 +490,13 @@ fn instances(
                 .into_iter()
                 .map(|mut s| {
                     if matches!(model, Model::Actor(203 | 213 | 214)) {
-                        s.additive = true;
+                        s.blend = Some(Blend::Additive);
                         s.depth_write = false;
                     }
                     if matches!(model, Model::Marker(1 | 17)) {
                         // Draw portals and discovery circles
                         // without depth writes.
-                        s.blend = true;
+                        s.blend = Some(Blend::Alpha);
                         s.depth_write = false;
                     }
                     if let Model::Cinematic(actor) = model {

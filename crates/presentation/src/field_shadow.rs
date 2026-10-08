@@ -9,6 +9,7 @@ use bevy::{
     prelude::*,
 };
 use resonance_content::field::ContactShadow;
+use resonance_events::effect::Blend;
 use std::collections::BTreeMap;
 
 pub(super) struct Artwork {
@@ -110,7 +111,7 @@ pub(super) fn sync(
         shadows.material = Some(surfaces.add(TitleSurface {
             field_fog: true,
             tint: Vec4::new(0., 0., 0., f32::from(shadows.spec.alpha) / 255.),
-            blend: true,
+            blend: Some(Blend::Alpha),
             depth_write: false,
             cull: resonance_content::CullFace::None,
             ..TitleSurface::textured(Some(shadows.texture.clone()))

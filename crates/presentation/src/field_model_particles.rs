@@ -8,15 +8,13 @@ use super::{
     scene::SampledImages,
 };
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
-use resonance_events::model_particle::Blend;
+use resonance_events::effect::Blend;
 use std::collections::BTreeSet;
 
 pub(super) fn material(surface: &mut TitleSurface, blend: Blend) {
-    surface.blend = true;
+    surface.blend = Some(blend);
     surface.cull = resonance_content::CullFace::None;
     surface.depth_write = false;
-    surface.additive = blend == Blend::Additive;
-    surface.subtractive = blend == Blend::Subtractive;
 }
 
 #[derive(Component)]
@@ -142,7 +140,7 @@ pub(super) fn sync(
         transform.translation = Vec3::from_array(particle.position);
         transform.scale = Vec3::from_array(particle.scale);
         transform.rotation = effect_rotation(particle.orientation, particle.rotation, camera);
-        let brightness = if particle.field_lighting {
+        let brightness = if particle.field_lighting || world.fade.is_none() {
             world.brightness()
         } else {
             1.
@@ -153,16 +151,10 @@ pub(super) fn sync(
             let material = surfaces
                 .get(handle)
                 .expect("retained model particle material");
-            let additive = particle.blend == Blend::Additive;
-            let subtractive = particle.blend == Blend::Subtractive;
-            if material.tint != tint
-                || material.additive != additive
-                || material.subtractive != subtractive
-            {
+            if material.tint != tint || material.blend != Some(particle.blend) {
                 let mut material = surfaces.get_mut(handle).unwrap();
                 material.tint = tint;
-                material.additive = additive;
-                material.subtractive = subtractive;
+                material.blend = Some(particle.blend);
             }
         }
         let captured = model

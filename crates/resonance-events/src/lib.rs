@@ -19,7 +19,7 @@ mod resources;
 mod scheduler;
 mod trigger;
 mod wings;
-pub use wings::COLETTE_WINGS_ACTOR;
+pub use wings::{WingEcho, WingStyle, Wings};
 mod world;
 pub use animation::Animation;
 pub use resources::{

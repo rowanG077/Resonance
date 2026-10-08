@@ -1,12 +1,10 @@
 //! Continuous emission uses normalized settings prepared at the script boundary.
-use super::{inherit, normalized, palette};
+use super::{State, inherit, normalized, palette};
 use crate::effect::{BillboardController, BillboardEffect};
 use crate::world::random_unit;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Stream {
-    pub(super) angle: f32,
-    pub(super) emitted: u32,
     pub(super) sprite: BillboardEffect,
     pub(super) palette: Option<i32>,
     pub(super) images: &'static [u16],
@@ -16,7 +14,6 @@ pub(crate) struct Stream {
     pub(super) filled: bool,
     pub(super) converge: bool,
     pub(super) size_variation: [f32; 2],
-    pub(super) tilt_variation: f32,
     pub(super) speed_variation: f32,
     pub(super) speed_scale: f32,
     pub(super) radial_speed: f32,
@@ -29,12 +26,12 @@ pub(crate) struct Stream {
     pub(super) preserve_particles: bool,
     pub(super) limit: Option<u32>,
     pub(super) flash: Option<BillboardEffect>,
-    pub(super) flash_rays: u8,
 }
 impl Stream {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn particles(
-        &mut self,
+        &self,
+        state: &mut State,
         owner: i32,
         center: [f32; 3],
         camera: [f32; 3],
@@ -51,38 +48,27 @@ impl Stream {
         } else {
             center
         };
-        let actor_speed = actor
-            .properties
-            .get(&super::SPEED_PROPERTY)
-            .copied()
-            .unwrap_or(0) as f32;
-        if s.limit.is_some_and(|limit| s.emitted >= limit) {
+        let actor_speed = actor.movement_speed();
+        if s.limit.is_some_and(|limit| state.emitted >= limit) {
             return;
         }
-        s.angle = (s.angle + actor_speed * s.orbit_speed_scale) % 360.;
+        state.angle = (state.angle + actor_speed * s.orbit_speed_scale) % 360.;
         if !tick.is_multiple_of(s.interval) {
             return;
         }
         let speed = actor_speed * s.speed_scale;
-        if s.emitted == 0
+        if state.emitted == 0
             && let Some(flash) = &s.flash
         {
             let mut flash = flash.clone();
             flash.position = center;
             flash.born = born;
             flash.palette = s.palette.map(|color| palette(color, random));
-            for ray in 0..s.flash_rays {
-                let mut streak = flash.clone();
-                streak.recipe = resonance_content::effect::STREAK_SPRITE;
-                streak.size = [4., flash.size[0] * 2.];
-                streak.rotation[2] = f32::from(ray) * 180. / f32::from(s.flash_rays);
-                out.push(streak);
-            }
             out.push(flash);
         }
         let count = s
             .limit
-            .map_or(s.count, |limit| s.count.min(limit - s.emitted));
+            .map_or(s.count, |limit| s.count.min(limit - state.emitted));
         for spoke in 0..count {
             let mut p = s.sprite.clone();
             p.born = born;
@@ -95,11 +81,8 @@ impl Stream {
             for (size, spread) in p.size.iter_mut().zip(s.size_variation) {
                 *size += variation * spread;
             }
-            if s.tilt_variation != 0. {
-                p.rotation[1] += (random_unit(random) * 2. - 1.) * s.tilt_variation;
-            }
             let angle = if s.count > 1 {
-                s.angle + spoke as f32 * 360. / s.count as f32
+                state.angle + spoke as f32 * 360. / s.count as f32
             } else {
                 random_unit(random) * 360.
             };
@@ -141,10 +124,10 @@ impl Stream {
                 });
             }
             if s.inherit_appearance {
-                inherit(&mut p, &actor.properties, actor.blend);
+                inherit(&mut p, actor);
             }
             out.push(p);
         }
-        s.emitted = s.emitted.saturating_add(count);
+        state.emitted = state.emitted.saturating_add(count);
     }
 }

@@ -99,46 +99,30 @@ pub(super) fn update(
     let mut uvs = Vec::new();
     let mut colors = Vec::new();
     let mut indices = Vec::new();
-    let mut emit =
-        |point: [f32; 3], velocity: Vec3, size: f32, rgb: [f32; 3], alpha: f32, age: u32| {
-            let center = Vec3::from_array(point) + velocity * age as f32;
-            let half = (size * 0.5).trunc();
-            let right = camera.right() * half;
-            let up = camera.up() * half;
-            let base = positions.len() as u32;
-            for point in [
-                center - right + up,
-                center + right + up,
-                center + right - up,
-                center - right - up,
-            ] {
-                positions.push(point.to_array());
-            }
-            // Effect table 0x2A4: origin (192,0), span (62,62) in a 256 atlas.
-            uvs.extend([
-                [192. / 256., 0.],
-                [254. / 256., 0.],
-                [254. / 256., 62. / 256.],
-                [192. / 256., 62. / 256.],
-            ]);
-            colors.extend([[rgb[0] / 255., rgb[1] / 255., rgb[2] / 255., alpha / 255.]; 4]);
-            indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
-        };
     for particle in &events.0.world.particles {
-        debug_assert_eq!(
-            particle.kind, 10,
-            "Unimplemented title particle {} (kind {}) at VM tick {tick}",
-            particle.handle, particle.kind
-        );
-        let age = tick - particle.born;
-        emit(
-            particle.position,
-            Vec3::from_array(particle.velocity),
-            particle.size + particle.size_delta * age as f32,
-            [particle.rgba[0], particle.rgba[1], particle.rgba[2]],
-            particle.alpha(tick).max(0.),
-            age,
-        );
+        let (position, size, rgba) = particle.sample(tick);
+        let center = Vec3::from_array(position);
+        let half = (size * 0.5).trunc();
+        let right = camera.right() * half;
+        let up = camera.up() * half;
+        let base = positions.len() as u32;
+        for point in [
+            center - right + up,
+            center + right + up,
+            center + right - up,
+            center - right - up,
+        ] {
+            positions.push(point.to_array());
+        }
+        // Feather and reflection artwork occupy this atlas rectangle.
+        uvs.extend([
+            [192. / 256., 0.],
+            [254. / 256., 0.],
+            [254. / 256., 62. / 256.],
+            [192. / 256., 62. / 256.],
+        ]);
+        colors.extend([rgba.map(|v| v / 255.); 4]);
+        indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
     }
     let geometry = Mesh::new(
         PrimitiveTopology::TriangleList,

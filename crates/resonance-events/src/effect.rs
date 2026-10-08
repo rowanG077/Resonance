@@ -18,6 +18,28 @@ pub(crate) const ELECTRIC_SPARK_SPRITE: u16 = 42;
 pub(crate) const ELECTRIC_ARC_SPRITE: u16 = 14;
 pub(crate) const FLAME_SPRITE: u16 = 11;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Blend {
+    Alpha,
+    Additive,
+    Subtractive,
+}
+impl TryFrom<i32> for Blend {
+    type Error = String;
+    fn try_from(value: i32) -> Result<Self, String> {
+        match value & 3 {
+            0 => Ok(Self::Alpha),
+            1 => Ok(Self::Additive),
+            2 => Ok(Self::Subtractive),
+            _ => Err("inherited blend requires a sprite recipe".into()),
+        }
+    }
+}
+impl Blend {
+    pub const ALL: [Self; 3] = [Self::Alpha, Self::Additive, Self::Subtractive];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StunEffect {
     None,
@@ -122,7 +144,7 @@ impl crate::GameWorld {
             size: [width, height],
             rgba: [32, 32, 255, 247],
             fade: Fade::Linear(-8.),
-            blend_mode: Some(1),
+            blend: Some(crate::effect::Blend::Additive),
             ..Default::default()
         })?;
         Ok(())
@@ -137,35 +159,60 @@ impl crate::GameWorld {
                 actor.face((self.tick % 360) as f32);
                 let mut position = actor.position;
                 position[2] += (self.tick as f32).to_radians().sin() * 10. + 150.;
-                let rgb = actor.station_color();
+                let rgb = actor.tint;
                 (position, rgb)
             })
             .collect();
         let turn = self.effect_tick as f32 * 4.;
         for (position, rgb) in stations {
-            for (index, (recipe, lifetime, base, mask, alpha, fade, rotation, blend)) in [
-                (STATION_GLOW_SPRITE, 2, 48, 7, 48, -16., 0., None),
-                (STATION_GLOW_SPRITE, 3, 40, 3, 64, -64., 0., Some(0)),
-                (STATION_HALO_SPRITE, 5, 80, 3, 207, -48., turn, None),
-                (STATION_HALO_SPRITE, 5, 80, 3, 207, -48., -turn * 2., None),
-            ]
-            .into_iter()
-            .enumerate()
-            {
+            let tint = |alpha| [rgb[0], rgb[1], rgb[2], alpha];
+            let neutral = |alpha| [NEUTRAL_TINT, NEUTRAL_TINT, NEUTRAL_TINT, alpha];
+            for (recipe, lifetime, base, mask, rgba, fade, rotation, blend) in [
+                (STATION_GLOW_SPRITE, 2, 48, 7, tint(48), -16., 0., None),
+                (
+                    STATION_GLOW_SPRITE,
+                    3,
+                    40,
+                    3,
+                    tint(64),
+                    -64.,
+                    0.,
+                    Some(Blend::Alpha),
+                ),
+                (
+                    STATION_HALO_SPRITE,
+                    5,
+                    80,
+                    3,
+                    neutral(207),
+                    -48.,
+                    turn,
+                    None,
+                ),
+                (
+                    STATION_HALO_SPRITE,
+                    5,
+                    80,
+                    3,
+                    neutral(207),
+                    -48.,
+                    -turn * 2.,
+                    None,
+                ),
+            ] {
                 let size = (base + (self.random() & mask)) as f32;
-                let color = if index < 2 { rgb } else { [NEUTRAL_TINT; 3] };
                 self.emit_billboard(BillboardEffect {
                     field_lighting: true,
-                    palette: (index >= 2).then_some(0),
+                    palette: (recipe == STATION_HALO_SPRITE).then_some(u16::from(NEUTRAL_PALETTE)),
                     recipe,
                     born: self.tick,
                     lifetime,
                     position,
                     rotation: [0., 0., rotation],
                     size: [size; 2],
-                    rgba: [color[0], color[1], color[2], alpha],
+                    rgba,
                     fade: Fade::Linear(fade),
-                    blend_mode: blend,
+                    blend,
                     ..Default::default()
                 })?;
             }
@@ -394,7 +441,7 @@ pub struct BillboardEffect {
     pub size_delta: f32,
     pub rgba: [u8; 4],
     pub fade: Fade,
-    pub blend_mode: Option<u8>,
+    pub blend: Option<Blend>,
 }
 #[derive(Debug, Clone, Copy)]
 pub enum SpriteOrientation {
@@ -486,7 +533,7 @@ impl Default for BillboardEffect {
             size_delta: 0.,
             rgba: [NEUTRAL_TINT, NEUTRAL_TINT, NEUTRAL_TINT, 255],
             fade: Fade::Linear(0.),
-            blend_mode: None,
+            blend: None,
         }
     }
 }
@@ -602,7 +649,7 @@ impl crate::GameWorld {
                     {
                         *distance = offset;
                     }
-                    effect.position = std::array::from_fn(|i| center[i] + direction[i] * *distance);
+                    effect.position = std::array::from_fn(|i| center[i] - direction[i] * *distance);
                 }
                 None => {}
             }

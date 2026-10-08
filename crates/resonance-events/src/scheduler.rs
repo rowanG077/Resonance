@@ -678,7 +678,7 @@ impl EventRuntime {
         }
         self.world.tick = self.world.tick.checked_add(1).context("clock overflow")?;
         self.world.effect_tick = effect_tick;
-        if self.world.render_settings.get(&128) == Some(&1) {
+        if self.world.texture_animation_enabled {
             self.world.texture_animation_tick += 1;
             self.world.texture_animation_effect_tick = effect_tick;
         }
@@ -898,7 +898,7 @@ impl EventRuntime {
             })
             .and_then(|()| {
                 let enabled = self.memory.read(0x44, symphonia_script::Width::S32)? != 0;
-                self.world.step_colette_wings(&self.resources, enabled)
+                self.world.step_wings(&self.resources, enabled)
             })
             .and_then(|()| self.world.update_collision_attachments(&self.resources));
         self.failed = result.is_err();
@@ -1251,6 +1251,7 @@ impl EventRuntime {
                 break;
             }
         }
+        self.world.update_costumes();
         Ok(())
     }
 }

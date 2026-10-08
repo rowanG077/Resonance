@@ -86,7 +86,7 @@ fn enemy(position: [f32; 3]) -> Actor {
         behavior: 0,
         normal_speed: 0.,
         alert_speed: 0.,
-        random_turns: false,
+        random_turns: 0,
         chase_on_sight: false,
         sight_angle: 0.,
         sight_distance: 0.,
@@ -200,8 +200,8 @@ fn model_barriers_follow_live_transforms_and_the_ring_contact_mask() {
             [offset, -100., 0.],
         );
         prop.face(90.);
-        prop.properties
-            .extend([(31, scale), (48, i32::from(masked))]);
+        prop.scale_percent[1] = scale;
+        prop.ring_contact_disabled = masked;
         prop.model_collision = Some(solid_box([-20., 20., 0.], [20., 30., 300.]));
         events.world.actors.get_mut(&1).unwrap().position[0] = -55.;
         events.world.insert_actor(2, prop);

@@ -109,11 +109,10 @@ pub(super) fn sample(
             .iter()
             .chain(actor.scenery_animations.values())
         {
-            let delay = if part.actor == resonance_events::COLETTE_WINGS_ACTOR && part.pass < 2 {
-                2. * f32::from(part.pass + 1)
-            } else {
-                0.
-            };
+            let delay = actor
+                .wings
+                .as_ref()
+                .map_or(0., |w| w.layer(part.pass, world.effect_tick).pose_delay);
             let Some((clip, time, _)) = sample_clip(
                 &model.spec,
                 &model.clips,
