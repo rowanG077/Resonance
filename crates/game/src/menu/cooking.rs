@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::menu_data::{RECIPE_COUNT, RECIPE_ROWS};
+use resonance_events::input::Button;
 use resonance_events::party::{CookingError, Meal};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -153,7 +154,7 @@ impl Menu {
         if let Some(popup) = &mut self.cooking.popup
             && popup.active
         {
-            if input.interact || input.cancel {
+            if input.pressed(Button::Accept) || input.pressed(Button::Cancel) {
                 popup.active = false;
                 return Some(2);
             }
@@ -162,7 +163,7 @@ impl Menu {
         let state = &mut self.cooking;
         let progress = &mut self.checkpoint.as_mut().unwrap().progress;
         let party = &mut progress.party;
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if state.focus == Focus::Header {
                 state.transition.page_closing = true;
                 self.select_main(Page::Cooking);
@@ -173,7 +174,7 @@ impl Menu {
         }
         match state.focus {
             Focus::Header => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     state.focus = if state.choose_recipe {
                         Focus::Recipes
                     } else {
@@ -191,7 +192,7 @@ impl Menu {
                         .unwrap();
                     return Some(2);
                 }
-                if input.alternate {
+                if input.pressed(Button::Ring) {
                     let (content, cue) = match progress.cook(&self.resources.as_ref().unwrap().data)
                     {
                         Ok(meal) => {
@@ -218,7 +219,7 @@ impl Menu {
                 }
             }
             Focus::Cooks => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     party.cooking.chef = party.formation[state.chef_slot] - 1;
                     self.party_changed = true;
                     state.focus = Focus::Header;
@@ -234,7 +235,7 @@ impl Menu {
                 return (state.chef_slot != old).then_some(1);
             }
             Focus::Recipes => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if !party.cooking.knows(state.recipe as u8) {
                         state.show(Content::Notice(Notice::UnknownRecipe));
                         return Some(4);
@@ -245,11 +246,11 @@ impl Menu {
                     return Some(2);
                 }
                 let old = state.recipe;
-                if input.previous_page {
+                if input.pressed(Button::PreviousPage) {
                     let step = state.first.min(RECIPE_ROWS);
                     state.first -= step;
                     state.recipe -= step;
-                } else if input.next_page {
+                } else if input.pressed(Button::NextPage) {
                     if state.first + RECIPE_ROWS < RECIPE_COUNT {
                         state.first += RECIPE_ROWS;
                         state.recipe = (old + RECIPE_ROWS).min(RECIPE_COUNT - 1);
@@ -269,7 +270,7 @@ impl Menu {
                     state.scroll = (state.first as i32 - first as i32).signum() as i8;
                 }
                 return (state.recipe != old).then_some(
-                    if input.previous_page || input.next_page {
+                    if input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage) {
                         38
                     } else {
                         1

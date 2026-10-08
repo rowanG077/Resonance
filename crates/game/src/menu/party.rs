@@ -1,10 +1,11 @@
 use super::*;
 use crate::field::FieldInput;
+use resonance_events::input::Button;
 
 pub(super) fn page_shift(input: FieldInput, length: usize, first: usize) -> isize {
-    if input.next_page {
+    if input.pressed(Button::NextPage) {
         VISIBLE_PARTY.min(length.saturating_sub(first + VISIBLE_PARTY)) as isize
-    } else if input.previous_page {
+    } else if input.pressed(Button::PreviousPage) {
         -(VISIBLE_PARTY.min(first) as isize)
     } else {
         0
@@ -60,17 +61,17 @@ impl Menu {
     }
 
     pub(super) fn step_party(&mut self, input: FieldInput, up: bool, down: bool) -> Option<i16> {
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if self.swap_character.take().is_none() {
                 self.page = Page::Main;
             }
             return Some(3);
         }
-        if input.interact || input.menu {
+        if input.pressed(Button::Accept) || input.pressed(Button::Menu) {
             let party = &mut self.checkpoint.as_mut()?.progress.party;
             if let Some(origin) = self.swap_character.take() {
                 party.formation.swap(origin, self.character);
-            } else if input.menu {
+            } else if input.pressed(Button::Menu) {
                 self.swap_character = Some(self.character);
                 return Some(2);
             } else {

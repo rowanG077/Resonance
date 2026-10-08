@@ -146,6 +146,52 @@ impl FieldPackage {
         );
     }
 
+    pub fn restore(
+        &self,
+        checkpoint: &FieldCheckpoint,
+        data: Arc<resonance_content::session::SessionData>,
+        skits: Arc<resonance_content::skit::SkitCatalog>,
+        available_fields: BTreeSet<u32>,
+    ) -> Result<FieldSession> {
+        let mut entry = checkpoint
+            .clone()
+            .entry(&self.assets, data, available_fields)?;
+        entry.skits = Some(skits);
+        let mut field = self.enter(entry)?;
+        initialize_checkpoint(&mut field, checkpoint)?;
+        self.queue_entry(&mut field, resonance_game::field::EntryKind::Restore);
+        Ok(field)
+    }
+
+    pub fn transition(&self, previous: &FieldSession) -> Result<FieldSession> {
+        let request = previous
+            .events
+            .world
+            .field_transition
+            .as_ref()
+            .context("field transition is missing")?;
+        ensure!(
+            self.assets.map_id == request.map,
+            "prepared field differs from the requested destination"
+        );
+        let resources = previous.events.resources();
+        let mut field = self.enter(FieldEntry {
+            allow_incomplete_scripts: previous.allow_incomplete_scripts,
+            play_time: previous.play_time,
+            persistent: previous.events.persistent_state()?,
+            data: resources.session_data.clone(),
+            skits: resources.skits.clone(),
+            available_fields: resources.fields.clone(),
+            position: request.position,
+            heading: request.heading,
+            camera: request.camera.clone(),
+            ..Default::default()
+        })?;
+        field.continue_ambient(previous);
+        self.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
+        Ok(field)
+    }
+
     pub fn enter(&self, mut entry: FieldEntry) -> Result<FieldSession> {
         let menu: resonance_content::menu_data::MenuData =
             self.files.json("game/menu-data.json")?;

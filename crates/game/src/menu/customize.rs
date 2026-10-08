@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::menu_data::{CUSTOMIZE_OPTIONS, CustomizeSettings};
+use resonance_events::input::Button;
 
 pub const VISIBLE_OPTIONS: usize = 9;
 
@@ -114,7 +115,7 @@ impl Menu {
         if state.transition.animating() || state.scroll != 0 || state.color_scroll != 0 {
             return None;
         }
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if state.focus == Focus::Options {
                 self.checkpoint
                     .as_mut()
@@ -178,7 +179,7 @@ impl Menu {
                         state.defaults = !state.defaults;
                         return Some(1);
                     }
-                    if input.interact {
+                    if input.pressed(Button::Accept) {
                         state.draft = if state.defaults {
                             self.resources
                                 .as_ref()
@@ -199,7 +200,7 @@ impl Menu {
                         };
                         return Some(2);
                     }
-                } else if input.interact {
+                } else if input.pressed(Button::Accept) {
                     state.focus = match state.row {
                         4 => {
                             state.component = 0;
@@ -245,7 +246,7 @@ impl Menu {
                 }
             }
             Focus::Colors => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     state.component = usize::from(state.component == 0);
                     return Some(2);
                 }
@@ -253,8 +254,11 @@ impl Menu {
                     state.component = cycle(state.component, up, 5);
                     return Some(1);
                 }
-                if input.previous_page || input.next_page || horizontal && state.component == 0 {
-                    let previous = left || input.previous_page;
+                if input.pressed(Button::PreviousPage)
+                    || input.pressed(Button::NextPage)
+                    || horizontal && state.component == 0
+                {
+                    let previous = left || input.pressed(Button::PreviousPage);
                     state.color_group = cycle(state.color_group, previous, 7);
                     state.color_scroll = if previous { -1 } else { 1 };
                     return Some(1);
@@ -311,7 +315,7 @@ impl Menu {
             Focus::Position => {
                 let old = state.draft.screen_position;
                 let [x, y] = &mut state.draft.screen_position;
-                if input.menu || input.start {
+                if input.pressed(Button::Menu) || input.pressed(Button::Start) {
                     *x = 0;
                     *y = 0;
                 } else if horizontal {

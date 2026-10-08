@@ -1,4 +1,5 @@
 use super::*;
+use resonance_events::input::Button;
 
 pub const VISIBLE_CHOICES: usize = 4;
 const PREVIEW_STEP: u8 = 32;
@@ -235,7 +236,7 @@ impl Menu {
         [left, right, up, down, page_up, page_down]: [bool; 6],
     ) -> Option<i16> {
         let focus = self.ex_skills.focus;
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             self.ex_skills.focus = match focus {
                 Focus::Character | Focus::Gems | Focus::Skills => {
                     self.ex_skills.transition.page_closing = true;
@@ -256,13 +257,13 @@ impl Menu {
             return Some(if focus == Focus::Compounds { 1 } else { 3 });
         }
         if matches!(focus, Focus::Character | Focus::Gems | Focus::Skills)
-            && (input.previous_page
-                || input.next_page
+            && (input.pressed(Button::PreviousPage)
+                || input.pressed(Button::NextPage)
                 || focus == Focus::Character && (left || right))
         {
             let count = self.party().formation.len();
             self.character = (self.character
-                + if input.previous_page || left {
+                + if input.pressed(Button::PreviousPage) || left {
                     count - 1
                 } else {
                     1
@@ -276,7 +277,7 @@ impl Menu {
         }
         match focus {
             Focus::Character => {
-                if input.interact || down {
+                if input.pressed(Button::Accept) || down {
                     self.ex_skills.focus = Focus::Gems;
                     self.ex_skills.slot = 0;
                     return Some(2);
@@ -329,7 +330,7 @@ impl Menu {
                     self.ex_skills.first = 0;
                     return Some(1);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if focus == Focus::Gems {
                         if self.ex_gems().is_empty() {
                             return Some(4);
@@ -361,7 +362,7 @@ impl Menu {
                 } else {
                     self.ex_choices().len()
                 };
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if focus == Focus::GemList {
                         let current = self.member().ex_gems[self.ex_skills.slot];
                         if current == self.ex_gems()[self.ex_skills.gem] {
@@ -435,7 +436,7 @@ impl Menu {
                     };
                     return Some(1);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if !yes {
                         self.ex_skills.focus = Focus::GemList;
                         return Some(3);

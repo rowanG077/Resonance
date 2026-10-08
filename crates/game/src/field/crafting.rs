@@ -6,6 +6,7 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use resonance_content::{field_audio::ServiceCue, menu_data::crafting::Recipe};
+use resonance_events::input::Button;
 use resonance_events::{
     Operation,
     party::{CraftError, Party},
@@ -132,14 +133,14 @@ impl Crafting {
         if self.description_fade == 0 {
             self.description_previous = self.selected_item();
         }
-        let mut cue = if input.start {
+        let mut cue = if input.pressed(Button::Start) {
             self.statistics = !self.statistics;
             Some(Navigate)
         } else {
             None
         };
         if self.scroll == 0 {
-            if input.cancel {
+            if input.pressed(Button::Cancel) {
                 if self.focus == Focus::Recipes {
                     self.closing = true;
                 } else {
@@ -148,7 +149,7 @@ impl Crafting {
                 cue = Some(Cancel);
             } else {
                 match self.focus {
-                    Focus::Recipes if input.interact => {
+                    Focus::Recipes if input.pressed(Button::Accept) => {
                         if !self.recipes().is_empty() {
                             self.focus = self.availability(party);
                             cue = Some(if matches!(self.focus, Focus::Confirm { .. }) {
@@ -188,7 +189,7 @@ impl Crafting {
                             cue = Some(if page_up || page_down { Page } else { Navigate });
                         }
                     }
-                    Focus::Confirm { yes } if input.interact => {
+                    Focus::Confirm { yes } if input.pressed(Button::Accept) => {
                         if yes {
                             self.focus = Self::focus(
                                 party.craft(&self.resources.session, self.selected().unwrap()),
@@ -208,7 +209,9 @@ impl Crafting {
                         self.focus = Focus::Confirm { yes: !yes };
                         cue = Some(Navigate);
                     }
-                    Focus::MissingMaterials | Focus::InventoryFull if input.interact => {
+                    Focus::MissingMaterials | Focus::InventoryFull
+                        if input.pressed(Button::Accept) =>
+                    {
                         self.focus = Focus::Recipes;
                         cue = Some(Cancel);
                     }

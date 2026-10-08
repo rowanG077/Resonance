@@ -1,5 +1,6 @@
 use super::*;
 use items::Description;
+use resonance_events::input::Button;
 
 pub const COLUMNS: usize = 3;
 pub const VISIBLE: usize = 24;
@@ -116,7 +117,7 @@ impl Menu {
         if book.scroll != 0 {
             return None;
         }
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if book.categories {
                 book.page_closing = true;
             } else {
@@ -126,13 +127,13 @@ impl Menu {
         }
         if !book.categories
             && !(left || right || up || down)
-            && (input.previous_page || input.next_page)
+            && (input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage))
             || book.categories && (left || right)
         {
             let previous = if book.categories {
                 left
             } else {
-                input.previous_page
+                input.pressed(Button::PreviousPage)
             };
             book.category = (book.category + if previous { 7 } else { 1 }) % 8;
             book.row = 0;
@@ -140,7 +141,7 @@ impl Menu {
             return Some(1);
         }
         if book.categories {
-            if down || input.interact {
+            if down || input.pressed(Button::Accept) {
                 book.categories = false;
                 book.row = 0;
                 book.first = 0;

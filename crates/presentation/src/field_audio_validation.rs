@@ -9,11 +9,11 @@ use resonance_playback::Decodable;
 use std::sync::{Arc, atomic::Ordering};
 
 pub(crate) struct Playback {
-    control: Control,
-    frames: Frames,
+    pub(super) control: Control,
+    pub(super) frames: Frames,
     updates: u64,
     peak: f32,
-    commands: Vec<serde_json::Value>,
+    pub(crate) commands: Vec<(u32, u64, resonance_events::AudioCommand)>,
 }
 impl Playback {
     pub(crate) fn new(assets: Assets, field: &mut FieldSession) -> Self {
@@ -53,10 +53,13 @@ impl Playback {
         self.control.movie(field.events.world.blocked_by_movie())?;
         for command in std::mem::take(&mut field.events.world.audio_commands) {
             self.commands
-                .push(serde_json::json!({"tick":field.events.tick(),
-                "frame":self.frames.frame,"command":format!("{command:?}")}));
+                .push((field.events.tick(), self.frames.frame, command.clone()));
             self.control.send(command)?;
         }
+        self.advance()
+    }
+
+    pub(super) fn advance(&mut self) -> Result<()> {
         self.updates += 1;
         let end = self.updates * u64::from(RATE) * UPDATE_RATE_DENOMINATOR / UPDATE_RATE_NUMERATOR;
         while self.frames.frame < end {
@@ -109,7 +112,9 @@ impl Playback {
     }
 
     pub(crate) fn report(&self) -> serde_json::Value {
-        serde_json::json!({"commands":self.commands,"rendered_frames":self.frames.frame,
+        let commands: Vec<_> = self.commands.iter().map(|(tick, frame, command)|
+            serde_json::json!({"tick":tick,"frame":frame,"command":format!("{command:?}")})).collect();
+        serde_json::json!({"commands":commands,"rendered_frames":self.frames.frame,
             "sample_rate":RATE,"peak":self.peak,"audio_device_opened":false})
     }
 

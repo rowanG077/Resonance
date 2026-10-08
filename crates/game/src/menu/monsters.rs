@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::monster::Monster;
+use resonance_events::input::Button;
 use resonance_events::party::MonsterKnowledge;
 
 pub const VISIBLE: usize = 12;
@@ -86,7 +87,7 @@ impl Menu {
         {
             return None;
         }
-        if input.start {
+        if input.pressed(Button::Start) {
             self.monsters.yaw = DEFAULT_YAW;
             self.monsters.distance = DEFAULT_DISTANCE;
         }
@@ -96,7 +97,7 @@ impl Menu {
             .filter(|(_, k)| k.scanned)
             .map_or(0, |(_, k)| usize::from(k.variant));
         let book = &mut self.monsters;
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if book.listing {
                 book.listing = false;
             } else {
@@ -108,7 +109,7 @@ impl Menu {
             return None;
         }
         if book.listing {
-            if input.interact {
+            if input.pressed(Button::Accept) {
                 if book.row != book.list_row {
                     book.row = book.list_row;
                     book.variant = 0;
@@ -144,7 +145,7 @@ impl Menu {
             }
             return (old != book.list_row).then_some(1);
         }
-        if input.alternate {
+        if input.pressed(Button::Ring) {
             book.listing = true;
             book.list_row = book.row;
             book.first = book
@@ -153,7 +154,7 @@ impl Menu {
                 .max((book.row + 1).saturating_sub(VISIBLE));
             return Some(1);
         }
-        if !input.start {
+        if !input.pressed(Button::Start) {
             book.yaw = (book.yaw + preview_step(input.preview_direction[0])).rem_euclid(360.);
             book.distance =
                 (book.distance + preview_step(input.preview_direction[1])).clamp(600., 1400.);
@@ -164,9 +165,9 @@ impl Menu {
             -1
         } else if right {
             1
-        } else if input.previous_page {
+        } else if input.pressed(Button::PreviousPage) {
             -jump
-        } else if input.next_page {
+        } else if input.pressed(Button::NextPage) {
             jump
         } else {
             0

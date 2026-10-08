@@ -1,6 +1,6 @@
 //! Field scene instances: shared cooked assets, independent actor state.
-#[path = "field_effect_probe.rs"]
-mod effect_probe;
+#[path = "field_backdrop.rs"]
+mod backdrop;
 #[path = "field_sequence.rs"]
 mod sequence;
 #[path = "field_shadow.rs"]
@@ -31,9 +31,10 @@ use resonance_content::{
     field::{DrawStage, FieldAssets, MODEL_DRAW_SPAN, SCENERY_RESOURCE_BASE},
 };
 use resonance_events::effect::Blend;
+use resonance_events::input::{Button, Buttons};
 use resonance_events::{Face, effect::LightPosition};
 use resonance_game::field::{FieldInput, FieldSession};
-pub use sequence::{FieldMovement, FieldSequence};
+pub use sequence::{CaptureMoment, FieldControls, FieldScene, FieldSequence};
 use std::{
     collections::BTreeMap,
     fs,
@@ -176,27 +177,15 @@ fn scene_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sc
 #[derive(Resource, Default)]
 pub(super) struct Controls {
     input: FieldInput,
-    held_accept: bool,
-    held_skit: bool,
-    held_cancel: bool,
-    held_menu: bool,
 }
 impl Controls {
     fn clear_actions(&mut self) {
-        self.input.interact = false;
-        self.input.skit = false;
-        self.input.cancel = false;
-        self.input.menu = false;
+        self.input.pressed_buttons = Buttons::default();
     }
 
     pub(super) fn consume(&mut self) -> FieldInput {
-        let mut input = self.input;
-        input.accelerate_dialogue = self.held_accept;
+        let input = self.input;
         self.clear_actions();
-        self.input.start = false;
-        self.input.alternate = false;
-        self.input.previous_page = false;
-        self.input.next_page = false;
         input
     }
 }
@@ -479,7 +468,6 @@ struct Checkpoint {
     settled: u32,
     requested: bool,
     probe: Option<super::ClassroomProbe>,
-    particle_probe: Option<super::ParticleProbe>,
     dialogue_hold_ticks: u32,
 }
 #[derive(Resource)]
@@ -664,8 +652,7 @@ fn load_live(
     commands.insert_resource(effects);
     commands.insert_resource(ui);
     commands.insert_resource(load_art(&session.assets, &server, behavior_sources));
-    controls.input.interact = false;
-    controls.input.cancel = false;
+    controls.clear_actions();
 }
 
 pub(super) fn gather_controls(
@@ -720,80 +707,95 @@ pub(super) fn gather_controls(
         );
     }
     controls.input.direction = direction.clamp_length_max(1.).to_array();
-    let pressed = |keys: &[KeyCode], button| {
-        keys.iter().any(|&key| {
-            input.pressed(key)
-                && (key != KeyCode::Tab
-                    || !input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]))
-        }) || pads.iter().any(|pad| pad.pressed(button))
-    };
-    let just_pressed = |keys: &[KeyCode], button| {
-        keys.iter().any(|&key| {
-            input.just_pressed(key)
-                && (key != KeyCode::Tab
-                    || !input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]))
-        }) || pads.iter().any(|pad| pad.just_pressed(button))
-    };
-    // Preserve edges between fixed updates, including devices newly reporting a held button.
-    let latch = |keys: &[KeyCode], button, held: &mut bool| {
-        let down = pressed(keys, button);
-        let edge = down && !*held || just_pressed(keys, button);
-        *held = down;
-        edge
-    };
-    let controls = &mut *controls;
-    use resonance_events::input::Button;
-    controls.input.held_buttons = [
-        (
-            Button::Accept,
-            pressed(&[KeyCode::Enter, KeyCode::Space], South),
-        ),
-        (
-            Button::Cancel,
-            pressed(
-                &[KeyCode::Escape, KeyCode::ShiftLeft, KeyCode::ShiftRight],
-                East,
-            ),
-        ),
-        (Button::Skit, pressed(&[KeyCode::KeyZ], Z)),
-        (Button::Menu, pressed(&[KeyCode::Tab], North)),
-        (Button::Start, pressed(&[KeyCode::Home], Start)),
-        (Button::Ring, pressed(&[KeyCode::KeyX], West)),
-        (Button::PreviousPage, pressed(&[KeyCode::KeyQ], LeftTrigger)),
-        (Button::NextPage, pressed(&[KeyCode::KeyE], RightTrigger)),
-        (
-            Button::Left,
-            pressed(&[KeyCode::ArrowLeft, KeyCode::KeyA], DPadLeft),
-        ),
+    let bindings: &[(Button, &[KeyCode], GamepadButton)] = &[
+        (Button::Accept, &[KeyCode::Enter, KeyCode::Space], South),
+        (Button::Cancel, &[KeyCode::Escape], East),
+        (Button::Skit, &[KeyCode::KeyZ], Z),
+        (Button::Menu, &[KeyCode::Tab], North),
+        (Button::Start, &[KeyCode::Home], Start),
+        (Button::Ring, &[KeyCode::KeyX], West),
+        (Button::PreviousPage, &[KeyCode::KeyQ], LeftTrigger),
+        (Button::NextPage, &[KeyCode::KeyE], RightTrigger),
+        (Button::Left, &[KeyCode::ArrowLeft, KeyCode::KeyA], DPadLeft),
         (
             Button::Right,
-            pressed(&[KeyCode::ArrowRight, KeyCode::KeyD], DPadRight),
+            &[KeyCode::ArrowRight, KeyCode::KeyD],
+            DPadRight,
         ),
-        (
-            Button::Down,
-            pressed(&[KeyCode::ArrowDown, KeyCode::KeyS], DPadDown),
-        ),
-        (
-            Button::Up,
-            pressed(&[KeyCode::ArrowUp, KeyCode::KeyW], DPadUp),
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(button, held)| held.then_some(button))
-    .collect();
-    controls.input.run = pressed(&[KeyCode::ShiftLeft, KeyCode::ShiftRight], East);
-    controls.input.interact |= latch(
-        &[KeyCode::Enter, KeyCode::Space],
-        South,
-        &mut controls.held_accept,
-    );
-    controls.input.skit |= latch(&[KeyCode::KeyZ], Z, &mut controls.held_skit);
-    controls.input.cancel |= latch(&[KeyCode::Escape], East, &mut controls.held_cancel);
-    controls.input.menu |= latch(&[KeyCode::Tab], North, &mut controls.held_menu);
-    controls.input.start |= just_pressed(&[KeyCode::Home], Start);
-    controls.input.alternate |= just_pressed(&[KeyCode::KeyX], West);
-    controls.input.previous_page |= just_pressed(&[KeyCode::KeyQ], LeftTrigger);
-    controls.input.next_page |= just_pressed(&[KeyCode::KeyE], RightTrigger);
+        (Button::Down, &[KeyCode::ArrowDown, KeyCode::KeyS], DPadDown),
+        (Button::Up, &[KeyCode::ArrowUp, KeyCode::KeyW], DPadUp),
+    ];
+    let mut held = Buttons::default();
+    let mut tapped = Buttons::default();
+    for &(button, keys, pad_button) in bindings {
+        let mut keys = keys.iter().copied().filter(|&key| {
+            key != KeyCode::Tab || !input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+        });
+        held = held.with(
+            button,
+            keys.clone().any(|key| input.pressed(key))
+                || pads.iter().any(|pad| pad.pressed(pad_button)),
+        );
+        tapped = tapped.with(
+            button,
+            keys.any(|key| input.just_pressed(key))
+                || pads.iter().any(|pad| pad.just_pressed(pad_button)),
+        );
+    }
+    // Retain taps until the simulation consumes them, even across a press and release.
+    controls.input.pressed_buttons = controls.input.pressed_buttons.union(tapped);
+    controls.input.held_buttons = held;
+    controls.input.run = input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+        || pads.iter().any(|pad| pad.pressed(East));
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn field_buttons_survive_short_taps_without_repeating_after_pause() {
+        let mut world = World::new();
+        world.init_resource::<Controls>();
+        world.init_resource::<ButtonInput<KeyCode>>();
+        world.init_resource::<crate::testing::Controls>();
+        let mut input = resonance_events::input::Input::default();
+        let sample = |world: &mut World, input: &mut resonance_events::input::Input| {
+            let next = world.resource_mut::<Controls>().consume();
+            input.sample(next.held_buttons, next.pressed_buttons);
+            input.pressed
+        };
+        let buttons = [Button::Accept, Button::Ring].into();
+        for key in [KeyCode::Space, KeyCode::KeyX] {
+            world.resource_mut::<ButtonInput<KeyCode>>().press(key);
+        }
+        world.run_system_once(gather_controls).unwrap();
+        assert_eq!(sample(&mut world, &mut input), buttons);
+        world.resource_mut::<ButtonInput<KeyCode>>().clear();
+
+        world.resource_mut::<crate::testing::Controls>().paused = true;
+        world.run_system_once(gather_controls).unwrap();
+        world.resource_mut::<crate::testing::Controls>().paused = false;
+        world.run_system_once(gather_controls).unwrap();
+        assert_eq!(sample(&mut world, &mut input), Buttons::default());
+
+        // Release, press and release again before the next simulation update.
+        for down in [false, true, false] {
+            let mut keys = world.resource_mut::<ButtonInput<KeyCode>>();
+            keys.clear();
+            for key in [KeyCode::Space, KeyCode::KeyX] {
+                if down {
+                    keys.press(key);
+                } else {
+                    keys.release(key);
+                }
+            }
+            world.run_system_once(gather_controls).unwrap();
+        }
+        assert_eq!(sample(&mut world, &mut input), buttons);
+        assert_eq!(sample(&mut world, &mut input), Buttons::default());
+    }
 }
 
 #[allow(clippy::too_many_arguments)] // The fixed update waits for CPU and GPU preparation.
@@ -1065,7 +1067,7 @@ fn ui(
         for (&slot, request) in &world.dialogue {
             if request.operation.is_pending() {
                 if request.opening_actor.is_some() {
-                    // The original attached window intentionally stays hidden
+                    // The attached window stays hidden
                     // until its speaker finishes turning. Text/voice playback
                     // is deferred by the same request, not dropped by the UI.
                     applied.ack(Request::Dialogue(slot));
@@ -1090,7 +1092,16 @@ fn ui(
 /// Development-only capture of an equivalent script state. No audio, window,
 /// controller, movie decoder, or original asset parser is constructed here.
 pub fn capture_classroom(root: &Path, output: &Path, tick: Option<u32>) -> Result<()> {
-    capture_field(root, output, CaptureTarget::Tick(tick))
+    capture_field(
+        root,
+        output,
+        CaptureTarget {
+            at: tick.map_or(CaptureMoment::Control, |update| CaptureMoment::Tick {
+                update,
+            }),
+            ..Default::default()
+        },
+    )
 }
 /// Isolate registered observer positions and authored clip phases for diagnosis.
 pub fn capture_classroom_probe(
@@ -1098,25 +1109,47 @@ pub fn capture_classroom_probe(
     output: &Path,
     probe: &super::ClassroomProbe,
 ) -> Result<()> {
-    capture_field(root, output, CaptureTarget::Probe(probe))
-}
-/// Compare a seeded effect without injecting observed particles or actor poses.
-pub fn capture_classroom_particles(
-    root: &Path,
-    output: &Path,
-    probe: &super::ParticleProbe,
-) -> Result<()> {
-    probe.anchor.validate()?;
-    ensure!(
-        probe.anchor.accept_updates.is_empty(),
-        "particle probe cannot supply dialogue input"
-    );
-    capture_field(root, output, CaptureTarget::Particles(probe))
+    capture_field(
+        root,
+        output,
+        CaptureTarget {
+            probe: Some(probe),
+            ..Default::default()
+        },
+    )
 }
 /// Consecutive frames from real scripts; no audio device or movie decoder.
 pub fn capture_field_sequence(root: &Path, output: &Path, sequence: &FieldSequence) -> Result<()> {
-    sequence.validate()?;
-    capture_field(root, output, CaptureTarget::Sequence(sequence))
+    FieldSequenceRenderer::new(root)?.capture(output, sequence)
+}
+
+/// Reuse prepared field data while giving each comparison a fresh simulation and renderer.
+pub struct FieldSequenceRenderer {
+    root: PathBuf,
+    packages: BTreeMap<u32, super::new_game::FieldPackage>,
+}
+impl FieldSequenceRenderer {
+    pub fn new(root: &Path) -> Result<Self> {
+        Ok(Self {
+            root: fs::canonicalize(root)?,
+            packages: BTreeMap::new(),
+        })
+    }
+    pub fn capture(&mut self, output: &Path, sequence: &FieldSequence) -> Result<()> {
+        sequence.validate()?;
+        capture_field_cached(
+            &self.root,
+            output,
+            CaptureTarget {
+                scene: sequence.scene.clone(),
+                at: sequence.at.clone(),
+                probe: sequence.probe.as_ref(),
+                sequence: Some(sequence),
+                ..Default::default()
+            },
+            &mut self.packages,
+        )
+    }
 }
 /// Setup prompt checkpoint, using the normal fresh-game entry.
 pub fn capture_setup(
@@ -1125,7 +1158,16 @@ pub fn capture_setup(
     tick: u32,
     preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
 ) -> Result<()> {
-    capture_field(root, output, CaptureTarget::Setup(tick, preferences))
+    capture_field(
+        root,
+        output,
+        CaptureTarget {
+            scene: FieldScene::NewGame,
+            at: CaptureMoment::Tick { update: tick },
+            preferences,
+            ..Default::default()
+        },
+    )
 }
 pub fn capture_dialogue(
     root: &Path,
@@ -1134,67 +1176,70 @@ pub fn capture_dialogue(
     hold_ticks: u32,
     preferences: Option<&resonance_content::menu_data::CustomizeSettings>,
 ) -> Result<()> {
-    ensure!(
-        !prefix.is_empty(),
-        "dialogue checkpoint needs a text prefix"
-    );
-    ensure!(hold_ticks <= 3600, "dialogue hold exceeds one minute");
     capture_field(
         root,
         output,
-        CaptureTarget::Dialogue(prefix, hold_ticks, preferences),
+        CaptureTarget {
+            at: CaptureMoment::Dialogue {
+                prefix: prefix.into(),
+                hold_updates: hold_ticks,
+            },
+            preferences,
+            ..Default::default()
+        },
     )
 }
-#[derive(Clone, Copy)]
-enum CaptureTarget<'a> {
-    Tick(Option<u32>),
-    Probe(&'a super::ClassroomProbe),
-    Particles(&'a super::ParticleProbe),
-    Sequence(&'a FieldSequence),
-    Setup(
-        u32,
-        Option<&'a resonance_content::menu_data::CustomizeSettings>,
-    ),
-    Dialogue(
-        &'a str,
-        u32,
-        Option<&'a resonance_content::menu_data::CustomizeSettings>,
-    ),
+#[derive(Default)]
+struct CaptureTarget<'a> {
+    scene: FieldScene,
+    at: CaptureMoment,
+    probe: Option<&'a super::ClassroomProbe>,
+    preferences: Option<&'a resonance_content::menu_data::CustomizeSettings>,
+    sequence: Option<&'a FieldSequence>,
 }
 fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Result<()> {
-    let resolution = match target {
-        CaptureTarget::Sequence(sequence) => sequence.resolution,
-        _ => Default::default(),
-    };
-    let setup_prompt = matches!(target, CaptureTarget::Setup(..));
-    let (dialogue_prefix, dialogue_hold_ticks) = match target {
-        CaptureTarget::Dialogue(prefix, hold, _) => (Some(prefix), hold),
+    capture_field_cached(root, output, target, &mut BTreeMap::new())
+}
+fn capture_field_cached(
+    root: &Path,
+    output: &Path,
+    target: CaptureTarget<'_>,
+    packages: &mut BTreeMap<u32, super::new_game::FieldPackage>,
+) -> Result<()> {
+    let resolution = target.sequence.map_or(Default::default(), |s| s.resolution);
+    let setup_prompt = matches!(target.scene, FieldScene::NewGame);
+    let (dialogue_prefix, dialogue_hold_ticks) = match &target.at {
+        CaptureMoment::Dialogue {
+            prefix,
+            hold_updates,
+        } => {
+            ensure!(
+                !prefix.is_empty() && *hold_updates <= 3600,
+                "invalid dialogue checkpoint"
+            );
+            (Some(prefix.as_str()), *hold_updates)
+        }
         _ => (None, 0),
     };
-    let probe = match target {
-        CaptureTarget::Probe(probe) => Some(probe),
-        CaptureTarget::Sequence(sequence) => sequence.probe.as_ref(),
-        _ => None,
-    };
+    let probe = target.probe;
     let root = fs::canonicalize(root)?;
-    let checkpoint = match target {
-        CaptureTarget::Sequence(sequence) => sequence.checkpoint.as_ref(),
-        _ => None,
-    };
-    let scene_entry = matches!(target, CaptureTarget::Sequence(sequence) if sequence.scene_entry);
+    let checkpoint = target.scene.checkpoint();
+    let scene_entry = matches!(target.scene, FieldScene::Arrival { .. });
     let (assets, mut session) = if setup_prompt {
         let entry = super::new_game::Session::load(&root)?;
         (entry.assets, entry.field)
     } else {
-        let mut package = super::new_game::FieldPackage::prepare(
-            &root,
-            checkpoint.map_or(340, |c| c.map_id),
-            &mut Default::default(),
-            || false,
-        )?;
-        if let CaptureTarget::Sequence(sequence) = target
-            && let Some(script) = &sequence.script
-        {
+        let map = checkpoint.map_or(340, |c| c.map_id);
+        if let std::collections::btree_map::Entry::Vacant(entry) = packages.entry(map) {
+            entry.insert(super::new_game::FieldPackage::prepare(
+                &root,
+                map,
+                &mut Default::default(),
+                || false,
+            )?);
+        }
+        let mut package = packages[&map].clone();
+        if let Some(script) = target.scene.script() {
             use sha2::{Digest, Sha256};
             package.script = script
                 .iter()
@@ -1252,8 +1297,11 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         }
         (assets, session)
     };
-    session.voice_durations =
-        super::field_audio::Assets::load(&root, assets.map_id)?.voice_durations();
+    session.voice_durations = if let Some(package) = packages.get(&assets.map_id) {
+        package.audio.voice_durations()
+    } else {
+        super::field_audio::Assets::load(&root, assets.map_id)?.voice_durations()
+    };
     let target_dialogue = |player: &resonance_game::dialogue::DialoguePlayer| {
         dialogue_prefix.is_some_and(|prefix| {
             !player.closed
@@ -1261,43 +1309,18 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
                 && player.current().text().starts_with(prefix)
         })
     };
-    let mut particle_probe_start = None;
-    let reached = |session: &FieldSession, particle_probe_start: Option<u32>| {
-        if dialogue_prefix.is_some() {
-            session
-                .dialogue
-                .values()
-                .any(|p| target_dialogue(p) && p.fully_revealed() && p.accepts_input())
-        } else {
-            match target {
-                CaptureTarget::Tick(Some(tick)) | CaptureTarget::Setup(tick, _) => {
-                    session.events.tick() >= tick
-                }
-                CaptureTarget::Tick(None)
-                | CaptureTarget::Probe(_)
-                | CaptureTarget::Dialogue(..) => session.events.world.input_enabled,
-                CaptureTarget::Particles(probe) => particle_probe_start.is_some_and(|start| {
-                    session.events.tick() - start >= probe.anchor.duration_updates
-                }),
-                CaptureTarget::Sequence(sequence) => sequence
-                    .start_tick
-                    .map_or(session.events.world.input_enabled, |tick| {
-                        session.events.tick() >= tick
-                    }),
-            }
-        }
+    let reached = |session: &FieldSession| match &target.at {
+        CaptureMoment::Control => session.events.world.input_enabled,
+        CaptureMoment::Tick { update } => session.events.tick() >= *update,
+        CaptureMoment::Dialogue { .. } => session
+            .dialogue
+            .values()
+            .any(|p| target_dialogue(p) && p.fully_revealed() && p.accepts_input()),
     };
     let mut ready_since = BTreeMap::new();
     for update in 0..20000 {
-        if reached(&session, particle_probe_start) {
+        if reached(&session) {
             break;
-        }
-        if let CaptureTarget::Particles(probe) = target
-            && particle_probe_start.is_none()
-            && probe.anchor.matches(&session)
-        {
-            session.events.world.random_state = probe.random_state;
-            particle_probe_start = Some(session.events.tick());
         }
         if let Some(movie) = &session.events.world.movie
             && movie.operation.is_pending()
@@ -1305,7 +1328,6 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
             movie.operation.complete(None).map_err(anyhow::Error::msg)?;
         }
         let interact = !setup_prompt
-            && particle_probe_start.is_none()
             && session.dialogue.values().any(|player| {
                 if player.closed
                     || player.persistent
@@ -1325,14 +1347,11 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         }
         session.events.world.audio_commands.clear();
         session.step(FieldInput {
-            interact,
+            pressed_buttons: Buttons::default().with(Button::Accept, interact),
             ..Default::default()
         })?;
     }
-    ensure!(
-        reached(&session, particle_probe_start),
-        "classroom checkpoint was not reached"
-    );
+    ensure!(reached(&session), "classroom checkpoint was not reached");
     for _ in 0..dialogue_hold_ticks {
         session.step(FieldInput::default())?;
         session.events.world.audio_commands.clear();
@@ -1340,12 +1359,9 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
     if let Some(probe) = probe {
         probe.apply(&mut session)?;
     }
-    let preferences = match target {
-        CaptureTarget::Dialogue(_, _, preferences) | CaptureTarget::Setup(_, preferences) => {
-            preferences
-        }
-        _ => probe.and_then(|p| p.preferences.as_ref()),
-    };
+    let preferences = target
+        .preferences
+        .or_else(|| probe.and_then(|p| p.preferences.as_ref()));
     if let Some(preferences) = preferences {
         preferences.validate()?;
         let data = serde_json::from_slice(&fs::read(root.join("game/session-data.json"))?)?;
@@ -1383,11 +1399,13 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
                 exit_condition: ExitCondition::DontExit,
                 ..default()
             })
+            // Capture readiness must observe the completed preceding render.
+            .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>()
             .disable::<bevy::winit::WinitPlugin>()
             .disable::<bevy::gilrs::GilrsPlugin>(),
     )
     .add_plugins(bevy::app::ScheduleRunnerPlugin::run_loop(
-        resonance_game::clock::UPDATE_STEP,
+        std::time::Duration::ZERO,
     ))
     .add_plugins(MaterialPlugin::<TitleSurface>::default())
     .add_plugins(Material2dPlugin::<TitleOutput>::default())
@@ -1408,10 +1426,6 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
         settled: 0,
         requested: false,
         probe: probe.cloned(),
-        particle_probe: match target {
-            CaptureTarget::Particles(probe) => Some(probe.clone()),
-            _ => None,
-        },
         dialogue_hold_ticks,
     })
     .insert_resource(ClearColor(Color::BLACK))
@@ -1437,10 +1451,15 @@ fn capture_field(root: &Path, output: &Path, target: CaptureTarget<'_>) -> Resul
             bevy::render::Render,
             super::check_pipelines.in_set(bevy::render::RenderSystems::Cleanup),
         );
-    if let CaptureTarget::Sequence(sequence) = target {
-        sequence::install(&mut app, output, sequence)?;
+    let failure = target
+        .sequence
+        .map(|s| sequence::install(&mut app, output, s))
+        .transpose()?;
+    let exit = app.run();
+    if let Some(failure) = failure {
+        failure.result()?;
     }
-    ensure!(app.run() == AppExit::Success, "classroom capture failed");
+    ensure!(exit == AppExit::Success, "field capture failed");
     Ok(())
 }
 
@@ -2346,7 +2365,6 @@ fn capture(
         .map(|(root,p)| serde_json::json!({"actor":p.actor,"nodes":nodes(root).collect::<Vec<_>>()})).collect();
     let state = serde_json::json!({"kind":"classroom-development-checkpoint","audio_device":false,"tick":session.0.events.tick(),
         "registered_probe":checkpoint.probe,
-        "registered_particle_probe":checkpoint.particle_probe,
         "billboards":session.0.events.world.billboards.iter().map(|(id,p)|serde_json::json!({"id":id,"age":session.0.events.tick()-p.born,"position":p.position,"size":p.size,"size_delta":p.size_delta,"rotation":p.rotation,"angular_velocity":p.angular_velocity,"alpha":p.alpha(session.0.events.tick())})).collect::<Vec<_>>(),
         "dialogue_hold_ticks":checkpoint.dialogue_hold_ticks,
         "dialogue_preferences":session.0.events.world.party.as_ref().map(|p|&p.settings.preferences),

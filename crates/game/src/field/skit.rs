@@ -1,6 +1,7 @@
 //! Available skit titles are transient field notifications, not save-state data.
 use super::*;
 use resonance_content::skit::{SkitCatalog, SkitCondition, SkitLocation};
+use resonance_events::input::Button;
 
 const REFRESH_TICKS: u32 = 1200;
 const HOLD_TICKS: u16 = 1800;
@@ -194,9 +195,9 @@ impl FieldSession {
         if skit.step(
             &mut self.events,
             crate::skit::Input {
-                confirm: input.interact,
+                confirm: input.pressed(Button::Accept),
                 skip_dialogue: input.skip_dialogue,
-                cancel: input.cancel,
+                cancel: input.pressed(Button::Cancel),
                 direction: if input.direction[1] > 0.5 {
                     -1
                 } else if input.direction[1] < -0.5 {
@@ -204,8 +205,8 @@ impl FieldSession {
                 } else {
                     0
                 },
-                accelerate: input.accelerate_dialogue || input.skip_dialogue,
-                skip: input.menu || input.start,
+                accelerate: input.held_buttons.contains(Button::Accept) || input.skip_dialogue,
+                skip: input.pressed(Button::Menu) || input.pressed(Button::Start),
             },
         )? {
             self.active_skit = None;

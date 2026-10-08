@@ -1,0 +1,22 @@
+{
+  "source": {
+    "path": "local/oracle-fixtures/effects/ring-bubble.s01",
+    "sha256": "8c2a3b2656c6870e011c2cb1cec5b778cd30cb996d65b52d2fb15d6cc4ce4668"
+  },
+  "native_sequence": {
+    "path": "local/oracle-fixtures/effects/ring-bubble.json",
+    "sha256": "1c223944780280f010a277a9b505c037ac16a05564d738b9cd3a13849b3f214e"
+  },
+  "family": "rings",
+  "inputs": [
+    {
+      "poll": 100,
+      "duration": 10,
+      "buttons": [
+        "x"
+      ]
+    }
+  ],
+  "only": "ring-bubble-*",
+  "description": "Both bubble lifecycles over stationary scenery that exposes refraction."
+}

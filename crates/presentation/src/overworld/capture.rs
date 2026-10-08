@@ -11,6 +11,7 @@ use bevy::{
     window::ExitCondition,
 };
 use resonance_content::{HEIGHT, SCENE_HEIGHT, WIDTH};
+use resonance_events::input::Button;
 use std::path::Path;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -157,7 +158,7 @@ pub fn capture_overworld(root: &Path, output: &Path, probe: &Probe) -> Result<()
     if probe.menu {
         session.step(game::Input {
             menu: resonance_game::field::FieldInput {
-                menu: true,
+                pressed_buttons: [Button::Menu].into(),
                 ..Default::default()
             },
             ..Default::default()

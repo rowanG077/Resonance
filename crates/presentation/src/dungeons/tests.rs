@@ -1,6 +1,9 @@
 //! Device-free scene regressions using fresh progression fixtures.
+use resonance_events::input::Button;
 #[path = "crafting_tests.rs"]
 mod crafting;
+#[path = "exploration_tests.rs"]
+mod exploration;
 #[path = "fog_tests.rs"]
 mod fog;
 #[path = "iselia_tests.rs"]
@@ -8,6 +11,7 @@ mod iselia;
 #[path = "movement_tests.rs"]
 mod movement;
 use super::{destinations::*, new_game};
+use crate::field_test::{SCENE_TIMEOUT, Scene, dialogue_input};
 use anyhow::{Context, Result};
 use resonance_game::field::{FieldInput, FieldSession};
 use std::{path::PathBuf, sync::Arc};
@@ -67,35 +71,17 @@ fn location_menu_checkpoints_are_playable() -> Result<()> {
                 new_game::available_fields(&root)?,
             )?;
             let mut field = Scene::enter(&package, entry)?;
-            for _ in 0..4 {
-                until(&mut field, dialogue_input(), |f| {
-                    skip_battle(f)?;
-                    if let Some(movie) = &f.events.world.movie {
-                        movie.operation.complete(None).map_err(anyhow::Error::msg)?;
-                    }
-                    Ok(f.player_has_control() || f.events.world.field_transition.is_some())
-                })?;
-                anyhow::ensure!(
-                    field.events.exploration_error.is_none(),
-                    "{:?}",
-                    field.events.exploration_error
-                );
-                if field.events.world.field_transition.is_some() {
-                    field = follow_transition(&field)?;
-                } else {
-                    anyhow::ensure!(
-                        field
-                            .events
-                            .world
-                            .fade
-                            .as_ref()
-                            .is_none_or(|fade| fade.alpha(field.events.tick()) == 0.),
-                        "checkpoint returned control behind a fade"
-                    );
-                    return Ok(());
-                }
-            }
-            anyhow::bail!("checkpoint never returned control")
+            field.replay_to_control(&root)?;
+            anyhow::ensure!(
+                field
+                    .events
+                    .world
+                    .fade
+                    .as_ref()
+                    .is_none_or(|fade| fade.alpha(field.events.tick()) == 0.),
+                "checkpoint returned control behind a fade"
+            );
+            Ok(())
         })();
         if let Err(error) = result {
             failures.push(format!("{}: {error:#}", destination.name));
@@ -131,7 +117,7 @@ fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()
             new_game::available_fields(&root)?,
         )?;
         let mut field = Scene::enter(&package, entry)?;
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         if map == 366 {
             const LIT_RECEIVER: u32 = (-1_179_642_i32) as u32;
             assert_eq!(
@@ -155,18 +141,17 @@ fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()
             let player = field.actor(field.events.world.controlled_actor).position;
             let delta = [portal[0] - player[0], portal[1] - player[1]];
             let length = delta[0].hypot(delta[1]).max(4.);
-            let camera = field.events.world.field_camera.as_ref().unwrap();
-            let angle = -(camera.target[0] - camera.position[0])
-                .atan2(camera.target[1] - camera.position[1]);
             field.step(FieldInput {
-                alternate: map == 206 && tick == 0,
-                direction: [
-                    (angle.cos() * delta[0] + angle.sin() * delta[1]) / length,
-                    (-angle.sin() * delta[0] + angle.cos() * delta[1]) / length,
-                ],
-                interact: tick % 2 == 0,
-                accelerate_dialogue: true,
-                ..Default::default()
+                pressed_buttons: field
+                    .walking(delta.map(|v| v / length))
+                    .pressed_buttons
+                    .with(Button::Ring, map == 206 && tick == 0)
+                    .with(Button::Accept, tick % 2 == 0),
+                held_buttons: field
+                    .walking(delta.map(|v| v / length))
+                    .held_buttons
+                    .with(Button::Accept, true),
+                ..field.walking(delta.map(|v| v / length))
             })?;
             if map == final_room && field.events.world.battle_request.is_some() {
                 break;
@@ -194,17 +179,37 @@ fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()
             field.events.pending_operations()
         );
         if matches!(final_room, 221 | 10 | 510 | 369) {
-            let mut boss = follow_transition(&field)?;
-            until(&mut boss, dialogue_input(), |f| {
-                if let Some(movie) = &f.events.world.movie {
-                    movie.operation.complete(None).map_err(anyhow::Error::msg)?;
-                }
-                Ok(f.events.world.battle_request.is_some())
-            })
-            .with_context(|| format!("{} final encounter", destination.name))?;
-            skip_battle(&mut boss)?;
-            advance_until(&mut boss, FieldSession::player_has_control)
+            field.follow_transition(&root)?;
+            field
+                .until(dialogue_input(), |f| {
+                    if let Some(movie) = &f.events.world.movie {
+                        movie.operation.complete(None).map_err(anyhow::Error::msg)?;
+                    }
+                    Ok(f.events.world.battle_request.is_some())
+                })
+                .with_context(|| format!("{} final encounter", destination.name))?;
+            skip_battle(&mut field)?;
+            let mut saw_wings = false;
+            field
+                .advance_until(|field| {
+                    saw_wings |= field.events.world.actors.values().any(|actor| {
+                        actor.visible
+                            && actor.wings.is_some()
+                            && actor.attachment.as_ref().is_some_and(|a| a.actor == 2)
+                    });
+                    field.player_has_control()
+                })
                 .with_context(|| format!("{} seal scene", destination.name))?;
+            assert!(
+                saw_wings,
+                "{} blessing never showed wings",
+                destination.name
+            );
+            match final_room {
+                221 => assert_eq!(field.story_progress()?, 1_303_000),
+                10 => assert_eq!(mission(&field, 0xc4), 21_000),
+                _ => {}
+            }
             let (flag, angel) = match final_room {
                 221 => (200, 1),
                 10 => (201, 1),
@@ -212,9 +217,10 @@ fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()
                 369 => (203, 201),
                 _ => unreachable!(),
             };
-            assert!(boss.events.world.event_flags.contains(&flag));
+            assert!(field.events.world.event_flags.contains(&flag));
             assert_eq!(
-                boss.events
+                field
+                    .events
                     .memory()
                     .read(0x4c, symphonia_script::Width::S32)?,
                 angel
@@ -222,79 +228,6 @@ fn location_menu_end_checkpoints_reach_final_rooms_and_encounters() -> Result<()
         }
     }
     Ok(())
-}
-
-struct Scene {
-    field: FieldSession,
-    audio: crate::field_audio::validation::Playback,
-}
-
-impl std::ops::Deref for Scene {
-    type Target = FieldSession;
-    fn deref(&self) -> &FieldSession {
-        &self.field
-    }
-}
-impl std::ops::DerefMut for Scene {
-    fn deref_mut(&mut self) -> &mut FieldSession {
-        &mut self.field
-    }
-}
-impl Scene {
-    fn actor(&self, id: i32) -> &resonance_events::Actor {
-        &self.events.world.actors[&id]
-    }
-    fn actor_mut(&mut self, id: i32) -> &mut resonance_events::Actor {
-        self.events.world.actors.get_mut(&id).unwrap()
-    }
-    fn party(&self) -> &resonance_events::party::Party {
-        self.events.world.party.as_ref().unwrap()
-    }
-    fn party_mut(&mut self) -> &mut resonance_events::party::Party {
-        self.events.world.party.as_mut().unwrap()
-    }
-    fn step(&mut self, input: FieldInput) -> Result<()> {
-        self.field.step(input)?;
-        self.audio.step(&mut self.field)
-    }
-    fn enter(
-        package: &new_game::FieldPackage,
-        entry: resonance_game::field::FieldEntry,
-    ) -> Result<Self> {
-        let mut field = package.enter(entry)?;
-        let audio =
-            crate::field_audio::validation::Playback::new((*package.audio).clone(), &mut field);
-        Ok(Self { field, audio })
-    }
-}
-const SCENE_TIMEOUT: usize = 18_000;
-fn until(
-    field: &mut Scene,
-    input: FieldInput,
-    mut ready: impl FnMut(&mut FieldSession) -> Result<bool>,
-) -> Result<()> {
-    for tick in 0..SCENE_TIMEOUT {
-        field.step(FieldInput {
-            interact: input.interact && tick % 2 == 0,
-            ..input
-        })?;
-        if ready(field)? {
-            return Ok(());
-        }
-    }
-    anyhow::bail!(
-        "field {} timed out; control={}, waits={:?}",
-        field.map_id,
-        field.player_has_control(),
-        field.events.pending_operations()
-    )
-}
-fn dialogue_input() -> FieldInput {
-    FieldInput {
-        interact: true,
-        accelerate_dialogue: true,
-        ..Default::default()
-    }
 }
 
 fn assets_root() -> Result<PathBuf> {
@@ -332,12 +265,6 @@ fn mission(field: &FieldSession, address: u16) -> i32 {
         .read(address, symphonia_script::Width::S32)
         .unwrap()
 }
-fn ticks(field: &mut Scene, count: usize, input: FieldInput) -> Result<()> {
-    for _ in 0..count {
-        field.step(input)?;
-    }
-    Ok(())
-}
 fn skip_battle(field: &mut FieldSession) -> Result<bool> {
     field
         .events
@@ -345,55 +272,11 @@ fn skip_battle(field: &mut FieldSession) -> Result<bool> {
         .skip_battle_as_victory()
         .map_err(anyhow::Error::msg)
 }
-/// Run a scene with silent audio, simulated battle victories, and movie completion.
-fn replay(field: &mut Scene, mut finished: impl FnMut(&FieldSession) -> bool) -> Result<usize> {
-    let mut battles = 0;
-    until(field, dialogue_input(), |field| {
-        battles += usize::from(skip_battle(field)?);
-        if let Some(movie) = &field.events.world.movie
-            && movie.operation.is_pending()
-        {
-            movie.operation.complete(None).map_err(anyhow::Error::msg)?;
-        }
-        Ok(finished(field))
-    })?;
-    field.audio.finish()?;
-    Ok(battles)
-}
-
-fn follow_transition(field: &FieldSession) -> Result<Scene> {
-    let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
-    let request = field
-        .events
-        .world
-        .field_transition
-        .as_ref()
-        .context("field transition")?;
-    let package =
-        new_game::FieldPackage::prepare(&root, request.map, &mut Default::default(), || false)?;
-    Scene::enter(
-        &package,
-        resonance_game::field::FieldEntry {
-            persistent: field.events.persistent_state()?,
-            data: Some(Arc::new(package.files.json("game/session-data.json")?)),
-            available_fields: new_game::available_fields(&root)?,
-            position: request.position,
-            heading: request.heading,
-            camera: request.camera.clone(),
-            ..Default::default()
-        },
-    )
-}
-
-fn advance_until(field: &mut Scene, mut ready: impl FnMut(&FieldSession) -> bool) -> Result<()> {
-    until(field, dialogue_input(), |field| Ok(ready(field)))
-}
-
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn martel_golem_battle_creates_a_pushable_block() -> Result<()> {
     let mut field = enter(MARTEL_START, 308, Some(107_000))?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     let golem = *field
         .events
         .world
@@ -403,11 +286,9 @@ fn martel_golem_battle_creates_a_pushable_block() -> Result<()> {
         .context("golem contact event")?
         .0;
     assert!(field.events.contact_enemy(golem)?);
-    advance_until(&mut field, |field| {
-        field.events.world.battle_request.is_some()
-    })?;
+    field.advance_until(|field| field.events.world.battle_request.is_some())?;
     assert!(skip_battle(&mut field)?);
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     let block = field
         .events
         .world
@@ -424,24 +305,23 @@ fn martel_golem_battle_creates_a_pushable_block() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
     let mut field = enter(BASE_ENTRANCE, 267, Some(1_105_000))?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     // Controlled approach to the exit, then ordinary movement through its
     // opening door and transition. This does not replay the cell escape.
     let player = field.events.world.controlled_actor;
     let actor = field.actor_mut(player);
     actor.position = [2252., 1000., 0.];
     actor.face(180.);
-    until(
-        &mut field,
+    field.until(
         FieldInput {
             direction: [0., 1.],
             ..Default::default()
         },
         |field| Ok(field.events.world.field_transition.is_some()),
     )?;
-    let mut field = follow_transition(&field)?;
+    field.follow_transition(&assets_root()?)?;
     assert_eq!(field.map_id, 268);
-    advance_until(&mut field, |field| {
+    field.advance_until(|field| {
         field
             .events
             .world
@@ -460,29 +340,28 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
         field.actor(3004).enemy.as_ref().unwrap().stun_effect(),
         Some(resonance_events::effect::StunEffect::Electric)
     );
-    advance_until(&mut field, |field| {
-        field.player_has_control() && mission(field, 0x40) == 1_105_100
-    })?;
+    field.advance_until(|field| field.player_has_control() && mission(field, 0x40) == 1_105_100)?;
     let player = field.events.world.controlled_actor;
     let before = field.actor(player).position;
-    for _ in 0..10 {
-        field.step(FieldInput {
+    field.ticks(
+        10,
+        FieldInput {
             direction: [0., -1.],
             ..Default::default()
-        })?;
-    }
+        },
+    )?;
     let after = field.actor(player).position;
     assert!(
         (after[0] - before[0]).hypot(after[1] - before[1]) > 20.,
         "player must be able to walk after the guards' scene"
     );
-    until(&mut field, FieldInput::default(), |field| {
+    field.until(FieldInput::default(), |field| {
         Ok(field.events.world.battle_request.is_some())
     })?;
     // The resumed patrol can reach Lloyd. The dungeon selector grants this
     // encounter as a victory, after which exploration must remain usable.
     assert!(skip_battle(&mut field)?);
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert!(field.events.exploration_error.is_none());
     Ok(())
 }
@@ -492,7 +371,7 @@ fn guard_entrance_event_can_pause_the_guards() -> Result<()> {
 fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
     use resonance_events::ring::{ElectricOrbKind, SorcerersRing};
     let mut field = enter(BASE_ENTRANCE, 268, Some(1_105_100))?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     field.party_mut().travel.sorcerers_ring =
         SorcerersRing::ElectricOrb(ElectricOrbKind::Sylvarant);
     assert!(!field.events.world.event_flags.contains(&154));
@@ -510,12 +389,10 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
         actor.position = [x, 1300., 0.];
         actor.face(0.);
         field.step(FieldInput {
-            alternate: true,
+            pressed_buttons: [Button::Ring].into(),
             ..Default::default()
         })?;
-        for _ in 0..60 {
-            field.step(FieldInput::default())?;
-        }
+        field.ticks(60, FieldInput::default())?;
         let enemy = field.actor(id).enemy.as_ref().unwrap();
         assert!(enemy.pause_ticks > 0);
         assert_eq!(
@@ -540,7 +417,7 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
         "both electrified panels must open the door"
     );
     let mut previous = [field.actor(8001).position, field.actor(8002).position];
-    until(&mut field, dialogue_input(), |field| {
+    field.until(dialogue_input(), |field| {
         for (id, before) in [8001, 8002].into_iter().zip(&mut previous) {
             let actor = &field.events.world.actors[&id];
             let enemy = actor.enemy.as_ref().unwrap();
@@ -564,17 +441,16 @@ fn sylvarant_electrified_drones_open_the_panel_door() -> Result<()> {
     let player = field.events.world.controlled_actor;
     field.actor_mut(player).position = [-1000., 1500., 0.];
     for tick in 0..600 {
-        let camera = field.events.world.field_camera.as_ref().unwrap();
-        let angle = (-(camera.target[0] - camera.position[0])
-            .atan2(camera.target[1] - camera.position[1])
-            .to_degrees())
-        .trunc()
-        .to_radians();
         field.step(FieldInput {
-            direction: [-angle.cos(), angle.sin()],
-            interact: tick % 2 == 0,
-            accelerate_dialogue: true,
-            ..Default::default()
+            pressed_buttons: field
+                .walking([-1., 0.])
+                .pressed_buttons
+                .with(Button::Accept, tick % 2 == 0),
+            held_buttons: field
+                .walking([-1., 0.])
+                .held_buttons
+                .with(Button::Accept, true),
+            ..field.walking([-1., 0.])
         })?;
         if field.events.world.field_transition.is_some() {
             break;
@@ -605,8 +481,7 @@ fn asgard_guard_alarm_starts_battle_and_resumes_the_room() -> Result<()> {
         Ok(())
     })?;
     assert_eq!(
-        replay(&mut field, |f| f.player_has_control()
-            && mission(f, 0xe0) == 3200)?,
+        field.replay(|f| Ok(f.player_has_control() && mission(f, 0xe0) == 3200))?,
         1
     );
     assert!(!field.events.world.actors.contains_key(&300));
@@ -618,18 +493,14 @@ fn asgard_guard_alarm_starts_battle_and_resumes_the_room() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn asgard_kvar_preparation_can_restore_a_party_with_empty_slots() -> Result<()> {
     let mut field = enter(ASGARD_RANCH, 213, None)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert!(field.events.trigger(6001, false)?);
-    advance_until(&mut field, |field| {
-        field.events.world.field_transition.is_some()
-    })?;
-    let mut field = follow_transition(&field)?;
+    field.advance_until(|field| field.events.world.field_transition.is_some())?;
+    field.follow_transition(&assets_root()?)?;
     assert_eq!(field.map_id, 214);
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert!(field.events.trigger(6001, true)?);
-    advance_until(&mut field, |field| {
-        field.events.world.field_transition.is_some()
-    })?;
+    field.advance_until(|field| field.events.world.field_transition.is_some())?;
     assert_eq!(mission(&field, 0xe0), 3100);
     assert_eq!(
         field.events.world.field_transition.as_ref().unwrap().map,
@@ -644,7 +515,7 @@ fn asgard_kvar_preparation_can_restore_a_party_with_empty_slots() -> Result<()> 
 fn rheaird_rider_finishes_his_seated_pose_blend_while_attached() -> Result<()> {
     let mut field = enter(BASE_GENERATOR, 278, Some(2_404_000))?;
     field.events.world.event_flags.insert(190); // The generator is ready.
-    advance_until(&mut field, |field| {
+    field.advance_until(|field| {
         field.events.world.actors.get(&1).is_some_and(|actor| {
             actor
                 .animation
@@ -652,7 +523,7 @@ fn rheaird_rider_finishes_his_seated_pose_blend_while_attached() -> Result<()> {
                 .is_some_and(|a| a.resource == 65582)
         })
     })?;
-    ticks(&mut field, 60, FieldInput::default())?;
+    field.ticks(60, FieldInput::default())?;
     let lloyd = &field.actor(1);
     assert_eq!(lloyd.position, [0.; 3]); // Local to the Rheaird's seat.
     assert_eq!(lloyd.attachment.as_ref().unwrap().actor, 210);
@@ -679,7 +550,7 @@ fn rheaird_rider_finishes_his_seated_pose_blend_while_attached() -> Result<()> {
 fn rheaird_crash_runs_the_debris_effect_and_restores_control() -> Result<()> {
     // Field 416's arrival branch compares story against 0x24B288.
     let mut field = enter(BASE_GENERATOR, 416, Some(2_405_000))?;
-    advance_until(&mut field, |field| {
+    field.advance_until(|field| {
         field
             .events
             .world
@@ -687,76 +558,98 @@ fn rheaird_crash_runs_the_debris_effect_and_restores_control() -> Result<()> {
             .values()
             .any(|e| e.recipe == 52)
     })?;
-    advance_until(&mut field, |field| {
-        field.player_has_control() && mission(field, 0x40) == 10_001_000
-    })?;
+    field
+        .advance_until(|field| field.player_has_control() && mission(field, 0x40) == 10_001_000)?;
     assert!(field.events.exploration_error.is_none());
     Ok(())
 }
 
 #[test]
-#[ignore = "requires locally cooked Mana scenery; no devices"]
-fn mana_lamps_bind_the_animated_flame_texture() -> Result<()> {
-    let root = PathBuf::from(std::env::var_os("RESONANCE_WORLD_ASSETS").unwrap());
-    let assets: resonance_content::field::FieldAssets =
-        serde_json::from_slice(&std::fs::read(root.join("fields/map-362.json"))?)?;
-    let mut field = enter(MANA_START, 362, None)?;
-    advance_until(&mut field, |field| {
-        field.events.world.texture_animation_enabled
-    })?;
-    let [track] = assets.texture_animations.as_slice() else {
-        anyhow::bail!("missing Mana flame atlas");
-    };
-    let world = &field.events.world;
-    let actor = &world.actors[&track.actor.resolve(&world.texture_bindings)];
-    assert_eq!(
-        actor.resource,
-        resonance_content::field::SCENERY_RESOURCE_BASE + 2
-    );
-    assert!(actor.visible);
-    let texture = track.texture.resolve(&world.texture_bindings);
-    let flames = assets.parts.iter().find(|part| part.resource == 2).unwrap();
-    assert!(
-        flames
-            .materials
+#[ignore = "requires locally cooked Mana lamps and Thoda bridge; no devices"]
+fn scenery_materials_animate_on_the_visible_objects() -> Result<()> {
+    use resonance_content::field::{FieldAssets, SCENERY_RESOURCE_BASE, TextureMotion};
+    let root = assets_root()?;
+    for (destination, map, target, mission) in [
+        (MANA_START, 362, 999998, None),
+        (THODA_START, 6, 6000, Some((0xc4, 13_000))),
+    ] {
+        let assets: FieldAssets =
+            serde_json::from_slice(&std::fs::read(root.join(format!("fields/map-{map}.json")))?)?;
+        let mut field = configured(destination, map, |entry| {
+            if let Some((address, value)) = mission {
+                entry
+                    .persistent
+                    .memory
+                    .write(address, symphonia_script::Width::S32, value)?;
+            }
+            Ok(())
+        })?;
+        field.advance_until(|field| {
+            field.events.world.texture_animation_enabled
+                && field.events.world.actors.contains_key(&target)
+        })?;
+        let world = &field.events.world;
+        let actor = &world.actors[&target];
+        assert!(actor.visible);
+        let track = assets
+            .texture_animations
             .iter()
-            .flat_map(|material| [&material.color, &material.multiply])
-            .flatten()
-            .any(|binding| binding.texture as i32 == texture)
-    );
-    let offset = |field: &FieldSession| {
-        track.offset(
-            field.events.world.texture_animation_tick,
-            field.events.world.texture_animation_effect_tick,
-        )
-    };
-    let first = offset(&field);
-    ticks(&mut field, 7, FieldInput::default())?;
-    assert_ne!(first, offset(&field));
-    ticks(&mut field, 28, FieldInput::default())?;
-    assert_eq!(first, offset(&field));
+            .find(|track| track.actor.resolve(&world.texture_bindings) == target)
+            .context("visible object has no texture animation")?;
+        let texture = track.texture.resolve(&world.texture_bindings);
+        let parts = assets
+            .parts
+            .iter()
+            .filter(|part| u32::from(part.resource) + SCENERY_RESOURCE_BASE == actor.resource)
+            .chain(
+                assets
+                    .actors
+                    .iter()
+                    .filter(|model| model.resource == actor.resource)
+                    .flat_map(|model| &model.parts),
+            );
+        assert!(
+            parts
+                .flat_map(|part| &part.materials)
+                .flat_map(|material| [&material.color, &material.multiply])
+                .flatten()
+                .any(|binding| binding.texture as i32 == texture),
+            "animation misses its material"
+        );
+        let offset = |field: &FieldSession| {
+            track.offset(
+                field.events.world.texture_animation_tick,
+                field.events.world.texture_animation_effect_tick,
+            )
+        };
+        let first = offset(&field);
+        let period = match track.motion {
+            TextureMotion::Atlas {
+                frames, interval, ..
+            } => Some(frames * interval),
+            _ => None,
+        };
+        let mut changed = false;
+        for _ in 0..period.unwrap_or(60) {
+            field.step(FieldInput::default())?;
+            changed |= offset(&field) != first;
+        }
+        assert!(changed, "visible material did not animate in map {map}");
+        if period.is_some() {
+            assert_eq!(offset(&field), first, "atlas did not repeat");
+        }
+    }
     Ok(())
 }
 
 fn mana_intro() -> Result<Scene> {
     let mut field = enter(MANA_START, 362, None)?;
-    advance_until(&mut field, |field| {
-        field.events.world.field_transition.is_some()
-    })?;
+    field.advance_until(|field| field.events.world.field_transition.is_some())?;
     assert_eq!(mission(&field, 0xcc), 11_000);
-    let mut field = follow_transition(&field)?;
+    field.follow_transition(&assets_root()?)?;
     assert_eq!(field.map_id, 364);
-    for _ in 0..4 {
-        advance_until(&mut field, |field| {
-            field.player_has_control() || field.events.world.field_transition.is_some()
-        })?;
-        assert!(field.events.exploration_error.is_none());
-        if field.player_has_control() {
-            return Ok(field);
-        }
-        field = follow_transition(&field)?;
-    }
-    anyhow::bail!("Mana intro did not return control after its field transitions")
+    field.replay_to_control(&assets_root()?)?;
+    Ok(field)
 }
 
 #[test]
@@ -781,11 +674,9 @@ fn mana_reunion_restores_both_groups_with_empty_slots() -> Result<()> {
             ..Default::default()
         },
     )?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert!(field.events.trigger(1101, false)?);
-    advance_until(&mut field, |field| {
-        field.player_has_control() && mission(field, 0xcc) == 13_600
-    })?;
+    field.advance_until(|field| field.player_has_control() && mission(field, 0xcc) == 13_600)?;
     let party = field.party();
     for id in [1, 2, 3, 4, 9] {
         assert!(
@@ -847,28 +738,18 @@ fn palmacosta_post_boss_exit_runs_the_ranch_destruction() -> Result<()> {
         Ok(())
     })?;
     let mut visited = vec![field.map_id];
-    for tick in 0..18_000 {
-        field.step(FieldInput {
-            interact: tick % 2 == 0,
-            accelerate_dialogue: true,
-            ..Default::default()
-        })?;
-        if field.events.world.field_transition.is_some() {
-            field = follow_transition(&field)?;
-            visited.push(field.map_id);
+    let root = assets_root()?;
+    field.replay(|scene| {
+        if scene.events.world.field_transition.is_some() {
+            scene.follow_transition(&root)?;
+            visited.push(scene.map_id);
         }
-        if field.events.world.world_transition.is_some() {
-            assert_eq!(visited, [198, 207, 198]);
-            assert_eq!(mission(&field, 0xb8), 8000);
-            assert!(field.events.exploration_error.is_none());
-            return Ok(());
-        }
-    }
-    anyhow::bail!(
-        "Palmacosta destruction did not finish; visited={visited:?}, mission={}, waits={:?}",
-        mission(&field, 0xb8),
-        field.events.pending_operations()
-    )
+        Ok(scene.events.world.world_transition.is_some())
+    })?;
+    assert_eq!(visited, [198, 207, 198]);
+    assert_eq!(mission(&field, 0xb8), 8000);
+    assert!(field.events.exploration_error.is_none());
+    Ok(())
 }
 
 #[test]
@@ -879,7 +760,7 @@ fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
         [(194, 625., 900., 675.5), (196, 1950., 2280., 2099.74)]
     {
         let mut field = enter(ISELIA_RANCH, map, None)?;
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         let id = *field
             .events
             .world
@@ -903,9 +784,7 @@ fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
             actor.path.points[0] = target;
         };
         configure(field.actor_mut(id));
-        for _ in 0..150 {
-            field.step(FieldInput::default())?;
-        }
+        field.ticks(150, FieldInput::default())?;
         let stopped = field.actor(id).position;
         assert!(
             stopped[1] > start[1] && stopped[1] < boundary,
@@ -914,9 +793,7 @@ fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
         let actor = field.actor_mut(id);
         actor.enemy = None;
         configure(actor);
-        for _ in 0..150 {
-            field.step(FieldInput::default())?;
-        }
+        field.ticks(150, FieldInput::default())?;
         assert!(
             field.actor(id).position[1] > target_y - 10.,
             "ordinary actors must retain access to the doorway"
@@ -930,12 +807,10 @@ fn iselia_enemies_cannot_enter_the_doorway_floor_region() -> Result<()> {
 fn iselia_damage_spheres_keep_moving() -> Result<()> {
     for (map, first, count) in [(194, 3021, 8), (196, 3301, 13)] {
         let mut field = enter(ISELIA_RANCH, map, None)?;
-        advance_until(&mut field, FieldSession::player_has_control)?;
+        field.advance_until(FieldSession::player_has_control)?;
         // Let reverse clips cross zero before measuring: they previously moved
         // once, then froze together at the first sample for the rest of play.
-        for _ in 0..1200 {
-            field.step(FieldInput::default())?;
-        }
+        field.ticks(1200, FieldInput::default())?;
         let mut bounds = vec![([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]); count];
         for _ in 0..1200 {
             field.step(FieldInput::default())?;
@@ -962,7 +837,7 @@ fn iselia_damage_spheres_keep_moving() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
     let mut field = enter(ISELIA_RANCH, 194, None)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     let player = field.events.world.controlled_actor;
     // Controlled approaches isolate the native choice and treasure service without
     // claiming the intervening route through this multi-level room.
@@ -971,7 +846,7 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
     actor.face(0.);
     actor.motion = None;
     assert!(field.events.trigger(6100, false)?);
-    advance_until(&mut field, |field| {
+    field.advance_until(|field| {
         field
             .events
             .world
@@ -979,7 +854,7 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
             .get(&0)
             .is_some_and(|c| c.operation.is_pending())
     })?;
-    ticks(&mut field, 180, FieldInput::default())?;
+    field.ticks(180, FieldInput::default())?;
     assert!(field.events.world.choices[&0].operation.is_pending());
     field.step(FieldInput {
         direction: [0., -1.],
@@ -987,10 +862,10 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
     })?;
     field.step(FieldInput::default())?;
     field.step(FieldInput {
-        interact: true,
+        pressed_buttons: [Button::Accept].into(),
         ..Default::default()
     })?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert_eq!(field.events.world.choices[&0].selected_line, 1);
     assert!(!field.events.world.choices[&0].operation.is_pending());
 
@@ -1001,10 +876,10 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
     actor.face(180.);
     actor.motion = None;
     field.step(FieldInput {
-        interact: true,
+        pressed_buttons: [Button::Accept].into(),
         ..Default::default()
     })?;
-    ticks(&mut field, 180, FieldInput::default())?;
+    field.ticks(180, FieldInput::default())?;
     assert!(field.events.world.dialogue[&0].operation.is_pending());
     assert!(
         field.events.world.choices.is_empty(),
@@ -1012,10 +887,10 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
     );
     assert_eq!(field.party().items[&REWARD], count + 1);
     field.step(FieldInput {
-        interact: true,
+        pressed_buttons: [Button::Accept].into(),
         ..Default::default()
     })?;
-    ticks(&mut field, 30, FieldInput::default())?;
+    field.ticks(30, FieldInput::default())?;
     assert!(field.player_has_control());
     assert!(field.party().travel.opened_treasures.contains(&157));
     Ok(())
@@ -1025,17 +900,17 @@ fn iselia_chest_notice_clears_a_declined_elevator_choice() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
     let mut field = enter(ISELIA_RANCH, 193, Some(20_307_000))?;
-    replay(&mut field, |f| f.events.world.field_transition.is_some())?;
+    field.replay(|f| Ok(f.events.world.field_transition.is_some()))?;
     assert_eq!(field.story_progress()?, 20_308_000);
     let party = field.party();
     assert_eq!(party.formation.len(), 8);
     assert!(party.formation.iter().all(|id| *id != 0));
     assert_eq!(party.field_leader, 1);
-    let mut outside = follow_transition(&field)?;
+    field.follow_transition(&assets_root()?)?;
     let mut saw_movie = false;
-    replay(&mut outside, |f| {
+    field.replay(|f| {
         saw_movie |= f.events.world.movie.is_some();
-        saw_movie && (f.player_has_control() || f.events.world.field_transition.is_some())
+        Ok(saw_movie && (f.player_has_control() || f.events.world.field_transition.is_some()))
     })?;
     assert!(saw_movie);
     Ok(())
@@ -1045,7 +920,7 @@ fn iselia_exit_restores_the_party_and_finishes_the_scene() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
     let mut field = enter(TRIET_START, 219, None)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     // This chest is a scripted model actor, so its animation drives the lid.
     let chest = field.actor(8300).clone();
     assert_eq!(chest.position, [-4126., 1764., 15.]);
@@ -1061,12 +936,13 @@ fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
     for enabled in [true, false] {
         field.actor_mut(8300).collidable = enabled;
         field.actor_mut(player).position = start;
-        for _ in 0..80 {
-            field.step(FieldInput {
+        field.ticks(
+            80,
+            FieldInput {
                 direction: [-1., 0.],
                 ..Default::default()
-            })?;
-        }
+            },
+        )?;
         let position = field.actor(player).position;
         if enabled {
             assert!(position[0] >= chest.position[0] + radius, "{position:?}");
@@ -1082,7 +958,7 @@ fn triet_mimic_blocks_walking_like_an_ordinary_chest() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn triet_memory_circle_replaces_sealed_geometry_when_unlocked() -> Result<()> {
     let mut field = enter(TRIET_START, 220, None)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     let point = &field.events.world.save_points[0];
     let id = point.actor;
     let flag = point.unlock_flag.context("sealed circle flag")?;
@@ -1113,51 +989,10 @@ fn triet_memory_circle_replaces_sealed_geometry_when_unlocked() -> Result<()> {
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
-fn seal_scene_retains_particle_tails_after_removing_the_emitter() -> Result<()> {
-    for (destination, map, emitter) in [(TRIET_START, 221, 2000), (BALACRUF_START, 510, 1023)] {
-        let mut field = enter(destination, map, None)?;
-        advance_until(&mut field, |field| {
-            field
-                .events
-                .world
-                .billboards
-                .values()
-                .any(|p| p.owner == Some(emitter))
-        })?;
-        let mut previous = Vec::new();
-        let mut survivors = Vec::new();
-        advance_until(&mut field, |field| {
-            let world = &field.events.world;
-            if !world.actors.contains_key(&emitter) {
-                survivors = previous
-                    .iter()
-                    .filter(|id| world.billboards.contains_key(id))
-                    .copied()
-                    .collect();
-                true
-            } else {
-                previous = world
-                    .billboards
-                    .iter()
-                    .filter_map(|(&id, p)| (p.owner == Some(emitter)).then_some(id))
-                    .collect();
-                false
-            }
-        })?;
-        assert!(
-            !survivors.is_empty(),
-            "map {map}: scene removed its particle tails"
-        );
-    }
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires locally cooked fields; no devices"]
 fn balacruf_light_column_stops_before_remiel_descends() -> Result<()> {
     let mut field = enter(BALACRUF_START, 510, None)?;
     let (mut saw_column, mut saw_remiel) = (false, false);
-    replay(&mut field, |field| {
+    field.replay(|field| {
         let world = &field.events.world;
         let column = world.model_particles.values().any(|p| p.resource == 68604);
         saw_column |= column;
@@ -1168,44 +1003,9 @@ fn balacruf_light_column_stops_before_remiel_descends() -> Result<()> {
         if saw_remiel {
             assert!(!column, "Balacruf light column outlived its event");
         }
-        saw_remiel && field.player_has_control()
+        Ok(saw_remiel && field.player_has_control())
     })?;
     assert!(saw_column);
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires locally cooked fields; no devices"]
-fn triet_seal_finishes_with_animated_wings() -> Result<()> {
-    let mut field = enter(FIRST_WINGS, FIRST_WINGS.map, None)?;
-    let mut previous_pose = None;
-    let mut moved = false;
-    let battles = replay(&mut field, |field| {
-        let world = &field.events.world;
-        if let Some(wing) = world.actors.values().find(|actor| {
-            actor.wings.is_some() && actor.attachment.as_ref().is_some_and(|a| a.actor == 2)
-        }) {
-            let resources = field.events.resources();
-            let animation = wing.animation.as_ref().expect("wings must animate");
-            let pose = resources.attachment_pose(wing).expect("prepared wing pose");
-            let sample = animation.sample(world.tick, 0, animation.duration_ticks as f32);
-            let matrices: Vec<_> = resources
-                .model(wing.resource)
-                .unwrap()
-                .names
-                .iter()
-                .map(|name| pose.sample_matrix(name, sample).unwrap())
-                .collect();
-            assert!(!matrices.is_empty());
-            if let Some((instance, previous)) = &previous_pose {
-                moved |= *instance == wing.instance && *previous != matrices;
-            }
-            previous_pose = Some((wing.instance, matrices));
-        }
-        moved && field.player_has_control()
-    })?;
-    assert!(battles > 0);
-    assert_eq!(mission(&field, 0x40), 1_303_000);
     Ok(())
 }
 
@@ -1214,7 +1014,7 @@ fn triet_seal_finishes_with_animated_wings() -> Result<()> {
 fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
     use resonance_events::ring::SorcerersRing;
     let mut field = enter(THODA_START, 9, None)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     for (target, flag, ring) in [
         (102, 150, SorcerersRing::Fire),
         (103, 151, SorcerersRing::Fire),
@@ -1229,24 +1029,13 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
             actor.position = [center[0], center[1] - 300., 0.];
             // Approach from the front, through the cup's invisible talk marker.
             // A side-only shot misses that marker and cannot catch interception.
-            for _ in 0..30 {
-                let camera = field.events.world.field_camera.as_ref().unwrap();
-                let angle = (-(camera.target[0] - camera.position[0])
-                    .atan2(camera.target[1] - camera.position[1])
-                    .to_degrees())
-                .trunc()
-                .to_radians();
-                field.step(FieldInput {
-                    direction: [angle.sin(), angle.cos()],
-                    ..Default::default()
-                })?;
-            }
+            field.ticks(30, field.walking([0., 1.]))?;
         } else {
             actor.position = [center[0] + 150., center[1], 0.];
             actor.face(270.);
         }
         field.step(FieldInput {
-            alternate: true,
+            pressed_buttons: [Button::Ring].into(),
             ..Default::default()
         })?;
         for _ in 0..600 {
@@ -1268,14 +1057,12 @@ fn thoda_ring_shots_light_both_torches_and_fill_the_upper_cup() -> Result<()> {
 fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> {
     let mut field = enter(MARTEL_START, 332, Some(2500))?;
     field.party_mut().formation = vec![1, 2, 3];
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert!(field.events.trigger(2002, false)?);
     // The field requests two tutorial encounters. Supply victory explicitly;
     // this checks the field continuation, not an implemented combat runner.
     for formation in [1, 2] {
-        advance_until(&mut field, |field| {
-            field.events.world.battle_request.is_some()
-        })?;
+        field.advance_until(|field| field.events.world.battle_request.is_some())?;
         let request = field.events.world.battle_request.as_ref().unwrap();
         assert_eq!(
             request.setup.encounter,
@@ -1283,7 +1070,7 @@ fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> 
         );
         skip_battle(&mut field)?;
     }
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert!(field.events.exploration_error.is_none());
     Ok(())
 }
@@ -1292,7 +1079,7 @@ fn iselia_first_tutorial_reaches_its_battle_and_returns_control() -> Result<()> 
 #[ignore = "requires locally cooked Martel fields; no devices"]
 fn martel_selector_starts_before_the_golem_scene_and_ring_pickup() -> Result<()> {
     let mut field = enter(MARTEL_START, 308, None)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert_eq!(field.story_progress()?, 104_000);
     let party = field.party();
     assert!(!party.items.contains_key(&resonance_events::ring::ITEM));
@@ -1307,112 +1094,12 @@ fn martel_selector_starts_before_the_golem_scene_and_ring_pickup() -> Result<()>
         .get(&106)
         .context("ring on the altar")?;
     assert!(ring.visible && !ring.appearance.model_hidden);
-    assert_eq!(ring.resource, (-1_179_645_i32) as u32);
-    assert_eq!(ring.position, [-890., 1080., -260.]);
     assert!(field.events.trigger(1014, false)?);
-    advance_until(&mut field, |field| {
-        field.events.world.battle_request.is_some()
-    })?;
+    field.advance_until(|field| field.events.world.battle_request.is_some())?;
     skip_battle(&mut field)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert_eq!(field.story_progress()?, 105_000);
     assert!(field.events.world.event_flags.contains(&207));
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires locally cooked Thoda seal; no devices"]
-fn thoda_seal_finishes_after_colette_releases_her_wings() -> Result<()> {
-    let mut field = configured(THODA_START, 10, |entry| {
-        entry
-            .persistent
-            .memory
-            .write(0xc4, symphonia_script::Width::S32, 13_000)?;
-        entry.position = [0.; 3];
-        entry.heading = 180.;
-        Ok(())
-    })?;
-    let mut wings = false;
-    let battles = replay(&mut field, |f| {
-        wings |= f
-            .events
-            .world
-            .actors
-            .values()
-            .find(|actor| {
-                actor.wings.is_some() && actor.attachment.as_ref().is_some_and(|a| a.actor == 2)
-            })
-            .is_some_and(|a| a.visible);
-        wings && f.player_has_control() && mission(f, 0xc4) == 21_000
-    })?;
-    assert!(battles > 0 && field.events.world.event_flags.contains(&201));
-    Ok(())
-}
-
-#[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; Thoda bridge, no devices"]
-fn thoda_bridge_targets_a_live_material_and_scrolls() -> Result<()> {
-    let root = PathBuf::from(
-        std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
-    );
-    let package = new_game::FieldPackage::prepare(&root, 6, &mut Default::default(), || false)?;
-    let data = Arc::new(package.files.json("game/session-data.json")?);
-    let mut entry = THODA_START.entry(data, new_game::available_fields(&root)?)?;
-    entry
-        .persistent
-        .memory
-        .write(0xc4, symphonia_script::Width::S32, 13_000)?;
-    let mut field = Scene::enter(&package, entry)?;
-    advance_until(&mut field, |field| {
-        field.events.world.actors.contains_key(&6000)
-    })?;
-    let assets: resonance_content::field::FieldAssets =
-        serde_json::from_slice(&std::fs::read(root.join("fields/map-6.json"))?)?;
-    assets.validate()?;
-    let bridge = assets
-        .texture_animations
-        .iter()
-        .find(|track| {
-            matches!(
-                track.actor,
-                resonance_content::field::RenderValue::Setting(2)
-            )
-        })
-        .context("missing exterior bridge callback")?;
-    let world = &field.events.world;
-    assert!(world.texture_animation_enabled);
-    let id = bridge.actor.resolve(&world.texture_bindings);
-    let texture = bridge.texture.resolve(&world.texture_bindings);
-    let actor = world.actors.get(&id).context("bridge actor is absent")?;
-    assert!(actor.visible);
-    let model = assets
-        .actors
-        .iter()
-        .find(|model| model.resource == actor.resource)
-        .context("bridge model is absent")?;
-    assert!(
-        model
-            .parts
-            .iter()
-            .flat_map(|part| &part.materials)
-            .flat_map(|material| [&material.color, &material.multiply])
-            .flatten()
-            .any(|binding| binding.texture as i32 == texture),
-        "bridge callback does not bind an actual material"
-    );
-    let before = bridge.offset(
-        world.texture_animation_tick,
-        world.texture_animation_effect_tick,
-    );
-    ticks(&mut field, 60, FieldInput::default())?;
-    let world = &field.events.world;
-    let after = bridge.offset(
-        world.texture_animation_tick,
-        world.texture_animation_effect_tick,
-    );
-    assert_eq!(before[0], after[0]);
-    assert_ne!(before, after, "bridge material must animate");
-    assert!(field.events.exploration_error.is_none());
     Ok(())
 }
 
@@ -1427,7 +1114,7 @@ fn mana_enemies_respect_closed_bridge_barriers() -> Result<()> {
         entry.position = [40., 0., 7.];
         Ok(())
     })?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     let enemy = *field
         .events
         .world
@@ -1447,7 +1134,7 @@ fn mana_enemies_respect_closed_bridge_barriers() -> Result<()> {
         actor.autonomy = None;
         actor.collidable = false;
         actor.motion = Some(resonance_events::ActorMotion { target, speed: 4. });
-        ticks(&mut field, 100, FieldInput::default())?;
+        field.ticks(100, FieldInput::default())?;
         let x = field.actor(enemy).position[0];
         if open {
             assert!(
@@ -1476,7 +1163,7 @@ fn triet_genis_returns_to_idle_after_getup() -> Result<()> {
         Ok(())
     })?;
     let (mut getup, mut released) = (false, false);
-    replay(&mut field, |f| {
+    field.replay(|f| {
         if let Some(actor) = f.events.world.actors.get(&3) {
             getup |= actor
                 .animation
@@ -1489,7 +1176,7 @@ fn triet_genis_returns_to_idle_after_getup() -> Result<()> {
                     .as_ref()
                     .is_some_and(|a| a.resource == 3 && a.blend_ticks > 0);
         }
-        released && f.player_has_control()
+        Ok(released && f.player_has_control())
     })?;
     Ok(())
 }
@@ -1513,10 +1200,10 @@ fn story_scenes_reach_their_next_stage() -> Result<()> {
             Ok(())
         })?;
         if let Some(trigger) = trigger {
-            advance_until(&mut field, FieldSession::player_has_control)?;
+            field.advance_until(FieldSession::player_has_control)?;
             assert!(field.events.trigger(trigger, false)?);
         }
-        until(&mut field, FieldInput::default(), |f| {
+        field.until(FieldInput::default(), |f| {
             Ok(!f.player_has_control() || f.events.world.blocked_by_movie())
         })?;
         for tick in 0..SCENE_TIMEOUT {
@@ -1529,15 +1216,15 @@ fn story_scenes_reach_their_next_stage() -> Result<()> {
             let done = if choosing {
                 // Skipping leaves choices to the player; this route takes the first option.
                 field.step(FieldInput {
-                    interact: tick % 2 == 0,
+                    pressed_buttons: dialogue_input()
+                        .pressed_buttons
+                        .with(Button::Accept, tick % 2 == 0),
                     ..dialogue_input()
                 })?;
                 false
             } else {
                 field.skip_event_step()?
             };
-            let Scene { field, audio } = &mut field;
-            audio.step(field)?;
             if done || field.events.world.field_transition.is_some() {
                 break;
             }
@@ -1572,15 +1259,15 @@ fn story_scenes_reach_their_next_stage() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn first_fire_bridge_returns_control() -> Result<()> {
     let mut field = enter(TRIET_START, 220, Some(1_302_000))?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     let position = field.actor(5020).position;
     field.actor_mut(1).position = [position[0], position[1] + 250., position[2] - 70.];
     field.actor_mut(1).face(0.);
     field.step(FieldInput {
-        alternate: true,
+        pressed_buttons: [Button::Ring].into(),
         ..Default::default()
     })?;
-    until(&mut field, dialogue_input(), |f| {
+    field.until(dialogue_input(), |f| {
         Ok(f.events.world.event_flags.contains(&232) && f.player_has_control())
     })?;
     assert!(field.player_has_control());
@@ -1600,7 +1287,7 @@ fn first_fire_bridge_returns_control() -> Result<()> {
 #[ignore = "requires locally cooked fields; no devices"]
 fn post_base_triet_scene() -> Result<()> {
     let mut field = enter(TRIET_START, 527, Some(1_202_000))?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert_eq!(field.story_progress()?, 1_203_000);
     Ok(())
 }

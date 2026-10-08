@@ -39,6 +39,8 @@ mod choice_cursor;
 mod draw_order;
 mod field_animation;
 mod field_audio;
+#[cfg(test)]
+mod field_test;
 mod sparse_animation;
 pub use field_audio::record_field_audio;
 mod field_audit;
@@ -79,10 +81,11 @@ pub use performance::{PerformanceOptions, run_frame_benchmark, run_movie_probe, 
 mod playthrough;
 mod scene;
 mod screenshot;
-pub use field_probe::{ClassroomProbe, ParticleProbe};
+pub use field_probe::ClassroomProbe;
 pub use field_view::{
-    FieldMovement, FieldSequence, capture_classroom, capture_classroom_particles,
-    capture_classroom_probe, capture_dialogue, capture_field_sequence, capture_setup,
+    CaptureMoment, FieldControls, FieldScene, FieldSequence, FieldSequenceRenderer,
+    capture_classroom, capture_classroom_probe, capture_dialogue, capture_field_sequence,
+    capture_setup,
 };
 mod timing;
 use audio::{GameAudio, PlaybackAssets};

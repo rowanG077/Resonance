@@ -1,26 +1,25 @@
 //! Exercise the Luin shopkeeper through the field menu service.
 use super::*;
+use resonance_events::input::Button;
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn luin_crafting_returns_to_the_shopkeeper_and_restores_control() -> Result<()> {
     let mut field = enter(MARTEL_START, 461, None)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     assert!(field.events.interact(310)?);
-    advance_until(&mut field, |f| {
-        f.crafting.as_ref().is_some_and(|c| c.fade == 0)
-    })?;
+    field.advance_until(|f| f.crafting.as_ref().is_some_and(|c| c.fade == 0))?;
     assert!(!field.crafting.as_ref().unwrap().recipes().is_empty());
     assert!(!field.player_has_control());
     assert!(field.checkpoint().is_err());
     field.step(FieldInput {
-        cancel: true,
+        pressed_buttons: [Button::Cancel].into(),
         ..Default::default()
     })?;
     let mut saw_farewell = false;
-    replay(&mut field, |f| {
+    field.replay(|f| {
         saw_farewell |= !f.events.world.dialogue.is_empty();
-        f.player_has_control()
+        Ok(f.player_has_control())
     })?;
     assert!(
         saw_farewell,

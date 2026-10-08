@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::menu_data::{MapLocation, Shop};
+use resonance_events::input::Button;
 
 pub const LOCATION_ROWS: usize = 9;
 pub const ITEM_ROWS: usize = 8;
@@ -145,7 +146,7 @@ impl Menu {
         {
             return None;
         }
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             match self.world_map.focus {
                 Focus::Locations => self.world_map.page_closing = true,
                 Focus::Shops => self.world_map.focus = Focus::Locations,
@@ -153,7 +154,7 @@ impl Menu {
             }
             return Some(3);
         }
-        if input.interact {
+        if input.pressed(Button::Accept) {
             match self.world_map.focus {
                 Focus::Locations => {
                     if self.map_shops().is_empty() {

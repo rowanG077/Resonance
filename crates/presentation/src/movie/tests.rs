@@ -1,6 +1,7 @@
 //! Exercise the actual movie systems and native mixer without an output device.
 use super::*;
 use crate::{Art, Clock, FieldAssets, Menu, Replay};
+use resonance_events::input::{Button, Buttons};
 use resonance_game::TitleState;
 use std::{path::PathBuf, thread};
 
@@ -456,7 +457,8 @@ fn new_game_confirm_opens_script_movie_and_preserves_the_field_session() {
                     } else {
                         [0.; 2]
                     },
-                    interact: choose && selected == Some(1),
+                    pressed_buttons: Buttons::default()
+                        .with(Button::Accept, choose && selected == Some(1)),
                     ..Default::default()
                 })
                 .unwrap();

@@ -2,6 +2,7 @@
 use anyhow::{Context, Result, ensure};
 use resonance_content::field::SCENERY_RESOURCE_BASE;
 use resonance_content::field::{CollisionQuery, FieldAssets};
+use resonance_events::input::{Button, Buttons};
 use resonance_events::{
     ACTOR_CONTACT_HEIGHT, Actor, AnimationClip, EventRuntime, ModelResource, ResourceKind,
     ResourceLibrary,
@@ -59,28 +60,23 @@ pub struct FieldEntry {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FieldInput {
-    /// Physical held buttons; action edges below also support replayed input.
-    pub held_buttons: resonance_events::input::Buttons,
+    /// Physical held buttons and any taps latched between simulation updates.
+    pub held_buttons: Buttons,
+    pub pressed_buttons: Buttons,
     /// Camera-relative stick input: right and forward, in [-1, 1].
     pub direction: [f32; 2],
     pub run: bool,
-    pub interact: bool,
-    /// Held accept accelerates dialogue without repeating interaction/advance edges.
-    pub accelerate_dialogue: bool,
     /// Testing: advance dialogue without waiting for spoken audio.
     pub skip_dialogue: bool,
-    /// Open the currently announced skit (GameCube Z / keyboard Z).
-    pub skit: bool,
-    pub cancel: bool,
-    pub menu: bool,
-    pub start: bool,
-    pub alternate: bool,
-    pub previous_page: bool,
-    pub next_page: bool,
     /// Held page-scroll direction: up +1, down -1 (right stick / Page Up/Down).
     pub scroll_direction: i8,
     /// Held model-viewer controls: rotation and zoom (right stick).
     pub preview_direction: [f32; 2],
+}
+impl FieldInput {
+    pub fn pressed(self, button: Button) -> bool {
+        self.pressed_buttons.contains(button)
+    }
 }
 
 /// Owns one field's gameplay and event lifetime. Presentation consumes the
@@ -291,9 +287,14 @@ impl FieldSession {
     pub fn queue_authored_entry(&mut self, event: Option<Arc<crate::authored::PreparedEvent>>) {
         self.authored_entry = event;
     }
-    pub fn step(&mut self, input: FieldInput) -> Result<()> {
+    pub fn step(&mut self, mut input: FieldInput) -> Result<()> {
+        self.events
+            .world
+            .input
+            .sample(input.held_buttons, input.pressed_buttons);
+        input.pressed_buttons = self.events.world.input.pressed;
         if self.allow_incomplete_scripts {
-            if input.start
+            if input.pressed(Button::Start)
                 && !self.menu_is_open()
                 && self
                     .events
@@ -396,21 +397,6 @@ impl FieldSession {
         Ok(())
     }
     fn step_inner(&mut self, input: FieldInput) -> Result<()> {
-        use resonance_events::input::Button;
-        let pressed = [
-            (Button::Accept, input.interact),
-            (Button::Cancel, input.cancel),
-            (Button::Skit, input.skit),
-            (Button::Menu, input.menu),
-            (Button::Start, input.start),
-            (Button::Ring, input.alternate),
-            (Button::PreviousPage, input.previous_page),
-            (Button::NextPage, input.next_page),
-        ]
-        .into_iter()
-        .filter_map(|(button, pressed)| pressed.then_some(button))
-        .collect();
-        self.events.world.input.sample(input.held_buttons, pressed);
         self.play_time.advance();
         self.effect_clock.advance();
         if self.field_control_available()
@@ -526,10 +512,10 @@ impl FieldSession {
             return Ok(());
         }
         let at_circle = self.events.world.save_points.iter().any(|p| p.active);
-        if (input.menu || input.interact && at_circle)
+        if (input.pressed(Button::Menu) || input.pressed(Button::Accept) && at_circle)
             && let Ok(checkpoint) = self.player_menu_checkpoint()
         {
-            let page = if input.menu {
+            let page = if input.pressed(Button::Menu) {
                 crate::menu::Page::Main
             } else {
                 crate::menu::Page::Slots(crate::menu::Mode::Save)
@@ -541,7 +527,7 @@ impl FieldSession {
             ))?;
             return Ok(());
         }
-        if input.skit && self.player_has_control() {
+        if input.pressed(Button::Skit) && self.player_has_control() {
             let skit_id = self.skits.prompt().map(|prompt| prompt.id);
             if let Some(id) = skit_id {
                 self.start_skit(id, true, false, None)?;
@@ -551,18 +537,20 @@ impl FieldSession {
         }
         let talking = self.step_dialogue(input)?;
         self.save_points
-            .interact(&mut self.events, input.interact && !talking)?;
+            .interact(&mut self.events, input.pressed(Button::Accept) && !talking)?;
         self.treasures
-            .step(&mut self.events, input.interact && !talking)?;
+            .step(&mut self.events, input.pressed(Button::Accept) && !talking)?;
         if !talking {
-            self.events.activate_ring(input.alternate)?;
+            self.events.activate_ring(input.pressed(Button::Ring))?;
         }
         self.blocks.settle(&mut self.events.world, &self.walkmesh);
         self.blocks.step(
             &mut self.events,
             &self.walkmesh,
             FieldInput {
-                interact: input.interact && !talking,
+                pressed_buttons: input
+                    .pressed_buttons
+                    .with(Button::Accept, input.pressed(Button::Accept) && !talking),
                 ..input
             },
         );
@@ -593,7 +581,10 @@ impl FieldSession {
             }
         }
         let can_trigger = self.events.player_has_control() && !talking;
-        let interaction_target = input.interact.then(|| self.interaction_target()).flatten();
+        let interaction_target = input
+            .pressed(Button::Accept)
+            .then(|| self.interaction_target())
+            .flatten();
         let walkmesh = self.walkmesh.with_actors(self.events.world.actors.values());
         let controlled_actor = self.events.world.controlled_actor;
         let obstacles: Vec<_> = self
@@ -684,7 +675,7 @@ impl FieldSession {
                         } else {
                             None
                         };
-                        if input.interact
+                        if input.pressed(Button::Accept)
                             && let Some(target) = interaction_target
                             && events.interact(target)?
                         {
@@ -813,7 +804,7 @@ impl FieldSession {
                             events.contact_actor(actor)?;
                         }
                     }
-                    action = Self::step_triggers(events, input.interact)?;
+                    action = Self::step_triggers(events, input.pressed(Button::Accept))?;
                 }
                 Ok(())
             },
@@ -1007,8 +998,9 @@ impl FieldSession {
                 player.skip_step()?
             } else {
                 player.step(
-                    (input.interact || input.cancel) && choice_slot.is_none(),
-                    input.accelerate_dialogue && accepts_input,
+                    (input.pressed(Button::Accept) || input.pressed(Button::Cancel))
+                        && choice_slot.is_none(),
+                    input.held_buttons.contains(Button::Accept) && accepts_input,
                 )?
             };
             for voice in voices {
@@ -1074,10 +1066,11 @@ impl FieldSession {
                     } else {
                         0
                     },
-                    confirm: input.interact
+                    confirm: input.pressed(Button::Accept)
                         || choice.confirmation == ChoiceConfirmation::AcceptOrShoulder
-                            && (input.previous_page || input.next_page),
-                    cancel: input.cancel,
+                            && (input.pressed(Button::PreviousPage)
+                                || input.pressed(Button::NextPage)),
+                    cancel: input.pressed(Button::Cancel),
                 },
                 player.accepts_input() && player.fully_revealed(),
             );
@@ -2142,7 +2135,7 @@ mod tests {
                 assert_eq!(session.events.world.fade.as_ref().unwrap().alpha(1), 0.);
                 session
                     .step(FieldInput {
-                        interact: true,
+                        pressed_buttons: [Button::Accept].into(),
                         ..Default::default()
                     })
                     .unwrap();
@@ -2171,7 +2164,7 @@ mod tests {
             session.events.world.fade = None;
             session
                 .step(FieldInput {
-                    interact: true,
+                    pressed_buttons: [Button::Accept].into(),
                     ..Default::default()
                 })
                 .unwrap();
@@ -2357,7 +2350,7 @@ mod tests {
         assert!(session.dialogue.values().all(|d| d.accepts_input()));
         session
             .step(FieldInput {
-                interact: true,
+                pressed_buttons: [Button::Accept].into(),
                 ..Default::default()
             })
             .unwrap();
@@ -2373,7 +2366,7 @@ mod tests {
         for _ in 0..200 {
             session
                 .step(FieldInput {
-                    interact: true,
+                    pressed_buttons: [Button::Accept].into(),
                     ..Default::default()
                 })
                 .unwrap();
@@ -2393,7 +2386,7 @@ mod tests {
         // An early confirm cannot dismiss the persistent question.
         session
             .step(FieldInput {
-                interact: true,
+                pressed_buttons: [Button::Accept].into(),
                 ..Default::default()
             })
             .unwrap();
@@ -2403,7 +2396,7 @@ mod tests {
         assert!(!session.events.world.input_enabled);
         session
             .step(FieldInput {
-                cancel: true,
+                pressed_buttons: [Button::Cancel].into(),
                 ..Default::default()
             })
             .unwrap();
@@ -2417,7 +2410,7 @@ mod tests {
         session
             .step(FieldInput {
                 direction: [0., -1.],
-                interact: true,
+                pressed_buttons: [Button::Accept].into(),
                 ..Default::default()
             })
             .unwrap();
@@ -2445,8 +2438,9 @@ mod tests {
                 session
                     .step(FieldInput {
                         direction: [0., -1.],
-                        previous_page,
-                        next_page: !previous_page,
+                        pressed_buttons: Buttons::default()
+                            .with(Button::NextPage, !previous_page)
+                            .with(Button::PreviousPage, previous_page),
                         ..Default::default()
                     })
                     .unwrap();

@@ -601,39 +601,10 @@ def inspect(path, library=None):
             })
         return nodes
 
-    def secondary_chains(actor):
-        chain = pointer(u32(actor + 0x71c), 20)
-        chains, seen = [], set()
-        while chain is not None:
-            if chain in seen or len(chains) >= 32:
-                raise ValueError("invalid secondary-chain list")
-            seen.add(chain)
-            count = struct.unpack_from(">h", ram, chain + 4)[0]
-            if not 1 <= count <= 128:
-                raise ValueError("invalid secondary-chain length")
-            segments = pointer(u32(chain), count * 64)
-            if segments is None:
-                raise ValueError("invalid secondary-chain segments")
-            joints = []
-            for index in range(count):
-                at = segments + index * 64
-                joints.append({"node": u32(at + 60),
-                    **{name: [floating(at + offset + i*4) for i in range(3)]
-                       for name, offset in [("position", 0), ("previous", 12),
-                                            ("target", 24), ("velocity", 36)]},
-                    "length": floating(at + 48), "gravity": floating(at + 52),
-                    "damping": floating(at + 56)})
-            chains.append({"flags": ram[chain + 6], "attraction": floating(chain + 8),
-                           "callback": f"{u32(chain + 16):08x}", "joints": joints})
-            chain = pointer(u32(chain + 12), 20)
-        return chains
-
     def actor_observation(at):
-        callback = u32(at)
         actor = {
             "address": at + 0x80000000,
             "id": struct.unpack_from(">i", ram, at + 0xb8)[0],
-            "draw_callback": f"{callback:08x}",
             "layer": struct.unpack_from(">b", ram, at + 0x94)[0],
             "position": [floating(at + 4 + i*4) for i in range(3)],
             "presentation_position": [floating(at + 0x1c + i*4) for i in range(3)],
@@ -682,34 +653,6 @@ def inspect(path, library=None):
             [slot for slot in range(12, 0x80, 4)
              if u32(resource + slot) and u32(at + 0xc0) + u32(resource + slot) == u32(at + 0x82c)]
             if resource is not None and ram[at + 0x824] else [])
-        if callback in (0x8001a6fc, 0x8000e720):
-            actor["model_nodes"] = model_nodes(at)
-            if callback == 0x8001a6fc:
-                actor["secondary_chains"] = secondary_chains(at)
-        elif callback == 0x8007e1bc:
-            # Location lettering uses one shared animation controller.
-            state = 0x2cb3e8
-            short = lambda offset: struct.unpack_from(">H", ram, state + offset)[0]
-            actor["location_caption"] = {
-                "hold_remaining": floating(at + 0x7c), "alpha": ram[at + 0x851],
-                "width": u32(state), "progress": u32(state + 4),
-                "complete": bool(ram[state + 8]), "frame": short(10),
-                "phase": short(12), "bar_alpha": short(14),
-                "phase_done": bool(ram[state + 16]), "multi": bool(ram[state + 17]),
-                "main_width": short(18), "main_alpha": short(20),
-                "entries_started": bool(ram[state + 22]), "count": short(24),
-                "total_width": short(26),
-                "entry_alpha": [short(28 + i*2) for i in range(min(10, short(24)))],
-                "entry_width": [short(48 + i*2) for i in range(min(10, short(24)))],
-            }
-        elif callback == 0x800157e8:
-            actor["emote"] = {
-                "actor": struct.unpack_from(">i", ram, at + 0x740)[0],
-                "kind": struct.unpack_from(">H", ram, at + 0x98)[0],
-                "remaining": struct.unpack_from(">i", ram, at + 0xb0)[0],
-                "radius": floating(at + 0x790),
-                "clock": u32(at + 0x834),
-            }
         return actor
 
     result["controlled_actor"] = actor_observation(0x2c7ea0)
@@ -819,7 +762,6 @@ def inspect(path, library=None):
                 "rgba": list(ram[at + 0x20:at + 0x24]),
                 "uv_bytes": list(ram[at + 0x1c:at + 0x20]),
                 "recipe_address": f"{u32(at + 0x30):08x}",
-                "callback_address": f"{u32(at + 0x68):08x}",
             })
         result["particles"] = particles
     result["shadow_texture_words"] = [u32(0x2bff64 + i*4) for i in range(8)]

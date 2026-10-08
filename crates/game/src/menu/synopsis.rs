@@ -2,6 +2,7 @@ use super::*;
 use resonance_content::menu_data::{
     SYNOPSIS_COUNT, SYNOPSIS_LIST_ROWS, SYNOPSIS_TEXT_ROWS, SynopsisEntry,
 };
+use resonance_events::input::Button;
 
 #[derive(Debug, Default, serde::Serialize)]
 pub struct Synopsis {
@@ -71,7 +72,7 @@ impl Menu {
                 return None;
             }
         }
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             if self.synopsis.reading {
                 self.synopsis.text_closing = true;
             } else {
@@ -80,7 +81,7 @@ impl Menu {
             }
             return Some(3);
         }
-        if input.interact && !self.synopsis.reading {
+        if input.pressed(Button::Accept) && !self.synopsis.reading {
             let (entry, record) = self.synopsis_entry();
             if entry.lines(record.value).is_empty() {
                 return Some(4);
@@ -90,9 +91,9 @@ impl Menu {
             self.synopsis.line = 0;
             return Some(2);
         }
-        let page = input.previous_page || input.next_page;
-        let up = up || input.previous_page;
-        let down = down || input.next_page;
+        let page = input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage);
+        let up = up || input.pressed(Button::PreviousPage);
+        let down = down || input.pressed(Button::NextPage);
         if !up && !down {
             return None;
         }

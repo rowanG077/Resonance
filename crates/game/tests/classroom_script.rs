@@ -1,4 +1,5 @@
 //! Original assets remain local. This is behavior evidence, not image/audio acceptance.
+use resonance_events::input::{Button, Buttons};
 #[path = "common/action.rs"]
 mod action;
 mod common;
@@ -1838,8 +1839,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut book,
         FieldInput {
-            previous_page: true,
             direction: [1., 0.],
+            pressed_buttons: [Button::PreviousPage].into(),
             ..Default::default()
         },
     );
@@ -1847,8 +1848,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut book,
         FieldInput {
-            next_page: true,
             direction: [-1., 0.],
+            pressed_buttons: [Button::NextPage].into(),
             ..Default::default()
         },
     );
@@ -1862,16 +1863,16 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     for (input, category) in [
         (
             FieldInput {
-                next_page: true,
                 direction: [-1., 0.],
+                pressed_buttons: [Button::NextPage].into(),
                 ..Default::default()
             },
             7,
         ),
         (
             FieldInput {
-                previous_page: true,
                 direction: [1., 0.],
+                pressed_buttons: [Button::PreviousPage].into(),
                 ..Default::default()
             },
             0,
@@ -1943,8 +1944,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut list,
         FieldInput {
-            previous_page: true,
             direction: [1., 0.],
+            pressed_buttons: [Button::PreviousPage].into(),
             ..Default::default()
         },
     );
@@ -1953,8 +1954,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut list,
         FieldInput {
-            previous_page: true,
             direction: [1., 0.],
+            pressed_buttons: [Button::PreviousPage].into(),
             ..Default::default()
         },
     );
@@ -1962,8 +1963,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut list,
         FieldInput {
-            next_page: true,
             direction: [-1., 0.],
+            pressed_buttons: [Button::NextPage].into(),
             ..Default::default()
         },
     );
@@ -2739,7 +2740,7 @@ fn advance_to(
         let interact = accept(session, update);
         session
             .step(FieldInput {
-                interact,
+                pressed_buttons: Buttons::default().with(Button::Accept, interact),
                 ..Default::default()
             })
             .unwrap();
@@ -2996,7 +2997,7 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
             }
             session
                 .step(FieldInput {
-                    interact: tick % 30 == 10,
+                    pressed_buttons: Buttons::default().with(Button::Accept, tick % 30 == 10),
                     ..Default::default()
                 })
                 .unwrap();
@@ -3260,7 +3261,7 @@ fn eraser_impact_plays_sound_with_visible_dust_that_moves_and_expires() {
         skip_movie(&mut session);
         session
             .step(FieldInput {
-                interact,
+                pressed_buttons: Buttons::default().with(Button::Accept, interact),
                 ..Default::default()
             })
             .unwrap();
@@ -3394,7 +3395,7 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
                 .any(|p| !p.closed && p.fully_revealed());
             session
                 .step(FieldInput {
-                    interact: ready,
+                    pressed_buttons: Buttons::default().with(Button::Accept, ready),
                     ..Default::default()
                 })
                 .unwrap();
@@ -3493,8 +3494,9 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
             }
             session
                 .step(FieldInput {
-                    interact: !move_choice && ready(&session),
                     direction: if move_choice { [0., -1.] } else { [0., 0.] },
+                    pressed_buttons: Buttons::default()
+                        .with(Button::Accept, !move_choice && ready(&session)),
                     ..Default::default()
                 })
                 .unwrap();
@@ -3631,7 +3633,7 @@ fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
             .any(|d| !d.closed && !d.persistent && d.fully_revealed() && d.voice_finished());
         session
             .step(FieldInput {
-                interact,
+                pressed_buttons: Buttons::default().with(Button::Accept, interact),
                 ..Default::default()
             })
             .unwrap();
@@ -3798,7 +3800,7 @@ fn original_classroom_reaches_control_walks_and_runs_every_child_conversation() 
         for update in 0..3000 {
             session
                 .step(FieldInput {
-                    interact: update % 30 == 10,
+                    pressed_buttons: Buttons::default().with(Button::Accept, update % 30 == 10),
                     ..Default::default()
                 })
                 .unwrap();
@@ -3878,8 +3880,8 @@ fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
     for tick in 0..7200 {
         field
             .step(FieldInput {
-                interact: tick % 2 == 0,
-                accelerate_dialogue: true,
+                pressed_buttons: Buttons::default().with(Button::Accept, tick % 2 == 0),
+                held_buttons: Buttons::default().with(Button::Accept, true),
                 ..Default::default()
             })
             .unwrap();

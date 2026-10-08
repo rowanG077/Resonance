@@ -1,16 +1,17 @@
 //! Fog updates the camera without invalidating scene materials.
 use super::super::destinations::*;
-use super::{advance_until, configured, enter, mission, replay, skip_battle};
+use super::{configured, enter, mission, skip_battle};
 use crate::{field_view, materials::TitleSurface};
 use anyhow::Result;
 use bevy::{asset::AssetPlugin, prelude::*};
+use resonance_events::input::{Button, Buttons};
 use resonance_game::field::{FieldInput, FieldSession};
 
 #[test]
 #[ignore = "requires locally cooked fields; no devices"]
 fn radar_updates_camera_fog_and_restores_the_room_without_material_changes() -> Result<()> {
     let mut field = enter(PALMACOSTA_RANCH, 201, None)?;
-    advance_until(&mut field, FieldSession::player_has_control)?;
+    field.advance_until(FieldSession::player_has_control)?;
     field.party_mut().travel.sorcerers_ring = resonance_events::ring::SorcerersRing::Radar;
     let original = field.events.world.fog().cloned();
     let mut app = App::new();
@@ -32,7 +33,7 @@ fn radar_updates_camera_fog_and_restores_the_room_without_material_changes() -> 
             let mut session = app.world_mut().resource_mut::<field_view::Session>();
             skip_battle(&mut session.0)?;
             session.0.step(FieldInput {
-                alternate: tick == 0,
+                pressed_buttons: Buttons::default().with(Button::Ring, tick == 0),
                 ..Default::default()
             })?;
             session.0.events.world.fog().cloned()
@@ -82,9 +83,9 @@ fn mana_seal_finishes_and_clears_its_fog() -> Result<()> {
         Ok(())
     })?;
     let mut saw_fog = false;
-    let battles = replay(&mut field, |f| {
+    let battles = field.replay(|f| {
         saw_fog |= f.events.world.fog().is_some_and(|fog| fog.end > fog.start);
-        f.player_has_control() && mission(f, 0xcc) == 21_000
+        Ok(f.player_has_control() && mission(f, 0xcc) == 21_000)
     })?;
     assert!(saw_fog && battles > 0);
     assert!(

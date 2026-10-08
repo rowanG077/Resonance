@@ -1,5 +1,6 @@
 //! Mapped field buttons, sampled once per gameplay update.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 #[repr(u16)]
 pub enum Button {
     Left = 0x0001,
@@ -16,12 +17,30 @@ pub enum Button {
     Start = 0x1000,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Buttons(u16);
 
 impl Buttons {
     pub fn contains(self, button: Button) -> bool {
         self.0 & button as u16 != 0
+    }
+
+    pub fn with(self, button: Button, down: bool) -> Self {
+        Self(if down {
+            self.0 | button as u16
+        } else {
+            self.0 & !(button as u16)
+        })
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl<const N: usize> From<[Button; N]> for Buttons {
+    fn from(buttons: [Button; N]) -> Self {
+        buttons.into_iter().collect()
     }
 }
 
@@ -38,7 +57,7 @@ impl FromIterator<Button> for Buttons {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Input {
     pub held: Buttons,
-    pressed: Buttons,
+    pub pressed: Buttons,
     released: Buttons,
 }
 

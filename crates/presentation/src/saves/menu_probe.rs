@@ -1,4 +1,5 @@
 use super::*;
+use resonance_events::input::{Button, Buttons};
 use resonance_game::{
     field::FieldInput,
     menu::{Menu, Mode, Page, Slot},
@@ -211,9 +212,10 @@ fn press(world: &mut World, action: Action) -> Result<()> {
         .resource_mut::<new_game::Session>()
         .field
         .step(FieldInput {
-            interact: matches!(action, Action::Confirm),
-            cancel: matches!(action, Action::Cancel),
-            menu: matches!(action, Action::Menu),
+            pressed_buttons: Buttons::default()
+                .with(Button::Accept, matches!(action, Action::Confirm))
+                .with(Button::Cancel, matches!(action, Action::Cancel))
+                .with(Button::Menu, matches!(action, Action::Menu)),
             ..Default::default()
         })
 }
