@@ -727,8 +727,8 @@ pub(super) fn transition(world: &mut World) {
             world.insert_resource(pending);
             return Ok(());
         };
-        world.resource_mut::<Session>().change_field(next)?;
         super::field_audio::leave_field(world)?;
+        world.resource_mut::<Session>().change_field(next)?;
         let files = world.resource::<Session>().files();
         *world
             .resource::<super::loading::Resident>()
@@ -766,8 +766,8 @@ fn transition_world(world: &mut World) {
             world.insert_resource(pending);
             return Ok(());
         };
-        world.resource_mut::<Session>().change_world(package)?;
         super::field_audio::leave_field(world)?;
+        world.resource_mut::<Session>().change_world(package)?;
         *world
             .resource::<super::loading::Resident>()
             .files

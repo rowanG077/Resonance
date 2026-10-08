@@ -630,6 +630,7 @@ pub struct GameWorld {
     pub random_state: u32,
     pub gameplay_random: crate::GameplayRandom,
     pub battle_request: Option<crate::battle::Request>,
+    pub(crate) restore_battle_music: bool,
     /// Overworld bottles count movement updates; their scene owns that clock.
     pub external_encounter_clock: bool,
     pub(crate) loaded_resources: BTreeMap<i32, (crate::ResourceKind, u32)>,
