@@ -30,7 +30,6 @@ pub(super) enum Request {
     Billboard(i32),
     ModelParticle(i32, usize),
     Refraction(i32),
-    Particle(i32),
     SavePoint(usize, u8),
     Dialogue(u8),
     Choice(u8),
@@ -171,14 +170,13 @@ fn expected(
         world
             .billboards
             .iter()
-            .filter(|(_, effect)| world.tick >= effect.born && effect.alive(world.tick))
+            .filter(|(_, effect)| world.tick >= effect.born)
             .map(|(id, _)| Request::Billboard(*id)),
     );
     expected.extend(world.model_particles.iter().flat_map(|(&id, p)| {
         (0..parts(p.resource).max(1)).map(move |part| Request::ModelParticle(id, part))
     }));
     expected.extend(world.refractions.keys().map(|id| Request::Refraction(*id)));
-    expected.extend(world.particles.iter().map(|p| Request::Particle(p.handle)));
     expected.extend(
         (0..world.save_points.len())
             .flat_map(|index| (0..2).map(move |pass| Request::SavePoint(index, pass))),
@@ -258,9 +256,10 @@ mod tests {
         world.emotes.insert(
             -100,
             resonance_events::Emote {
+                draw_order: 0,
                 phase: 0,
                 actor: 1,
-                kind: 4,
+                kind: resonance_events::emote::Kind::Blush,
                 offset: [0.; 3],
                 start_tick: 0,
                 duration: None,
@@ -311,6 +310,7 @@ mod tests {
                 orientation: resonance_events::effect::SpriteOrientation::World,
                 rotation: [0.; 3],
                 position: [0.; 3],
+                velocity: [0.; 3],
                 born: 0,
                 lifetime: 30,
                 size: 20.,

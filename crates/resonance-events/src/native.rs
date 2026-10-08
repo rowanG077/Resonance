@@ -2,7 +2,7 @@
 //! actors nor assets; these handlers operate independently of scene/event IDs.
 use crate::animation::slot;
 use crate::world::{Fade, Overlay, OverlayKind, SpriteOverlay};
-use crate::{Actor, Animation, CameraTrack, GameWorld, Particle, ResourceKind, ResourceLibrary};
+use crate::{Actor, Animation, CameraTrack, GameWorld, ResourceKind, ResourceLibrary};
 use crate::{
     dialogue::{DIALOGUE_SLOTS, Dialogue, DialogueAnchor, Movie, flags},
     operation::Wait,
@@ -359,15 +359,21 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(Some(color)));
                 }
                 if a[1] == crate::emitter::PHASE_PROPERTY || (113..=122).contains(&a[1]) {
+                    // Scalar property writes carry unsigned 16-bit values;
+                    // the emitter constructor accepts signed coordinates.
+                    let value = (op == NativeCall::SetActorProperty).then(|| {
+                        if (117..=122).contains(&a[1]) {
+                            i32::from(a[2] as u16)
+                        } else {
+                            a[2]
+                        }
+                    });
                     let previous = self
                         .world
                         .actors
                         .get_mut(&id)
                         .and_then(|actor| actor.emitter.as_mut())
-                        .map(|emitter| {
-                            emitter
-                                .property(a[1], (op == NativeCall::SetActorProperty).then(|| a[2]))
-                        })
+                        .map(|emitter| emitter.property(a[1], value))
                         .transpose()?
                         .unwrap_or(0);
                     return Ok(NativeResult::Continue(Some(previous)));
@@ -702,7 +708,12 @@ impl NativeHost<'_> {
                             require(a[2] & 7 <= 2, "actor blend mode is not implemented")?;
                             actor.blend = Some((a[2] & 7).try_into()?);
                         }
-                        30..=32 => actor.scale_percent[(a[1] - 30) as usize] = a[2],
+                        30..=32 => {
+                            if self.world.tick >= actor.visible_from {
+                                actor.rendered_scale.get_or_insert(actor.scale_percent);
+                            }
+                            actor.scale_percent[(a[1] - 30) as usize] = a[2];
+                        }
                         35 | 36 => actor.tilt[(a[1] - 35) as usize] = a[2],
                         42..=44 => {
                             actor.tint[(a[1] - 42) as usize] = a[2] as u8;
@@ -1214,62 +1225,51 @@ impl NativeHost<'_> {
                         && (a[12] == 0 || matches!(kind, crate::ParticleKind::Flutter(_))),
                     "particle lifetime/color mode is not implemented",
                 )?;
-                let (rgba, flutter) = match kind {
-                    crate::ParticleKind::Glow => {
-                        require(a[11] == 0, "particle color is not cooked")?;
-                        ([255., 255., 255., a[9] as f32], None)
-                    }
-                    crate::ParticleKind::Flutter(recipe) => {
-                        let mut rgba = recipe
-                            .palette
-                            .get(a[11] as usize)
-                            .ok_or("particle color is not cooked")?
-                            .map(f32::from);
-                        rgba[3] = f32::from(a[9] as u8);
-                        (rgba, Some(crate::effect::Flutter::new(recipe)))
-                    }
-                };
-                let handle = self.world.emit_particle(Particle {
-                    kind: a[0],
-                    handle: 0,
+                if let crate::ParticleKind::Flutter(recipe) = kind {
+                    use crate::effect::{
+                        BillboardController, BillboardEffect, Fade, Flutter, SpriteOrientation,
+                    };
+                    let mut rgba = *recipe
+                        .palette
+                        .get(a[11] as usize)
+                        .ok_or("particle color is not cooked")?;
+                    rgba[3] = a[9] as u8;
+                    let flutter = Flutter::pending(recipe);
+                    let lifetime = a[1] as u32 + 1;
+                    return Ok(NativeResult::Continue(Some(self.world.emit_billboard(
+                        BillboardEffect {
+                            recipe: a[0].try_into().map_err(|_| "invalid leaf recipe")?,
+                            born: self.world.tick + 1,
+                            lifetime,
+                            position: [a[2] as f32, a[3] as f32, a[4] as f32],
+                            orientation: SpriteOrientation::World,
+                            size: [a[8] as f32, a[8] as f32 / recipe.aspect_ratio],
+                            rgba,
+                            fade: if a[10] == 0 {
+                                Fade::tail(lifetime)
+                            } else {
+                                Fade::Linear(a[10] as f32)
+                            },
+                            controller: Some(BillboardController::Flutter(flutter)),
+                            ..Default::default()
+                        },
+                    )?)));
+                }
+                require(a[11] == 0, "particle color is not cooked")?;
+                let handle = self.world.emit_billboard(crate::effect::BillboardEffect {
+                    recipe: a[0] as u16,
                     born: self.world.tick,
-                    lifetime: a[1] as u32,
+                    lifetime: a[1] as u32 + 1,
                     position: [a[2] as f32, a[3] as f32, a[4] as f32],
                     velocity: [a[5] as f32, a[6] as f32, a[7] as f32],
-                    size: a[8] as f32,
-                    size_delta: 0.,
-                    rgba,
-                    alpha_delta: a[10] as f32,
-                    flutter,
+                    size: [a[8] as f32; 2],
+                    rgba: [255, 255, 255, a[9] as u8],
+                    fade: crate::effect::Fade::Linear(a[10] as f32),
+                    ..Default::default()
                 })?;
                 value = Some(handle);
             }
-            NativeCall::SetEffectProperty => {
-                if let Some(effect) = self.world.refractions.get_mut(&a[0]) {
-                    const SIZE_GROWTH: i32 = 135;
-                    require(
-                        a[1] == SIZE_GROWTH,
-                        "refraction property is not implemented",
-                    )?;
-                    effect.growth = a[2] as f32 / 100.;
-                    return Ok(NativeResult::Continue(Some(0)));
-                }
-                if self.world.billboards.contains_key(&a[0]) {
-                    return self.field(op, a, memory);
-                }
-                let p = self
-                    .world
-                    .particles
-                    .iter_mut()
-                    .find(|p| p.handle == a[0])
-                    .ok_or("effect handle missing")?;
-                match a[1] {
-                    125..=128 => p.rgba[(a[1] - 125) as usize] = (a[2] as u8) as f32,
-                    135 => p.size_delta = a[2] as f32 / 100.,
-                    _ => return Err("unsupported effect property".into()),
-                }
-                value = Some(0);
-            }
+            NativeCall::SetEffectProperty => return self.field(op, a, memory),
             _ => return Err(format!("unimplemented native {op:?}")),
         }
         Ok(NativeResult::Continue(value))

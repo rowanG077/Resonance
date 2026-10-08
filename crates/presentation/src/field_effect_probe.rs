@@ -2,9 +2,7 @@
 use anyhow::{Result, ensure};
 use resonance_events::{
     GameWorld,
-    effect::{
-        BillboardEffect, Blend, Fade, Flutter, RefractionImage, RefractionPulse, SpriteOrientation,
-    },
+    effect::{BillboardEffect, Blend, Fade, RefractionImage, RefractionPulse, SpriteOrientation},
     model_particle::ModelParticle,
 };
 use serde::{Deserialize, Serialize};
@@ -29,7 +27,6 @@ pub enum Shape {
     Sprite { recipe: u16, uv: Option<[f32; 4]> },
     Model { resource: u32, scale: [f32; 3] },
     Refraction { air: bool },
-    Leaf { recipe: i32, motion: Flutter },
 }
 
 impl EffectProbe {
@@ -115,6 +112,7 @@ impl EffectProbe {
                         orientation,
                         rotation: self.rotation,
                         position: self.position,
+                        velocity: [0.; 3],
                         born: world.tick,
                         lifetime: 2,
                         size: self.size[0],
@@ -123,21 +121,6 @@ impl EffectProbe {
                         fade: Fade::Linear(0.),
                     },
                 );
-            }
-            Shape::Leaf { recipe, motion } => {
-                world.particles.push(resonance_events::Particle {
-                    kind: *recipe,
-                    handle: id,
-                    born: world.tick,
-                    lifetime: 100,
-                    position: self.position,
-                    velocity: [0.; 3],
-                    size: self.size[0],
-                    size_delta: 0.,
-                    rgba: self.rgba.map(f32::from),
-                    alpha_delta: 0.,
-                    flutter: Some(motion.clone()),
-                });
             }
         }
     }

@@ -82,31 +82,11 @@ fn effects(executable: &[u8]) -> Result<FieldEffects<Atlas>> {
         version: resonance_content::effect::FIELD_EFFECTS_VERSION,
         emote_texture: Atlas::Effect(1),
         status_texture: Atlas::Status,
-        paralysis: EmoteTrack {
-            anchor: dol::text(executable, 0x8017A498)?,
-            missing_anchor_offset: [0.; 3],
-            intro: Vec::new(),
-            cycle: [16., 0.]
-                .into_iter()
-                .map(|y| {
-                    Ok(vec![Sprite {
-                        offset: [0., 0., value(0x8035AFD8)?],
-                        size: [72., 24.],
-                        uv: [137., y, 184., y + 15.].map(|v| v / 256.),
-                        rotation: 0.,
-                        vertical_anchor: VerticalAnchor::Center,
-                        alpha: 255,
-                    }])
-                })
-                .collect::<Result<_>>()?,
-        },
         palette: palette(executable)?,
-        sprites: [
-            0, 1, 4, 5, 6, 7, 8, 10, 11, 12, 14, 22, 23, 41, 42, 52, 53, 54, 68, 69,
-        ]
-        .into_iter()
-        .map(|kind| Ok((kind, sprite(kind)?)))
-        .collect::<Result<_>>()?,
+        sprites: resonance_content::effect::sprite::ALL
+            .into_iter()
+            .map(|kind| Ok((kind, sprite(kind)?)))
+            .collect::<Result<_>>()?,
         refraction: resonance_content::effect::RefractionRecipe {
             sprite: sprite(27)?,
             displacement: [value(0x801E3828)? * 2., value(0x801E3838)? * 2.],

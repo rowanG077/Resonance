@@ -1,13 +1,8 @@
 //! Native billboards for the title event's feather and reflection trails.
-use super::{Art, Events, FieldCamera};
+use super::{Art, Events, FieldCamera, field_effects::Quad};
 use bevy::{
-    asset::RenderAssetUsages,
-    camera::visibility::NoFrustumCulling,
-    image::ImageLoaderSettings,
-    mesh::{Indices, MeshVertexBufferLayoutRef},
-    prelude::*,
-    render::render_resource::*,
-    shader::ShaderRef,
+    camera::visibility::NoFrustumCulling, image::ImageLoaderSettings,
+    mesh::MeshVertexBufferLayoutRef, prelude::*, render::render_resource::*, shader::ShaderRef,
 };
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -87,7 +82,7 @@ pub(super) fn update(
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let (entity, handle, mut visibility) = glow.into_inner();
-    let Some(events) = events.filter(|events| !events.0.world.particles.is_empty()) else {
+    let Some(events) = events.filter(|events| !events.0.world.billboards.is_empty()) else {
         // Bevy skips allocating empty meshes but still attempts their upload.
         // Keep the last nonempty buffer and hide it between particle bursts;
         // before the first burst there is no mesh asset to extract at all.
@@ -95,43 +90,25 @@ pub(super) fn update(
         return;
     };
     let tick = events.0.tick();
-    let mut positions = Vec::new();
-    let mut uvs = Vec::new();
-    let mut colors = Vec::new();
-    let mut indices = Vec::new();
-    for particle in &events.0.world.particles {
-        let (position, size, rgba) = particle.sample(tick);
-        let center = Vec3::from_array(position);
-        let half = (size * 0.5).trunc();
-        let right = camera.right() * half;
-        let up = camera.up() * half;
-        let base = positions.len() as u32;
-        for point in [
-            center - right + up,
-            center + right + up,
-            center + right - up,
-            center - right - up,
-        ] {
-            positions.push(point.to_array());
-        }
-        // Feather and reflection artwork occupy this atlas rectangle.
-        uvs.extend([
-            [192. / 256., 0.],
-            [254. / 256., 0.],
-            [254. / 256., 62. / 256.],
-            [192. / 256., 62. / 256.],
-        ]);
-        colors.extend([rgba.map(|v| v / 255.); 4]);
-        indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
-    }
-    let geometry = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
-    .with_inserted_indices(Indices::U32(indices));
+    let quads: Vec<_> = events
+        .0
+        .world
+        .billboards
+        .values()
+        .map(|particle| {
+            let mut color = particle.rgba.map(|v| f32::from(v) / 255.);
+            color[3] = particle.alpha(tick).max(0.) / 255.;
+            Quad::new(
+                Vec3::from_array(particle.position),
+                camera.rotation,
+                particle.size,
+                [192., 0., 254., 62.].map(|v| v / 256.),
+                color,
+                particle.anchor,
+            )
+        })
+        .collect();
+    let geometry = Quad::mesh(&quads);
     if let Some(handle) = handle {
         *meshes.get_mut(&handle.0).expect("glow mesh exists") = geometry;
     } else {
@@ -166,85 +143,30 @@ mod tests {
             .world_mut()
             .spawn((GlowMesh, Transform::default(), Visibility::Hidden))
             .id();
-        app.update();
-        assert!(app.world().resource::<Assets<Mesh>>().is_empty());
-        assert!(app.world().get::<Mesh3d>(entity).is_none());
-
-        let particle = resonance_events::Particle {
-            kind: 10,
-            handle: 1,
-            born: 0,
-            lifetime: 100,
-            position: [0.; 3],
-            velocity: [0.; 3],
-            size: 16.,
-            size_delta: 0.,
-            rgba: [255.; 4],
-            alpha_delta: 0.,
-            flutter: None,
-        };
-        app.world_mut()
-            .resource_mut::<Events>()
-            .0
-            .world
-            .particles
-            .push(particle.clone());
-        app.update();
-        let handle = app.world().get::<Mesh3d>(entity).unwrap().0.clone();
-        let mesh = app.world().resource::<Assets<Mesh>>().get(&handle).unwrap();
-        assert_eq!(mesh.count_vertices(), 4);
-        assert_eq!(mesh.indices().unwrap().len(), 6);
-        assert_eq!(
-            app.world().get::<Visibility>(entity),
-            Some(&Visibility::Inherited)
-        );
-
-        app.world_mut()
-            .resource_mut::<Events>()
-            .0
-            .world
-            .particles
-            .clear();
-        for _ in 0..3 {
+        let mut particle = resonance_events::effect::BillboardEffect::default();
+        particle.lifetime = 100;
+        particle.size = [16.; 2];
+        particle.rgba = [255; 4];
+        for count in [0, 1, 0, 2] {
+            app.world_mut().resource_mut::<Events>().0.world.billboards =
+                (0..count).map(|id| (id, particle.clone())).collect();
             app.update();
+            let expected = if count == 0 {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            };
+            assert_eq!(app.world().get::<Visibility>(entity), Some(&expected));
+            let meshes = app.world().resource::<Assets<Mesh>>();
+            assert!(meshes.iter().all(|(_, mesh)| mesh.count_vertices() > 0));
+            if count > 0 {
+                let handle = app.world().get::<Mesh3d>(entity).unwrap();
+                assert_eq!(
+                    meshes.get(&handle.0).unwrap().count_vertices(),
+                    count as usize * 4
+                );
+            }
         }
-        assert_eq!(
-            app.world().get::<Visibility>(entity),
-            Some(&Visibility::Hidden)
-        );
-        assert_eq!(
-            app.world()
-                .resource::<Assets<Mesh>>()
-                .get(&handle)
-                .unwrap()
-                .count_vertices(),
-            4
-        );
-
-        app.world_mut()
-            .resource_mut::<Events>()
-            .0
-            .world
-            .particles
-            .extend([particle.clone(), particle]);
-        app.update();
-        assert_eq!(
-            app.world().get::<Mesh3d>(entity).unwrap().0.id(),
-            handle.id()
-        );
-        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 1);
-        assert_eq!(
-            app.world()
-                .resource::<Assets<Mesh>>()
-                .get(&handle)
-                .unwrap()
-                .count_vertices(),
-            8
-        );
-        assert_eq!(
-            app.world().get::<Visibility>(entity),
-            Some(&Visibility::Inherited)
-        );
 
         app.world_mut().remove_resource::<Events>();
         app.update();

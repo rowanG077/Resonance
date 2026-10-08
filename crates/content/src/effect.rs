@@ -4,6 +4,51 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Shared field artwork, addressed by scenario sprite IDs.
+pub mod sprite {
+    pub const GLOW_SPRITE: u16 = 0;
+    pub const SMOKE_SPRITE: u16 = 1;
+    pub const STATION_GLOW_SPRITE: u16 = 4;
+    pub const CAMERA_DISC_SPRITE: u16 = 5;
+    pub const WORLD_GLOW_SPRITE: u16 = 6;
+    pub const STAR_SPRITE: u16 = 7;
+    pub const SPINNING_STAR_SPRITE: u16 = 8;
+    pub const ORB_SPRITE: u16 = 10;
+    pub const FLAME_SPRITE: u16 = 11;
+    pub const TRAIL_GLOW_SPRITE: u16 = 12;
+    pub const ELECTRIC_ARC_SPRITE: u16 = 14;
+    pub const STATION_HALO_SPRITE: u16 = 22;
+    pub const STREAK_SPRITE: u16 = 23;
+    pub const RING_SPRITE: u16 = 41;
+    pub const ELECTRIC_SPARK_SPRITE: u16 = 42;
+    pub const DEBRIS_SPRITES: [u16; 3] = [52, 53, 54];
+    pub const SEAL_STAR_SPRITE: u16 = 68;
+    pub const SEAL_SPARK_SPRITE: u16 = 69;
+
+    pub const ALL: [u16; 20] = [
+        GLOW_SPRITE,
+        SMOKE_SPRITE,
+        STATION_GLOW_SPRITE,
+        CAMERA_DISC_SPRITE,
+        WORLD_GLOW_SPRITE,
+        STAR_SPRITE,
+        SPINNING_STAR_SPRITE,
+        ORB_SPRITE,
+        FLAME_SPRITE,
+        TRAIL_GLOW_SPRITE,
+        ELECTRIC_ARC_SPRITE,
+        STATION_HALO_SPRITE,
+        STREAK_SPRITE,
+        RING_SPRITE,
+        ELECTRIC_SPARK_SPRITE,
+        DEBRIS_SPRITES[0],
+        DEBRIS_SPRITES[1],
+        DEBRIS_SPRITES[2],
+        SEAL_STAR_SPRITE,
+        SEAL_SPARK_SPRITE,
+    ];
+}
+
 /// Eye atlas frames at the fixed update rate, including the open-eye rest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -93,7 +138,6 @@ pub struct FieldEffects<Image = String> {
     pub version: u32,
     pub emote_texture: Image,
     pub status_texture: Image,
-    pub paralysis: EmoteTrack,
     pub sprites: BTreeMap<u16, SpriteRecipe<Image>>,
     #[serde(default)]
     pub palette: Vec<[u8; 4]>,
@@ -101,10 +145,10 @@ pub struct FieldEffects<Image = String> {
     pub air_refraction: SpriteRecipe<Image>,
     pub mouth_cycle: Vec<u8>,
 }
-pub const SMOKE_SPRITE: u16 = 1;
 pub const FIELD_EFFECTS_VERSION: u32 = 10;
-pub const STREAK_SPRITE: u16 = 23;
 pub const SMOKE_UPDATES: u32 = 56;
+/// Maximum simultaneous distortion planes in a field view.
+pub const REFRACTION_LIMIT: usize = 16;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpriteFrame {
@@ -172,16 +216,6 @@ pub struct RefractionRecipe<Image = String> {
     /// Signed displacements in authored scene texels.
     pub displacement: [f32; 2],
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmoteTrack {
-    pub anchor: String,
-    /// Added to logical actor position when the named model node is absent.
-    /// Sprite offsets already include their ordinary height above the anchor.
-    pub missing_anchor_offset: [f32; 3],
-    pub intro: Vec<Vec<Sprite>>,
-    pub cycle: Vec<Vec<Sprite>>,
-}
-
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VerticalAnchor {
@@ -189,8 +223,6 @@ pub enum VerticalAnchor {
     Center,
     Bottom,
     Top,
-    UpperHalf,
-    LowerHalf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,33 +244,12 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
         ensure!(
             self.version == FIELD_EFFECTS_VERSION
                 && self.sprites.len() <= 256
-                && self.sprites.contains_key(&10)
-                && self.sprites.contains_key(&11)
-                && self.sprites.contains_key(&12)
-                && self.sprites.contains_key(&14)
-                && self.sprites.contains_key(&41)
-                && self.sprites.contains_key(&42)
-                && self.sprites.contains_key(&52)
-                && self.sprites.contains_key(&53)
-                && self.sprites.contains_key(&54)
-                && self.sprites.contains_key(&68)
-                && self.sprites.contains_key(&69)
-                && self.sprites.contains_key(&6)
-                && self.sprites.contains_key(&5)
-                && self.sprites.contains_key(&7)
-                && self.sprites.contains_key(&23)
-                && self.sprites.contains_key(&SMOKE_SPRITE)
+                && sprite::ALL.iter().all(|id| self.sprites.contains_key(id))
                 && self.palette.len() == FIELD_PALETTE_COLORS,
             "invalid or outdated field effects; run cook-all"
         );
         crate::validate_asset_path(self.emote_texture.as_ref())?;
         crate::validate_asset_path(self.status_texture.as_ref())?;
-        ensure!(
-            self.paralysis.intro.is_empty()
-                && self.paralysis.cycle.len() == 2
-                && self.paralysis.cycle.iter().all(|frame| frame.len() == 1),
-            "paralysis requires two visible symbol poses"
-        );
         for sprite in self
             .sprites
             .values()
@@ -259,39 +270,6 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
                 && self.mouth_cycle.iter().all(|f| *f < 8),
             "invalid mouth animation"
         );
-        for track in [&self.paralysis] {
-            ensure!(
-                !track.anchor.is_empty()
-                    && track.missing_anchor_offset.iter().all(|v| v.is_finite())
-                    && !track.cycle.is_empty()
-                    && track.intro.len() + track.cycle.len() <= 4096,
-                "invalid emote track"
-            );
-            for frame in track.intro.iter().chain(&track.cycle) {
-                ensure!(frame.len() <= 64, "emote frame exceeds sprite limit");
-                for sprite in frame {
-                    ensure!(
-                        sprite
-                            .offset
-                            .iter()
-                            .chain(&sprite.size)
-                            .chain(&sprite.uv)
-                            .all(|v| v.is_finite())
-                            && sprite.rotation.is_finite(),
-                        "nonfinite emote sprite"
-                    );
-                }
-            }
-        }
         Ok(())
-    }
-}
-impl EmoteTrack {
-    pub fn frame(&self, age: usize) -> &[Sprite] {
-        if age < self.intro.len() {
-            &self.intro[age]
-        } else {
-            &self.cycle[(age - self.intro.len()) % self.cycle.len()]
-        }
     }
 }

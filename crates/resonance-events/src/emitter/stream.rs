@@ -1,102 +1,278 @@
-//! Continuous emission uses normalized settings prepared at the script boundary.
-use super::{State, inherit, normalized, palette};
-use crate::effect::{BillboardController, BillboardEffect};
-use crate::world::random_unit;
+//! Particle births for continuous sprays. Motion and fading use ordinary billboards.
+use super::{normalized, particle};
+use crate::{
+    Actor,
+    effect::{BillboardEffect, Fade, SpriteOrientation},
+    world::random,
+};
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Stream {
-    pub(super) sprite: BillboardEffect,
-    pub(super) palette: Option<i32>,
-    pub(super) images: &'static [u16],
-    pub(super) interval: u32,
-    pub(super) count: u32,
-    pub(super) radius: [f32; 2],
-    pub(super) filled: bool,
-    pub(super) size_variation: [f32; 2],
-    pub(super) speed_variation: f32,
-    pub(super) speed_scale: f32,
-    pub(super) radial_speed: f32,
-    pub(super) orbit_speed_scale: f32,
-    pub(super) radial_speed_scale: f32,
-    pub(super) target: Option<[f32; 3]>,
-    pub(super) camera_offset: Option<f32>,
-    pub(super) inherit_appearance: bool,
-    pub(super) owned: bool,
-    pub(super) limit: Option<u32>,
+#[derive(Debug, Clone)]
+pub(crate) enum Stream {
+    Splash {
+        sprite: BillboardEffect,
+        interval: u32,
+        angle: u32,
+        radius: u32,
+        variation: u32,
+        rise: f32,
+        speed: f32,
+        filled: bool,
+    },
+    Stars {
+        sprite: BillboardEffect,
+        interval: u32,
+        radius: f32,
+        variation: u32,
+        speed_variation: u32,
+    },
+    TargetedStars {
+        sprite: BillboardEffect,
+        spread: u32,
+        variation: u32,
+        target: [f32; 3],
+    },
+    Rain,
+    Smoke {
+        emitted: u32,
+        sprite: BillboardEffect,
+        count: u32,
+        limit: u32,
+        radius: [u32; 2],
+        height_step: f32,
+        variation: u32,
+    },
 }
+
 impl Stream {
-    #[allow(clippy::too_many_arguments)]
+    pub(super) fn new(kind: i32) -> Self {
+        let mut sprite = particle([0.; 3], 0, 0, 1);
+        match kind {
+            9 | 75 => {
+                sprite.recipe = crate::effect::STATION_GLOW_SPRITE;
+                sprite.gravity = -0.98;
+                sprite.fade = Fade::Linear(0.);
+                Self::Splash {
+                    sprite,
+                    interval: 1,
+                    angle: 1,
+                    radius: 0,
+                    variation: 0,
+                    rise: 0.,
+                    speed: 0.,
+                    filled: kind == 75,
+                }
+            }
+            54 => Self::Stars {
+                sprite,
+                interval: 1,
+                radius: 0.,
+                variation: 0,
+                speed_variation: 0,
+            },
+            36 => {
+                sprite.rgba[3] = 150;
+                Self::TargetedStars {
+                    sprite,
+                    spread: 0,
+                    variation: 0,
+                    target: [0.; 3],
+                }
+            }
+            17 => Self::Rain,
+            24 => {
+                sprite.recipe = crate::effect::SMOKE_SPRITE;
+                sprite.palette = Some(33);
+                sprite.lifetime = 301;
+                // The emitter uses a stationary puff from the smoke atlas.
+                sprite.uv = Some([0., 64., 63., 127.].map(|v| v / 256.));
+                sprite.fade = Fade::Linear(0.);
+                Self::Smoke {
+                    emitted: 0,
+                    sprite,
+                    count: 1,
+                    limit: 0,
+                    radius: [0; 2],
+                    height_step: 0.,
+                    variation: 0,
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+
     pub(super) fn particles(
-        &self,
-        state: &mut State,
-        owner: i32,
+        &mut self,
         center: [f32; 3],
-        actor: &crate::Actor,
+        actor: &Actor,
         born: u32,
-        tick: u32,
-        random: &mut u32,
-        out: &mut Vec<BillboardEffect>,
+        clock: u32,
+        rng: &mut u32,
+        out: &mut super::Births,
     ) {
-        let s = self;
-        let actor_speed = actor.movement_speed();
-        if s.limit.is_some_and(|limit| state.emitted >= limit) {
-            return;
-        }
-        state.angle = (state.angle + actor_speed * s.orbit_speed_scale) % 360.;
-        if !tick.is_multiple_of(s.interval) {
-            return;
-        }
-        let speed = actor_speed * s.speed_scale;
-        let count = s
-            .limit
-            .map_or(s.count, |limit| s.count.min(limit - state.emitted));
-        for spoke in 0..count {
-            let mut p = s.sprite.clone();
+        random(rng);
+        let speed = actor.movement_speed() / 100.;
+        let start = |sprite: &BillboardEffect| {
+            let mut p = sprite.clone();
+            p.position = center;
             p.born = born;
-            for (position, origin) in p.position.iter_mut().zip(center) {
-                *position += origin;
+            p
+        };
+        match self {
+            Self::Splash {
+                sprite,
+                interval,
+                angle,
+                radius,
+                variation,
+                rise,
+                speed,
+                filled,
+            } if clock.is_multiple_of(*interval) => {
+                for angle in (*angle..=360).step_by(*angle as usize) {
+                    let mut p = start(sprite);
+                    let distance = if *filled {
+                        p.size = [p.size[0] + spread(rng, *variation) as f32; 2];
+                        spread(rng, *radius)
+                    } else {
+                        *radius
+                    } as f32;
+                    let (sin, cos) = (angle as f32).to_radians().sin_cos();
+                    p.position[0] += cos * distance;
+                    p.position[1] += sin * distance;
+                    let [vx, vy] = if *radius == 0 {
+                        std::array::from_fn(|_| {
+                            *speed - spread(rng, (*speed * 2. + 1.) as u32) as f32
+                        })
+                    } else {
+                        [cos * *speed, sin * *speed]
+                    };
+                    p.velocity = [vx, vy, *rise + (random(rng) % 5) as f32];
+                    super::inherit(&mut p, actor);
+                    out.push(p);
+                }
             }
-            p.recipe = s.images[crate::world::random(random) as usize % s.images.len()];
-            p.palette = s.palette.map(|color| palette(color, random));
-            let variation = random_unit(random);
-            for (size, spread) in p.size.iter_mut().zip(s.size_variation) {
-                *size += variation * spread;
+            Self::Stars {
+                sprite,
+                interval,
+                radius,
+                variation,
+                speed_variation,
+            } if clock.is_multiple_of(*interval) => {
+                let mut p = start(sprite);
+                let image = random(rng) % 3;
+                p.recipe = [
+                    crate::effect::ORB_SPRITE,
+                    crate::effect::SEAL_SPARK_SPRITE,
+                    crate::effect::SEAL_STAR_SPRITE,
+                ][image as usize];
+                p.size = [p.size[0] + spread(rng, *variation) as f32; 2];
+                p.velocity[2] = speed + spread(rng, *speed_variation) as f32 / 100.;
+                if image != 0 {
+                    p.angular_velocity[2] = spin(rng, 2.);
+                }
+                let (sin, cos) = (random(rng) as f32 % 360.).to_radians().sin_cos();
+                p.position[0] += sin * *radius;
+                p.position[1] -= cos * *radius;
+                out.push(p);
             }
-            let angle = if s.count > 1 {
-                state.angle + spoke as f32 * 360. / s.count as f32
-            } else {
-                random_unit(random) * 360.
-            };
-            let (sin, cos) = angle.to_radians().sin_cos();
-            let spread = s.radius[0].max(s.radius[1]);
-            let radius = if s.filled { random_unit(random) } else { 1. };
-            if let Some(target) = s.target {
+            Self::TargetedStars {
+                sprite,
+                spread: radius,
+                variation,
+                target,
+            } if clock.is_multiple_of(3) => {
+                let mut p = start(sprite);
+                let image = random(rng) % 3;
+                p.recipe = if image == 0 {
+                    crate::effect::ORB_SPRITE
+                } else {
+                    crate::effect::SEAL_SPARK_SPRITE
+                };
+                p.palette = Some(p.palette.unwrap() + (random(rng) % 4) as u16);
+                let size = p.size[0] + spread(rng, *variation) as f32;
+                p.size = [size * if image == 1 { 1.2 } else { 1. }; 2];
                 let direction = std::array::from_fn(|i| {
-                    target[i] - center[i] + (random_unit(random) * 2. - 1.) * spread
+                    target[i] - center[i] + *radius as f32
+                        - spread(rng, radius.saturating_mul(2)) as f32
                 });
                 p.velocity = normalized(direction).map(|v| v * speed);
-            } else {
-                p.position[0] += cos * s.radius[0] * radius;
-                p.position[1] += sin * s.radius[1] * radius;
-                p.velocity[0] += cos * (s.radial_speed + actor_speed * s.radial_speed_scale);
-                p.velocity[1] += sin * (s.radial_speed + actor_speed * s.radial_speed_scale);
-                p.velocity[2] += speed + random_unit(random) * s.speed_variation;
+                p.angular_velocity[2] = spin(rng, 3.);
+                out.push(p);
             }
-            if s.owned {
-                p.owner = Some(owner);
+            Self::Rain => {
+                let yaw = 30. - (random(rng) % 60) as f32;
+                let tilt = 25. - (random(rng) % 50) as f32;
+                random(rng);
+                let alpha = 100 + random(rng) % 50;
+                let width = 10 + random(rng) % 10;
+                let height = 200 + random(rng) % 300;
+                let speed = 30. + (random(rng) % 20) as f32;
+                let (sy, cy) = yaw.to_radians().sin_cos();
+                let (st, ct) = tilt.to_radians().sin_cos();
+                let direction = [-sy, st * cy, -ct * cy];
+                let mut p = particle(
+                    std::array::from_fn(|i| center[i] - direction[i] * 1000.),
+                    born,
+                    33,
+                    121,
+                );
+                p.recipe = crate::effect::GLOW_SPRITE;
+                p.orientation = SpriteOrientation::World;
+                p.anchor = resonance_content::effect::VerticalAnchor::Bottom;
+                p.rotation = [90., yaw, 0.];
+                p.velocity = direction.map(|v| v * speed);
+                p.size = [width as f32, height as f32];
+                p.rgba[3] = alpha as u8;
+                out.push(p);
             }
-            if let Some(distance) = s.camera_offset {
-                p.controller = Some(BillboardController::CameraOffset {
-                    emitter: owner,
-                    center,
-                    distance,
-                });
+            Self::Smoke {
+                emitted,
+                sprite,
+                count,
+                limit,
+                radius,
+                height_step,
+                variation,
+            } => {
+                for _ in 0..(*count).min(limit.saturating_sub(*emitted)) {
+                    let mut p = start(sprite);
+                    const GRAY_INTENSITY: u32 = 175;
+                    const GRAY_VARIATION: u32 = 100;
+                    const TINT_SCALE: u32 = 3;
+                    p.rgba[..3]
+                        .fill(((GRAY_INTENSITY - random(rng) % GRAY_VARIATION) / TINT_SCALE) as u8);
+                    for (axis, radius) in radius.iter().enumerate() {
+                        p.position[axis] +=
+                            *radius as f32 - spread(rng, radius.saturating_mul(2)) as f32;
+                    }
+                    p.position[2] += *emitted as f32 * *height_step;
+                    p.size_delta = 1. + (random(rng) % 2) as f32;
+                    p.rgba[3] = p.rgba[3].wrapping_add(random(rng) as u8);
+                    p.size = [p.size[0] + spread(rng, *variation) as f32; 2];
+                    let direction = [
+                        50. - (random(rng) % 100) as f32,
+                        50. - (random(rng) % 100) as f32,
+                        (random(rng) % 100) as f32,
+                    ];
+                    p.velocity = normalized(direction).map(|v| v * speed);
+                    out.push(p);
+                    *emitted += 1;
+                }
             }
-            if s.inherit_appearance {
-                inherit(&mut p, actor);
-            }
-            out.push(p);
+            _ => {}
         }
-        state.emitted = state.emitted.saturating_add(count);
+    }
+}
+
+pub(super) fn spread(rng: &mut u32, range: u32) -> u32 {
+    // Zero leaves the sample unbounded instead of suppressing its variation.
+    let sample = random(rng);
+    sample.checked_rem(range).unwrap_or(sample)
+}
+fn spin(rng: &mut u32, speed: f32) -> f32 {
+    if random(rng).is_multiple_of(2) {
+        -speed
+    } else {
+        speed
     }
 }

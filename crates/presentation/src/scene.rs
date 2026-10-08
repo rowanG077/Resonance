@@ -208,7 +208,7 @@ pub(super) fn animate_field(
             (clip, sampled, false)
         };
         let spec = &part.schedule[clip];
-        // Original controllers sample their last key before wrapping.
+        // Include the final key before wrapping to the next animation cycle.
         let time = if repeat && elapsed > spec.duration_seconds {
             let phase = elapsed % spec.duration_seconds;
             if phase == 0. {

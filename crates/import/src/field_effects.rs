@@ -8,8 +8,7 @@ use anyhow::{Context, Result, ensure};
 pub(crate) use recipe::Atlas;
 use recipe::Recipe;
 use resonance_content::effect::{
-    BlinkCycle, EmoteTrack, FieldEffects, FlutterRecipe, RefractionRecipe, Sprite, SpriteRecipe,
-    VerticalAnchor,
+    BlinkCycle, FieldEffects, FlutterRecipe, RefractionRecipe, SpriteRecipe,
 };
 use resonance_content::field::ContactShadow;
 use std::fs;
@@ -94,7 +93,6 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
         version: source.version,
         emote_texture: image(source.emote_texture)?,
         status_texture: image(source.status_texture)?,
-        paralysis: source.paralysis,
         palette: source.palette,
         sprites: source
             .sprites

@@ -63,7 +63,7 @@ crate::read::record! {
         pub time: f32 => 0,
         pub position: [f32; 3] => 4,
         pub rotation: [f32; 4] => 16,
-        /// Neither camera constructor nor transform evaluator reads this word.
+        /// Reserved trailing word, retained for inspection.
         pub unused_word: u32 => 32,
     }
 }
@@ -72,7 +72,7 @@ crate::read::record! {
     pub(crate) struct PositionKey(20) {
         pub time: f32 => 0,
         pub position: [f32; 3] => 4,
-        /// Neither camera constructor nor target evaluator reads this word.
+        /// Reserved trailing word, retained for inspection.
         pub unused_word: u32 => 16,
     }
 }

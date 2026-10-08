@@ -236,7 +236,9 @@ fn begin(
                     [false, true].into_iter().flat_map(move |lighting| {
                         [
                             (None, false),
+                            (Some(Blend::Alpha), false),
                             (Some(Blend::Additive), false),
+                            (Some(Blend::Subtractive), false),
                             (Some(Blend::Alpha), true),
                             (Some(Blend::Additive), true),
                             (Some(Blend::Subtractive), true),

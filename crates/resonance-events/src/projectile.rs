@@ -137,6 +137,8 @@ impl GameWorld {
             .retain(|_, actor| actor.operation.as_ref().is_none_or(Operation::is_pending));
         self.fog_effects
             .retain(|_, effect| effect.operation.is_pending());
+        self.station_transfers
+            .retain(|transfer| transfer.operation.is_pending());
         self.model_particles
             .retain(|_, p| p.operation.as_ref().is_none_or(Operation::is_pending));
         self.billboards.retain(|_, p| {

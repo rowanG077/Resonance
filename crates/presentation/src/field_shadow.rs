@@ -216,6 +216,7 @@ pub(super) fn pose(
         let anchor = anchors.get(&shadow.0);
         *visibility = Visibility::Hidden;
         if actor.visible
+            && state.get().events.world.tick >= actor.visible_from
             && !actor.appearance.model_hidden
             && actor.casts_shadow
             && let Some(anchor) = anchor

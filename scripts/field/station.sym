@@ -1,11 +1,8 @@
 script field;
 use game::actors;
 use game::effects;
-task transfer(station: actors::Actor, player: actors::Actor) {
-    await effects::station_transfer(station, player);
-}
 pub task interact(station: actors::Actor) {
-    let lights = spawn transfer(station, actors::controlled());
+    let player = actors::controlled();
     await actors::interact(station);
-    await lights;
+    await effects::station_transfer(station, player);
 }

@@ -49,7 +49,11 @@ fn field(ability: Ability, callback: Option<(u32, &str)>) -> EventRuntime {
         Arc::new(resources),
     )
     .unwrap();
-    events.world.current_field = Some(if ability == Ability::Bomb { 412 } else { 511 });
+    events.world.ring_scenery = if ability == Ability::Bomb {
+        resonance_content::field::RingScenery::Bomb
+    } else {
+        resonance_content::field::RingScenery::Sunlight
+    };
     events.world.controlled_actor = 1;
     events.world.input_enabled = true;
     let mut actor = Actor::new(1, [0.; 3]);
@@ -104,6 +108,41 @@ fn wall(events: &mut EventRuntime, front: f32) {
 }
 
 #[test]
+fn delayed_casts_keep_the_shared_particle_pulse_phase() {
+    let births = |delay| {
+        let mut events = field(Ability::Darkness, None);
+        steps(&mut events, delay);
+        events.activate_ring(true).unwrap();
+        let mut ticks = Vec::new();
+        while events.tick() < 40 {
+            events.step().unwrap();
+            if events
+                .world
+                .billboards
+                .values()
+                .any(|p| p.born == events.tick())
+            {
+                ticks.push(events.world.effect_tick);
+            }
+        }
+        ticks
+    };
+    let first = births(0);
+    for delay in 1..4 {
+        let later = births(delay);
+        let start = *later.first().expect("cast should emit particles");
+        assert_eq!(
+            first
+                .iter()
+                .copied()
+                .filter(|tick| *tick >= start)
+                .collect::<Vec<_>>(),
+            later
+        );
+    }
+}
+
+#[test]
 fn every_projectile_emits_expires_and_restores_control() {
     for ability in [
         Ability::Fire,
@@ -141,11 +180,10 @@ fn orb_pause_freezes_movement_interactions_and_expiry_together() {
     for kind in [ElectricOrbKind::Sylvarant, ElectricOrbKind::Tethealla] {
         let mut events = cast(Ability::ElectricOrb(kind));
         steps(&mut events, 12);
-        let position = events.world.ring_shadows().next().unwrap();
+        let position = events.world.billboards.values().last().unwrap().position;
         events.world.mapped_input_disabled = true;
         events.world.insert_actor(2, enemy(position));
         steps(&mut events, 400);
-        assert_eq!(events.world.ring_shadows().next().unwrap(), position);
         assert_eq!(
             events.world.actors[&2].enemy.as_ref().unwrap().pause_ticks,
             0
@@ -336,8 +374,17 @@ fn area_and_transformation_powers_finish_without_leaving_control_or_visuals() {
     ] {
         let mut events = cast(ability);
         let mut visible = false;
+        let mut regained_control = false;
         for _ in 0..900 {
             events.step().unwrap();
+            if matches!(ability, Ability::Bubble(_)) {
+                let control = events.player_has_control();
+                assert!(
+                    !regained_control || control,
+                    "landing took control away again"
+                );
+                regained_control |= control;
+            }
             visible |= !events.world.billboards.is_empty()
                 || !events.world.model_particles.is_empty()
                 || events.world.fog().is_some()

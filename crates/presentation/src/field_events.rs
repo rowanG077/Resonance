@@ -353,14 +353,7 @@ fn check_effects(
     files: &Files,
 ) -> Result<()> {
     let world = &field.events.world;
-    for emote in world.emotes.values() {
-        ensure!(
-            emote.kind < 20,
-            "unknown emitted emote {} for actor {} at tick {}",
-            emote.kind,
-            emote.actor,
-            world.tick
-        );
+    if !world.emotes.is_empty() {
         files.read(&effects.emote_texture)?;
     }
     for billboard in world.billboards.values() {
@@ -370,29 +363,25 @@ fn check_effects(
                 "uncooked effect palette {index}"
             );
         }
-        let recipe = effects.sprites.get(&billboard.recipe).with_context(|| {
-            format!(
-                "uncooked emitted billboard {} at tick {}",
-                billboard.recipe, world.tick
-            )
-        })?;
-        files.read(&recipe.texture)?;
+        let texture = effects
+            .sprites
+            .get(&billboard.recipe)
+            .map(|r| &r.texture)
+            .or_else(|| {
+                assets
+                    .particles
+                    .get(&i32::from(billboard.recipe))
+                    .map(|r| &r.texture)
+            })
+            .with_context(|| {
+                format!(
+                    "uncooked emitted billboard {} at tick {}",
+                    billboard.recipe, world.tick
+                )
+            })?;
+        files.read(texture)?;
     }
-    for particle in &world.particles {
-        let recipe = assets.particles.get(&particle.kind).with_context(|| {
-            format!(
-                "uncooked emitted particle {} at tick {}",
-                particle.kind, world.tick
-            )
-        })?;
-        ensure!(
-            particle.flutter.is_some(),
-            "emitted particle {} has no renderer motion at tick {}",
-            particle.kind,
-            world.tick
-        );
-        files.read(&recipe.texture)?;
-    }
+
     Ok(())
 }
 

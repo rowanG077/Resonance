@@ -15,6 +15,8 @@ pub(super) fn material(surface: &mut TitleSurface, blend: Blend) {
     surface.blend = Some(blend);
     surface.cull = resonance_content::CullFace::None;
     surface.depth_write = false;
+    surface.clamp_color = true;
+    surface.vertex_alpha = true;
 }
 
 #[derive(Component)]
@@ -91,7 +93,7 @@ pub(super) fn sync(
     state: State,
     art: Res<Art>,
     mut commands: Commands,
-    mut roots: Query<(Entity, &mut Part, &mut Transform)>,
+    mut roots: Query<(Entity, &mut Part, &mut Transform, &mut Visibility)>,
     mut nodes: ModelNodes,
     children: Query<&Children>,
     slots: Query<&MaterialSlot>,
@@ -111,7 +113,7 @@ pub(super) fn sync(
             super::field_view::camera_transform(camera).rotation
         });
     let mut retained = BTreeSet::new();
-    for (entity, mut part, mut transform) in &mut roots {
+    for (entity, mut part, mut transform, mut visibility) in &mut roots {
         let Some(particle) = world
             .model_particles
             .get(&part.handle)
@@ -121,6 +123,11 @@ pub(super) fn sync(
             continue;
         };
         let model = &art.models[&part.resource][part.index];
+        *visibility = if world.tick >= particle.born {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
         retained.insert((part.handle, part.index));
         let request = Request::ModelParticle(part.handle, part.index);
         if part.phase == Phase::Instantiating {
@@ -163,15 +170,24 @@ pub(super) fn sync(
         transform.scale = Vec3::from_array(particle.scale);
         transform.rotation = effect_rotation(SpriteOrientation::World, particle.rotation, camera);
         let brightness = world.brightness();
-        let tint = Vec4::from_array(particle.rgba.map(|v| f32::from(v) / 255.))
-            * Vec4::new(4. * brightness, 4. * brightness, 4. * brightness, 1.);
+        let tint = Vec4::new(
+            brightness,
+            brightness,
+            brightness,
+            f32::from(particle.rgba[3]) / 255.,
+        );
+        let ambient_color = Vec4::from_array(particle.rgba.map(f32::from));
         for handle in &part.materials {
             let material = surfaces
                 .get(handle)
                 .expect("retained model particle material");
-            if material.tint != tint || material.blend != Some(particle.blend) {
+            if material.tint != tint
+                || material.ambient_color != ambient_color
+                || material.blend != Some(particle.blend)
+            {
                 let mut material = surfaces.get_mut(handle).unwrap();
                 material.tint = tint;
+                material.ambient_color = ambient_color;
                 material.blend = Some(particle.blend);
             }
         }
@@ -206,6 +222,7 @@ pub(super) fn sync(
                 .spawn((
                     WorldAssetRoot(part.scene.clone()),
                     Transform::default(),
+                    Visibility::Hidden,
                     Part {
                         handle,
                         resource: particle.resource,

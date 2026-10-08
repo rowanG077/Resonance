@@ -993,7 +993,7 @@ fn capture(
                     "slot": a.slot, "start_tick": a.start_tick,
                 })),
             })).collect::<Vec<_>>(),
-            "particles": world.particles.len(),
+            "particles": world.billboards.len(),
         });
     }
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(

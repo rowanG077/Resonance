@@ -1,52 +1,59 @@
 //! Scene effects share particle births, analytic paths and bounded stage timing.
+mod column;
+mod contract;
 mod fire;
+mod gathering;
+mod mote;
 mod native;
-mod native_stream;
 mod rays;
 pub(crate) mod scatter;
+mod seal;
 mod stream;
 use crate::effect::emission::normalized;
 use crate::{
     Actor, GameWorld,
     effect::{
         BillboardController, BillboardEffect, Fade, NEUTRAL_TINT, RefractionImage, RefractionPulse,
-        SpriteOrientation, emission::Emission,
+        SpriteOrientation,
     },
 };
 
 pub(crate) const PHASE_PROPERTY: i32 = 33;
-const BURST_PARTICLES: usize = 80;
-const BURST_LIFETIME: u32 = 120;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Emitter {
-    config: Config,
-    inputs: native::Inputs,
-    state: State,
-}
-pub(crate) enum ParticleCleanup {
-    Keep,
-    Fade { updates: u32 },
-    Remove,
-}
-#[derive(Debug, Clone, Default)]
-struct State {
-    stage: u8,
+    phase: u8,
     age: u32,
-    origin: Option<[f32; 3]>,
-    angle: f32,
-    emitted: u32,
+    kind: Kind,
 }
+
 #[derive(Debug, Clone)]
-enum Config {
-    Stream(Box<stream::Stream>),
+enum Kind {
+    Gathering {
+        delay: u32,
+        state: gathering::Gathering,
+    },
+    Seal(seal::Seal),
+    Column(column::Column),
+    Contract(contract::Contract),
+    Mote(mote::Mote),
+    Stream(stream::Stream),
+    TwinTrail {
+        sprite: BillboardEffect,
+        radius: f32,
+    },
+    AttachedTrail {
+        sprite: BillboardEffect,
+        offset: f32,
+        interval: u32,
+    },
     Shafts(rays::Shafts),
     Convergence(rays::Convergence),
     Rising(rays::Rising),
     RisingOrbs(rays::RisingOrbs),
     Bloom(rays::Bloom),
     Crown {
-        palette: i32,
+        palette: u16,
         radius: f32,
         spread: f32,
     },
@@ -56,11 +63,10 @@ enum Config {
     },
     Fire {
         size: f32,
-    },
-    Gathering {
-        delay: i32,
+        smoke: bool,
     },
     Glow {
+        angle: f32,
         palette: i32,
         size: i32,
         retire_with_emitter: bool,
@@ -70,58 +76,40 @@ enum Config {
         size: f32,
     },
     Charge {
+        velocity: Option<[f32; 3]>,
         palette: i32,
         radius: i32,
-        updates: u32,
+        updates: i32,
         target: [f32; 3],
         travelling: bool,
     },
     Scatter(scatter::Scatter),
     Travel {
-        sprite: u16,
+        flight: Option<Flight>,
+        texture: Option<(u32, u8)>,
         palette: i32,
         size: i32,
         burst_size: i32,
         fade: i32,
-        target: [i32; 3],
-        curvature: f32,
+        target: [f32; 3],
         afterimages: bool,
     },
     Projectile {
+        path: Option<mote::Path>,
+        launch: [f32; 3],
+        curvature: i32,
         size: f32,
         fade: f32,
         target: [f32; 3],
         texture: Option<(u32, u8)>,
     },
     Fireball {
+        velocity: Option<[f32; 3]>,
         size: f32,
         updates: u32,
         target: [f32; 3],
     },
     Quake,
-    Column {
-        palette: i32,
-        size: i32,
-        layers: i32,
-        alpha: i32,
-        lighting: i32,
-        spacing: i32,
-        life: i32,
-        growth: i32,
-        expands: bool,
-    },
-    Contract {
-        palette: i32,
-        radius: i32,
-        life: i32,
-        interval: i32,
-        angular_step: i32,
-        width: i32,
-        height: i32,
-        alpha: i32,
-        fade: i32,
-        growth: i32,
-    },
     Inward {
         palette: i32,
         radius: i32,
@@ -132,29 +120,30 @@ enum Config {
         blend: i32,
     },
     Cardinal {
+        angle: f32,
         count: i32,
     },
-    Seal {
-        palette: i32,
-        opening: i32,
-        pulse: i32,
-        spark: i32,
-    },
+}
+
+#[derive(Debug, Clone)]
+struct Flight {
+    velocity: [f32; 3],
+    remaining: u32,
+    heading: f32,
 }
 
 impl Emitter {
     pub(crate) fn camera_offset(&self) -> Option<f32> {
-        match &self.config {
-            Config::Stream(stream) => stream.camera_offset,
-            Config::Aura { offset, .. } => Some(*offset),
+        match &self.kind {
+            Kind::AttachedTrail { offset, .. } | Kind::Aura { offset, .. } => Some(*offset),
             _ => None,
         }
     }
-    pub(crate) fn particle_cleanup(&self) -> ParticleCleanup {
-        match &self.config {
-            Config::RisingOrbs(orbs) if orbs.preserve_particles => ParticleCleanup::Keep,
-            Config::Inward { clear, .. } if *clear != 1 => ParticleCleanup::Fade { updates: 40 },
-            _ => ParticleCleanup::Remove,
+    pub(crate) fn clear_particles(&self) -> bool {
+        match &self.kind {
+            Kind::RisingOrbs(effect) => !effect.preserve_particles,
+            Kind::Inward { clear, .. } => *clear == 1,
+            _ => true,
         }
     }
     fn step(
@@ -165,86 +154,97 @@ impl Emitter {
         clock: u32,
         camera: [f32; 3],
         random: &mut u32,
-        output: &mut Births,
+        out: &mut Births,
     ) -> Result<(), String> {
-        let tick = self.state.age;
-        let mut stage = self.state.stage;
         let speed = actor.movement_speed();
-        let out = &mut output.particles;
-        match &self.config {
-            Config::Fire { size } => {
-                if stage < 2 {
-                    fire::emit(center, born, clock, *size, random, out);
-                }
+        let phase = &mut self.phase;
+        let tick = self.age;
+        match &mut self.kind {
+            Kind::Mote(mote) => return mote.emit(actor, born, random, out),
+            Kind::Gathering { state, .. } => {
+                state.emit(center, born, clock, random, out);
+                return Ok(());
             }
-            Config::Projectile {
+            Kind::Seal(seal) => {
+                seal.emit(center, born, clock, random, out);
+                return Ok(());
+            }
+            Kind::Column(column) => {
+                column.emit(center, actor, born, random, out);
+                return Ok(());
+            }
+            Kind::Contract(contract) => {
+                contract.emit(center, actor, born, clock, random, out);
+                return Ok(());
+            }
+            Kind::Fire { size, smoke, .. } => {
+                crate::world::random(random);
+                fire::emit(center, born, clock, *size, *smoke, random, out);
+            }
+            Kind::Projectile {
+                path,
+                launch,
+                curvature,
                 size,
                 fade,
                 target,
                 texture,
+                ..
             } => {
                 crate::world::random(random);
-                if stage >= 3 {
+                if *phase >= 3 {
                     return Ok(());
                 }
                 if speed <= 0. {
                     return Err("projectile needs positive speed".into());
                 }
-                let delta = std::array::from_fn(|i| target[i] - actor.position[i]);
-                let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
-                if distance > speed {
-                    let step = normalized(delta).map(|v| v * speed);
-                    for i in 0..3 {
-                        actor.position[i] += step[i];
-                    }
-                    let mut trail = particle(actor.position, born, palette(108, random), 61);
-                    trail.size = [*size; 2];
-                    trail.fade = Fade::Linear(*fade);
-                    out.push(trail);
-                }
-                let remaining = std::array::from_fn::<_, 3, _>(|i| target[i] - actor.position[i]);
-                if remaining.iter().map(|v| v * v).sum::<f32>() <= speed * speed {
+                let path = path.get_or_insert_with(|| {
+                    mote::Path::new(center, *target, *launch, speed, *curvature)
+                });
+                actor.position = path.advance();
+                let mut trail = particle(actor.position, born, palette(108, random), 61);
+                trail.field_fog = false;
+                trail.size = [*size; 2];
+                trail.fade = Fade::Linear(*fade);
+                out.push(trail);
+                if path.arrived() {
                     if let Some(texture) = texture {
-                        out.push(BillboardEffect {
-                            recipe: crate::effect::ORB_SPRITE,
-                            texture: Some(*texture),
-                            uv: Some([0., 0., 254. / 256., 254. / 256.]),
-                            orientation: SpriteOrientation::World,
-                            rotation: [90., 0., 0.],
+                        out.push(arrival_flash(
+                            actor.position,
                             born,
-                            lifetime: 16,
-                            position: actor.position,
-                            size: [0.; 2],
-                            size_delta: size / 2.,
-                            rgba: [63, 63, 63, 100],
-                            fade: Fade::tail(16),
-                            ..Default::default()
-                        });
+                            path.impact_rotation(),
+                            *texture,
+                        ));
                     }
-                    stage = 3;
+                    *phase = 3;
+                } else {
+                    *phase = 1;
                 }
             }
-            Config::Fireball {
+            Kind::Fireball {
                 size,
                 updates,
                 target,
+                velocity,
+                ..
             } => {
                 // Advance the emitter's shared random phase before its sparks.
                 crate::world::random(random);
-                if tick >= *updates {
+                if *phase >= 2 || *updates == 0 {
                     return Ok(());
                 }
-                let start = *self.state.origin.get_or_insert(center);
+                let velocity = velocity.get_or_insert_with(|| {
+                    std::array::from_fn(|i| (target[i] - center[i]) / *updates as f32)
+                });
                 for i in 0..3 {
-                    actor.position[i] += (target[i] - start[i]) / *updates as f32;
+                    actor.position[i] += velocity[i];
                 }
                 let core = BillboardEffect {
-                    owner: Some(owner),
                     recipe: crate::effect::STATION_GLOW_SPRITE,
                     born,
                     lifetime: 2,
                     position: actor.position,
-                    size: [size * 0.4; 2],
+                    size: [*size * 0.4; 2],
                     rgba: [63, 32, 16, 255],
                     ..Default::default()
                 };
@@ -258,10 +258,9 @@ impl Emitter {
                     let position = std::array::from_fn(|i| {
                         actor.position[i] + 10. - (crate::world::random(random) % 21) as f32
                     });
-                    let diameter = size + (crate::world::random(random) % 16) as f32;
+                    let diameter = *size + (crate::world::random(random) % 16) as f32;
                     let angle = (crate::world::random(random) % 360) as f32;
                     out.push(BillboardEffect {
-                        owner: Some(owner),
                         recipe: crate::effect::GLOW_SPRITE,
                         blend: Some(crate::effect::Blend::Additive),
                         born,
@@ -274,194 +273,194 @@ impl Emitter {
                         ..Default::default()
                     });
                 }
-                stage = 1;
+                *updates -= 1;
+                *phase = if *updates == 0 { 2 } else { 1 };
             }
-            Config::Shafts(shafts) => {
-                if stage < 2 && clock.is_multiple_of(shafts.interval) {
+            Kind::Shafts(shafts) => {
+                if clock.is_multiple_of(shafts.interval) {
                     shafts.emit(center, born, random, out);
-                    stage = 1;
                 } else {
                     crate::world::random(random);
                 }
             }
-            Config::Convergence(burst) => {
+            Kind::Convergence(burst) => {
                 crate::world::random(random);
-                if stage == 0 {
+                if *phase == 0 {
                     burst.emit(center, born, random, out);
-                    stage = 1;
+                    *phase = 1;
                 }
             }
-            Config::Rising(lights) => lights.emit(center, born, camera, random, out),
-            Config::RisingOrbs(orbs) => {
+            Kind::Rising(lights) => lights.emit(center, born, clock, camera, random, out),
+            Kind::RisingOrbs(orbs) => {
                 orbs.emit(center, born, clock, (owner, actor), random, out);
             }
-            Config::Aura { palette, offset } => {
-                rays::aura(
-                    center, born, tick, owner, camera, *palette, *offset, random, out,
-                );
+            Kind::Aura {
+                palette, offset, ..
+            } => {
+                rays::aura(center, born, tick, camera, *palette, *offset, random, out);
             }
-            Config::Bloom(bloom) => {
+            Kind::Bloom(bloom) => {
                 crate::world::random(random);
-                if stage == 0 {
+                if *phase == 0 {
                     bloom.emit(center, born, speed, random, out);
-                    stage = 1;
+                    *phase = 1;
                 }
             }
-            Config::Crown {
+            Kind::Crown {
                 palette,
                 radius,
                 spread,
+                ..
             } => {
                 crate::world::random(random);
-                if stage == 0 {
+                if *phase == 0 {
                     rays::crown(center, born, *palette, *radius, *spread, random, out);
-                    stage = 1;
+                    *phase = 1;
                 }
             }
-            Config::Stream(stream) => {
-                const START: u8 = 0;
-                const EMIT: u8 = 1;
-                if matches!(stage, START | EMIT) {
-                    stream.particles(
-                        &mut self.state,
-                        owner,
-                        center,
-                        actor,
-                        born,
-                        tick,
-                        random,
-                        out,
-                    );
-                    stage = EMIT;
+            Kind::Stream(stream) => {
+                stream.particles(center, actor, born, clock, random, out);
+            }
+            Kind::TwinTrail { sprite, radius, .. } => {
+                crate::world::random(random);
+                if tick > 0 && *phase < 2 {
+                    let (sin, cos) = (tick as f32 * speed / 100.).to_radians().sin_cos();
+                    for side in [1., -1.] {
+                        let mut p = sprite.clone();
+                        p.position = center;
+                        p.born = born;
+                        p.palette = p.palette.map(|color| palette(i32::from(color), random));
+                        p.position[0] += *radius * cos;
+                        p.position[1] += *radius * sin * side;
+                        out.push(p);
+                    }
                 }
             }
-            Config::Travel {
+            Kind::AttachedTrail {
                 sprite,
+                offset,
+                interval,
+                ..
+            } => {
+                crate::world::random(random);
+                *phase = (*phase).max(1);
+                if clock.is_multiple_of(*interval) {
+                    let mut p = sprite.clone();
+                    p.position = center;
+                    p.born = born;
+                    p.palette = p.palette.map(|color| palette(i32::from(color), random));
+                    if matches!(p.orientation, SpriteOrientation::World) {
+                        p.rotation =
+                            std::array::from_fn(|_| (crate::world::random(random) % 360) as f32);
+                    }
+                    p.controller = Some(BillboardController::CameraOffset {
+                        emitter: Some((owner, actor.instance)),
+                        center,
+                        distance: *offset,
+                    });
+                    inherit(&mut p, actor);
+                    p.step();
+                    out.push(p);
+                }
+            }
+            Kind::Travel {
+                texture,
                 palette: color,
                 size,
                 burst_size,
                 fade,
                 target,
-                curvature,
                 afterimages,
+                flight,
             } => {
                 const TRAVEL: u8 = 1;
                 const DONE: u8 = 3;
-                if stage >= DONE {
+                crate::world::random(random);
+                if *phase >= DONE {
                     return Ok(());
                 }
                 if speed <= 0. {
                     return Err("travelling effect needs positive speed".into());
                 }
-                let start = *self.state.origin.get_or_insert(center);
-                let target = target.map(|v| v as f32);
-                let delta: [f32; 3] = std::array::from_fn(|i| target[i] - start[i]);
-                let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
-                if !*afterimages && self.state.age > 0 && self.state.age as f32 * speed >= distance
-                {
-                    return Ok(());
+                if flight.is_none() && *afterimages {
+                    travel_burst(center, born, *color as u16, *burst_size as f32, random, out);
                 }
-                let t = ((self.state.age + 1) as f32 * speed / distance.max(speed)).min(1.);
-                actor.position = std::array::from_fn(|i| start[i] + delta[i] * t);
-                actor.position[2] += distance * *curvature * t * (1. - t);
-                let mut glow = particle(actor.position, born, *color as u16, 30);
-                glow.recipe = *sprite;
+                let flight = flight.get_or_insert_with(|| {
+                    let delta = std::array::from_fn(|i| target[i] - center[i]);
+                    let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
+                    Flight {
+                        velocity: normalized(delta).map(|v| v * speed),
+                        remaining: (distance / speed) as u32,
+                        heading: delta[0].atan2(-delta[1]).to_degrees(),
+                    }
+                });
+                let mut glow = particle(actor.position, born, *color as u16, 61);
                 glow.size = [*size as f32; 2];
+                glow.size_delta = -0.75;
                 glow.fade = Fade::Linear(*fade as f32);
                 out.push(glow);
-                if *afterimages {
-                    if self.state.age == 0 || t == 1. {
-                        burst(
+                let arrived = flight.remaining == 0;
+                if !arrived {
+                    for i in 0..3 {
+                        actor.position[i] += flight.velocity[i];
+                    }
+                }
+                if *afterimages && flight.remaining.is_multiple_of(3) && actor.resource != 0 {
+                    out.push_model(crate::model_particle::ModelParticle::afterimage(
+                        actor.resource,
+                        actor.position,
+                        flight.heading,
+                    ));
+                }
+                if arrived {
+                    if *afterimages {
+                        travel_burst(center, born, *color as u16, *burst_size as f32, random, out);
+                    } else if let Some(texture) = texture {
+                        out.push(arrival_flash(
                             actor.position,
                             born,
-                            *color,
-                            *burst_size as f32,
-                            None,
-                            random,
-                            out,
-                        );
+                            -flight.heading,
+                            *texture,
+                        ));
                     }
-                    if self.state.age.is_multiple_of(3) && actor.resource != 0 {
-                        output
-                            .models
-                            .push(crate::model_particle::ModelParticle::afterimage(
-                                actor.resource,
-                                actor.position,
-                                delta[0].atan2(-delta[1]).to_degrees(),
-                            ));
-                    }
-                }
-                stage = if t == 1. && *afterimages {
-                    DONE
+                    *phase = DONE;
                 } else {
-                    stage.max(TRAVEL)
-                };
-            }
-            Config::Gathering { delay } => {
-                const GATHER: u8 = 0;
-                const CHARGE: u8 = 1;
-                const BURST: u8 = 2;
-                const DONE: u8 = 3;
-                let size = (self.state.age as f32 * 0.8).min(200.);
-                if stage == CHARGE && self.state.age >= *delay as u32 {
-                    stage = BURST;
-                }
-                if matches!(stage, GATHER | CHARGE) {
-                    let mut glow = particle(center, born, 9, 2);
-                    glow.size = [size; 2];
-                    glow.rgba[3] = 100;
-                    out.push(glow);
-                    if stage == GATHER {
-                        let direction = normalized(std::array::from_fn(|_| {
-                            crate::world::random_unit(random) * 2. - 1.
-                        }));
-                        let mut star = particle(
-                            std::array::from_fn(|i| center[i] + direction[i] * 100.),
-                            born,
-                            9,
-                            50,
-                        );
-                        star.recipe = crate::effect::STAR_SPRITE;
-                        star.size = [25.; 2];
-                        star.velocity = direction.map(|v| -v * 2.);
-                        out.push(star);
-                    }
-                } else if stage == BURST {
-                    burst(center, born, 9, size.max(25.), None, random, out);
-                    stage = DONE;
+                    flight.remaining -= 1;
+                    *phase = TRAVEL;
                 }
             }
-            Config::Glow {
+            Kind::Glow {
                 palette,
                 size,
                 retire_with_emitter,
+                angle,
+                ..
             } => {
                 let mut glow = particle(center, born, *palette as u16, 2);
                 glow.size = [*size as f32; 2];
-                glow.field_lighting = false;
                 glow.rgba[3] = 200;
                 glow.fade = Fade::Linear(0.);
                 out.push(glow);
                 let (sin, cos) = (tick as f32 * 5.).to_radians().sin_cos();
-                let (tilt_sin, tilt_cos) = self.state.angle.to_radians().sin_cos();
+                let (tilt_sin, tilt_cos) = angle.to_radians().sin_cos();
                 crate::world::random(random);
                 for offset in [
                     [cos * tilt_cos, sin, -cos * tilt_sin],
                     [sin * tilt_cos, cos, sin * tilt_sin],
                 ] {
                     let color = 65 + crate::world::random(random) % 39;
-                    let mut mote = particle(center, born, color as u16, 60);
+                    let mut mote = particle(center, born, color as u16, 61);
                     mote.owner = retire_with_emitter.then_some(owner);
                     mote.position =
-                        std::array::from_fn(|i| center[i] + offset[i] * *size as f32 / 5.);
-                    mote.size = [*size as f32 / 10.; 2];
+                        std::array::from_fn(|i| center[i] + offset[i] * (*size / 5) as f32);
+                    mote.size = [(*size / 10) as f32; 2];
                     mote.rgba[3] = 160;
                     mote.fade = Fade::Linear(-4.);
                     out.push(mote);
                 }
-                self.state.angle += (crate::world::random(random) % 2) as f32;
+                *angle += (crate::world::random(random) % 2) as f32;
             }
-            Config::Portal { palette, size } => {
+            Kind::Portal { palette, size, .. } => {
                 crate::world::random(random);
                 let mut emit = |recipe, diameter, alpha, rotation, orientation| {
                     let mut p = particle(center, born, *palette as u16, 2);
@@ -470,14 +469,12 @@ impl Emitter {
                     p.rgba[3] = alpha;
                     p.rotation = rotation;
                     p.orientation = orientation;
-                    p.field_lighting = false;
                     p.fade = Fade::Linear(0.);
                     out.push(p);
                 };
-                // A bright core, counter-rotating stars and two crossed pairs of discs.
                 emit(
                     crate::effect::ORB_SPRITE,
-                    size - 30.,
+                    *size - 30.,
                     200,
                     [0.; 3],
                     SpriteOrientation::Camera,
@@ -485,7 +482,7 @@ impl Emitter {
                 for direction in [1., -1.] {
                     emit(
                         crate::effect::STAR_SPRITE,
-                        size + 5.,
+                        *size + 5.,
                         40,
                         [0., 0., tick as f32 * 4. * direction],
                         SpriteOrientation::Camera,
@@ -497,7 +494,7 @@ impl Emitter {
                         rotation[axis] = tilt + tick as f32 * 3.;
                         emit(
                             crate::effect::WORLD_GLOW_SPRITE,
-                            size + 35.,
+                            *size + 35.,
                             40,
                             rotation,
                             SpriteOrientation::World,
@@ -505,29 +502,34 @@ impl Emitter {
                     }
                 }
             }
-            Config::Charge {
+            Kind::Charge {
                 palette: color,
                 radius,
                 updates,
                 target,
                 travelling,
+                velocity,
+                ..
             } => {
                 crate::world::random(random);
-                if stage >= 2 || (*travelling && tick >= *updates) {
-                    return Ok(());
-                }
-                let start = *self.state.origin.get_or_insert(center);
-                if *travelling {
+                let motion = velocity.get_or_insert_with(|| {
+                    std::array::from_fn(|i| (target[i] - center[i]) / (*updates).max(1) as f32)
+                });
+                if *updates >= 0 {
                     for i in 0..3 {
-                        actor.position[i] += (target[i] - start[i]) / *updates as f32;
+                        actor.position[i] += motion[i];
                     }
+                    *updates -= 1;
+                }
+                if *phase >= 2 {
+                    return Ok(());
                 }
                 let spin = if clock.is_multiple_of(2) { -3. } else { 3. };
                 for (recipe, diameter, variation, lifetime, alpha, rotation_speed, palette) in [
                     (crate::effect::ORB_SPRITE, *radius, 16, 2, 255, spin, None),
                     (
                         crate::effect::ORB_SPRITE,
-                        radius * 2,
+                        *radius * 2,
                         16,
                         4,
                         224,
@@ -536,7 +538,7 @@ impl Emitter {
                     ),
                     (
                         crate::effect::ELECTRIC_ARC_SPRITE,
-                        radius / 2 * 5,
+                        *radius / 2 * 5,
                         32,
                         9,
                         224,
@@ -554,7 +556,7 @@ impl Emitter {
                         born,
                         lifetime,
                         palette,
-                        owner: (!travelling).then_some(owner),
+                        owner: (!*travelling).then_some(owner),
                         position: actor.position,
                         size: [size; 2],
                         size_delta: -3.,
@@ -565,42 +567,56 @@ impl Emitter {
                         ..Default::default()
                     });
                 }
+                *phase = if *travelling && *updates <= 0 { 2 } else { 1 };
             }
-            Config::Scatter(scatter) => {
-                if stage != 1 {
-                    scatter.emit(center, born, clock, speed / 10., random, out);
+            Kind::Scatter(scatter) => {
+                scatter.emit(center, born, clock, speed / 10., *phase == 1, random, out);
+            }
+            Kind::Cardinal {
+                count, angle: turn, ..
+            } => {
+                const TURN_PER_BATCH: f32 = 30.;
+                crate::world::random(random);
+                if *phase == 0 && clock.is_multiple_of(2) {
+                    for (color, angle) in [(101, 0.), (77, 180.), (93, 90.), (32, 270.)]
+                        .into_iter()
+                        .take(*count as usize)
+                    {
+                        let dark = color == 32;
+                        let color = color
+                            + if dark {
+                                0
+                            } else {
+                                (crate::world::random(random) % 4) as u16
+                            };
+                        let mut mote = particle(center, born, color, 181);
+                        mote.field_fog = false;
+                        mote.rgba[3] = 200;
+                        mote.fade = Fade::tail(180);
+                        mote.blend = dark.then_some(crate::effect::Blend::Alpha);
+                        mote.size = [25.; 2];
+                        let mut orbit = Orbit::new(
+                            center,
+                            [0., 0., 1.],
+                            50.,
+                            0.,
+                            angle + 3. - *turn - actor.heading,
+                            3.,
+                        );
+                        orbit.rise = 8.;
+                        mote.controller = Some(BillboardController::Orbit(orbit));
+                        out.push(mote);
+                    }
+                    *turn += TURN_PER_BATCH;
                 }
             }
-            Config::Cardinal { count } if stage == 0 => {
-                const DONE: u8 = 1;
-                for (index, color) in [101, 77, 93, 32]
-                    .into_iter()
-                    .take(*count as usize)
-                    .enumerate()
-                {
-                    let mut mote = particle(center, born, color, 180);
-                    mote.owner = Some(owner);
-                    mote.size = [25.; 2];
-                    let mut orbit = Orbit::new(
-                        center,
-                        [0., 0., 1.],
-                        50.,
-                        0.,
-                        index as f32 * 90. - actor.heading,
-                        3.,
-                    );
-                    orbit.rise = 8.;
-                    mote.controller = Some(BillboardController::Orbit(orbit));
-                    out.push(mote);
-                }
-                stage = DONE;
-            }
-            Config::Inward {
+            Kind::Inward {
                 palette: color,
                 radius,
                 count,
                 curve,
                 size,
+                clear: _,
                 blend,
                 ..
             } => {
@@ -608,263 +624,147 @@ impl Emitter {
                 const WAIT: u8 = 1;
                 const BURST: u8 = 2;
                 const DONE: u8 = 3;
-                if stage == CONVERGE {
-                    if speed <= 0. {
-                        return Err("inward effect needs positive speed".into());
+                crate::world::random(random);
+                if *phase == CONVERGE {
+                    if speed < 0. {
+                        return Err("inward effect needs nonnegative speed".into());
                     }
+                    let duration = if speed == 0. {
+                        0
+                    } else {
+                        (*radius as f32 / speed) as u32
+                    };
+                    let axis = normalized(camera);
                     for index in 0..*count {
-                        let mut mote = particle(
-                            center,
-                            born,
-                            palette(*color, random),
-                            (*radius as f32 / speed).max(1.) as u32,
-                        );
+                        let mut mote =
+                            particle(center, born, palette(*color, random), duration + 1);
+                        // The leading orb stays upright; its afterimages spin independently.
+                        crate::world::random(random);
                         mote.owner = Some(owner);
+                        mote.owner_tail = crate::effect::OwnerTail::Fade(40);
                         mote.recipe = crate::effect::ORB_SPRITE;
                         mote.size = [*size as f32; 2];
+                        mote.fade = Fade::Linear(0.);
                         mote.blend = (*blend == 1).then_some(crate::effect::Blend::Alpha);
                         let mut orbit = Orbit::new(
                             center,
-                            normalized(camera),
+                            axis,
                             *radius as f32,
                             -speed,
-                            index as f32 * 360. / *count as f32,
-                            *curve,
+                            -index as f32 * 360. / *count as f32 - *curve,
+                            -*curve,
                         );
-                        orbit.trail = true;
+                        orbit.radial = [axis[1], -axis[0], -axis[2]];
+                        orbit.trail_palette = Some(*color);
                         mote.controller = Some(BillboardController::Orbit(orbit));
                         out.push(mote);
                     }
-                    stage = WAIT;
-                } else if stage == BURST {
-                    burst(center, born, *color, *size as f32, Some(owner), random, out);
-                    output.ripples.push(ripple(center, born, Some(owner)));
-                    stage = DONE;
+                    *phase = WAIT;
+                } else if *phase == BURST {
+                    inward_release(center, born, *color, owner, *blend == 1, random, out);
+                    *phase = DONE;
                 }
             }
-            Config::Seal {
-                palette: color,
-                opening,
-                pulse,
-                spark,
-            } => {
-                const OPEN: u8 = 0;
-                const PULSE: u8 = 1;
-                const SUSTAIN: u8 = 2;
-                const CLOSE: u8 = 3;
-                const DONE: u8 = 4;
-                let (size, life, count) = match stage {
-                    OPEN => (*opening as f32, 2, 0),
-                    PULSE => {
-                        stage = SUSTAIN;
-                        (*pulse as f32, BURST_LIFETIME, BURST_PARTICLES)
-                    }
-                    SUSTAIN => (*pulse as f32, 30, 0),
-                    CLOSE => {
-                        stage = DONE;
-                        (*pulse as f32 * 5., 300, 0)
-                    }
-                    _ => return Ok(()),
-                };
-                if count != 0 {
-                    burst(
-                        center,
-                        born,
-                        *color,
-                        *spark as f32,
-                        Some(owner),
-                        random,
-                        out,
-                    );
-                }
-                let mut glow = particle(center, born, *color as u16, life);
-                glow.owner = Some(owner);
-                glow.size = [size; 2];
-                glow.rgba[3] = 150;
-                out.push(glow);
-            }
-            Config::Contract {
-                palette: color,
-                radius,
-                life,
-                interval,
-                angular_step,
-                width,
-                height,
-                alpha,
-                fade,
-                growth,
-            } => {
+            Kind::Quake => {
                 crate::world::random(random);
-                const CONTRACT: u8 = 0;
-                const WAIT: u8 = 1;
-                const EXPAND: u8 = 2;
-                const DONE: u8 = 3;
-                if stage == CONTRACT && tick.is_multiple_of(*interval as u32) {
-                    let radius = (*radius as f32 - tick as f32 * 4. / *interval as f32).max(0.);
-                    const COLORS: [[u8; 3]; 4] =
-                        [[64, 64, 64], [255, 64, 64], [64, 64, 255], [64, 255, 255]];
-                    for (arm, rgb) in COLORS.into_iter().enumerate() {
-                        self.state.angle += *angular_step as f32;
-                        let angle = (self.state.angle + arm as f32 * 90.).to_radians();
-                        let mut p = particle(actor.position, born, 0, *life as u32 + 1);
-                        p.palette = None;
-                        p.position[0] += angle.cos() * radius;
-                        p.position[1] += angle.sin() * radius;
-                        p.size = [*width as f32, *height as f32];
-                        p.rgba = [rgb[0], rgb[1], rgb[2], *alpha as u8];
-                        p.fade = Fade::Linear(*fade as f32);
-                        out.push(p);
-                        actor.position[2] += speed;
-                    }
-                    if radius == 0. {
-                        stage = WAIT;
-                    }
-                } else if stage == EXPAND {
-                    let mut sphere = particle(center, born, *color as u16, *life as u32 + 1);
-                    sphere.recipe = crate::effect::STATION_GLOW_SPRITE;
-                    sphere.size_delta = *growth as f32;
-                    sphere.fade = Fade::Linear(-10.);
-                    out.extend([sphere.clone(), sphere]);
-                    stage = DONE;
-                }
-            }
-            Config::Column {
-                palette: color,
-                size,
-                layers,
-                alpha,
-                lighting,
-                spacing,
-                life,
-                growth,
-                expands,
-            } => {
-                const RELEASE: u8 = 1;
-                const DONE: u8 = 2;
-                const ACCELERATION: f32 = 1.15;
-                crate::world::random(random);
-                if stage >= DONE {
-                    return Ok(());
-                }
-                let remaining = if stage == RELEASE && !*expands {
-                    layers.saturating_sub(self.state.age as i32)
-                } else {
-                    *layers
-                };
-                let count = remaining + i32::from(stage == RELEASE && !*expands);
-                for layer in 0..count.max(0) {
-                    let released = stage == RELEASE && (*expands || layer == remaining);
-                    let lifetime = if released {
-                        if *expands { *life as u32 } else { 301 }
-                    } else {
-                        2
-                    };
-                    let mut p = particle(center, born, *color as u16, lifetime.max(1));
-                    p.recipe = crate::effect::WORLD_GLOW_SPRITE;
-                    p.orientation = SpriteOrientation::World;
-                    p.position[2] += layer as f32 * *spacing as f32;
-                    p.size = [*size as f32; 2];
-                    p.rgba[3] = (if released && !*expands {
-                        alpha * 3
-                    } else {
-                        *alpha
-                    })
-                    .clamp(0, 255) as u8;
-                    p.field_lighting = *lighting & 1 != 0;
-                    if released {
-                        if *expands {
-                            p.size_delta = *growth as f32;
-                        } else {
-                            p.position[2] += ACCELERATION;
-                            p.velocity[2] = ACCELERATION;
-                            p.controller = Some(BillboardController::Accelerate {
-                                multiplier: ACCELERATION,
-                            });
-                        }
-                    } else {
-                        p.fade = Fade::Linear(0.);
-                    }
-                    inherit(&mut p, actor);
-                    out.push(p);
-                }
-                if stage == RELEASE && (*expands || remaining <= 0) {
-                    stage = DONE;
-                }
-            }
-            Config::Quake => {
                 const COLUMN: u8 = 1;
                 const SHAKE: u8 = 2;
                 const DONE: u8 = 3;
                 const COLUMN_TICKS: u32 = 20;
                 const SHAKE_TICKS: u32 = 120;
-                if self.state.age < COLUMN_TICKS {
+                if (COLUMN_TICKS - 1..COLUMN_TICKS + SHAKE_TICKS).contains(&tick) {
+                    out.shake = Some((COLUMN_TICKS + SHAKE_TICKS - tick - 1) as f32 / 10.);
+                }
+                if tick < COLUMN_TICKS {
                     let mut p = particle(center, born, 30, 21);
                     p.recipe = crate::effect::RING_SPRITE;
                     p.orientation = SpriteOrientation::World;
-                    p.position[2] += (COLUMN_TICKS - self.state.age) as f32 * 6.;
+                    p.position[2] += (COLUMN_TICKS - tick) as f32 * 6.;
                     p.size = [150.; 2];
+                    p.rgba[3] = (135 + 6 * tick) as u8;
                     out.push(p);
-                    stage = COLUMN;
-                } else if self.state.age <= COLUMN_TICKS + SHAKE_TICKS {
-                    if self.state.age == COLUMN_TICKS {
-                        output.ripples.push(ripple(center, born, None));
+                    if tick + 1 == COLUMN_TICKS {
+                        out.push_refraction(RefractionPulse {
+                            draw_order: 0,
+                            operation: None,
+                            owner: None,
+                            image: RefractionImage::Ripple,
+                            palette: 0,
+                            orientation: SpriteOrientation::World,
+                            rotation: [0., 0., 90.],
+                            position: [center[0], center[1], center[2] + 4.],
+                            velocity: [0.; 3],
+                            born,
+                            lifetime: 41,
+                            size: 30.,
+                            growth: 20.,
+                            alpha: 192.,
+                            fade: Fade::tail(41),
+                        });
                     }
-                    output.shake = Some((COLUMN_TICKS + SHAKE_TICKS - self.state.age) as f32 / 10.);
-                    stage = if self.state.age == COLUMN_TICKS + SHAKE_TICKS {
+                    *phase = COLUMN;
+                } else if tick <= COLUMN_TICKS + SHAKE_TICKS {
+                    *phase = if tick == COLUMN_TICKS + SHAKE_TICKS {
                         DONE
                     } else {
                         SHAKE
                     };
                 }
             }
-            Config::Cardinal { .. } => {}
         }
-        self.state.stage = stage;
-        self.state.age = self.state.age.saturating_add(1);
+        self.age = self.age.saturating_add(1);
         Ok(())
     }
 }
 
+enum Birth {
+    Sprite(BillboardEffect),
+    Model(crate::model_particle::ModelParticle),
+    Refraction(RefractionPulse),
+}
+
 #[derive(Default)]
 struct Births {
-    particles: Vec<BillboardEffect>,
-    models: Vec<crate::model_particle::ModelParticle>,
-    ripples: Vec<RefractionPulse>,
+    items: Vec<Birth>,
     shake: Option<f32>,
 }
+impl Births {
+    fn push(&mut self, sprite: BillboardEffect) {
+        self.items.push(Birth::Sprite(sprite));
+    }
+    fn push_model(&mut self, model: crate::model_particle::ModelParticle) {
+        self.items.push(Birth::Model(model));
+    }
+    fn push_refraction(&mut self, pulse: RefractionPulse) {
+        self.items.push(Birth::Refraction(pulse));
+    }
+}
 impl GameWorld {
-    pub(crate) fn step_emitters(
+    pub(crate) fn step_emitter(
         &mut self,
+        id: i32,
         resources: &crate::ResourceLibrary,
     ) -> Result<(), String> {
         let mut output = Births::default();
         let camera = self.field_camera.as_ref().map_or([0., -1., 0.], |c| {
             std::array::from_fn(|i| c.position[i] - c.target[i])
         });
-        for &id in &self.actor_order {
-            let Some(actor) = self.actors.get(&id) else {
-                continue;
+        {
+            let Some(actor) = self
+                .actors
+                .get(&id)
+                .filter(|actor| actor.emitter.is_some() && !actor.appearance.model_hidden)
+            else {
+                return Ok(());
             };
-            if actor.emitter.is_none() {
-                continue;
-            }
             let center = if actor.attachment.is_some() {
                 self.attached_position(resources, id)
                     .map_err(|e| e.to_string())?
             } else {
                 actor.position
             };
-            let Some(actor) = self
-                .actors
-                .get_mut(&id)
-                .filter(|a| !a.appearance.model_hidden)
-            else {
-                continue;
-            };
-            let Some(mut emitter) = actor.emitter.take() else {
-                continue;
-            };
+            let actor = self.actors.get_mut(&id).unwrap();
+            let mut emitter = actor.emitter.take().unwrap();
             let result = emitter.step(
                 (id, center),
                 actor,
@@ -878,27 +778,35 @@ impl GameWorld {
             result?;
         }
         let direction = normalized([camera[0], camera[1], 0.]);
-        for mut p in output.particles {
-            match &p.controller {
-                Some(BillboardController::Orbit(orbit)) => p.position = orbit.position(0),
-                Some(BillboardController::CameraOffset {
-                    center, distance, ..
-                }) => p.position = std::array::from_fn(|i| center[i] - direction[i] * distance),
-                _ => {}
+        for birth in output.items {
+            match birth {
+                Birth::Sprite(mut p) => {
+                    match &p.controller {
+                        Some(BillboardController::Orbit(orbit)) => p.position = orbit.position(0),
+                        Some(BillboardController::CameraOffset {
+                            center, distance, ..
+                        }) => {
+                            p.position =
+                                std::array::from_fn(|i| center[i] - direction[i] * distance);
+                        }
+                        _ => {}
+                    }
+                    self.emit_billboard(p)?;
+                }
+                Birth::Model(p) => {
+                    self.emit_model_particle(p)?;
+                }
+                Birth::Refraction(p) => {
+                    self.emit_refraction(p)?;
+                }
             }
-            self.emit_billboard(p)?;
-        }
-        for p in output.models {
-            self.emit_model_particle(p)?;
-        }
-        for p in output.ripples {
-            self.emit_refraction(p)?;
         }
         if let Some(amount) = output.shake {
             self.field_camera
                 .get_or_insert_default()
                 .shake
-                .configure(amount, 0, 0);
+                // Expire the shake if this emitter stops updating.
+                .configure(amount, 0, 1);
         }
         Ok(())
     }
@@ -914,9 +822,13 @@ pub(crate) struct Orbit {
     angle: f32,
     angular_speed: f32,
     rise: f32,
-    pub trail: bool,
+    pub trail_palette: Option<i32>,
 }
 impl Orbit {
+    pub(crate) fn trail_origin(&self) -> [f32; 3] {
+        let direction = rotated(self.radial, self.axis, self.angle - self.angular_speed);
+        std::array::from_fn(|i| self.center[i] + direction[i] * self.radius)
+    }
     fn new(
         center: [f32; 3],
         axis: [f32; 3],
@@ -939,7 +851,7 @@ impl Orbit {
             angle,
             angular_speed,
             rise: 0.,
-            trail: false,
+            trail_palette: None,
         }
     }
     pub fn position(&self, age: u32) -> [f32; 3] {
@@ -955,47 +867,110 @@ impl Orbit {
         })
     }
 }
-fn burst(
+fn arrival_flash(
+    position: [f32; 3],
+    born: u32,
+    rotation: f32,
+    texture: (u32, u8),
+) -> BillboardEffect {
+    let mut flash = particle(position, born, 33, 16);
+    flash.texture = Some(texture);
+    flash.blend = Some(crate::effect::Blend::Additive);
+    flash.uv = Some([0., 0., 254. / 256., 254. / 256.]);
+    flash.orientation = SpriteOrientation::World;
+    flash.rotation = [90., 0., rotation];
+    flash.size = [0.; 2];
+    flash.size_delta = 25.;
+    flash.rgba[3] = 100;
+    flash
+}
+
+fn travel_burst(
+    center: [f32; 3],
+    born: u32,
+    color: u16,
+    size: f32,
+    random: &mut u32,
+    out: &mut Births,
+) {
+    const PARTICLES: usize = 20;
+    for _ in 0..PARTICLES {
+        let direction = std::array::from_fn(|_| 50. - (crate::world::random(random) % 100) as f32);
+        let mut p = particle(center, born, color, 61);
+        p.velocity = normalized(direction).map(|v| v * 3.);
+        p.size = [size; 2];
+        p.rgba[3] = 200;
+        out.push(p);
+    }
+}
+
+fn inward_release(
     center: [f32; 3],
     born: u32,
     color: i32,
-    size: f32,
-    owner: Option<i32>,
+    owner: i32,
+    alpha_blend: bool,
     random: &mut u32,
-    out: &mut Vec<BillboardEffect>,
+    output: &mut Births,
 ) {
-    let mut p = particle(center, born, palette(color, random), BURST_LIFETIME);
-    p.owner = owner;
-    p.field_fog = false;
-    p.size = [size; 2];
-    Emission {
-        particle: p,
-        count: BURST_PARTICLES,
-        spread: 0.,
-        speed: 6.,
-        size_variation: 4.,
-    }
-    .emit(random, out);
-}
-fn ripple(position: [f32; 3], born: u32, owner: Option<i32>) -> RefractionPulse {
-    RefractionPulse {
+    const SPARKS: usize = 250;
+    const LIFETIME: u32 = 121;
+    const SPARK_SIZE: f32 = 50.;
+    const SPEED: f32 = 10.;
+    const SPRITES: [u16; 3] = [
+        crate::effect::ORB_SPRITE,
+        crate::effect::SEAL_SPARK_SPRITE,
+        crate::effect::TRAIL_GLOW_SPRITE,
+    ];
+    output.push_refraction(RefractionPulse {
         draw_order: 0,
         operation: None,
-        owner,
+        owner: Some(owner),
         image: RefractionImage::Ripple,
         palette: 0,
         orientation: SpriteOrientation::Camera,
         rotation: [0.; 3],
-        position,
+        position: center,
+        velocity: [0.; 3],
         born,
-        lifetime: BURST_LIFETIME,
-        size: 1.,
-        growth: 20.,
-        alpha: 192.,
-        fade: Fade::tail(BURST_LIFETIME),
+        lifetime: LIFETIME,
+        size: 0.,
+        growth: 25.,
+        alpha: 255.,
+        fade: Fade::tail(LIFETIME),
+    });
+    let mut glow = particle(
+        center,
+        born,
+        if color < 105 { color as u16 } else { 33 },
+        LIFETIME,
+    );
+    glow.owner = Some(owner);
+    glow.blend = alpha_blend.then_some(crate::effect::Blend::Alpha);
+    glow.size_delta = 15.;
+    output.push(glow);
+    for _ in 0..SPARKS {
+        let recipe = SPRITES[crate::world::random(random) as usize % SPRITES.len()];
+        let mut spark = particle(center, born, palette(color, random), LIFETIME);
+        spark.owner = Some(owner);
+        spark.field_fog = false;
+        spark.blend = alpha_blend.then_some(crate::effect::Blend::Alpha);
+        spark.recipe = recipe;
+        spark.angular_velocity[2] = if crate::world::random(random).is_multiple_of(2) {
+            -3.
+        } else {
+            3.
+        };
+        let mut direction = [1.; 3];
+        for axis in [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]] {
+            direction = rotated(direction, axis, (crate::world::random(random) % 360) as f32);
+        }
+        spark.velocity = normalized(direction).map(|v| v * SPEED);
+        spark.size = [SPARK_SIZE; 2];
+        output.push(spark);
     }
 }
-fn palette(color: i32, random: &mut u32) -> u16 {
+pub(crate) fn palette(color: i32, random: &mut u32) -> u16 {
     const RANDOM_PALETTES: [u16; 7] = [101, 85, 73, 89, 77, 97, 93];
     if color < 105 {
         color as u16
@@ -1031,7 +1006,6 @@ fn inherit(particle: &mut BillboardEffect, actor: &Actor) {
 fn particle(position: [f32; 3], born: u32, palette: u16, lifetime: u32) -> BillboardEffect {
     BillboardEffect {
         recipe: crate::effect::ORB_SPRITE,
-        field_lighting: true,
         palette: Some(palette),
         born,
         lifetime,

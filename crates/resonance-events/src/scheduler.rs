@@ -606,8 +606,9 @@ impl EventRuntime {
             self.world.actors.remove(id);
         }
         self.world.billboards.clear();
+        self.world.station_transfers.clear();
+        self.world.effect_changes.clear();
         self.world.model_particles.clear();
-        self.world.particles.clear();
         self.world.refractions.clear();
         for (&id, actor) in &mut self.world.actors {
             actor.motion = None;
@@ -677,7 +678,11 @@ impl EventRuntime {
             return Ok(());
         }
         self.world.actors.retain(|_, actor| !actor.retiring);
+        for actor in self.world.actors.values_mut() {
+            actor.rendered_scale = None;
+        }
         self.world.tick = self.world.tick.checked_add(1).context("clock overflow")?;
+        self.world.particles_before_update = self.world.next_particle;
         self.world.effect_tick = effect_tick;
         if self.world.texture_animation_enabled {
             self.world.texture_animation_tick += 1;
@@ -766,15 +771,13 @@ impl EventRuntime {
         self.world.update_collision_attachments(&self.resources)?;
         let prepared = prepare(self)?;
         self.world.step_ambient_sound();
-        self.world
-            .step_billboards(effect_tick)
-            .map_err(anyhow::Error::msg)?;
+        self.world.step_billboards(effect_tick);
         let player_position = self
             .world
             .actors
             .get(&self.world.controlled_actor)
             .map(|a| a.position);
-        // Native calls share randomness: update actors in creation order, not ID order.
+        // Shared randomness makes the stable actor order observable.
         self.world.sync_actor_order();
         let actor_order = self.world.actor_order.clone();
         let conversation_active = self.interaction.is_some();
@@ -850,15 +853,15 @@ impl EventRuntime {
         self.world.update_collision_attachments(&self.resources)?;
         self.world.step_enemy_sources();
         self.world.step_model_particles();
-        self.world
-            .step_emitters(&self.resources)
-            .map_err(anyhow::Error::msg)?;
-        self.world.step_wandering_billboards();
+        self.step_effects()?;
+        self.world.emit_orbit_trails().map_err(anyhow::Error::msg)?;
+        let wings_enabled = self.memory.read(0x44, symphonia_script::Width::S32)? != 0;
+        self.world.step_wings(&self.resources, wings_enabled)?;
         services(self)?;
         self.world
             .step_ring_stations()
             .map_err(anyhow::Error::msg)?;
-        self.world.particles.retain(|p| p.alive(self.world.tick));
+        self.world.step_wandering_billboards();
         self.world.overlays.retain(|id, overlay| {
             if let crate::world::OverlayKind::Sprite(sprite) = &mut overlay.kind {
                 // Sprite drawing samples alpha before advancing its controller.
@@ -873,16 +876,10 @@ impl EventRuntime {
             }
             !expired && self.world.actors.contains_key(id)
         });
-        for particle in &mut self.world.particles {
-            if let Some(flutter) = &mut particle.flutter {
-                flutter.step(&mut particle.position, effect_tick, &mut || {
-                    crate::world::random(&mut self.world.random_state)
-                });
-            }
-        }
         self.world
             .refractions
-            .retain(|_, effect| self.world.tick.saturating_sub(effect.born) < effect.lifetime);
+            .retain(|_, effect| effect.step(self.world.tick));
+        self.world.apply_effect_changes();
         self.world.emotes.retain(|_, e| {
             self.world.actors.contains_key(&e.actor)
                 && e.duration
@@ -893,16 +890,20 @@ impl EventRuntime {
             .step_field_exit(&self.resources)
             .map_err(anyhow::Error::msg)
             .and_then(|()| self.execute())
-            .and_then(|()| self.step_ring())
             .and_then(|()| {
-                let colette_progress = self.memory.read(0x4c, symphonia_script::Width::S32)?;
+                let colette_progress = self.memory.read(
+                    resonance_content::appearance::ANGEL_PROGRESS,
+                    symphonia_script::Width::S32,
+                )?;
                 self.world.step_eyes(&self.resources, colette_progress)
             })
             .and_then(|()| {
-                let enabled = self.memory.read(0x44, symphonia_script::Width::S32)? != 0;
-                self.world.step_wings(&self.resources, enabled)
-            })
-            .and_then(|()| self.world.update_collision_attachments(&self.resources));
+                self.world.update_collision_attachments(&self.resources)?;
+                // Birth poses are ready for presentation after this update's
+                // scripts and emitters have consumed their random inputs.
+                self.world.initialize_billboards();
+                Ok(())
+            });
         self.failed = result.is_err();
         if self.failed {
             let mut ring = std::mem::take(&mut self.world.ring);

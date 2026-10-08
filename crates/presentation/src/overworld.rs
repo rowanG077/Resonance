@@ -1195,15 +1195,13 @@ fn camera(
     };
     for (mut transform, mut projection) in &mut cameras {
         *transform = Transform::from_translation(eye).looking_at(target, up);
-        *projection = Projection::custom(super::camera::WorldProjection(
-            super::camera::TitleProjection(PerspectiveProjection {
-                fov: fov.to_radians(),
-                aspect_ratio: display.0.aspect(),
-                near: 100.,
-                far,
-                ..default()
-            }),
-        ));
+        *projection = Projection::custom(super::camera::TitleProjection(PerspectiveProjection {
+            fov: fov.to_radians(),
+            aspect_ratio: display.0.aspect(),
+            near: 100.,
+            far,
+            ..default()
+        }));
     }
     TitleOutput::update(&mut outputs, |brightness| {
         let (fade, white) = scene

@@ -3435,7 +3435,6 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
 fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
     let assets: FieldAssets = cooked("fields/map-340.json");
     let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
-    let effects: resonance_content::effect::FieldEffects = cooked(&assets.effects);
     for stay in [false, true] {
         let mut session = classroom(FieldEntry {
             persistent: PersistentState {

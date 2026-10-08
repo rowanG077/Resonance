@@ -55,14 +55,20 @@ pub(super) const fn register(
             None,
             true,
             |h, a, _| {
-                // The interaction can retire either actor before this child runs.
+                // The interaction can retire either actor before the lights start.
                 if h.actor_id(a[0]).is_err() || h.actor_id(a[1]).is_err() {
                     return Ok(NativeResult::Continue(None));
                 }
                 let operation = h.operations.begin()?;
-                let transfer =
-                    crate::effect::station::Transfer::start(h.world, a[0], a[1], operation)?;
-                *h.wait = Some(Wait::StationTransfer(Box::new(transfer)));
+                h.world
+                    .station_transfers
+                    .push(crate::effect::station::Transfer::new(
+                        a[0],
+                        a[1],
+                        operation.clone(),
+                        h.world.tick,
+                    ));
+                *h.wait = Some(Wait::Complete(operation));
                 Ok(NativeResult::Suspend)
             },
         )

@@ -7,6 +7,8 @@ use bevy::{
 use resonance_content::{HEIGHT, SCENE_HEIGHT};
 
 pub(super) const RASTER_SUBDIVISIONS: f32 = 12.;
+pub(super) const FIELD_NEAR: f32 = 100.;
+pub(super) const FIELD_FAR: f32 = 40_000.;
 
 /// Use the full display aspect even though the scene viewport retains only
 /// 448 of the 480 authored display rows.
@@ -15,10 +17,10 @@ pub(super) struct TitleProjection(pub PerspectiveProjection);
 
 impl CameraProjection for TitleProjection {
     fn get_clip_from_view(&self) -> Mat4 {
-        aligned_projection(self.0.get_clip_from_view(), self.0.aspect_ratio)
+        self.finite(self.0.get_clip_from_view())
     }
     fn get_clip_from_view_for_sub(&self, view: &SubCameraView) -> Mat4 {
-        aligned_projection(self.0.get_clip_from_view_for_sub(view), self.0.aspect_ratio)
+        self.finite(self.0.get_clip_from_view_for_sub(view))
     }
     fn update(&mut self, _width: f32, _height: f32) {}
     fn far(&self) -> f32 {
@@ -29,34 +31,16 @@ impl CameraProjection for TitleProjection {
     }
 }
 
-/// Clip triangles at the authored far plane, including large world tiles whose
-/// bounds intersect the frustum. Bevy's default perspective only culls bounds.
-#[derive(Debug, Clone)]
-pub(super) struct WorldProjection(pub TitleProjection);
-
-impl WorldProjection {
+impl TitleProjection {
+    /// Clip geometry itself at the far plane, including batched particles and
+    /// large tiles whose combined bounds still intersect the view.
     fn finite(&self, mut matrix: Mat4) -> Mat4 {
-        let projection = &self.0.0;
+        let projection = &self.0;
         // Reverse depth: near maps to one and far maps to zero.
         let scale = projection.near / (projection.far - projection.near);
         matrix.z_axis.z = scale;
         matrix.w_axis.z = projection.far * scale;
-        matrix
-    }
-}
-impl CameraProjection for WorldProjection {
-    fn get_clip_from_view(&self) -> Mat4 {
-        self.finite(self.0.get_clip_from_view())
-    }
-    fn get_clip_from_view_for_sub(&self, view: &SubCameraView) -> Mat4 {
-        self.finite(self.0.get_clip_from_view_for_sub(view))
-    }
-    fn update(&mut self, _width: f32, _height: f32) {}
-    fn far(&self) -> f32 {
-        self.0.far()
-    }
-    fn get_frustum_corners(&self, near: f32, far: f32) -> [Vec3A; 8] {
-        self.0.get_frustum_corners(near, far)
+        aligned_projection(matrix, projection.aspect_ratio)
     }
 }
 
@@ -79,16 +63,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn world_projection_clips_distant_vertices_without_changing_screen_coordinates() {
+    fn projection_clips_distant_vertices_without_changing_screen_coordinates() {
         for aspect_ratio in [4. / 3., 16. / 9.] {
-            let projection = WorldProjection(TitleProjection(PerspectiveProjection {
+            let projection = TitleProjection(PerspectiveProjection {
                 near: 100.,
                 far: 12800.,
                 aspect_ratio,
                 ..default()
-            }));
+            });
             let matrix = projection.get_clip_from_view();
-            let base = projection.0.get_clip_from_view();
+            let base = aligned_projection(projection.0.get_clip_from_view(), aspect_ratio);
             for (distance, visible) in [(99., false), (101., true), (12799., true), (12801., false)]
             {
                 let point = Vec4::new(25., -50., -distance, 1.);

@@ -211,7 +211,9 @@ fn original_triet_hole_examination_shows_lloyds_reaction() -> Result<()> {
     for _ in 0..10 {
         if let Some(emote) = field.events.world.emotes.get(&-100) {
             ensure!(
-                emote.actor == id && emote.kind == 10 && emote.duration == Some(30),
+                emote.actor == id
+                    && emote.kind == resonance_events::emote::Kind::Sweat
+                    && emote.duration == Some(30),
                 "incorrect hole reaction: {emote:?}"
             );
             settle(&mut field)?;

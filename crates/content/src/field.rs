@@ -510,3 +510,23 @@ impl crate::ScenePart {
 /// Prepared local geometry used by field ring effects.
 pub const RING_BEAM_RESOURCE: u32 = LOCAL_MODEL_RESOURCES.start;
 pub const RING_BOMB_RESOURCE: u32 = LOCAL_MODEL_RESOURCES.start + 12;
+
+/// Room scenery required by abilities that use local geometry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RingScenery {
+    #[default]
+    None,
+    Bomb,
+    Bubble,
+    Sunlight,
+}
+impl RingScenery {
+    pub fn for_field(map: u32) -> Self {
+        match map {
+            412..=415 => Self::Bomb,
+            492..=498 => Self::Bubble,
+            511..=518 => Self::Sunlight,
+            _ => Self::None,
+        }
+    }
+}

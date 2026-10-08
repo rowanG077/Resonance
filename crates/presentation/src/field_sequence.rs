@@ -370,7 +370,6 @@ fn advance(
             world.billboards.clear();
             world.model_particles.clear();
             world.refractions.clear();
-            world.particles.clear();
             let effects = isolation
                 .samples
                 .range(..=update)
@@ -510,7 +509,7 @@ fn capture(
         "poses":roots.iter().filter(|(_,p)|p.actor==world.controlled_actor && p.part==0).flat_map(|(root,_)|children.iter_descendants(root)).filter_map(|e|bones.get(e).ok()).map(|(name,t,g)|serde_json::json!({"name":name.as_str(),"translation":t.translation.to_array(),"rotation":t.rotation.to_array(),"world":g.to_matrix().to_cols_array()})).collect::<Vec<_>>(),
         "emotes":format!("{:?}",world.emotes),
         "refractions":world.refractions.iter().map(|(id,p)| {
-            let (size, alpha) = p.sample(world.tick);
+            let (size, alpha) = (p.size, p.alpha(world.tick));
             serde_json::json!({"id":id,"born":p.born,"position":p.position,"size":size,"alpha":alpha})
         }).collect::<Vec<_>>(),
         "save_points":world.save_points.iter().map(|p|serde_json::json!({"position":p.position,"active":p.active,"glow_scale":p.glow_scale})).collect::<Vec<_>>(),

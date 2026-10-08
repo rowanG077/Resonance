@@ -45,12 +45,15 @@ pub struct Actor {
     pub(crate) operation: Option<crate::Operation>,
     /// Replacing an actor invalidates its retained presentation instance.
     pub instance: u64,
+    pub(crate) update_order: usize,
     pub(crate) authored_handle: Option<i32>,
     pub resource: u32,
     pub position: [f32; 3],
     pub(crate) visual_lift: Option<crate::projectile::VisualLift>,
     pub chain_impulses: BTreeMap<u32, crate::projectile::ChainImpulse>,
     pub visible: bool,
+    /// A spawned actor is presented after its first update.
+    pub visible_from: u32,
     /// A non-rendered scene marker can still own a scenery interaction.
     pub interaction_anchor: bool,
     /// Read-only actors use a strict depth test; ordinary actors test and write
@@ -61,6 +64,8 @@ pub struct Actor {
     /// Independent scenery motion layers, sampled over its base animation.
     pub scenery_animations: BTreeMap<i8, Animation>,
     pub scale_percent: [i32; 3],
+    /// Scale already presented before this update's script edits.
+    pub(crate) rendered_scale: Option<[i32; 3]>,
     pub tilt: [i32; 2],
     pub tint: [u8; 3],
     pub opacity: u8,
@@ -143,7 +148,14 @@ impl Enemy {
 }
 impl Actor {
     pub fn model_scale(&self) -> [f32; 3] {
-        self.scale_percent.map(|scale| scale as f32 / 100.)
+        self.model_scale_percent().map(|scale| scale as f32 / 100.)
+    }
+    fn model_scale_percent(&self) -> [i32; 3] {
+        if self.wings.is_some() {
+            [100; 3]
+        } else {
+            self.rendered_scale.unwrap_or(self.scale_percent)
+        }
     }
     pub fn tilt_degrees(&self) -> [f32; 2] {
         self.tilt.map(|angle| angle as f32)
@@ -169,7 +181,7 @@ impl Actor {
     }
 
     fn local_vector(&self, point: [f32; 3]) -> [f32; 3] {
-        let scale = self.scale_percent;
+        let scale = self.model_scale_percent();
         let [x, y, z] = std::array::from_fn(|i| point[i] * scale[i] as f32 / 100.);
         let [tilt_x, tilt_y] = self.tilt_degrees();
         let (sx, cx) = tilt_x.to_radians().sin_cos();
@@ -280,12 +292,15 @@ impl Actor {
             visual_lift: None,
             chain_impulses: BTreeMap::new(),
             visible: true,
+            visible_from: 0,
+            update_order: 0,
             interaction_anchor: false,
             depth_write: true,
             blend: None,
             animation: None,
             scenery_animations: BTreeMap::new(),
             scale_percent: [100; 3],
+            rendered_scale: None,
             tilt: [0; 2],
             tint: [crate::effect::NEUTRAL_TINT; 3],
             opacity: 255,
@@ -354,6 +369,9 @@ impl Actor {
         }
     }
     pub(crate) fn step_heading(&mut self, controlled: bool, moving: bool) {
+        if self.wings.is_some() {
+            return;
+        }
         let speed = if controlled {
             20.
         } else {
@@ -511,47 +529,6 @@ pub struct CameraTrack {
     pub resource: u32,
     pub start_tick: u32,
 }
-#[derive(Debug, Clone)]
-pub struct Particle {
-    pub kind: i32,
-    pub handle: i32,
-    pub born: u32,
-    pub lifetime: u32,
-    pub position: [f32; 3],
-    pub velocity: [f32; 3],
-    pub size: f32,
-    pub size_delta: f32,
-    pub rgba: [f32; 4],
-    pub alpha_delta: f32,
-    pub flutter: Option<crate::effect::Flutter>,
-}
-impl Particle {
-    pub fn sample(&self, tick: u32) -> ([f32; 3], f32, [f32; 4]) {
-        let age = tick.saturating_sub(self.born) as f32;
-        let position = if self.flutter.is_some() {
-            self.position
-        } else {
-            std::array::from_fn(|axis| self.position[axis] + self.velocity[axis] * age)
-        };
-        let mut rgba = self.rgba;
-        rgba[3] = self.alpha(tick).max(0.);
-        (position, self.size + self.size_delta * age, rgba)
-    }
-    pub fn alive(&self, tick: u32) -> bool {
-        tick - self.born <= self.lifetime && self.alpha(tick) >= 0.
-    }
-    pub fn alpha(&self, tick: u32) -> f32 {
-        let age = tick.saturating_sub(self.born);
-        if self.flutter.is_some() && self.alpha_delta == 0. {
-            // A zero fade rate selects the automatic fade over the final 32 ticks.
-            let steps = age.saturating_sub(self.lifetime.saturating_sub(31));
-            let maximum = (self.rgba[3] as u8).saturating_sub(1) / 8;
-            self.rgba[3] - steps.min(u32::from(maximum)) as f32 * 8.
-        } else {
-            self.rgba[3] + self.alpha_delta * age as f32
-        }
-    }
-}
 #[derive(Default)]
 pub struct GameWorld {
     pub(crate) authored_actors: BTreeMap<i32, i32>,
@@ -561,6 +538,7 @@ pub struct GameWorld {
     pub effect_tick: u32,
     /// The owning scene's map, also available to its nested skit scripts.
     pub current_field: Option<u32>,
+    pub ring_scenery: resonance_content::field::RingScenery,
     /// Debug sessions are disabled for ordinary starts and New Game Plus.
     pub debug_session: bool,
     pub skit: Option<crate::skit::Scene>,
@@ -572,7 +550,6 @@ pub struct GameWorld {
     pub(crate) actor_order: Vec<i32>,
     pub(crate) next_actor_instance: u64,
     pub camera: Option<CameraTrack>,
-    pub particles: Vec<Particle>,
     pub fade: Option<Fade>,
     pub scene_dissolve: Option<SceneDissolve>,
     pub next_transition_white: Option<bool>,
@@ -627,6 +604,10 @@ pub struct GameWorld {
     pub damage_numbers: crate::field_damage::DamageNumbers,
     pub paralysis: Option<crate::effect::Paralysis>,
     pub billboards: BTreeMap<i32, crate::effect::BillboardEffect>,
+    pub(crate) station_transfers: Vec<crate::effect::station::Transfer>,
+    pub(crate) effect_changes: Vec<(i32, u32, crate::effect::property::Change)>,
+    pub(crate) particles_before_update: i32,
+    pub effect_palette: crate::effect::Palette,
     pub effect_textures: BTreeMap<u8, (u32, u8)>,
     pub model_particles: BTreeMap<i32, crate::model_particle::ModelParticle>,
     pub refractions: BTreeMap<i32, crate::effect::RefractionPulse>,
@@ -788,9 +769,10 @@ pub struct EventRecord {
 }
 #[derive(Debug, Clone)]
 pub struct Emote {
+    pub draw_order: usize,
     pub phase: u32,
     pub actor: i32,
-    pub kind: u16,
+    pub kind: crate::emote::Kind,
     pub offset: [f32; 3],
     pub start_tick: u32,
     pub duration: Option<u32>,
@@ -975,13 +957,33 @@ impl GameWorld {
         });
         for id in ids {
             let actor = self.actors.remove(&id);
-            use crate::emitter::ParticleCleanup;
-            let cleanup = actor
+            let clear_particles = actor
                 .as_ref()
-                .and_then(|actor| actor.emitter.as_ref())
-                .map_or(ParticleCleanup::Remove, |emitter| {
-                    emitter.particle_cleanup()
-                });
+                .and_then(|a| a.emitter.as_ref())
+                .is_none_or(crate::emitter::Emitter::clear_particles);
+            for particle in self.billboards.values_mut() {
+                if particle.owner != Some(id) {
+                    continue;
+                }
+                let age = self.tick.saturating_sub(particle.born);
+                if clear_particles {
+                    // Retire submitted particles after their final presentation.
+                    particle.lifetime = particle.lifetime.min(age + 2);
+                } else if let crate::effect::OwnerTail::Fade(updates) = particle.owner_tail {
+                    particle.rgba[3] = particle.alpha(self.tick) as u8;
+                    particle.lifetime = particle.lifetime.min(age + updates);
+                    particle.fade = crate::effect::Fade::Proportional;
+                }
+            }
+            for particle in self.refractions.values_mut() {
+                if particle.owner != Some(id) {
+                    continue;
+                }
+                if clear_particles {
+                    let age = self.tick.saturating_sub(particle.born);
+                    particle.lifetime = particle.lifetime.min(age + 2);
+                }
+            }
             if let Some(mut actor) = actor
                 && resources.model(actor.resource).is_some()
             {
@@ -989,46 +991,27 @@ impl GameWorld {
                 actor.emitter = None;
                 self.actors.insert(id, actor);
             }
-            for particle in self.billboards.values_mut() {
-                if particle.owner != Some(id) {
-                    continue;
-                }
-                particle.owner = None;
-                let age = self.tick.saturating_sub(particle.born);
-                match cleanup {
-                    ParticleCleanup::Keep => {}
-                    ParticleCleanup::Fade { updates } => {
-                        particle.lifetime = particle.lifetime.min(age + updates);
-                        particle.fade = crate::effect::Fade::Proportional {
-                            after: age,
-                            lifetime: particle.lifetime,
-                        };
-                    }
-                    ParticleCleanup::Remove => {
-                        // Retire submitted particles after their final presentation.
-                        particle.lifetime = particle.lifetime.min(age + 2);
-                    }
-                }
-            }
-            self.refractions.retain(|_, particle| {
-                if particle.owner != Some(id) {
-                    return true;
-                }
-                particle.owner = None;
-                !matches!(cleanup, ParticleCleanup::Remove)
-            });
             self.overlays.remove(&id);
             self.emotes.remove(&id);
         }
     }
 
-    /// Controlled actor first, followed by other actors in creation order.
+    /// Controlled actor first, followed by stable simulation order.
     pub fn actor_order(&self) -> &[i32] {
         &self.actor_order
     }
     pub fn insert_actor(&mut self, id: i32, mut actor: Actor) {
         self.next_actor_instance += 1;
         actor.instance = self.next_actor_instance;
+        actor.visible_from = self.tick + 1;
+        actor.update_order = self.actors.get(&id).map_or_else(
+            || {
+                (0..=self.actors.len())
+                    .find(|order| self.actors.values().all(|a| a.update_order != *order))
+                    .unwrap()
+            },
+            |previous| previous.update_order,
+        );
         actor.authored_handle = None;
         if !self.actor_order.contains(&id) {
             self.actor_order.push(id);
@@ -1042,6 +1025,8 @@ impl GameWorld {
                 self.actor_order.push(id);
             }
         }
+        self.actor_order
+            .sort_by_key(|id| self.actors[id].update_order);
         if let Some(index) = self
             .actor_order
             .iter()
@@ -1070,12 +1055,6 @@ impl GameWorld {
 pub(crate) fn random(state: &mut u32) -> u32 {
     *state = state.wrapping_mul(0x41c64e6d).wrapping_add(0x3039);
     (*state >> 16) & 0x7fff
-}
-
-/// Uniform sample in [0, 1); the scene generator returns 15 random bits.
-pub(crate) fn random_unit(state: &mut u32) -> f32 {
-    const SAMPLE_COUNT: u32 = 1 << 15;
-    random(state) as f32 / SAMPLE_COUNT as f32
 }
 
 #[derive(Debug, Clone)]

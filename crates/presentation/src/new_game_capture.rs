@@ -599,9 +599,11 @@ fn record(
             for emote in world.emotes.values() {
                 if world.tick.saturating_sub(emote.start_tick) >= 24 {
                     match emote.kind {
-                        12 => details.push("lloyd-sleep"),
-                        1 => details.push("raine-emote-buckets"),
-                        14 => details.push("genis-emote"),
+                        resonance_events::emote::Kind::Sleep => details.push("lloyd-sleep"),
+                        resonance_events::emote::Kind::Distress => {
+                            details.push("raine-emote-buckets")
+                        }
+                        resonance_events::emote::Kind::Surprise => details.push("genis-emote"),
                         _ => {}
                     }
                 }

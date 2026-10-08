@@ -1,4 +1,9 @@
 #define_import_path resonance::surface_bindings
+#ifdef CLAMP_COLOR
+#ifndef VERTEX_ALPHA
+#import resonance::effect_color::sample_bytes
+#endif
+#endif
 
 struct SurfaceUniform {
     uv_offsets: vec4<f32>,
@@ -9,6 +14,7 @@ struct SurfaceUniform {
     shade_colors: array<vec4<f32>, 2>,
     fog_color: vec4<f32>,
     fog_range: vec4<f32>, // XYZ: material start/end/exponent; W: use field view fog.
+    alpha_cutoff: f32,
 };
 
 #ifdef BINDLESS
@@ -43,26 +49,35 @@ fn surface_data(slot: u32) -> SurfaceUniform {
 #endif
 }
 fn sample_primary(slot: u32, uv: vec2<f32>) -> vec4<f32> {
+#ifdef CLAMP_COLOR
+#ifndef VERTEX_ALPHA
+#ifdef BINDLESS
+    return sample_bytes(bindless_textures_2d[indices[slot].color], uv) / 255.;
+#else
+    return sample_bytes(color_texture, uv) / 255.;
+#endif
+#endif
+#endif
     var coords = uv;
 #ifdef CLAMP_COLOR
-    // Particle atlas coordinates retain seven fractional bits per texel.
+    // Effect textures use a 1/128-texel grid and whole color bytes.
+    // Keep the material's own filtering and wrap modes.
 #ifdef BINDLESS
-    let size = vec2<f32>(textureDimensions(bindless_textures_2d[indices[slot].color]));
+    let grid = vec2<f32>(textureDimensions(bindless_textures_2d[indices[slot].color])) * 128.;
 #else
-    let size = vec2<f32>(textureDimensions(color_texture));
+    let grid = vec2<f32>(textureDimensions(color_texture)) * 128.;
 #endif
-    coords = trunc(coords * size * 128.) / (size * 128.);
+    coords = trunc(coords * grid) / grid;
 #endif
 #ifdef BINDLESS
-    let sampled = textureSample(bindless_textures_2d[indices[slot].color], bindless_samplers_filtering[indices[slot].color_sampler], coords);
+    var color = textureSample(bindless_textures_2d[indices[slot].color], bindless_samplers_filtering[indices[slot].color_sampler], coords);
 #else
-    let sampled = textureSample(color_texture, color_sampler, coords);
+    var color = textureSample(color_texture, color_sampler, coords);
 #endif
 #ifdef CLAMP_COLOR
-    return round(sampled * 255.) / 255.;
-#else
-    return sampled;
+    color = floor(color * 255.) / 255.;
 #endif
+    return color;
 }
 fn sample_secondary(slot: u32, uv: vec2<f32>) -> vec4<f32> {
 #ifdef BINDLESS

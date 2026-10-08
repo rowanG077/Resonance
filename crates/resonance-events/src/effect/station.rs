@@ -1,16 +1,23 @@
-//! Pedestal lights follow curved paths to the player, then leave a short afterglow.
-use super::{BillboardEffect, Fade, NEUTRAL_TINT};
+//! Pedestal lights follow sampled arcs, then the player receives a final glow.
+use super::{BillboardEffect, Fade, NEUTRAL_TINT, emission::normalized};
 use crate::{GameWorld, Operation};
 
-const FLIGHT_TICKS: u32 = 44;
-const AFTERGLOW_TICKS: u32 = 30;
 const LIGHTS: usize = 7;
-const STATION_HEIGHT: f32 = 150.;
+const TRANSFER_TICKS: u32 = 60;
+const AFTERGLOW_TICKS: u32 = 30;
 const PLAYER_HEIGHT: f32 = 100.;
-const LAUNCH_SPEED: f32 = 24.5;
-const FAN_SPEED: f32 = 17.;
-const UPWARD_SPEED: f32 = 7.5;
-const TRAIL_RADIUS: f32 = 48.;
+const ARRIVAL_RADIUS: f32 = 8.;
+const CURVATURE: f32 = 8.;
+const FAN_TILT: f32 = 61.;
+
+#[derive(Debug, Clone)]
+struct Light {
+    velocity: [f32; 3],
+    bend: [f32; 3],
+    duration: u32,
+    position: [f32; 3],
+    active: bool,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Transfer {
@@ -18,120 +25,176 @@ pub(crate) struct Transfer {
     player: i32,
     source: [f32; 3],
     born: u32,
+    lights: Vec<Light>,
     pub operation: Operation,
 }
 impl Transfer {
-    pub fn start(
-        world: &mut GameWorld,
-        station: i32,
-        player: i32,
-        operation: Operation,
-    ) -> Result<Self, String> {
-        let mut source = world.actors[&world.actor_id(station)?].position;
-        source[2] += STATION_HEIGHT;
-        let mut transfer = Self {
+    pub fn new(station: i32, player: i32, operation: Operation, tick: u32) -> Self {
+        Self {
             station,
             player,
-            source,
-            born: world.tick,
+            source: [0.; 3],
+            // Let the completed interaction reach the field before launching.
+            born: tick + 2,
+            lights: Vec::new(),
             operation,
-        };
-        transfer.poll(world)?;
-        Ok(transfer)
+        }
     }
 
-    pub fn poll(&mut self, world: &mut GameWorld) -> Result<bool, String> {
-        let age = world.tick - self.born;
+    pub fn update(&mut self, world: &mut GameWorld) -> Result<(), String> {
+        if !self.operation.is_pending() || world.tick < self.born {
+            return Ok(());
+        }
         let (Ok(station), Ok(player)) = (world.actor_id(self.station), world.actor_id(self.player))
         else {
-            self.operation.complete(None)?;
-            return Ok(true);
+            return self.operation.complete(None);
         };
-        if age >= FLIGHT_TICKS + AFTERGLOW_TICKS {
-            self.operation.complete(None)?;
-            return Ok(true);
-        }
-        let color = world.actors[&station].tint;
         let mut target = world.actors[&player].position;
         target[2] += PLAYER_HEIGHT;
+        let color = world.actors[&station].tint;
+        let age = world.tick - self.born;
+        if age >= TRANSFER_TICKS + AFTERGLOW_TICKS {
+            return self.operation.complete(None);
+        }
         if age == 0 {
-            let mut glow = self.sprite(
+            self.source = world.actors[&station].position;
+            self.source[2] += (world.effect_tick as f32).to_radians().sin() * 10. + 150.;
+            let delta: [f32; 3] = std::array::from_fn(|i| target[i] - self.source[i]);
+            let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
+            let direction = normalized(delta);
+            let away = normalized([-delta[0], -delta[1], 0.]);
+            let (fan, forward) = FAN_TILT.to_radians().sin_cos();
+            self.lights = (0..LIGHTS)
+                .map(|index| {
+                    let angle =
+                        (index as f32 - (LIGHTS - 1) as f32 / 2.) * std::f32::consts::FRAC_PI_4;
+                    let (sin, cos) = angle.sin_cos();
+                    let launch = [
+                        away[0] * forward - away[1] * fan * sin,
+                        away[1] * forward + away[0] * fan * sin,
+                        fan * cos,
+                    ];
+                    let speed = 2.33 + (world.random() & 15) as f32 / 64.;
+                    Light {
+                        velocity: direction.map(|v| v * speed),
+                        bend: std::array::from_fn(|i| {
+                            (launch[i] - direction[i]) * speed * CURVATURE
+                        }),
+                        duration: (distance / (2. * speed)).max(1.) as u32 * 2,
+                        position: self.source,
+                        active: true,
+                    }
+                })
+                .collect();
+            self.glow(
                 world,
                 self.source,
-                super::STATION_GLOW_SPRITE,
-                AFTERGLOW_TICKS,
-                18.,
-            );
-            glow.palette = None;
-            glow.rgba = [color[0], color[1], color[2], 124];
-            glow.size_delta = 6.;
-            glow.fade = Fade::Linear(-4.);
-            world.emit_billboard(glow)?;
-        }
-        if age < FLIGHT_TICKS {
-            let mut dust = Vec::new();
-            let t = age as f32 / FLIGHT_TICKS as f32;
-            let away = super::emission::normalized([
-                self.source[0] - target[0],
-                self.source[1] - target[1],
-                0.,
-            ]);
-            for index in 0..LIGHTS {
-                let angle = (index as f32 - (LIGHTS - 1) as f32 / 2.) * std::f32::consts::FRAC_PI_4;
-                let (sin, cos) = angle.sin_cos();
-                let velocity = [
-                    away[0] * LAUNCH_SPEED - away[1] * FAN_SPEED * sin,
-                    away[1] * LAUNCH_SPEED + away[0] * FAN_SPEED * sin,
-                    UPWARD_SPEED + FAN_SPEED * cos,
-                ];
-                // One quadratic curve per light: launch away, fan out, then meet the player.
-                let position = std::array::from_fn(|i| {
-                    let control = self.source[i] + velocity[i] * FLIGHT_TICKS as f32 / 2.;
-                    (1. - t).powi(2) * self.source[i]
-                        + 2. * (1. - t) * t * control
-                        + t * t * target[i]
+                [color[0], color[1], color[2], 128],
+                12.,
+                -4.,
+            )?;
+        } else {
+            for light in self.lights.iter_mut().filter(|light| light.active) {
+                world.random();
+                if age == 2 {
+                    world.random();
+                }
+                let t = age.min(light.duration) as f32;
+                let curve = t * (1. - (t + 1.) / light.duration as f32);
+                light.position = std::array::from_fn(|i| {
+                    self.source[i] + light.velocity[i] * t + light.bend[i] * curve
                 });
-                for (image, size, alpha) in [
-                    (super::STAR_SPRITE, 80., 120),
-                    (super::CAMERA_DISC_SPRITE, 48., 60),
+                // Even a zero-width trail occupies its place among blended lights.
+                world.emit_billboard(BillboardEffect {
+                    operation: Some(self.operation.clone()),
+                    recipe: super::ORB_SPRITE,
+                    born: world.tick,
+                    lifetime: TRANSFER_TICKS + 1,
+                    position: light.position,
+                    fade: Fade::Linear(-10.),
+                    ..Default::default()
+                })?;
+                light.active = age < TRANSFER_TICKS
+                    && ((light.position[0] - target[0]).powi(2)
+                        + (light.position[1] - target[1]).powi(2))
+                    .sqrt()
+                        >= ARRIVAL_RADIUS;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn draw(&self, world: &mut GameWorld) -> Result<(), String> {
+        if !self.operation.is_pending() || self.lights.is_empty() {
+            return Ok(());
+        }
+        let station = world.actor_id(self.station)?;
+        let color = world.actors[&station].tint;
+        for (index, light) in self
+            .lights
+            .iter()
+            .enumerate()
+            .filter(|(_, light)| light.active)
+        {
+            for (image, size, alpha, fade) in [
+                (super::STAR_SPRITE, 80., 128, -8.),
+                (super::CAMERA_DISC_SPRITE, 48., 64, -4.),
+            ] {
+                let mut sprite = self.sprite(world, light.position, image, 2, size);
+                sprite.rgba[3] = alpha;
+                sprite.fade = Fade::Linear(fade);
+                if image == super::STAR_SPRITE {
+                    sprite.rotation[2] =
+                        if index % 2 == 0 { -4. } else { 4. } * world.effect_tick as f32;
+                }
+                world.emit_billboard(sprite)?;
+            }
+            if world.effect_tick.is_multiple_of(4) {
+                for (speed, rgba) in [
+                    (-0.02, [NEUTRAL_TINT, NEUTRAL_TINT, NEUTRAL_TINT, 128]),
+                    (-3., [color[0], color[1], color[2], 128]),
                 ] {
-                    let mut sprite = self.sprite(world, position, image, 2, size);
-                    sprite.rgba[3] = alpha;
-                    if image == super::STAR_SPRITE {
-                        let direction = if index % 2 == 0 { -1. } else { 1. };
-                        sprite.rotation[2] = direction * world.effect_tick as f32 * 4.;
-                    }
-                    world.emit_billboard(sprite)?;
+                    let mut halo =
+                        self.sprite(world, light.position, super::STATION_HALO_SPRITE, 31, 96.);
+                    halo.palette = None;
+                    halo.rgba = rgba;
+                    halo.rotation[2] = world.random() as f32;
+                    halo.velocity[2] = speed;
+                    world.emit_billboard(halo)?;
                 }
-                let mut trail = self.sprite(world, position, super::ORB_SPRITE, 27, 2.);
-                trail.rgba = [63, 63, 63, 245];
-                trail.fade = Fade::Linear(-10.);
-                super::emission::Emission {
-                    particle: trail,
-                    count: 8,
-                    spread: TRAIL_RADIUS,
-                    speed: 0.,
-                    size_variation: 2.,
-                }
-                .emit(&mut world.random_state, &mut dust);
-            }
-            for particle in dust {
-                world.emit_billboard(particle)?;
             }
         }
-        if age == FLIGHT_TICKS {
-            let mut halo = self.sprite(
-                world,
-                target,
-                super::STATION_HALO_SPRITE,
-                AFTERGLOW_TICKS,
-                80.,
-            );
-            halo.size_delta = 6.;
-            halo.fade = Fade::Linear(-4.);
-            world.emit_billboard(halo)?;
+        if world.tick - self.born == TRANSFER_TICKS {
+            let player = world.actor_id(self.player)?;
+            let mut target = world.actors[&player].position;
+            target[2] += PLAYER_HEIGHT;
+            self.glow(world, target, [color[0], color[1], color[2], 255], 12., -8.)?;
+            self.glow(world, target, [255, 255, 255, 128], 6., -4.)?;
         }
-        Ok(false)
+        Ok(())
+    }
+
+    fn glow(
+        &self,
+        world: &mut GameWorld,
+        position: [f32; 3],
+        rgba: [u8; 4],
+        growth: f32,
+        fade: f32,
+    ) -> Result<(), String> {
+        let mut glow = self.sprite(
+            world,
+            position,
+            super::STATION_GLOW_SPRITE,
+            AFTERGLOW_TICKS + 1,
+            12.,
+        );
+        glow.palette = None;
+        glow.rgba = rgba;
+        glow.size_delta = growth;
+        glow.fade = Fade::Linear(fade);
+        world.emit_billboard(glow)?;
+        Ok(())
     }
 
     fn sprite(
@@ -144,7 +207,6 @@ impl Transfer {
     ) -> BillboardEffect {
         BillboardEffect {
             operation: Some(self.operation.clone()),
-            field_lighting: true,
             recipe,
             palette: Some(0),
             born: world.tick,
@@ -152,7 +214,7 @@ impl Transfer {
             position,
             size: [size; 2],
             rgba: [NEUTRAL_TINT, NEUTRAL_TINT, NEUTRAL_TINT, 128],
-            fade: Fade::tail(lifetime),
+            fade: Fade::Linear(0.),
             ..Default::default()
         }
     }

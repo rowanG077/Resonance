@@ -24,25 +24,27 @@ fn title_program_keeps_the_scene_and_particles_running() {
     // Overlay property 8 changes target opacity, independently of actor visibility.
     assert!(runtime.world.actors[&1000].visible);
     assert_eq!(runtime.world.overlays[&1000].rgba[3], 0);
-    assert_eq!(runtime.world.particles.len(), 2);
-    let initial = runtime.world.particles[0].clone();
+    assert_eq!(runtime.world.billboards.len(), 2);
+    let initial = *runtime.world.billboards.keys().next().unwrap();
     let initial_camera = runtime.world.camera.as_ref().unwrap().resource;
     let (mut moved, mut grew, mut faded, mut changed_camera) = (false, false, false, false);
     for _ in 0..10_000 {
+        let previous = runtime.world.billboards.clone();
         runtime.step().unwrap();
         assert!(runtime.active_instances() <= 4);
         assert!(
-            runtime.world.particles.len() <= 64,
+            runtime.world.billboards.len() <= 64,
             "particle tails accumulated"
         );
         let tick = runtime.tick();
-        for particle in &runtime.world.particles {
-            let (position, size, rgba) = particle.sample(tick);
-            assert!(position.iter().chain(&rgba).all(|v| v.is_finite()));
-            assert!(size.is_finite() && size >= 0.);
-            moved |= position != particle.position;
-            grew |= size > particle.size;
-            faded |= rgba[3] < particle.rgba[3];
+        for (id, particle) in &runtime.world.billboards {
+            assert!(particle.position.iter().all(|v| v.is_finite()));
+            assert!(particle.size.iter().all(|v| v.is_finite() && *v >= 0.));
+            if let Some(before) = previous.get(id) {
+                moved |= particle.position != before.position;
+                grew |= particle.size[0] > before.size[0];
+                faded |= particle.alpha(tick) < before.alpha(tick - 1);
+            }
         }
         changed_camera |= runtime.world.camera.as_ref().unwrap().resource != initial_camera;
     }
@@ -52,11 +54,7 @@ fn title_program_keeps_the_scene_and_particles_running() {
     );
     assert!(changed_camera, "title scene stopped progressing");
     assert!(
-        runtime
-            .world
-            .particles
-            .iter()
-            .all(|p| p.handle != initial.handle),
+        !runtime.world.billboards.contains_key(&initial),
         "initial particle never expired"
     );
 }

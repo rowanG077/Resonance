@@ -1,4 +1,4 @@
-//! A shrinking red flame and a smaller yellow core rise at different speeds.
+//! Rising fire and smoke share a drifting outer sprite; fire adds a yellow core.
 use crate::{
     effect::{BillboardEffect, Blend, Fade, GLOW_SPRITE},
     world::random,
@@ -9,20 +9,36 @@ pub(super) fn emit(
     born: u32,
     clock: u32,
     size: f32,
+    smoke: bool,
     rng: &mut u32,
-    out: &mut Vec<BillboardEffect>,
+    out: &mut super::Births,
 ) {
-    random(rng);
-    if !clock.is_multiple_of(4) {
+    if !clock.is_multiple_of(if smoke { 8 } else { 4 }) {
         return;
     }
     let red_size = size + (random(rng) % 16) as f32;
     let red_rise = 2. + (random(rng) % 16) as f32 / 16.;
     let drift = (random(rng) % 16) as f32 / 32.;
-    let yellow_size = size / 2. + (random(rng) % 16) as f32;
-    let yellow_rise = 2. + (random(rng) % 16) as f32 / 32.;
+    let (yellow_size, yellow_rise) = if smoke {
+        (0., 0.)
+    } else {
+        (
+            size / 2. + (random(rng) % 16) as f32,
+            2. + (random(rng) % 16) as f32 / 32.,
+        )
+    };
     for (diameter, velocity, rgba, lifetime, growth) in [
-        (red_size, [drift, 0., red_rise], [255, 10, 10, 255], 61, -1.),
+        (
+            red_size,
+            [drift, 0., red_rise],
+            if smoke {
+                [255, 255, 255, 127]
+            } else {
+                [255, 10, 10, 255]
+            },
+            61,
+            if smoke { 1. } else { -1. },
+        ),
         (
             yellow_size,
             [0., 0., yellow_rise],
@@ -30,7 +46,10 @@ pub(super) fn emit(
             31,
             0.,
         ),
-    ] {
+    ]
+    .into_iter()
+    .take(if smoke { 1 } else { 2 })
+    {
         out.push(BillboardEffect {
             recipe: GLOW_SPRITE,
             uv: Some([0., 0.25, 0.25, 0.5]),
@@ -43,7 +62,7 @@ pub(super) fn emit(
             rgba,
             fade: Fade::tail(lifetime),
             angular_velocity: [0., 0., -3.],
-            blend: Some(Blend::Additive),
+            blend: Some(if smoke { Blend::Alpha } else { Blend::Additive }),
             ..Default::default()
         });
     }
