@@ -22,6 +22,8 @@ pub enum TextureMotion {
     Scroll {
         velocity: [f32; 2],
         vertical_wave: Option<FieldTextureWave>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        restart_ticks: Option<u32>,
     },
     Atlas {
         frames: u32,
@@ -46,7 +48,12 @@ impl FieldTextureAnimation {
             TextureMotion::Scroll {
                 velocity,
                 vertical_wave,
+                restart_ticks,
             } => {
+                ensure!(
+                    *restart_ticks != Some(0),
+                    "invalid texture restart interval"
+                );
                 ensure!(
                     velocity.iter().all(|v| v.is_finite()),
                     "invalid texture velocity"
@@ -78,7 +85,15 @@ impl FieldTextureAnimation {
             TextureMotion::Scroll {
                 velocity,
                 vertical_wave,
+                restart_ticks,
             } => {
+                let tick = restart_ticks.map_or(tick, |period| {
+                    if tick == 0 {
+                        0
+                    } else {
+                        1 + (tick - 1) % u64::from(period)
+                    }
+                });
                 let mut offset = velocity.map(|v| v * tick as f32);
                 if let Some(wave) = vertical_wave {
                     offset[1] +=

@@ -19,6 +19,7 @@ const MARTEL_SEAL: u32 = 307;
 const MANA_LAMPS: u32 = 362;
 const MANA_BRIDGES: u32 = 366;
 const BALACRUF_WIND: u32 = 510;
+const TOWER_OF_SALVATION: u32 = 535;
 
 fn track(actor: RenderValue, texture: RenderValue, kind: TextureMotion) -> FieldTextureAnimation {
     FieldTextureAnimation {
@@ -35,6 +36,7 @@ fn scroll(actor: RenderValue, texture: RenderValue, velocity: [f32; 2]) -> Field
         TextureMotion::Scroll {
             velocity,
             vertical_wave: None,
+            restart_ticks: None,
         },
     )
 }
@@ -63,6 +65,7 @@ fn water() -> FieldTextureAnimation {
         clock: TextureClock::Effect,
         motion: TextureMotion::Scroll {
             velocity: [-0.00125; 2],
+            restart_ticks: None,
             vertical_wave: Some(FieldTextureWave {
                 degrees_per_tick: 2.,
                 amplitude: -0.025,
@@ -79,6 +82,22 @@ fn flowing(actor: RenderValue, texture: u8, speed: f32) -> FieldTextureAnimation
 
 pub(crate) fn profiles() -> BTreeMap<u32, Vec<FieldTextureAnimation>> {
     let mut profiles = BTreeMap::from([
+        (
+            TOWER_OF_SALVATION,
+            [(4, 2, 0.08, 13), (5, 0, -0.012, 84)]
+                .map(|(actor, texture, speed, period)| {
+                    track(
+                        Setting(actor),
+                        Fixed(texture),
+                        TextureMotion::Scroll {
+                            velocity: [0., speed],
+                            vertical_wave: None,
+                            restart_ticks: Some(period),
+                        },
+                    )
+                })
+                .into(),
+        ),
         (
             SYLVARANT_BASE_HALL,
             vec![scroll(DETAILS, Setting(0), [-1. / 64., 0.])],
@@ -161,6 +180,11 @@ mod tests {
         assert_ne!(lamps.offset(7, 0), lamps.offset(0, 0));
         assert_eq!(lamps.offset(35, 0), lamps.offset(0, 0));
         assert_ne!(profiles[&THODA_OUTSIDE][0].offset(0, 100), [0.; 2]);
+        let sword = &profiles[&TOWER_OF_SALVATION];
+        assert_eq!(sword[0].offset(13, 0), [0., 1.04]);
+        assert_eq!(sword[0].offset(14, 0), [0., 0.08]);
+        assert_eq!(sword[1].offset(84, 0), [0., -1.008]);
+        assert_eq!(sword[1].offset(85, 0), [0., -0.012]);
         Ok(())
     }
 }
