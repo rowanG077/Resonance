@@ -14,3 +14,6 @@ symphonia-script-vm.workspace = true
 symphonia-script-compiler.workspace = true
 symphonia-script-tools.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+resonance-content = { workspace = true, features = ["test-support"] }

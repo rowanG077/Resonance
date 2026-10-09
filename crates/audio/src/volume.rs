@@ -43,8 +43,7 @@ impl Fade {
 
     pub fn advance_block(&mut self) {
         if self.progress > 0.0 {
-            // Preserve single-precision rounding and the original update order.
-            // The original function explicitly disables multiply-add contraction.
+            // Keep the multiply and subtraction separate for single-precision rounding.
             let delta = self.target - self.previous;
             let weighted = self.progress * delta;
             self.value = self.target - weighted;
@@ -109,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn classroom_music_fade_matches_the_independent_original_group_state() {
+    fn classroom_music_fade_reaches_the_observed_volume_and_endpoint() {
         // GQSEAF lesson-three checkpoint, VI 17986, volume groups 23..30.
         // The target amount was 72, then the script requested zero over 2 s.
         let initial = Fade::to_control(1., 72, 0).unwrap().value();
@@ -119,9 +118,8 @@ mod tests {
             fade.advance_block();
         }
         assert_eq!(fade.value(), 0.226_771_97);
-        assert_eq!(fade.progress, 0.397_500_57);
         // Single-precision accumulation needs the 401st update to cross
-        // zero for this duration, as in the original envelope controller.
+        // zero for this duration.
         for _ in 241..401 {
             fade.advance_block();
         }

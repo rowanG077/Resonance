@@ -9,9 +9,15 @@ use crate::{
 use symphonia_script::NativeCall;
 use symphonia_script_vm::Memory;
 
+const MAIN_SCENERY: i32 = 999_996;
+const SECOND_SCENERY: i32 = 999_997;
+const THIRD_SCENERY: i32 = 999_998;
+
 #[derive(Clone, Copy)]
 #[repr(i32)]
 enum FieldSystemCommand {
+    FieldLeader = 13,
+    SetFieldLeader = 14,
     SuppressTransitionFade = 15,
     BattleCount = 17,
     SetDoorInteractionRadius = 19,
@@ -22,6 +28,8 @@ impl TryFrom<i32> for FieldSystemCommand {
 
     fn try_from(id: i32) -> Result<Self, Self::Error> {
         match id {
+            13 => Ok(Self::FieldLeader),
+            14 => Ok(Self::SetFieldLeader),
             15 => Ok(Self::SuppressTransitionFade),
             17 => Ok(Self::BattleCount),
             19 => Ok(Self::SetDoorInteractionRadius),
@@ -39,6 +47,47 @@ impl NativeHost<'_> {
     ) -> Result<NativeResult, String> {
         let mut value = None;
         match op {
+            NativeCall::PlayActorSound => {
+                require(
+                    self.world.audio_commands.len() < 512,
+                    "audio command queue is not being consumed",
+                )?;
+                let actor = if a[0] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[0]
+                };
+                self.world.actor_sound(
+                    actor,
+                    crate::AmbientSound {
+                        id: a[1] as i16,
+                        volume: if a[2] as u8 == 255 { 127 } else { a[2] as u8 },
+                        radius: a[3] as f32,
+                    },
+                );
+            }
+            NativeCall::ReadMappedInput => {
+                value = Some(
+                    self.world
+                        .input
+                        .read(a[0], a[1], self.world.mapped_input_disabled),
+                );
+            }
+            NativeCall::SetPlayerSize => {
+                self.world.player_size = if a[0] as u8 == 0 {
+                    crate::world::PlayerSize::Normal
+                } else {
+                    crate::world::PlayerSize::Small
+                };
+            }
+            NativeCall::RumbleController => {
+                self.world.rumble = Some(crate::rumble::Rumble::new(
+                    a[0],
+                    a[1],
+                    a[2] != 0,
+                    self.world.tick,
+                )?);
+            }
             NativeCall::GetCurrentField => {
                 value = Some(self.world.current_field.ok_or("field owner is missing")? as i32);
             }
@@ -90,6 +139,7 @@ impl NativeHost<'_> {
                     .ok_or("treasure opening animation is not cooked")?;
                 let id = i32::MIN + 1024 + self.world.treasures.len() as i32;
                 let mut actor = Actor::new(resource, [a[3] as f32, a[4] as f32, a[5] as f32]);
+                actor.radius = 50.;
                 actor.face(a[6] as f32);
                 actor.grounded = false;
                 actor.casts_shadow = false;
@@ -134,10 +184,10 @@ impl NativeHost<'_> {
             }
             NativeCall::ConfigureSceneryAnimation => {
                 let id = match a[0] {
-                    2 | 0xF423D => 0xF423D,
-                    3 | 0xF423E => 0xF423E,
+                    2 | SECOND_SCENERY => SECOND_SCENERY,
+                    3 | THIRD_SCENERY => THIRD_SCENERY,
                     4 | 0xF422C => 0xF422C,
-                    _ => 0xF423C,
+                    _ => MAIN_SCENERY,
                 };
                 require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
                 let (kind, resource) = self
@@ -180,6 +230,21 @@ impl NativeHost<'_> {
                     actor.scenery_animations.insert(a[1] as i8, animation);
                 }
             }
+            NativeCall::ClearSceneryAnimation => {
+                let id = match a[0] {
+                    2 => SECOND_SCENERY,
+                    3 => THIRD_SCENERY,
+                    _ => MAIN_SCENERY,
+                };
+                require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
+                if let Some(actor) = self.world.actors.get_mut(&id) {
+                    if a[1] == -1 {
+                        actor.animation = None;
+                    } else {
+                        actor.scenery_animations.remove(&(a[1] as i8));
+                    }
+                }
+            }
             NativeCall::SetActorAmbientSound => {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
                     actor.ambient_sound = (a[1] != -1).then_some(crate::AmbientSound {
@@ -194,16 +259,21 @@ impl NativeHost<'_> {
                 require(self.world.actors.len() < 4096, "actor limit exceeded")?;
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
                 actor.ring_station = true;
+                actor.visible = false;
                 actor.radius = 65.;
                 actor.grounded = false;
                 actor.casts_shadow = false;
                 actor.depth_write = false;
-                actor.properties.insert(8, 64);
-                actor.properties.insert(17, 5);
-                actor.properties.insert(39, -1);
+                actor.blend = Some(crate::effect::Blend::Additive);
+                actor.opacity = 64;
+                actor.interaction_label = 5;
+                actor.draw_layer = -1;
                 self.world.insert_actor(a[0], actor);
             }
-            NativeCall::CreateSavePoint => {
+            NativeCall::CreateSavePoint | NativeCall::CreateSealedSavePoint => {
+                let unlock_flag = (op == NativeCall::CreateSealedSavePoint).then_some(a[3] as u16);
+                let sealed =
+                    unlock_flag.is_some_and(|flag| !self.world.event_flags.contains(&flag));
                 let resource = resonance_content::field::SAVE_POINT_RESOURCE;
                 let model = self
                     .resources
@@ -225,6 +295,7 @@ impl NativeHost<'_> {
                 )?;
                 let position = [a[0] as f32, a[1] as f32, a[2] as f32];
                 let mut actor = Actor::new(resource, [position[0], position[1], position[2] + 10.]);
+                actor.contact = crate::ActorContact::None;
                 actor.grounded = false;
                 actor.collidable = false;
                 actor.casts_shadow = false;
@@ -234,12 +305,12 @@ impl NativeHost<'_> {
                     .names
                     .iter()
                     .enumerate()
-                    .filter(|(_, name)| name.starts_with("HID_"))
+                    .filter(|(_, name)| name.starts_with(if sealed { "LIVE_" } else { "HID_" }))
                     .map(|(i, _)| i as u16)
                     .collect();
                 let mut animation =
                     Animation::new(resource, slot::IDLE, idle.duration_ticks, self.world.tick);
-                animation.rate = 0.1; // Cooked poses use two ticks per authored model frame.
+                animation.rate = if sealed { 0. } else { 0.1 }; // Two ticks per authored frame.
                 actor.animation = Some(animation);
                 self.world.insert_actor(id, actor);
                 self.world.save_points.push(crate::SavePoint {
@@ -248,11 +319,31 @@ impl NativeHost<'_> {
                     resource,
                     born: self.world.tick,
                     active: false,
+                    unlock_flag,
                     glow_scale: 0.08,
                 });
             }
             NativeCall::Unknown92 => {
                 match FieldSystemCommand::try_from(a[0])? {
+                    FieldSystemCommand::FieldLeader => {
+                        value = Some(i32::from(
+                            self.world
+                                .party
+                                .as_ref()
+                                .ok_or("party is not initialized")?
+                                .field_leader,
+                        ));
+                    }
+                    FieldSystemCommand::SetFieldLeader => {
+                        require((1..=9).contains(&a[1]), "invalid field leader")?;
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        value = Some(i32::from(party.field_leader));
+                        party.field_leader = a[1] as u8;
+                    }
                     FieldSystemCommand::SuppressTransitionFade => {
                         // Suppress the implicit native
                         // transition fade. Our scene loader already leaves fades
@@ -374,6 +465,7 @@ impl NativeHost<'_> {
                 return Ok(NativeResult::Suspend);
             }
             NativeCall::ReturnFieldControl => {
+                self.world.mapped_input_disabled = false;
                 // Fade in the scene before returning field input.
                 let from = self
                     .world
@@ -436,6 +528,9 @@ impl NativeHost<'_> {
                         volume: a[1].clamp(0, 127) as u8,
                         duration_ticks: a[2].max(0) as u32,
                     },
+                    NativeCall::PlaySound if a[0] == -1 && a[3] != 255 => AudioCommand::StopSound(
+                        u16::try_from(a[3]).map_err(|_| "invalid sound slot")?,
+                    ),
                     _ => AudioCommand::Sound {
                         id: a[0] as i16,
                         volume: if op == NativeCall::PlaySound && a[2] != 255 {
@@ -453,7 +548,9 @@ impl NativeHost<'_> {
                 };
                 self.world.audio_commands.push(command);
             }
-            NativeCall::IsMappedInputDisabled => value = Some(i32::from(!self.world.input_enabled)),
+            NativeCall::IsMappedInputDisabled => {
+                value = Some(i32::from(self.world.mapped_input_disabled))
+            }
             NativeCall::MoveActorRelative => {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
                     if a[2] == 0 && a[3] == 0 {
@@ -476,6 +573,7 @@ impl NativeHost<'_> {
                             "actor movement has zero speed",
                         )?;
                         actor.motion = Some(crate::world::ActorMotion { target, speed });
+                        actor.set_movement_speed(speed);
                         if a[4] != 0 {
                             actor.appearance.fixed_heading.get_or_insert(actor.heading);
                         } else {
@@ -498,6 +596,7 @@ impl NativeHost<'_> {
                     };
                     require(speed > 0. || distance < 1., "actor movement has zero speed")?;
                     actor.motion = Some(crate::world::ActorMotion { target, speed });
+                    actor.set_movement_speed(speed);
                 }
             }
             NativeCall::SetActorOrientation => {
@@ -520,51 +619,210 @@ impl NativeHost<'_> {
                 require(a[0] != 0, "random modulo zero")?;
                 value = Some(self.world.random() as i32 % a[0]);
             }
-            NativeCall::CreateEffectObject => {
-                // Recipe zero is a rotating atlas billboard.
-                require(
-                    a[0] == 0 && a[12..] == [0, 0],
-                    "effect recipe is not implemented",
-                )?;
-                let direction = if self.world.tick & 1 == 0 { -3. } else { 3. };
-                let velocity = [a[5] as f32, a[6] as f32, a[7] as f32];
-                let length = velocity.iter().map(|x| x * x).sum::<f32>().sqrt();
-                let speed = (a[8] / 100) as f32;
-                let handle = self.world.emit_billboard(crate::effect::BillboardEffect {
-                    recipe: 0,
-                    born: self.world.tick,
-                    lifetime: u32::from(a[1] as u16),
-                    position: [a[2] as f32, a[3] as f32, a[4] as f32],
-                    velocity: velocity.map(|v| if length > 0. { v / length * speed } else { 0. }),
-                    rotation: [0.; 3],
-                    angular_velocity: [0., 0., direction],
-                    size: [a[9] as f32; 2],
-                    size_delta: 0.,
-                    rgba: [64, 64, 64, a[10] as u8],
-                    alpha_delta: a[11] as f32,
-                    blend_mode: None,
-                })?;
-                value = Some(handle);
+            NativeCall::CreateModelParticle => {
+                let resource = self.resolve(a[0], ResourceKind::Model)?;
+                value = Some(self.world.emit_model_particle(
+                    crate::model_particle::ModelParticle::from_native(resource, a),
+                )?);
             }
-            NativeCall::SetEffectProperty => {
-                require(
-                    matches!(a[1], 120..=128 | 132..=135 | 141..=143 | 145),
-                    "effect property is not implemented",
+            NativeCall::SetModelParticleProperty => {
+                self.world.set_model_particle_property(a[0], a[1], a[2])?;
+                value = Some(0);
+            }
+            NativeCall::CreateEffectEmitter => {
+                let emitter = crate::emitter::Emitter::from_native(
+                    a,
+                    self.world.effect_textures.get(&0).copied(),
                 )?;
-                if let Some(effect) = self.world.billboards.get_mut(&a[0]) {
-                    match a[1] {
-                        120..=122 => effect.position[(a[1] - 120) as usize] = a[2] as f32,
-                        123..=124 => effect.size[(a[1] - 123) as usize] = a[2] as f32,
-                        125..=128 => effect.rgba[(a[1] - 125) as usize] = a[2] as u8,
-                        132..=134 => {
-                            effect.angular_velocity[(a[1] - 132) as usize] = a[2] as f32 / 100.
-                        }
-                        135 => effect.size_delta = a[2] as f32 / 100.,
-                        141..=143 => effect.rotation[(a[1] - 141) as usize] = a[2] as f32 / 100.,
-                        145 => effect.blend_mode = Some(a[2] as u8 & 3),
-                        _ => unreachable!(),
+                let resource = if a[4] == 0 || a[5] == 47 {
+                    0
+                } else {
+                    self.resolve(a[4], ResourceKind::Model)?
+                };
+                let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
+                // Recipe 46 keeps its model solely for independent afterimages.
+                actor.visible = resource != 0 && a[5] != 46;
+                actor.contact = crate::ActorContact::None;
+                actor.collidable = false;
+                actor.grounded = false;
+                actor.casts_shadow = false;
+                actor.emitter = Some(emitter);
+                actor.set_movement_speed(a[7] as f32);
+                self.world.insert_actor(a[0], actor);
+            }
+            NativeCall::BindEffectTexture => {
+                require(
+                    (0..8).contains(&a[0]) && (0..256).contains(&a[2]),
+                    "invalid effect texture binding",
+                )?;
+                let resource = self.resolve(a[1], ResourceKind::Overlay)?;
+                self.world
+                    .effect_textures
+                    .insert(a[0] as u8, (resource, a[2] as u8));
+            }
+            NativeCall::CreateEffectObject | NativeCall::CreateParticle => {
+                use crate::effect::{
+                    BillboardController, BillboardEffect, Blend, CAMERA_DISC_SPRITE,
+                    ELECTRIC_ARC_SPRITE, ELECTRIC_SPARK_SPRITE, Fade, Flutter, GLOW_SPRITE,
+                    ORB_SPRITE, RING_SPRITE, RefractionImage, RefractionPulse, SEAL_SPARK_SPRITE,
+                    SEAL_STAR_SPRITE, SPINNING_STAR_SPRITE, STAR_SPRITE, STATION_GLOW_SPRITE,
+                    SpriteOrientation, WORLD_GLOW_SPRITE,
+                };
+                use resonance_content::effect::{
+                    SMOKE_UPDATES,
+                    sprite::{DEBRIS_SPRITES, SMOKE_SPRITE, STREAK_SPRITE},
+                };
+                const IMPACT_GLOW: u16 = 2;
+                const CAMERA_RIPPLE: u16 = 27;
+                const WORLD_RIPPLE: u16 = 28;
+                const BOUND_SPRITES: std::ops::Range<u16> = 32..40;
+                const CAMERA_RING: u16 = 40;
+                const FALLING_SPARK: u16 = 43;
+                const IMPACT_FLARE: u16 = 49;
+                let directed = op == NativeCall::CreateEffectObject;
+                let kind = u16::try_from(a[0]).map_err(|_| "invalid effect recipe")?;
+                let [size, alpha, fade, palette, parameter] =
+                    a[8 + usize::from(directed)..].try_into().unwrap();
+                require(
+                    (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32).contains(&palette)
+                        && (!directed
+                            || matches!(kind, WORLD_GLOW_SPRITE | SPINNING_STAR_SPRITE)
+                            || parameter == 0),
+                    "invalid effect palette or parameter",
+                )?;
+                let lifetime = if a[1] as i16 == i16::MAX {
+                    u32::MAX
+                } else {
+                    u32::from(a[1] as u16) + 1
+                };
+                let velocity = [a[5] as f32, a[6] as f32, a[7] as f32];
+                let mut particle = BillboardEffect {
+                    recipe: kind,
+                    texture_phase: 0,
+                    palette: Some(palette as u16),
+                    born: self.world.tick + 1,
+                    lifetime,
+                    position: [a[2] as f32, a[3] as f32, a[4] as f32],
+                    velocity: if directed {
+                        let speed = (a[8] / 100) as f32;
+                        crate::effect::emission::normalized(velocity).map(|v| v * speed)
+                    } else {
+                        velocity
+                    },
+                    size: [size as f32; 2],
+                    rgba: [64, 64, 64, alpha as u8],
+                    fade: if fade == 0 {
+                        Fade::tail(lifetime)
+                    } else {
+                        Fade::Linear(fade as f32)
+                    },
+                    ..Default::default()
+                };
+                let spin = if self.world.effect_tick & 1 == 0 {
+                    -3.
+                } else {
+                    3.
+                };
+                match kind {
+                    GLOW_SPRITE if directed => particle.angular_velocity[2] = spin,
+                    IMPACT_GLOW if directed => {
+                        particle.recipe = GLOW_SPRITE;
+                        particle.blend = Some(Blend::Additive);
+                        particle.rgba[..3].copy_from_slice(&[255, 10, 10]);
+                        particle.angular_velocity[2] = spin;
                     }
+                    SMOKE_SPRITE if directed => {
+                        particle.lifetime = lifetime.min(SMOKE_UPDATES);
+                        particle.rotation[2] = (self.world.effect_tick & 127) as f32;
+                        particle.angular_velocity[2] = spin;
+                    }
+                    _ if directed && BOUND_SPRITES.contains(&kind) => {
+                        particle.recipe = ORB_SPRITE;
+                        let slot = (kind - BOUND_SPRITES.start) as u8;
+                        particle.texture = Some(
+                            *self
+                                .world
+                                .effect_textures
+                                .get(&slot)
+                                .ok_or("sprite texture slot is not bound")?,
+                        );
+                        particle.blend = Some(Blend::Alpha);
+                        particle.uv = Some([0., 0., 254. / 256., 254. / 256.]);
+                        if slot == 7 {
+                            particle.uv = Some([0., 0., 31. / 256., 254. / 256.]);
+                            particle.controller = Some(BillboardController::TextureStrip {
+                                columns: 8,
+                                ticks: 8,
+                            });
+                        }
+                    }
+                    STREAK_SPRITE if directed => particle.size[1] /= 6.,
+                    SEAL_SPARK_SPRITE if directed => {}
+                    STATION_GLOW_SPRITE if !directed => {}
+                    CAMERA_DISC_SPRITE | CAMERA_RING => particle.recipe = WORLD_GLOW_SPRITE,
+                    WORLD_GLOW_SPRITE => {
+                        particle.orientation = SpriteOrientation::World;
+                        particle.angular_velocity[0] = parameter as f32;
+                    }
+                    RING_SPRITE => particle.orientation = SpriteOrientation::World,
+                    STAR_SPRITE => particle.rotation[2] = 45.,
+                    SPINNING_STAR_SPRITE => {
+                        particle.rotation[2] = (self.world.effect_tick & 127) as f32;
+                        particle.angular_velocity[2] = parameter as f32;
+                    }
+                    FALLING_SPARK if directed => {
+                        let Some(crate::ParticleKind::Flutter(recipe)) =
+                            self.resources.particles.get(&25)
+                        else {
+                            return Err("falling spark motion recipe is not cooked".into());
+                        };
+                        // Choose the motion on its first update, after all births
+                        // in this script update have consumed their own randomness.
+                        let flutter = Flutter::pending(recipe);
+                        particle.recipe = SEAL_STAR_SPRITE;
+                        particle.orientation = SpriteOrientation::World;
+                        particle.rotation = [0.; 3];
+                        particle.velocity = [0.; 3];
+                        particle.controller = Some(BillboardController::Flutter(flutter));
+                    }
+                    IMPACT_FLARE if directed => {
+                        particle.recipe = SEAL_STAR_SPRITE;
+                        particle.uv = Some([192., 0., 254., 62.].map(|v| v / 256.));
+                    }
+                    CAMERA_RIPPLE | WORLD_RIPPLE => {
+                        require(parameter == 0, "invalid refraction parameter")?;
+                        let handle = self.world.emit_refraction(RefractionPulse {
+                            draw_order: 0,
+                            operation: None,
+                            owner: None,
+                            image: RefractionImage::Ripple,
+                            palette: palette as u8,
+                            orientation: if kind == WORLD_RIPPLE {
+                                SpriteOrientation::World
+                            } else {
+                                SpriteOrientation::Camera
+                            },
+                            rotation: [0.; 3],
+                            position: particle.position,
+                            velocity: particle.velocity,
+                            born: particle.born,
+                            lifetime,
+                            size: size as f32,
+                            growth: 0.,
+                            alpha: alpha as u8 as f32,
+                            fade: particle.fade,
+                        })?;
+                        return Ok(NativeResult::Continue(Some(handle)));
+                    }
+                    ORB_SPRITE | ELECTRIC_SPARK_SPRITE | ELECTRIC_ARC_SPRITE => {}
+                    _ if DEBRIS_SPRITES.contains(&kind) => {}
+                    _ => return Err("effect recipe is not implemented".into()),
                 }
+                value = Some(self.world.emit_billboard(particle)?);
+            }
+
+            NativeCall::SetEffectProperty => {
+                self.world.set_effect_property(a[0], a[1], a[2])?;
                 value = Some(0);
             }
             NativeCall::SetActorAnimationProperty => {
@@ -649,8 +907,16 @@ impl NativeHost<'_> {
                         .map_or(-1, |index| index as i32),
                 );
             }
-            NativeCall::ConfigureActorAttachment | NativeCall::ConfigureActorBoneTranslation => {
-                // Add a timed rotation to one bone controller.
+            NativeCall::ConfigureActorBoneRotation => {
+                return self.field(
+                    NativeCall::ConfigureActorAttachment,
+                    &[a[0], a[1], a[2], a[3], a[4], a[5], 30],
+                    _memory,
+                );
+            }
+            NativeCall::ConfigureActorAttachment
+            | NativeCall::ConfigureActorBoneTranslation
+            | NativeCall::ConfigureActorBoneScale => {
                 if a[2] != -1
                     && let Some(actor) = self.world.actors.get_mut(&a[0])
                 {
@@ -662,7 +928,7 @@ impl NativeHost<'_> {
                         .and_then(|m| m.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("bone adjustment target is not cooked")?
                         .clone();
-                    if op == NativeCall::ConfigureActorBoneTranslation {
+                    if op != NativeCall::ConfigureActorAttachment {
                         let adjustment = actor
                             .appearance
                             .bone_adjustments
@@ -675,15 +941,26 @@ impl NativeHost<'_> {
                                 duration_ticks: 1,
                                 start_tick: self.world.tick,
                                 translation: None,
+                                scale: None,
                             });
-                        let from = adjustment.translation(self.world.tick);
                         adjustment.bone = crate::BoneTarget::Name(bone);
-                        adjustment.translation = Some(crate::world::BoneTranslation {
-                            from,
-                            to: [a[3] as f32, a[4] as f32, a[5] as f32],
-                            duration_ticks: (a[6] as u32).max(1),
-                            start_tick: self.world.tick,
-                        });
+                        let target = [a[3] as f32, a[4] as f32, a[5] as f32];
+                        if op == NativeCall::ConfigureActorBoneScale {
+                            const SCALE_PERCENT: f32 = 100.;
+                            adjustment.scale = Some(crate::BoneScale::new(
+                                adjustment.scale.as_ref(),
+                                target.map(|v| v / SCALE_PERCENT),
+                                a[6] as u32,
+                                self.world.tick,
+                            ));
+                        } else {
+                            adjustment.translation = Some(crate::world::BoneTranslation {
+                                from: adjustment.translation(self.world.tick),
+                                to: target,
+                                duration_ticks: (a[6] as u32).max(1),
+                                start_tick: self.world.tick,
+                            });
+                        }
                     } else {
                         adjust_bone(
                             actor,
@@ -698,23 +975,32 @@ impl NativeHost<'_> {
             }
             NativeCall::MotionCommand => self.camera_path(a)?,
             NativeCall::AttachActorToMember => {
+                let resolve = |id| {
+                    if id == crate::CONTROLLED_ACTOR {
+                        self.world.controlled_actor
+                    } else {
+                        id
+                    }
+                };
+                let child = resolve(a[0]);
+                let parent = resolve(a[1]);
                 if a[2] == -1 {
-                    if let Some(actor) = self.world.actors.get_mut(&a[0]) {
+                    if let Some(actor) = self.world.actors.get_mut(&child) {
                         actor.attachment = None;
                     }
-                } else if let Some(owner) = self.world.actors.get(&a[1]) {
+                } else if let Some(owner) = self.world.actors.get(&parent) {
                     let bone = self
                         .resources
                         .model(owner.resource)
                         .and_then(|model| model.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("attachment bone is not cooked")?
                         .clone();
-                    let mut ancestor = Some(a[1]);
+                    let mut ancestor = Some(parent);
                     for _ in 0..=self.world.actors.len() {
                         let Some(id) = ancestor else {
                             break;
                         };
-                        require(id != a[0], "actor attachment cycle")?;
+                        require(id != child, "actor attachment cycle")?;
                         ancestor = self
                             .world
                             .actors
@@ -722,29 +1008,37 @@ impl NativeHost<'_> {
                             .and_then(|actor| actor.attachment.as_ref())
                             .map(|a| a.actor);
                     }
-                    if let Some(actor) = self.world.actors.get_mut(&a[0]) {
-                        actor.attachment = Some(Attachment { actor: a[1], bone });
+                    if let Some(actor) = self.world.actors.get_mut(&child) {
+                        actor.attachment = Some(Attachment {
+                            actor: parent,
+                            bone,
+                        });
                     }
                 }
             }
             NativeCall::MeasureActorGeometry => {
                 // Arguments are operation, first actor, second actor.
                 require((0..=3).contains(&a[0]), "unknown actor geometry query")?;
-                value = Some(
-                    match (self.world.actors.get(&a[1]), self.world.actors.get(&a[2])) {
-                        (Some(first), Some(second)) => {
-                            let d: [f32; 3] =
-                                std::array::from_fn(|i| second.position[i] - first.position[i]);
-                            match a[0] {
-                                0 => d[0].atan2(-d[1]).to_degrees().rem_euclid(360.) as i32,
-                                1 => d[0].hypot(d[1]) as i32,
-                                2 => d[2] as i32,
-                                _ => d[0].hypot(d[1]).hypot(d[2]) as i32,
-                            }
+                let actor = |id| {
+                    self.world.actors.get(&match id {
+                        crate::CONTROLLED_ACTOR => self.world.controlled_actor,
+                        crate::ring::SCRIPT_ACTOR => self.world.ring.bomb()?,
+                        _ => id,
+                    })
+                };
+                value = Some(match (actor(a[1]), actor(a[2])) {
+                    (Some(first), Some(second)) => {
+                        let d: [f32; 3] =
+                            std::array::from_fn(|i| second.position[i] - first.position[i]);
+                        match a[0] {
+                            0 => d[0].atan2(-d[1]).to_degrees().rem_euclid(360.) as i32,
+                            1 => d[0].hypot(d[1]) as i32,
+                            2 => d[2] as i32,
+                            _ => d[0].hypot(d[1]).hypot(d[2]) as i32,
                         }
-                        _ => 0,
-                    },
-                );
+                    }
+                    _ => 0,
+                });
             }
             NativeCall::SetActorFace | NativeCall::SetActorMouth => {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
@@ -764,7 +1058,13 @@ impl NativeHost<'_> {
                     }
                 }
             }
-            NativeCall::ConfigureActorHeadNeck => {
+            NativeCall::ConfigureActorHeadNeck | NativeCall::TurnActorHead => {
+                const HEAD_TURN_TICKS: i32 = 30;
+                let duration = if op == NativeCall::TurnActorHead {
+                    HEAD_TURN_TICKS
+                } else {
+                    a[6]
+                };
                 // Drive neck and head with two independent additive bone controllers.
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
                     let names = &self
@@ -778,13 +1078,13 @@ impl NativeHost<'_> {
                     {
                         for (slot, bone) in [(a[1], "Bone_kubi"), (a[2], "Bone_atama")] {
                             require((0..8).contains(&slot), "invalid bone controller slot")?;
-                            require(a[6] >= 0, "negative bone adjustment duration")?;
+                            require(duration >= 0, "negative bone adjustment duration")?;
                             adjust_bone(
                                 actor,
                                 slot as u8,
                                 bone.into(),
                                 [(a[3] / 2) as f32, (a[5] / 2) as f32, (a[4] / 2) as f32],
-                                a[6] as u32,
+                                duration as u32,
                                 self.world.tick,
                             );
                         }
@@ -813,60 +1113,27 @@ impl NativeHost<'_> {
                 if a[0] == crate::CONTROLLED_ACTOR {
                     return Ok(NativeResult::Continue(None));
                 }
-                require(self.world.actors.len() < 4096, "actor limit exceeded")?;
-                let locator = self.resources.locators.contains(&a[10]);
-                let resource = if locator {
-                    a[10] as u32
-                } else {
-                    self.resolve(a[10], ResourceKind::Model)?
-                };
-                let mut actor = Actor::new(resource, [a[3] as f32, a[4] as f32, a[5] as f32]);
-                actor.face(a[6] as f32);
-                actor.visible = !locator;
-                actor.radius = 32.;
-                actor.turn_speed = 10.;
-                actor.properties.insert(17, 6);
-                let behavior = match a[11] as u8 {
-                    0 => crate::Behavior::WanderNearHome,
-                    1 | 2 => crate::Behavior::Wander,
-                    3 => crate::Behavior::FollowPath,
-                    4 | 5 => crate::Behavior::ApproachPlayer,
-                    6 => crate::Behavior::RandomPath,
-                    _ => crate::Behavior::Wander,
-                };
-                actor.autonomy = Some(crate::Autonomy::new(
-                    behavior,
-                    a[7].max(0) as f32,
-                    actor.position,
-                ));
-                actor.autonomy.as_mut().unwrap().radius = a[14] as f32;
-                actor.enemy = Some(crate::world::Enemy {
-                    event: a[9] as u16,
-                    behavior: a[11] as u8,
-                    normal_speed: a[7].max(0) as f32,
-                    alert_speed: a[8].max(0) as f32,
-                    random_turns: a[12] as u8 != 0,
-                    chase_on_sight: a[13] as u8 != 0,
-                    sight_angle: 180.,
-                    sight_distance: 600.,
-                    event_parameters: [a[1] as i16, a[2] as i16],
-                    contact_cooldown: 0,
-                });
-                if let Some(model) = self.resources.model(resource) {
-                    actor
-                        .appearance
-                        .hidden_nodes
-                        .clone_from(&model.hidden_nodes);
-                    if let Some(clip) = model.clips.get(&slot::IDLE) {
-                        actor.animation = Some(Animation::new(
-                            resource,
-                            slot::IDLE,
-                            clip.duration_ticks,
-                            self.world.tick,
-                        ));
-                    }
-                }
+                let actor = self.enemy_actor(a)?;
                 self.world.insert_actor(a[0], actor);
+            }
+            NativeCall::CreateEnemySource => {
+                if a[1] == crate::CONTROLLED_ACTOR {
+                    return Ok(NativeResult::Continue(None));
+                }
+                let enemy = self.enemy_actor(&a[1..17])?;
+                let mut source = Actor::new(enemy.resource, enemy.position);
+                source.contact = crate::ActorContact::None;
+                source.face(enemy.heading);
+                source.animation = enemy.animation.clone();
+                source.grounded = false;
+                source.collidable = false;
+                source.casts_shadow = false;
+                source.visible = false;
+                source.interaction_label = 0;
+                source.enemy_source = Some(crate::enemy_source::EnemySource::new(
+                    a[1], enemy, a[17], a[18],
+                )?);
+                self.world.insert_actor(a[0], source);
             }
             NativeCall::SpawnActor
             | NativeCall::SpawnCollisionActor
@@ -878,17 +1145,25 @@ impl NativeHost<'_> {
                         a[5]
                     };
                     if (-299..=-100).contains(&a[0]) && self.world.actors.contains_key(&target) {
-                        require((0..=19).contains(&a[4]), "unknown emote recipe")?;
-                        require(self.world.emotes.len() < 200, "emote limit exceeded")?;
-                        // Every controller initializes immediately, even when its
-                        // animation does not use the random phase.
-                        let phase = (self.world.random() & 31) as u8;
+                        let kind = crate::emote::Kind::try_from(a[4])?;
+                        let draw_order = self.world.emotes.get(&a[0]).map_or_else(
+                            || {
+                                (0..200)
+                                    .find(|order| {
+                                        self.world.emotes.values().all(|e| e.draw_order != *order)
+                                    })
+                                    .ok_or("emote limit exceeded")
+                            },
+                            |previous| Ok(previous.draw_order),
+                        )?;
+                        let phase = kind.phase(self.world.effect_tick, self.world.random());
                         self.world.emotes.insert(
                             a[0],
                             Emote {
-                                actor: target,
-                                kind: a[4] as u16,
+                                draw_order,
                                 phase,
+                                actor: target,
+                                kind,
                                 offset: [a[1] as f32, a[2] as f32, a[3] as f32],
                                 start_tick: self.world.tick,
                                 duration: (a[7] != -1).then_some(a[7].max(0) as u32),
@@ -905,7 +1180,7 @@ impl NativeHost<'_> {
                 let resource = if locator {
                     a[5] as u32
                 } else {
-                    self.resolve(a[5], ResourceKind::Model)?
+                    self.resolve(if a[5] == 0 { 1 } else { a[5] }, ResourceKind::Model)?
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
                 if self.world.field_camera.is_some() {
@@ -936,7 +1211,10 @@ impl NativeHost<'_> {
                 actor.face(a[4] as f32);
                 actor.visible = !locator;
                 actor.interaction_anchor = locator;
-                actor.properties.insert(17, if locator { 0 } else { 2 });
+                actor.interaction_label = if locator { 0 } else { 2 };
+                if locator && op == NativeCall::SpawnActor {
+                    actor.ring_contact_disabled = true;
+                }
                 if op != NativeCall::SpawnActor {
                     // Scenery carries its own collision
                     // mesh and bypasses character grounding, shadows and culling.
@@ -944,8 +1222,22 @@ impl NativeHost<'_> {
                     actor.collidable = false;
                     actor.casts_shadow = false;
                     actor.cull_outside_view = false;
-                    actor.properties.insert(14, 1);
+                    actor.culling_flags = [None, Some(true)];
                     actor.appearance.model_hidden = op == NativeCall::SpawnCollisionActor;
+                    if op == NativeCall::SpawnSceneryActor {
+                        const BLOCK_RADIUS: f32 = 50.;
+                        const GRAB_HINT: i32 = 20;
+                        actor.pushable = true;
+                        actor.radius = BLOCK_RADIUS;
+                        actor.interaction_label = GRAB_HINT;
+                    }
+                    actor.model_collision = Some(
+                        self.resources
+                            .model(resource)
+                            .ok_or("collision model is missing")?
+                            .collision
+                            .clone(),
+                    );
                 }
                 if let Some(clip) = self
                     .resources
@@ -953,7 +1245,6 @@ impl NativeHost<'_> {
                     .and_then(|m| m.clips.get(&crate::animation::slot::IDLE))
                 {
                     actor.animation = Some(Animation {
-                        binding_updates: u32::from(self.world.field_camera.is_some()),
                         ..Animation::new(
                             resource,
                             crate::animation::slot::IDLE,
@@ -962,12 +1253,33 @@ impl NativeHost<'_> {
                         )
                     });
                 }
-                self.world.insert_actor(a[0], actor);
+                // Authored wing slots select the profile once, at the script boundary.
+                match a[0] {
+                    crate::wings::AUTOMATIC_WINGS | 90023..=90025 => {
+                        actor.set_wings(crate::WingStyle::Layered)
+                    }
+                    90022 => actor.set_wings(crate::WingStyle::Feathered),
+                    90026 => actor.set_wings(crate::WingStyle::Echo),
+                    90027 | 90028 => {
+                        actor.grounded = false;
+                        actor.collidable = false;
+                        actor.casts_shadow = false;
+                        actor.scripted_animation = true;
+                        if let Some(animation) = &mut actor.animation {
+                            animation.start_frame = 1.;
+                        }
+                    }
+                    _ => {}
+                }
+                let id = if a[0] == 0 {
+                    self.world.unaddressable_actor_key()?
+                } else {
+                    a[0]
+                };
+                self.world.insert_actor(id, actor);
             }
             NativeCall::DespawnActor => {
-                self.world.actors.remove(&a[0]);
-                self.world.overlays.remove(&a[0]);
-                self.world.emotes.remove(&a[0]);
+                self.world.despawn_scene_actors(a[0], self.resources);
             }
             NativeCall::SetActorHeading => {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
@@ -1000,6 +1312,11 @@ impl NativeHost<'_> {
                     .map_err(|e| e.to_string())?;
                 }
             }
+            NativeCall::TriggerExists => {
+                value = Some(i32::from(self.world.triggers.iter().any(|trigger| {
+                    trigger.kind() as i16 == a[0] as i16 && trigger.key == a[1] as u32
+                })));
+            }
             NativeCall::RemoveAutomaticEventTriggers
             | NativeCall::RemoveTouchTriggers
             | NativeCall::RemoveConfirmedTriggers => {
@@ -1014,6 +1331,9 @@ impl NativeHost<'_> {
             }
             NativeCall::CreateScriptRecord
             | NativeCall::CreateAutomaticEventTrigger
+            | NativeCall::CreateCircleTrigger
+            | NativeCall::CreateAutomaticCircleTrigger
+            | NativeCall::CreateConfirmedCircleTrigger
             | NativeCall::CreateTriangleTrigger
             | NativeCall::CreateScriptRecordVariant
             | NativeCall::CreateAreaTrigger
@@ -1026,12 +1346,19 @@ impl NativeHost<'_> {
                 let confirmed = matches!(
                     op,
                     NativeCall::CreateScriptRecordVariant
+                        | NativeCall::CreateConfirmedCircleTrigger
                         | NativeCall::CreateConfirmedTriangleTrigger
                         | NativeCall::CreateConfirmedAreaTrigger
                 );
                 let offset = if confirmed { 4 } else { 1 };
                 let point = |i| std::array::from_fn(|axis| a[offset + i * 3 + axis] as i16 as f32);
                 let shape = match op {
+                    NativeCall::CreateCircleTrigger
+                    | NativeCall::CreateAutomaticCircleTrigger
+                    | NativeCall::CreateConfirmedCircleTrigger => crate::TriggerShape::Circle {
+                        center: point(0),
+                        radius: a[offset + 3] as i16 as f32,
+                    },
                     NativeCall::CreateAreaTrigger | NativeCall::CreateConfirmedAreaTrigger => {
                         crate::TriggerShape::Quad(std::array::from_fn(point))
                     }
@@ -1041,9 +1368,22 @@ impl NativeHost<'_> {
                     }
                     _ => crate::TriggerShape::Line(std::array::from_fn(point)),
                 };
+                const RING_BARRIER_KEYS: std::ops::Range<i32> = 0..100;
                 self.world.triggers.push(Trigger {
+                    activations: 0,
+                    ring_barrier: !confirmed
+                        && RING_BARRIER_KEYS.contains(&a[0])
+                        && !matches!(
+                            op,
+                            NativeCall::CreateAutomaticEventTrigger
+                                | NativeCall::CreateAutomaticCircleTrigger
+                        ),
                     key: a[0] as u32,
-                    automatic_event: op == NativeCall::CreateAutomaticEventTrigger,
+                    automatic_event: matches!(
+                        op,
+                        NativeCall::CreateAutomaticEventTrigger
+                            | NativeCall::CreateAutomaticCircleTrigger
+                    ),
                     shape,
                     height: a[a.len() - 1] as i16 as f32,
                     transition: confirmed
@@ -1074,12 +1414,16 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::DisableMappedInput => {
+                self.world.mapped_input_disabled = true;
                 self.world.input_enabled = false;
                 if let Some(actor) = self.world.actors.get_mut(&self.world.controlled_actor) {
                     actor.motion = None;
                 }
             }
-            NativeCall::EnableMappedInput => self.world.input_enabled = true,
+            NativeCall::EnableMappedInput => {
+                self.world.mapped_input_disabled = false;
+                self.world.input_enabled = true;
+            }
             NativeCall::SetEventBit | NativeCall::ClearEventBit | NativeCall::TestEventBit => {
                 require(
                     (0..2048).contains(&a[0]),
@@ -1148,6 +1492,13 @@ impl NativeHost<'_> {
             NativeCall::ReleaseScriptResource => {
                 self.world.loaded_resources.remove(&a[0]);
                 value = Some(0);
+            }
+            NativeCall::ShakeCamera => {
+                self.world
+                    .field_camera
+                    .get_or_insert_default()
+                    .shake
+                    .configure(a[0] as f32, a[1] as u16, a[2]);
             }
             NativeCall::SelectCamera => {
                 require(
@@ -1262,7 +1613,7 @@ impl NativeHost<'_> {
                 rig.target_settled = false;
             }
             NativeCall::ConfigureCameraAuxiliary => {
-                // Configure GX fog: mode 1 selects exponential
+                // Configure GX fog: mode 1 selects exponential-squared
                 // perspective fog (GX type 5), all other modes disable it.
                 let rig = self.world.field_camera.get_or_insert_default();
                 rig.command_camera().fog = (a[0] == 1).then_some(crate::camera::Fog {
@@ -1297,6 +1648,7 @@ fn adjust_bone(
     let adjustments = &mut actor.appearance.bone_adjustments;
     let from = adjustments.get(&slot).map_or([0.; 3], |a| a.sample(tick));
     let translation = adjustments.get(&slot).and_then(|a| a.translation.clone());
+    let scale = adjustments.get(&slot).and_then(|a| a.scale.clone());
     adjustments.insert(
         slot,
         BoneAdjustment {
@@ -1307,6 +1659,7 @@ fn adjust_bone(
             duration_ticks: duration.max(1),
             start_tick: tick,
             translation,
+            scale,
         },
     );
 }
@@ -1367,4 +1720,59 @@ fn camera_property(rig: &mut CameraRig, prop: i32, v: i32) -> Result<i32, String
             }
         }
     })
+}
+
+impl NativeHost<'_> {
+    fn enemy_actor(&self, a: &[i32]) -> Result<Actor, String> {
+        require(self.world.actors.len() < 4096, "actor limit exceeded")?;
+        let locator = self.resources.locators.contains(&a[10]);
+        let resource = if locator {
+            a[10] as u32
+        } else {
+            self.resolve(a[10], ResourceKind::Model)?
+        };
+        let mut actor = Actor::new(resource, [a[3] as f32, a[4] as f32, a[5] as f32]);
+        actor.face(a[6] as f32);
+        actor.visible = !locator;
+        actor.radius = 32.;
+        actor.turn_speed = 10.;
+        // Native B6=6 selects enemy contact; B4 (property 17) is the action
+        // label and remains zero. Enemies are not ordinary action targets.
+        let behavior = crate::Behavior::enemy(a[11] as u8);
+        actor.autonomy = Some(crate::Autonomy::new(
+            behavior,
+            a[7].max(0) as f32,
+            actor.position,
+        ));
+        actor.autonomy.as_mut().unwrap().radius = a[14] as f32;
+        actor.enemy = Some(crate::world::Enemy {
+            event: a[9] as u16,
+            behavior: a[11] as u8,
+            normal_speed: a[7].max(0) as f32,
+            alert_speed: a[8].max(0) as f32,
+            random_turns: a[12] as u8,
+            chase_on_sight: a[13] as u8 != 0,
+            sight_angle: 90.,
+            sight_distance: 600.,
+            alerted: false,
+            event_parameters: [a[1] as i16, a[2] as i16],
+            pause_ticks: 0,
+            reaction: crate::effect::StunEffect::None,
+        });
+        if let Some(model) = self.resources.model(resource) {
+            actor
+                .appearance
+                .hidden_nodes
+                .clone_from(&model.hidden_nodes);
+            if let Some(clip) = model.clips.get(&slot::IDLE) {
+                actor.animation = Some(Animation::new(
+                    resource,
+                    slot::IDLE,
+                    clip.duration_ticks,
+                    self.world.tick,
+                ));
+            }
+        }
+        Ok(actor)
+    }
 }

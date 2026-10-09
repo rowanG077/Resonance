@@ -38,7 +38,6 @@ pub(super) fn advance_clock(
     loading: Option<Res<super::loading::Pending>>,
     resident: Option<Res<super::loading::Resident>>,
     mut session: Option<ResMut<super::new_game::Session>>,
-    pause: Option<Res<super::PresentationPause>>,
 ) {
     // Presentation age continues across movies and title entries;
     // pure loading waits do not advance it.
@@ -50,7 +49,6 @@ pub(super) fn advance_clock(
                 && s.events().world.world_transition.is_none()
         })
         && ready.0
-        && pause.is_none_or(|p| !p.0)
         && recording.is_none_or(|r| r.started)
         && (boot.active() || !movie.active || movie.is_presenting())
     {

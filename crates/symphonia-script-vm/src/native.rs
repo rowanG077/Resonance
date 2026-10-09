@@ -87,6 +87,31 @@ impl<H> NativeBindings<H> {
             .declaration = Some(declaration);
         bindings
     }
+    /// Allocate a host-local opcode; authored source names and handlers stay together.
+    pub const fn function(
+        self,
+        name: &'static str,
+        parameters: &'static [symphonia_script::authored::Type],
+        result: Option<symphonia_script::authored::Type>,
+        suspends: bool,
+        handler: NativeHandler<H>,
+    ) -> Self {
+        let mut opcode = 0;
+        while opcode < self.entries.len() && self.entries[opcode].is_some() {
+            opcode += 1;
+        }
+        assert!(opcode < self.entries.len(), "native binding table is full");
+        self.register_typed(
+            NativeDeclaration {
+                name,
+                opcode: opcode as u8,
+                parameters,
+                result,
+                suspends,
+            },
+            handler,
+        )
+    }
     pub fn declarations(&self) -> impl Iterator<Item = NativeDeclaration> + '_ {
         self.entries
             .iter()

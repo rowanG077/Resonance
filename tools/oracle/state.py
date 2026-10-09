@@ -2,11 +2,11 @@
 """Read named title observations from a Dolphin 2606 checkpoint; never execute it.
 
 Header layout: Dolphin 2606 Source/Core/Core/State.h and State.cpp.
-Game offsets: fn_80072AD8.c, fn_800708C8.c and their original symbols.
 This development tool is independent of the Resonance runtime.
 """
 import argparse
 import ctypes
+import copy
 import ctypes.util
 import hashlib
 import json
@@ -15,31 +15,80 @@ from pathlib import Path
 import struct
 
 
+def digest(path):
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+class State:
+    """Decoded checkpoint, shared by observations and isolated renderer fixtures."""
+    def __init__(self, path, library=None):
+        self.path = Path(path)
+        self.data = self.path.read_bytes()
+        data = self.data
+        if len(data) < 48 or data[:6] != b'GQSEAF':
+            raise ValueError('expected a GQSEAF Dolphin state')
+        cookie, length = struct.unpack_from('<II', data, 24)
+        if cookie != 0xBAADBABE + 191 or not 1 <= length <= 256:
+            raise ValueError('only the pinned Dolphin 2606 state version is supported')
+        self.header = 32 + length
+        self.version = data[32:self.header].rstrip(b'\0').decode('utf-8')
+        header, compression, extra, size, packed = struct.unpack_from('<HHIQI', data, self.header)
+        if (header != 1 or compression != 1 or extra != 0
+                or not 0 < size <= 256 * 1024 * 1024 or self.header + 20 + packed != len(data)):
+            raise ValueError('unsupported or truncated single-block state')
+        self.codec = ctypes.CDLL(library or ctypes.util.find_library('lz4') or 'liblz4.so.1')
+        for name in ['LZ4_decompress_safe', 'LZ4_compress_default']:
+            fn = getattr(self.codec, name)
+            fn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+            fn.restype = ctypes.c_int
+        self.raw = bytearray(size)
+        buffer = (ctypes.c_char * size).from_buffer(self.raw)
+        if self.codec.LZ4_decompress_safe(data[self.header+20:], buffer, packed, size) != size:
+            raise ValueError('corrupt compressed state')
+        candidates, at = [], 0
+        while (at := self.raw.find(b'GQSEAF', at)) >= 0:
+            if (self.raw[at+28:at+32] == bytes.fromhex('c2339f3d')
+                    and self.raw[at+40:at+44] == bytes.fromhex('01800000')
+                    and at + 0x1800000 <= len(self.raw)):
+                candidates.append(at)
+            at += 1
+        if len(candidates) != 1:
+            raise ValueError('cannot uniquely locate main memory')
+        self.ram_offset = candidates[0]
+        self.sha256 = hashlib.sha256(data).hexdigest()
+        self.changes = []
+
+    @property
+    def ram(self):
+        return memoryview(self.raw)[self.ram_offset:self.ram_offset+0x1800000]
+
+    def fork(self):
+        state = copy.copy(self)
+        state.raw = self.raw.copy()
+        state.changes = []
+        return state
+
+    def read(self, address, fmt='I'):
+        return struct.unpack_from('>' + fmt, self.ram, address & 0x1FFFFFF)[0]
+
+    def write(self, address, fmt, value):
+        before = self.read(address, fmt)
+        struct.pack_into('>' + fmt, self.ram, address & 0x1FFFFFF, value)
+        self.changes.append([hex(address), fmt, before, value])
+
+    def save(self, path):
+        raw = (ctypes.c_char * len(self.raw)).from_buffer(self.raw)
+        buf = ctypes.create_string_buffer(len(self.raw) + len(self.raw)//255 + 16)
+        size = self.codec.LZ4_compress_default(raw, buf, len(self.raw), len(buf))
+        if size <= 0:
+            raise ValueError('state compression failed')
+        Path(path).write_bytes(self.data[:self.header+16] + struct.pack('<I', size) + buf.raw[:size])
+
+
 def inspect(path, library=None):
-    data = path.read_bytes()
-    if len(data) < 48 or data[:6] != b"GQSEAF":
-        raise ValueError("expected a GQSEAF Dolphin state")
-    cookie, length = struct.unpack_from("<II", data, 24)
-    if cookie != 0xBAADBABE + 191 or not 1 <= length <= 256:
-        raise ValueError("only the pinned Dolphin 2606 state version is supported")
-    offset = 32 + length
-    version = data[32:offset].rstrip(b"\0").decode("utf-8")
-    header, compression, extra, size = struct.unpack_from("<HHIQ", data, offset)
-    if header != 1 or compression != 1 or extra != 0 or not 0 < size <= 256 * 1024 * 1024:
-        raise ValueError("unsupported state header or excessive decompressed size")
-    offset += 16
-    compressed_size, = struct.unpack_from("<I", data, offset)
-    offset += 4
-    if offset + compressed_size != len(data):
-        raise ValueError("truncated state or unsupported multi-block state")
-    library = library or ctypes.util.find_library("lz4") or "liblz4.so.1"
-    codec = ctypes.CDLL(library)
-    codec.LZ4_decompress_safe.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
-    codec.LZ4_decompress_safe.restype = ctypes.c_int
-    buffer = ctypes.create_string_buffer(size)
-    if codec.LZ4_decompress_safe(data[offset:], buffer, compressed_size, size) != size:
-        raise ValueError("corrupt compressed state")
-    raw = buffer.raw
+    state = path if isinstance(path, State) else State(path, library)
+    raw, ram = state.raw, state.ram
     # State.cpp serializes platform/memory sizes, then MovieManager::DoState.
     if (raw[0] != 0 or struct.unpack_from("<I", raw, 1)[0] != 0x1800000
             or struct.unpack_from("<I", raw, 50)[0] != 0x42):
@@ -47,27 +96,16 @@ def inspect(path, library=None):
     movie_frame, movie_byte, movie_lag, movie_input = struct.unpack_from("<QQQQ", raw, 9)
     if movie_byte != movie_input * 8:
         raise ValueError("expected single-controller GameCube replay")
-    candidates = []
-    offset = 0
-    while (offset := raw.find(b"GQSEAF", offset)) >= 0:
-        if (raw[offset + 0x1c:offset + 0x20] == bytes.fromhex("c2339f3d")
-                and raw[offset + 0x28:offset + 0x2c] == bytes.fromhex("01800000")
-                and offset + 0x1800000 <= len(raw)):
-            candidates.append(offset)
-        offset += 1
-    if len(candidates) != 1:
-        raise ValueError("could not uniquely identify the GameCube main-memory observation")
-    ram = memoryview(raw)[candidates[0]:candidates[0] + 0x1800000]
     u32 = lambda offset: struct.unpack_from(">I", ram, offset)[0]
     fields = {
         "selected": 0x35a010, "pulse_tick": 0x35a058,
         "presentation_counter": 0x35a628, "opacity": 0x35a6bc,
         "reveal_counter": 0x35a6c4, "idle_counter": 0x35a6c8,
     }
-    result = {"dolphin_version": version,
+    result = {"dolphin_version": state.version,
               "movie": {"vi_frame": movie_frame, "input_count": movie_input,
                         "input_byte": movie_byte, "lag_frames": movie_lag},
-              "state_sha256": hashlib.sha256(data).hexdigest(),
+              "state_sha256": state.sha256,
               "title": {key: u32(address) for key, address in fields.items()}}
     result["title"]["revealed"] = bool(ram[0x35a6c0])
     result["title"]["state_flags"] = struct.unpack_from(">H", ram, 0x35a762)[0]
@@ -77,7 +115,15 @@ def inspect(path, library=None):
     result["field_presentation"] = {
         "scene_flags": u32(0x35a760), "control_flags": u32(0x35a73c),
     }
-    # fn_80124BF4: observe the shared generator without advancing it.
+    if result["title"]["state_flags"] & 0x7f == 9:
+        # Combat replaces the field's model/actor storage. Preserve the movie
+        # cursor for replay, but do not interpret that storage as field data.
+        result["battle"] = {
+            "flags": ram[0x2cb554], "formation": u32(0x2cb558),
+            "arena": u32(0x2cb55c), "result": u32(0x2cb574),
+            "return_mode": ram[0x2cb56c],
+        }
+        return result
     result["random_state"] = u32(0x35a340)
     # Gameplay MT19937 is independent of field animation and particle effects.
     next_word = u32(0x35a7e0)
@@ -132,8 +178,6 @@ def inspect(path, library=None):
         "height": ((scene_texture[2] >> 10) & 1023) + 1,
         "format": scene_texture[5],
     }
-    # fn_80104FA8 is lwz r3,-0x75e4(r13), with r13=0x80362000.
-    # fn_800DE37C uses this VI clock and retains a short integer cursor trail.
     result["choice_cursor"] = {
         "clock": u32(0x35aa1c),
         "trail_anchor": list(struct.unpack_from(">2h", ram, 0x35a1d0)),
@@ -253,8 +297,6 @@ def inspect(path, library=None):
                 "speaker": bytes(ram[base + 0x13320:base + 0x13338]).split(b"\0")[0].hex(),
                 "body": bytes(ram[base + 0x13338:base + 0x13538]).split(b"\0")[0].hex(),
             })
-    # fn_8006EEF4 logo phases and fn_800B081C's startup save check. These
-    # observations distinguish presented startup frames from pure VI waits.
     result["startup"] = {
         "logo_phase": u32(0x35a634), "logo_tick": u32(0x35a630),
         "logo_next_phase": u32(0x35a638),
@@ -319,8 +361,6 @@ def inspect(path, library=None):
         "target": [floating(0x2c8ecc + i*4) for i in range(3)],
         "view_matrix": [floating(0x2caf50 + i*4) for i in range(12)],
     }
-    # Camera properties are persistent settings; the live fractional orbit is
-    # separate oracle state (fn_8004A3F8, fn_8005F1E8).
     axes = [bool(ram[camera_base + 0x10] & bit) for bit in (4, 2, 1)]
     result["field_camera"]["position_settled"] = bool(ram[0x35a589])
     result["field_camera"]["target_settled"] = bool(ram[0x35a588])
@@ -342,9 +382,6 @@ def inspect(path, library=None):
         "position": result["field_camera"]["position"],
         "target": result["field_camera"]["target"],
     }
-    # fn_800262D0 draws this bounded actor table by signed layer, preserving
-    # table order within each layer. Read the model and animation observations
-    # directly; this is evidence inspection, never asset conversion/playback.
     def pointer(address, size):
         offset = address - 0x80000000
         return offset if 0 <= offset <= len(ram) - size else None
@@ -382,7 +419,6 @@ def inspect(path, library=None):
                 "coordinates": list(struct.unpack_from(">13h", ram, at + 24)),
             })
 
-    # fn_800A2100 / fn_800A0E24 configure two standard-reverb callbacks.
     result["audio_setup"] = {
         "synth_clock": struct.unpack_from(">Q", ram, 0x35ac70)[0],
         "macro_clock": struct.unpack_from(">Q", ram, 0x35acd0)[0],
@@ -415,9 +451,6 @@ def inspect(path, library=None):
             "loop_count": struct.unpack_from(">H", ram, sequence + 0x153c)[0],
         }
 
-    # musyx_hw_dspctrl_80146DB0.c allocates count * 0xF8 DSP voices.
-    # Inactive slots retain parameters; record their state rather than implying
-    # they are playing. These observations are never inputs to cooked assets.
     voice_count = ram[0x35ad7d]
     if voice_count > 128:
         raise ValueError("unexpected DSP voice count")
@@ -537,8 +570,6 @@ def inspect(path, library=None):
         result["audio_setup"]["dsp_voices"] = voices
 
     def model_nodes(actor):
-        # fn_8012B390 creates the node table, fn_8006CEB0 fills world/skin
-        # matrices. These snapshots let us distinguish pose and shading errors.
         model = pointer(u32(actor + 0x100), 0x70)
         if model is None:
             return []
@@ -570,40 +601,10 @@ def inspect(path, library=None):
             })
         return nodes
 
-    def secondary_chains(actor):
-        # fn_80069088 operates on the model state embedded at actor + 0x100.
-        chain = pointer(u32(actor + 0x71c), 20)
-        chains, seen = [], set()
-        while chain is not None:
-            if chain in seen or len(chains) >= 32:
-                raise ValueError("invalid secondary-chain list")
-            seen.add(chain)
-            count = struct.unpack_from(">h", ram, chain + 4)[0]
-            if not 1 <= count <= 128:
-                raise ValueError("invalid secondary-chain length")
-            segments = pointer(u32(chain), count * 64)
-            if segments is None:
-                raise ValueError("invalid secondary-chain segments")
-            joints = []
-            for index in range(count):
-                at = segments + index * 64
-                joints.append({"node": u32(at + 60),
-                    **{name: [floating(at + offset + i*4) for i in range(3)]
-                       for name, offset in [("position", 0), ("previous", 12),
-                                            ("target", 24), ("velocity", 36)]},
-                    "length": floating(at + 48), "gravity": floating(at + 52),
-                    "damping": floating(at + 56)})
-            chains.append({"flags": ram[chain + 6], "attraction": floating(chain + 8),
-                           "callback": f"{u32(chain + 16):08x}", "joints": joints})
-            chain = pointer(u32(chain + 12), 20)
-        return chains
-
     def actor_observation(at):
-        callback = u32(at)
         actor = {
             "address": at + 0x80000000,
             "id": struct.unpack_from(">i", ram, at + 0xb8)[0],
-            "draw_callback": f"{callback:08x}",
             "layer": struct.unpack_from(">b", ram, at + 0x94)[0],
             "position": [floating(at + 4 + i*4) for i in range(3)],
             "presentation_position": [floating(at + 0x1c + i*4) for i in range(3)],
@@ -652,34 +653,6 @@ def inspect(path, library=None):
             [slot for slot in range(12, 0x80, 4)
              if u32(resource + slot) and u32(at + 0xc0) + u32(resource + slot) == u32(at + 0x82c)]
             if resource is not None and ram[at + 0x824] else [])
-        if callback in (0x8001a6fc, 0x8000e720):
-            actor["model_nodes"] = model_nodes(at)
-            if callback == 0x8001a6fc:
-                actor["secondary_chains"] = secondary_chains(at)
-        elif callback == 0x8007e1bc:
-            # Location lettering uses one shared animation controller.
-            state = 0x2cb3e8
-            short = lambda offset: struct.unpack_from(">H", ram, state + offset)[0]
-            actor["location_caption"] = {
-                "hold_remaining": floating(at + 0x7c), "alpha": ram[at + 0x851],
-                "width": u32(state), "progress": u32(state + 4),
-                "complete": bool(ram[state + 8]), "frame": short(10),
-                "phase": short(12), "bar_alpha": short(14),
-                "phase_done": bool(ram[state + 16]), "multi": bool(ram[state + 17]),
-                "main_width": short(18), "main_alpha": short(20),
-                "entries_started": bool(ram[state + 22]), "count": short(24),
-                "total_width": short(26),
-                "entry_alpha": [short(28 + i*2) for i in range(min(10, short(24)))],
-                "entry_width": [short(48 + i*2) for i in range(min(10, short(24)))],
-            }
-        elif callback == 0x800157e8:
-            actor["emote"] = {
-                "actor": struct.unpack_from(">i", ram, at + 0x740)[0],
-                "kind": struct.unpack_from(">H", ram, at + 0x98)[0],
-                "remaining": struct.unpack_from(">i", ram, at + 0xb0)[0],
-                "radius": floating(at + 0x790),
-                "clock": u32(at + 0x834),
-            }
         return actor
 
     result["controlled_actor"] = actor_observation(0x2c7ea0)
@@ -789,11 +762,8 @@ def inspect(path, library=None):
                 "rgba": list(ram[at + 0x20:at + 0x24]),
                 "uv_bytes": list(ram[at + 0x1c:at + 0x20]),
                 "recipe_address": f"{u32(at + 0x30):08x}",
-                "callback_address": f"{u32(at + 0x68):08x}",
             })
         result["particles"] = particles
-    # fn_80018278 submits transient ground-shadow quads into a separate pool.
-    # Keep their transforms/texture descriptor as observations, never assets.
     result["shadow_texture_words"] = [u32(0x2bff64 + i*4) for i in range(8)]
     words = result["shadow_texture_words"]
     width, height = (words[2] & 1023) + 1, ((words[2] >> 10) & 1023) + 1

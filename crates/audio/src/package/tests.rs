@@ -1047,6 +1047,117 @@ mod shared_scheduler {
     }
 
     #[test]
+    fn song_timing_is_independent_of_previous_playback() {
+        let (root, value) = fixture();
+        let mut song = cue(&root, &value, vec![tone(vec![])]);
+        song.score.origin = ScoreOrigin::Sequence;
+        song.score.end_tick = 6;
+        for event in &mut song.score.first_events {
+            if let EventKind::Notes { source, length, .. } = &mut event.kind {
+                *source = crate::data::VoiceSource::Sequence {
+                    group: 0,
+                    program: 0,
+                    drums: false,
+                };
+                *length = 3;
+            }
+        }
+        song.score.loop_events = song.score.first_events.clone();
+        let synth = Synthesizer::default();
+        let mut prior = cue(&root, &value, vec![tone(vec![])]);
+        prior.score = song.score.clone();
+        prior.score.initial_bpm_1024 *= 2;
+        let prior = Stream::in_synthesizer(Arc::new(prior), true, &synth).unwrap();
+        for _ in 0..320 {
+            synth.advance().unwrap();
+        }
+        drop(prior);
+        let song = Arc::new(song);
+        let player = Stream::in_synthesizer(song.clone(), true, &synth).unwrap();
+        let mut reference = [Stream::new(song, true).unwrap()];
+        for _ in 0..6 {
+            compare_block(&synth, std::slice::from_ref(&player), &mut reference);
+        }
+    }
+
+    #[test]
+    fn ending_a_macro_preserves_its_sample_and_live_mixer_controls() {
+        let (root, value) = fixture();
+        let make = |wait_ms| {
+            let mut loaded = cue(
+                &root,
+                &value,
+                vec![vec![
+                    Command::StartSample { sample: 3 },
+                    wait(Some(wait_ms), false, false),
+                    Command::End,
+                ]],
+            );
+            Arc::make_mut(loaded.resources.samples.get_mut(&3).unwrap()).pcm = vec![2000; 640];
+            Arc::new(loaded)
+        };
+        let synth = Synthesizer::default();
+        let player = Stream::in_synthesizer(make(5), false, &synth).unwrap();
+        let mut standalone = Stream::new(make(5), false).unwrap();
+        let mut reference = Stream::new(make(25), false).unwrap();
+        for block in 0..4 {
+            let controls = LiveControls {
+                volume: if block < 2 { 1. } else { 0.25 },
+                ..Default::default()
+            };
+            player.set_shared_controls([controls; 5]).unwrap();
+            let expected = reference.block(controls).unwrap().unwrap();
+            assert!(expected.iter().flatten().flatten().any(|&v| v != 0));
+            let actual = standalone.block(controls).unwrap().unwrap();
+            for (frame, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                assert_eq!(actual, expected, "standalone block {block}, frame {frame}");
+            }
+            for frame in expected {
+                synth.advance().unwrap();
+                assert_eq!(player.shared_frame().unwrap(), Some(frame));
+            }
+        }
+        synth.advance().unwrap();
+        assert!(player.shared_frame().unwrap().is_none());
+        assert!(standalone.block(LiveControls::default()).unwrap().is_none());
+    }
+
+    #[test]
+    fn freed_macro_slots_keep_dsp_samples_until_reuse() {
+        let (root, value) = fixture();
+        let synth = Synthesizer::default();
+        let mut players = Vec::new();
+        let mut per_voice = 0;
+        for count in [22, 22, 20, 1] {
+            let silent = players.len() == 3;
+            let program = if silent {
+                vec![Command::End]
+            } else {
+                vec![Command::StartSample { sample: 2 }, Command::End]
+            };
+            let mut loaded = cue(&root, &value, vec![program; count]);
+            let sample = Arc::make_mut(loaded.resources.samples.get_mut(&2).unwrap());
+            sample.pcm.fill(2000);
+            sample.loop_pcm.fill(2000);
+            players.push(Stream::in_synthesizer(Arc::new(loaded), false, &synth).unwrap());
+            for _ in 0..160 {
+                synth.advance().unwrap();
+            }
+            let total: i32 = players
+                .iter()
+                .map(|p| p.shared_frame().unwrap().map_or(0, |frame| frame[0][0]))
+                .sum();
+            if players.len() == 1 {
+                assert!(total > 0 && total % 22 == 0);
+                per_voice = total / 22;
+            }
+            // Released macros no longer consume the 22-SFX admission limit.
+            // The 65th allocation replaces exactly one lingering DSP sample.
+            assert_eq!(total, per_voice * [22, 44, 64, 63][players.len() - 1]);
+        }
+    }
+
+    #[test]
     fn random_sample_end_waits_wake_and_skip_draws_after_completion() {
         let (root, value) = fixture();
         for active in [false, true] {
@@ -1102,6 +1213,9 @@ mod shared_scheduler {
             let note = voices[0];
             loaded.score.origin = ScoreOrigin::Sequence;
             loaded.score.initial_bpm_1024 = 160_000; // One tick per millisecond.
+            // A master track updates the incoming clock at the loop handoff.
+            // This scheduling fixture has no retained-tempo delay.
+            loaded.score.has_master_track = true;
             loaded.score.end_tick = if looping { 20 } else { 60 };
             loaded.score.first_events = (0..if looping { 1 } else { 3 })
                 .flat_map(|cycle| {
@@ -1336,6 +1450,11 @@ mod shared_scheduler {
                 vec![
                     Command::StartSample { sample: 2 },
                     wait((!clear).then_some(if kill { 5 } else { 18 }), false, false),
+                    if kill {
+                        Command::StopSample
+                    } else {
+                        Command::Noop
+                    },
                     Command::End,
                 ],
                 tone(vec![wait(Some(11), false, false)]),
@@ -1494,6 +1613,7 @@ mod shared_scheduler {
                     wait(Some(1), false, false),
                     Command::StartSample { sample: 2 },
                     wait(Some(3), false, false),
+                    Command::Release,
                     Command::End,
                 ],
                 vec![Command::End],
@@ -1821,6 +1941,7 @@ mod shared_scheduler {
                 *programs.last_mut().unwrap() = vec![
                     Command::StartSample { sample: 2 },
                     wait(Some(5), false, false),
+                    Command::StopSample,
                     Command::End,
                 ];
             }
@@ -2101,17 +2222,6 @@ fn beat_waits_preserve_fractional_deadlines_tempo_sampling_and_key_off_pcm() {
 #[test]
 fn both_pitch_sweep_slots_mix_additively_and_cancel_independently() {
     use crate::data::{Interpolation, SweepSlot};
-    let legacy: Command = serde_json::from_str(
-        r#"{"operation":"pitch_sweep","step_hz":1000,"period":2,"wait_ms":0}"#,
-    )
-    .unwrap();
-    assert!(matches!(
-        legacy,
-        Command::PitchSweep {
-            slot: SweepSlot::First,
-            ..
-        }
-    ));
     let (root, value) = fixture();
     let mut loaded = load(&root, &value).unwrap();
     let sweep = |slot, step_hz, period| Command::PitchSweep {

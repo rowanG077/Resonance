@@ -6,12 +6,13 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use resonance_content::{field_audio::ServiceCue, menu_data::ShopTrade};
+use resonance_events::input::Button;
 use resonance_events::{Operation, party::Party};
 use std::sync::Arc;
 
 pub const VISIBLE_ITEMS: usize = 7;
-const SLIDE_STEP: u8 = 25;
-const OPENING_FADE: u8 = 231;
+pub(super) const SLIDE_STEP: u8 = 25;
+pub(super) const OPENING_FADE: u8 = 231;
 const REGAL: u8 = 8;
 const PERSONAL: u8 = 50;
 
@@ -339,11 +340,11 @@ impl Shop {
         party: &mut Party,
     ) -> Result<Option<ServiceCue>> {
         use ServiceCue::{Cancel, Confirm, Error, Navigate, Page};
-        if input.start {
+        if input.pressed(Button::Start) {
             self.statistics = !self.statistics;
             return Ok(Some(Navigate));
         }
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             let cue = if self.focus == Focus::Empty {
                 Confirm
             } else {
@@ -364,7 +365,7 @@ impl Shop {
         }
         match self.focus {
             Focus::Root => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     match self.choice {
                         Choice::Buy | Choice::Sell => {
                             self.rebuild(party);
@@ -389,7 +390,7 @@ impl Shop {
                 return Ok((old != self.choice.index()).then_some(Navigate));
             }
             Focus::Categories => {
-                if input.interact || down {
+                if input.pressed(Button::Accept) || down {
                     self.focus = if self.rows.is_empty() {
                         Focus::Empty
                     } else {
@@ -403,13 +404,13 @@ impl Shop {
                 }
             }
             Focus::Empty => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     self.focus = Focus::Categories;
                     return Ok(Some(Confirm));
                 }
             }
             Focus::Confirm { yes } => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if yes {
                         self.checkout(party)?;
                     } else {
@@ -423,7 +424,7 @@ impl Shop {
                 }
             }
             Focus::Characters => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     self.focus = Focus::Equipment;
                     return Ok(Some(Confirm));
                 }
@@ -436,7 +437,7 @@ impl Shop {
                 return Ok((old != self.character).then_some(Navigate));
             }
             Focus::Items | Focus::Equipment => {
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if self.focus == Focus::Equipment {
                         return Ok(self.adjust_quantity(party, 1).then_some(Navigate));
                     }
@@ -449,7 +450,7 @@ impl Shop {
                     self.focus = Focus::Confirm { yes: true };
                     return Ok(Some(Confirm));
                 }
-                if input.menu && self.focus == Focus::Items {
+                if input.pressed(Button::Menu) && self.focus == Focus::Items {
                     if self.rows.is_empty() {
                         return Ok(Some(Error));
                     }
@@ -462,22 +463,22 @@ impl Shop {
                             .adjust_quantity(party, if left { -1 } else { 1 })
                             .then_some(Navigate));
                     }
-                    if input.alternate {
+                    if input.pressed(Button::Ring) {
                         let changed = self.adjust_quantity(party, i8::MAX);
                         return Ok((changed || self.choice == Choice::Buy).then_some(Navigate));
                     }
                 }
-                if input.previous_page || input.next_page {
+                if input.pressed(Button::PreviousPage) || input.pressed(Button::NextPage) {
                     if self.focus == Focus::Equipment {
                         self.character = (self.character
-                            + if input.previous_page {
+                            + if input.pressed(Button::PreviousPage) {
                                 party.formation.len() - 1
                             } else {
                                 1
                             })
                             % party.formation.len();
                     } else if self.choice == Choice::Sell {
-                        self.change_category(input.previous_page, party);
+                        self.change_category(input.pressed(Button::PreviousPage), party);
                     } else {
                         return Ok(None);
                     }
@@ -488,39 +489,33 @@ impl Shop {
                 }
                 let old = self.row;
                 if self.focus == Focus::Items && (page_up || page_down) {
-                    if page_down {
-                        if self.first + VISIBLE_ITEMS < self.rows.len() {
-                            self.first += VISIBLE_ITEMS;
-                            self.row = (self.row + VISIBLE_ITEMS).min(self.rows.len() - 1);
-                        } else {
-                            self.row = self.rows.len() - 1;
-                        }
+                    let delta = if page_down {
+                        VISIBLE_ITEMS as isize
                     } else {
-                        let first = self.first.saturating_sub(VISIBLE_ITEMS);
-                        self.row = if self.first == 0 {
-                            0
-                        } else {
-                            self.row - (self.first - first)
-                        };
-                        self.first = first;
-                    }
+                        -(VISIBLE_ITEMS as isize)
+                    };
+                    crate::menu::move_list(
+                        &mut self.row,
+                        &mut self.first,
+                        self.rows.len(),
+                        VISIBLE_ITEMS,
+                        delta,
+                    );
                     return Ok((old != self.row).then_some(Page));
                 }
                 if up && old == 0 && self.choice == Choice::Sell && self.focus == Focus::Items {
                     self.focus = Focus::Categories;
                     return Ok(Some(Navigate));
                 }
-                let shift = i32::from(down) - i32::from(up);
-                self.row = (old as i32 + shift).clamp(0, self.rows.len() as i32 - 1) as usize;
+                let shift = isize::from(down) - isize::from(up);
+                self.scroll = crate::menu::move_list(
+                    &mut self.row,
+                    &mut self.first,
+                    self.rows.len(),
+                    VISIBLE_ITEMS,
+                    shift,
+                );
                 if self.row != old {
-                    let first = self.first;
-                    self.first = self
-                        .first
-                        .min(self.row)
-                        .max(self.row.saturating_sub(VISIBLE_ITEMS - 1));
-                    if first != self.first {
-                        self.scroll = if self.first > first { 1 } else { -1 };
-                    }
                     return Ok(Some(Navigate));
                 }
             }

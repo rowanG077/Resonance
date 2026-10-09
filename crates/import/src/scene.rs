@@ -37,18 +37,12 @@ pub(crate) fn camera(track: crate::all_assets::CameraTrack) -> Result<Vec<Camera
 }
 
 pub(crate) fn title_source(extracted: &Path, executable: &[u8]) -> Result<String> {
-    // The title field owns this renderer in the native phase catalogue.
+    const TITLE_FIELD: usize = 474;
     let phases = crate::field_catalogue::read(executable)?;
-    let mut title = phases.records.iter().filter(|phase| {
-        phase.render_before_objects == Some(crate::field_catalogue::NativeCallback::TITLE_SCENE)
-    });
-    let resource = title
-        .next()
-        .context("missing title field declaration")?
+    let resource = phases.records[TITLE_FIELD]
         .resource
         .as_deref()
         .context("title field has no resource")?;
-    ensure!(title.next().is_none(), "ambiguous title field declarations");
     resonance_content::validate_asset_path(resource)?;
     crate::field_resources::resolve_path(&extracted.join("files"), &format!("MAP/{resource}"))
 }

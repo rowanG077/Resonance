@@ -27,24 +27,33 @@ mod audio_output;
 mod boot;
 pub use audio::{CueEvent, record_title_music};
 mod camera;
+mod debug_font;
 mod display;
+mod dungeons;
 mod field_warm;
 mod loading;
 mod renderer;
+mod testing;
 pub use display::Resolution;
 mod choice_cursor;
 mod draw_order;
 mod field_animation;
 mod field_audio;
+#[cfg(test)]
+mod field_test;
 mod sparse_animation;
 pub use field_audio::record_field_audio;
 mod field_audit;
 mod field_events;
 pub use field_events::check_field_events;
+mod field_capture;
+mod field_dissolve;
 mod field_effects;
+mod field_model_particles;
 mod field_pose;
 mod field_probe;
 mod field_refraction;
+mod field_rumble;
 mod field_ui;
 mod field_view;
 mod glow;
@@ -72,10 +81,11 @@ pub use performance::{PerformanceOptions, run_frame_benchmark, run_movie_probe, 
 mod playthrough;
 mod scene;
 mod screenshot;
-pub use field_probe::{ClassroomProbe, ParticleProbe};
+pub use field_probe::ClassroomProbe;
 pub use field_view::{
-    FieldMovement, FieldSequence, capture_classroom, capture_classroom_particles,
-    capture_classroom_probe, capture_dialogue, capture_field_sequence, capture_setup,
+    CaptureMoment, FieldControls, FieldScene, FieldSequence, FieldSequenceRenderer,
+    capture_classroom, capture_classroom_probe, capture_dialogue, capture_field_sequence,
+    capture_setup,
 };
 mod timing;
 use audio::{GameAudio, PlaybackAssets};
@@ -104,6 +114,8 @@ pub struct RunOptions {
     pub skip_intro: bool,
     /// Temporary exploration: resolve field and world battles as victories.
     pub skip_battles: bool,
+    /// Permit unsupported field scripts only in the disposable overworld playground.
+    pub allow_incomplete_scripts: bool,
     pub record_playthrough: Option<PathBuf>,
     pub record_title_ticks: u32,
 }
@@ -118,10 +130,6 @@ struct Replay(Option<resonance_game::replay::TitleReplay>);
 struct Menu(TitleState);
 #[derive(Resource, Default)]
 struct Clock(PresentationClock);
-/// Source video can omit presentations while simulation continues (for
-/// example during a field-loading stall). Replay fixtures register that gap.
-#[derive(Resource, Default)]
-pub(crate) struct PresentationPause(pub(crate) bool);
 #[derive(Resource)]
 struct Events(resonance_events::EventRuntime);
 #[derive(Resource)]
@@ -143,6 +151,8 @@ struct CaptureStart(Instant);
 #[derive(Resource)]
 struct Framebuffer(RenderTarget);
 #[derive(Component)]
+// Keep the view's pipeline key stable when a field starts or finishes fog.
+#[require(DistanceFog)]
 struct FieldCamera;
 #[derive(Resource, Default)]
 struct PendingInput {
@@ -361,7 +371,6 @@ fn build_app_with_display(
         .insert_resource(options)
         .insert_resource(Menu(state))
         .insert_resource(Clock(clock))
-        .init_resource::<PresentationPause>()
         .insert_resource(Art {
             manifest,
             images: Vec::new(),
@@ -406,18 +415,18 @@ fn build_app_with_display(
             (
                 timing::advance_clock,
                 boot::advance,
-                advance,
-                new_game::advance,
+                advance.run_if(dungeons::running),
+                new_game::advance.run_if(dungeons::running),
             )
                 .chain(),
         )
         .add_systems(
             Update,
             (
-                saves::update,
+                saves::update.run_if(dungeons::running),
                 new_game::enter,
-                new_game::skip_test_battles,
-                new_game::transition,
+                new_game::skip_test_battles.run_if(dungeons::running),
+                new_game::transition.run_if(dungeons::running),
                 scene::bind_animated,
                 prepare_field,
                 update_materials,
@@ -441,6 +450,8 @@ fn build_app_with_display(
         Update,
         field_ui::transition_failure.after(new_game::transition),
     );
+    dungeons::install(&mut app, capture_only);
+    testing::install(&mut app);
     if !capture_only {
         audio_output::install(&mut app, silent)?;
     } else {
@@ -451,9 +462,7 @@ fn build_app_with_display(
     audio::validate_startup(&app, silent, capture_only)?;
     bevy::asset::embedded_asset!(app, "title_output.wgsl");
     bevy::asset::embedded_asset!(app, "title_text.wgsl");
-    bevy::asset::embedded_asset!(app, "title_surface.wgsl");
-    bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
-    bevy::shader::load_shader_library!(&mut app, "surface_bindings.wgsl");
+    materials::embed_shaders(&mut app);
     bevy::asset::embedded_asset!(app, "title_glow.wgsl");
     app.get_sub_app_mut(bevy::render::RenderApp)
         .context("render application unavailable")?
@@ -754,7 +763,12 @@ fn gather_input(
     gamepads: Query<&Gamepad>,
     mut pending: ResMut<PendingInput>,
     replay: Option<Res<Replay>>,
+    dungeons: Option<Res<dungeons::Menu>>,
 ) {
+    if dungeons.is_some_and(|menu| menu.blocked()) {
+        *pending = PendingInput::default();
+        return;
+    }
     if replay.is_some_and(|r| r.0.is_some()) {
         return;
     }
@@ -982,7 +996,7 @@ fn capture(
                     "slot": a.slot, "start_tick": a.start_tick,
                 })),
             })).collect::<Vec<_>>(),
-            "particles": world.particles.len(),
+            "particles": world.billboards.len(),
         });
     }
     commands.spawn(Screenshot(framebuffer.0.clone())).observe(

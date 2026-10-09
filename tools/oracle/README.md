@@ -4,8 +4,7 @@ Run from the repository root inside `nix develop`. Reusable inputs belong in
 [cases](cases/); discs, savestates, captures and reports stay in ignored `local/`.
 Capture output directories must be fresh.
 
-Read the relevant original routines and recovered asset recipes before a fidelity
-batch. Group related fixes, build once, then run independent cases with up to 12
+Group related fixes, build once, then run independent cases with up to 12
 workers. Give each worker a separate output directory; fresh Dolphin recordings
 also require isolated profiles, displays and watcher sockets. Retain exit codes,
 timings and failed comparisons. Reuse verified source captures when only native
@@ -99,13 +98,6 @@ without a PNG index. Multiple video segments require explicit `video_segment`.
 A negative first VI must be justified by observed queued presentation and remain
 fixed throughout the recording.
 
-Ordinary play continues as soon as resources are ready. Oracle-only
-`resource_waits` can register an observed DVD delay using a resource ID, post-call
-PC and request/resume updates. The pair must supply a hash-pinned
-`resource_wait_source` capture and VM slot proving both boundaries. Only that
-script pauses; other scripts, actors and audio continue. Unexpected or unused
-waits fail. `--watch-locations LOCATIONS.json` adds read-only observations.
-
 Other presentation/animation origins also belong to fixtures, not saves or live
 loading policy. Preview origins register a selected model once and reject repeats
 or out-of-range samples. A `disc_loading_overlay` exclusion requires observed DVD
@@ -135,8 +127,8 @@ Poll `stick`/`c_stick` values are byte pairs, neutral at `[128,128]`.
 
 `--watch-state` records frame-end memory; `--watch-vis N` can record a timeline
 without PNGs. Actor, particle and volume-group watchers extend observations.
-`--trace-startup` and bounded `--trace-random N` use a read-only debugger that
-pauses execution; confirm timing against an ordinary replay afterward.
+Battle checkpoints retain movie/result metadata for replay; field actor and
+particle watches require a field checkpoint because combat replaces that storage.
 
 `resonance-oracle inventory-fixture --help` describes matching changes to copied
 Dolphin states and native saves: items, formation, learned records, discoveries,
@@ -173,6 +165,28 @@ Other device-free tools:
 | `title_load_probe SLOTS OUTPUT` | Load in a new process, including cancel/reopen and subsequent exploration |
 | `new_game_capture OUTPUT COOKED_ROOT exploration REPLAY.json` | Continuous New Game through the supported exploration/save route |
 
+For a scripted arrival, `field_sequence` accepts
+`"scene": {"arrival": {"checkpoint": ...}}` and
+`"at": {"kind": "tick", "update": 0}`. This starts normal arrival scripts
+without requiring free control before recording. Declare the copied progress as
+a scene fixture; this does not validate save restoration or natural progression.
+Arrival positions may be above the floor, as in authored teleporter transitions;
+ordinary checkpoint restoration still requires a grounded saved position.
+Other scene kinds are `classroom`, `new_game`, and `restore`. Capture moments
+are `control`, `tick`, and `dialogue` (with `prefix` and `hold_updates`).
+`inputs` is a timeline of complete held controls, for example
+`[{"update":50,"buttons":["ring"]},{"update":55,"buttons":[]}]`.
+Each entry may also set `direction` and `run`; button edges follow held transitions.
+For post-battle scenes, `battle_victories` lists the expected formation IDs in
+order. The capture grants each victory through the field handoff and records the
+consumed count; unexpected battles or unused grants fail. Declare these grants
+in the case: they do not validate combat or its rewards.
+Sequences can cover up to five minutes at 60 Hz, including seal dialogue.
+An optional `resolution: {"width":1920,"height":1080}` uses the live display
+layout for aspect checks. `capture_frames` selects sorted, unique zero-based
+render frames while still running the entire sequence; omit it to save every
+frame. Paired Dolphin comparisons continue to require 640×480.
+
 These are presentation examples under `target/debug/examples`. The event sweep
 fails on missing services, resources, audio or glyphs, and uses ordinary Cancel
 input to close shops/menus. It synthesizes every audio request and waits for real
@@ -184,6 +198,89 @@ The paired replay cases establish those separately.
 graphics/audio output; `--trigger KEY --follow` invokes a registered event directly.
 `--output PATH` exports a lightweight checkpoint when control returns. Use the
 player for save identity validation.
+
+## Effect comparisons
+
+The effect suite sends the same scenario commands and controller inputs to
+Dolphin and Resonance. Each engine selects its own artwork, animation, motion,
+and cleanup. Static checkerboard tiles expose refraction and subtractive blends;
+they are stage scenery, never expected effect output.
+
+```sh
+cargo build -p resonance-oracle
+cargo build --release -p resonance-presentation --example field_sequence
+python3 tools/oracle/effect_lifecycle.py --disc /path/to/Disc1.rvz \
+  --native target/release/examples/field_sequence \
+  --output local/effect-comparison --workers 4 --random-cases 500 --seed 17
+```
+
+The default run covers all eight stage profiles: field particles, emitters,
+emotes, ring casts, stations and model effects. `--random-cases 500` allocates 500 generated
+cases across those stages, in addition to each stage's base catalogue. The root
+`results.json` reports per-stage coverage and completion; each stage retains its
+own detailed report. `--case tools/oracle/cases/effect-tower.json` selects model effects;
+`effect-rings.json` selects ring casts. Bomb, bubble, sunlight and shrink have
+separate `effect-ring-*.json` stage profiles because their scenery or controller
+input differs. Profiles pin source checkpoints, their movie prefix and native
+scene inputs; existing cooked assets are used without cooking.
+
+Required private effect inputs live in `local/oracle-fixtures/effects/`: one
+savestate and companion `.s01.dtm` per starting field, plus the native scene
+templates. Preserve this directory when deleting capture reports. To prepare a
+replacement stage, capture a paused field and its movie using the savestate
+workflow above, prepare the matching native scene, and register both file hashes
+in its profile. Moving an unchanged checkpoint does not invalidate captures.
+
+Generated cases cover every eligible input before repeating, then combine
+finite particles with randomized placement, size, palette, opacity, duration,
+casting direction and random seed. Sprites, models, emitters, emotes and actors
+use named inputs and timed changes; numeric commands are compiled at the simulator
+boundary. Generated changes include sprite properties, moving targets, early
+quake removal and emitter-handle reuse. Every complete scenario is saved in
+`case.json`. Use `--replay-case PATH` to reproduce it independently of generator
+changes. `--only 'sprite-*'` filters case names. `--random-cases 0` runs the
+base catalogue only. Visible scenarios must actually appear in the source recording;
+intentional no-op emotes are declared explicitly. Whole-story replays remain separate checks of
+scene transitions, attachments, callbacks and story progress.
+
+Visual generation and shrinking exclude zero random ranges that can spread
+particles beyond the stage. They retain zero-valued controls such as emission
+intervals that deliberately disable an effect. The source visibility, containment
+and expiry checks validate each generated scenario before judging Resonance.
+
+Ring cases vary casting direction and controller timing. Model cases vary their
+heading, scale, opacity and removal time; the tower stage also exercises all eight
+bound sprite texture slots. Cases with equal controller timelines share a resident
+Dolphin process. These inputs vary independently of added particle layers.
+
+Workers retain silent Dolphin processes between cases. A watched state marker
+rejects stale loads, and a white presentation pattern registers the clock
+before effects begin. Both renderers use Vulkan: OpenGL's raster edge rules
+can produce false geometry failures during camera shake. Generated DTMs select
+Vulkan explicitly because their saved backend overrides Dolphin's command line.
+On Mesa, headless swapchains allow GPU rendering inside Xvfb; captures record
+the renderer and its environment, and older OpenGL captures require replacement.
+Every consecutive frame is checked for visual equivalence, including empty
+birth/expiry frames. Small rounding patches and scattered raster fringes are
+acceptable; the cluster check allows the same one-pixel edge movement as the
+geometry check. Concentrated substantial errors must fail even when most of a
+larger effect matches. Geometry, overall brightness and local error checks enforce this
+without requiring identical pixels. Refraction
+uses the last background frame before birth. Reports retain commands, provenance,
+per-frame measurements and failed image pairs; failures exit nonzero. No image
+alignment, brightness fitting or automatic baseline acceptance is performed.
+Successful native frame dumps are removed after comparison; their measurements
+and renderer fingerprint remain. Dolphin captures are retained for reference reuse.
+
+`--reference DIRECTORY` reuses verified Dolphin captures and rerenders Resonance.
+After an interrupted run, `--resume` reuses complete captures with matching inputs.
+The root `plan.json` preserves seeds, selection and the pending work across resumes.
+Omit `--random-cases` when resuming or reusing a reference; the recorded plan supplies it.
+`--minimize` removes unrelated layers and changes, reduces parameters and timing,
+and writes `minimal.json`. Reduced controller inputs receive their own recordings.
+Invalid scenarios and capture errors never count as a preserved visual failure;
+only the current smallest failure keeps its capture under `minimize/retained`. Keep a minimized
+reproducer when a new regression is found.
 
 ## Audio and performance
 
@@ -207,6 +304,9 @@ disables alignment search. `voice_content.py --help` compares cooked speech with
 recordings. Both tools read files without playback. `record_field_music` and
 `record_field_voice` render the ordinary field mixer without a device; Customize
 music/mono/voice manifests define the corresponding volume comparisons.
+The music recorder accepts a final map ID after volume, fade ticks and stereo
+mode to load another field's bank (default: 340), for example:
+`record_field_music local/all-assets local/native/ranch.wav 34 120 127 6 stereo 196`.
 
 ```sh
 python3 -m unittest discover -s tools/oracle -p 'test_*.py'

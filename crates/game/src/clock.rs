@@ -25,16 +25,7 @@ impl PlayTime {
             session: 0,
         }
     }
-    /// Restore an observed running session without changing its total play time.
-    pub const fn with_session(total: u64, session: u64) -> Option<Self> {
-        if session > total {
-            return None;
-        }
-        Some(Self {
-            saved: total - session,
-            session,
-        })
-    }
+
     pub fn advance(&mut self) {
         self.session = self.session.saturating_add(1);
     }
@@ -50,7 +41,7 @@ impl PlayTime {
 pub struct PresentationClock(u32);
 
 impl PresentationClock {
-    /// Restore an observed presentation counter for a development checkpoint.
+    /// Start a presentation clock at the given tick.
     pub const fn new(tick: u32) -> Self {
         Self(tick)
     }
@@ -70,13 +61,12 @@ mod tests {
     use crate::{MenuInput, TitleState};
 
     #[test]
-    fn observed_session_preserves_total_and_resets_on_load() {
-        let mut time = PlayTime::with_session(100, 40).unwrap();
+    fn play_time_accumulates_and_resets_session_on_load() {
+        let mut time = PlayTime::resume(100);
         time.advance();
-        assert_eq!((time.total(), time.session()), (101, 41));
+        assert_eq!((time.total(), time.session()), (101, 1));
         let loaded = PlayTime::resume(time.total());
         assert_eq!((loaded.total(), loaded.session()), (101, 0));
-        assert!(PlayTime::with_session(100, 101).is_none());
     }
 
     #[test]

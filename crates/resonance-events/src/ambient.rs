@@ -14,63 +14,80 @@ pub(crate) struct Voice {
     pan: u8,
 }
 impl GameWorld {
+    pub(crate) fn actor_sound(&mut self, actor: i32, sound: AmbientSound) {
+        if let Some(voice) = self
+            .actors
+            .get(&actor)
+            .and_then(|a| self.spatial_voice(sound, a.position))
+        {
+            self.audio_commands.push(AudioCommand::Sound {
+                id: voice.id,
+                volume: voice.volume,
+                pan: voice.pan,
+                slot: None,
+            });
+        }
+    }
+
+    fn spatial_voice(&self, sound: AmbientSound, position: [f32; 3]) -> Option<Voice> {
+        let listener = self.actors.get(&self.controlled_actor)?;
+        let distance = position
+            .iter()
+            .zip(listener.position)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>()
+            .sqrt();
+        let volume = if distance >= sound.radius {
+            0
+        } else {
+            (f64::from(sound.volume)
+                - f64::from(sound.volume) / f64::from(sound.radius) * f64::from(distance))
+                as u8
+        };
+        let pan = self.field_camera.as_ref().map_or(64, |camera| {
+            let direction: [f32; 3] =
+                std::array::from_fn(|i| camera.target[i] - camera.position[i]);
+            let horizontal = direction[0].hypot(direction[1]);
+            let length = direction.iter().map(|v| v * v).sum::<f32>().sqrt();
+            if horizontal == 0. || length == 0. {
+                return 64;
+            }
+            let offset: [f32; 3] = std::array::from_fn(|i| position[i] - camera.position[i]);
+            let depth = offset
+                .iter()
+                .zip(direction)
+                .map(|(a, b)| a * b / length)
+                .sum::<f32>();
+            let right = (offset[0] * direction[1] - offset[1] * direction[0]) / horizontal;
+            let screen_x =
+                320. + right / (depth * (camera.fov_degrees().to_radians() * 0.5).tan()) * 240.;
+            (0.2 * screen_x).clamp(0., 127.) as u8
+        });
+        Some(Voice {
+            id: sound.id,
+            volume,
+            pan,
+        })
+    }
+
     pub(crate) fn step_ambient_sound(&mut self) {
         if self.tick & 1 != 0 {
             return;
         }
-        let Some(listener) = self.actors.get(&self.controlled_actor) else {
-            return;
-        };
         let mut candidates = std::collections::BTreeMap::<i16, Voice>::new();
         for actor in self.actors.values() {
             let Some(sound) = actor.ambient_sound else {
                 continue;
             };
-            let distance = actor
-                .position
-                .iter()
-                .zip(listener.position)
-                .map(|(a, b)| (a - b).powi(2))
-                .sum::<f32>()
-                .sqrt();
-            if distance >= sound.radius {
+            let Some(voice) = self
+                .spatial_voice(sound, actor.position)
+                .filter(|v| v.volume > 0)
+            else {
                 continue;
-            }
-            // Use a linear distance falloff and truncates to u8.
-            let volume = (f64::from(sound.volume)
-                * (1. - f64::from(distance) / f64::from(sound.radius)))
-                as u8;
-            if volume == 0 {
-                continue;
-            }
-            let pan = self.field_camera.as_ref().map_or(64, |camera| {
-                let direction: [f32; 3] =
-                    std::array::from_fn(|i| camera.target[i] - camera.position[i]);
-                let horizontal = direction[0].hypot(direction[1]);
-                let length = direction.iter().map(|v| v * v).sum::<f32>().sqrt();
-                if horizontal == 0. || length == 0. {
-                    return 64;
-                }
-                let offset: [f32; 3] =
-                    std::array::from_fn(|i| actor.position[i] - camera.position[i]);
-                let depth = offset
-                    .iter()
-                    .zip(direction)
-                    .map(|(a, b)| a * b / length)
-                    .sum::<f32>();
-                let right = (offset[0] * direction[1] - offset[1] * direction[0]) / horizontal;
-                let screen_x =
-                    320. + right / (depth * (camera.fov_degrees().to_radians() * 0.5).tan()) * 240.;
-                (0.2 * screen_x).clamp(0., 127.) as u8
-            });
-            let voice = Voice {
-                id: sound.id,
-                volume,
-                pan,
             };
             if candidates
                 .get(&sound.id)
-                .is_none_or(|old| old.volume < volume)
+                .is_none_or(|old| old.volume < voice.volume)
             {
                 candidates.insert(sound.id, voice);
             }

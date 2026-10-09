@@ -4,6 +4,7 @@ use super::{
     materials::{TitleOutput, TitleSurface},
     sparse_animation,
 };
+use resonance_events::effect::Blend;
 mod capture;
 mod cinematic;
 mod effects;
@@ -188,6 +189,7 @@ impl Plugin for OverworldPlugin {
             .add_systems(
                 FixedUpdate,
                 advance
+                    .run_if(super::dungeons::running)
                     .before(super::new_game::advance)
                     .before(super::field_view::advance_live),
             )
@@ -215,12 +217,17 @@ impl Plugin for OverworldPlugin {
     }
 }
 #[derive(Resource, Default)]
-struct Controls(game::Input);
-fn controls(
+pub(super) struct Controls(game::Input);
+pub(super) fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     mut controls: ResMut<Controls>,
+    dungeons: Option<Res<super::dungeons::Menu>>,
 ) {
+    if dungeons.is_some_and(|menu| menu.blocked()) {
+        *controls = Controls::default();
+        return;
+    }
     use GamepadButton::*;
     let held = |keys_: &[KeyCode], button| {
         keys_.iter().any(|k| keys.pressed(*k)) || pads.iter().any(|p| p.pressed(button))
@@ -483,13 +490,13 @@ fn instances(
                 .into_iter()
                 .map(|mut s| {
                     if matches!(model, Model::Actor(203 | 213 | 214)) {
-                        s.additive = true;
+                        s.blend = Some(Blend::Additive);
                         s.depth_write = false;
                     }
                     if matches!(model, Model::Marker(1 | 17)) {
                         // Draw portals and discovery circles
                         // without depth writes.
-                        s.blend = true;
+                        s.blend = Some(Blend::Alpha);
                         s.depth_write = false;
                     }
                     if let Model::Cinematic(actor) = model {
@@ -977,11 +984,18 @@ fn pose(
                 });
                 offset = Vec4::new(uv[0][0], uv[0][1], uv[1][0], uv[1][1]);
             }
-            let tint = part.spec.outline_color.map_or(Vec4::ONE, |c| {
+            let tint = part.spec.outline_color_for(binding).map_or(Vec4::ONE, |c| {
                 Vec4::from_array(c.map(|v| f32::from(v) / 255.))
             }) * Vec4::new(brightness, brightness, brightness, alpha);
-            let fog_range = if instance.model != Model::Sky && cinema.is_none() {
-                let far = session.travel.camera_distance() + 10000.;
+            let background = instance.model == Model::Sky
+                || matches!(instance.model, Model::Cinematic(actor)
+                    if cinematic::background(cinema.unwrap().id, actor));
+            let fog_range = if !background {
+                let far = if cinema.is_some() {
+                    cinematic::FAR_CLIP
+                } else {
+                    session.travel.camera_distance() + 10000.
+                };
                 Vec4::new(far * 0.5, far * 0.75, 0., 0.)
             } else {
                 Vec4::ZERO
@@ -1169,7 +1183,13 @@ fn camera(
             eye += Vec3::new(jitter(0), jitter(1), jitter(2)) / 500.;
             target += Vec3::new(jitter(3), jitter(4), jitter(5)) / 50.;
         }
-        (eye - center, target - center, Vec3::Z, 18.9f32, 12800.)
+        (
+            eye - center,
+            target - center,
+            Vec3::Z,
+            18.9f32,
+            cinematic::FAR_CLIP,
+        )
     } else {
         (eye, target, up, 31.668, distance + 10000.)
     };
@@ -1228,11 +1248,9 @@ fn ui(
 }
 
 fn embed_shaders(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "title_surface.wgsl");
-    bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
+    super::materials::embed_shaders(app);
     bevy::asset::embedded_asset!(app, "field_ui.wgsl");
     bevy::asset::embedded_asset!(app, "title_output.wgsl");
-    bevy::shader::load_shader_library!(app, "surface_bindings.wgsl");
 }
 
 pub(super) fn ready(world: &mut World) -> bool {

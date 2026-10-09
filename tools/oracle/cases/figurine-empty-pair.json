@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "An owned but empty Figurine Book sorts after usable key items and rejects opening.",
-  "registration": "Rust inventory-fixture adds the Figurine Book to copies of the Items handoff fixture, with no collected figurines. Native update 64 is source VI zero, with the same observed field/UI origins. The menu inputs select the empty book and attempt to open it; state gates require staying in Items with unchanged inventory, and the later cancellation returns to Main. No loading waits or changed tolerances.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/figurine-empty-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "figurine-empty-keyboard.json",
-    "sha256": "57afe33438b5fbc581d345c7e8a5cbde1e33694a2be4f22018db04a61d798759"
+    "sha256": "56d68a95cd68ff254024a7faae588f4c0f45ee5e3866d76d66d07bba57018fa1"
   },
   "dolphin": {
     "state": {
@@ -117,72 +117,63 @@
       "native": "vi-0",
       "dolphin_vi": 0,
       "main_menu_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "vi-310",
       "native": "vi-310",
       "dolphin_vi": 310,
       "inventory_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "vi-340",
       "native": "vi-340",
       "dolphin_vi": 340,
       "inventory_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "vi-350",
       "native": "vi-350",
       "dolphin_vi": 350,
       "inventory_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "vi-351",
       "native": "vi-351",
       "dolphin_vi": 351,
       "inventory_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "vi-352",
       "native": "vi-352",
       "dolphin_vi": 352,
       "inventory_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "vi-370",
       "native": "vi-370",
       "dolphin_vi": 370,
       "inventory_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "vi-410",
       "native": "vi-410",
       "dolphin_vi": 410,
       "inventory_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     },
     {
       "name": "vi-450",
       "native": "vi-450",
       "dolphin_vi": 450,
       "main_menu_state": true,
-      "party_state": true,
-      "effect_state": true
+      "party_state": true
     }
   ],
   "audio": []

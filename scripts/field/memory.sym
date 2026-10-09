@@ -1,0 +1,20 @@
+script field;
+use game::memory;
+use game::memory::Message;
+use game::story;
+const TutorialSeen: i32 = 520;
+const MemoryGem: i32 = 491;
+const GreenNotice: i32 = 16;
+// Choice results are one-based message lines; cancellation returns zero.
+const Yes: i32 = 2;
+pub task tutorial() {
+    await memory::notice(Message::Tutorial, GreenNotice);
+    story::set_flag(TutorialSeen, true);
+}
+pub task unlock(point: memory::Circle) {
+    if await memory::choose(Message::Unlock) == Yes {
+        if !memory::unlock(point, MemoryGem) {
+            await memory::notice(Message::NoGem, 0);
+        }
+    }
+}

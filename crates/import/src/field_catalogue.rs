@@ -1,11 +1,10 @@
-//! Original field resource, placement and render callback table.
+//! Field resources, placement, and framebuffer settings.
 use crate::dol;
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use std::{collections::BTreeSet, fs, path::Path};
 
 const TABLE: u32 = 0x801e4060;
-// startup_callbacks.c declares 547 rows; the next object starts at 0x801e73a8.
 const COUNT: usize = 547;
 const STRIDE: usize = 24;
 
@@ -56,29 +55,13 @@ pub(crate) struct Phase {
     pub resource: Option<String>,
     /// 0, 0x100 and 0x200 do not register a visited world-map location.
     pub location: u16,
-    /// Signed XYZ before fn_80024EDC adds its transient low-three-bit X bias.
     pub default_position: [i16; 3],
     pub framebuffer_passes: FramebufferPasses,
-    /// Pool indices in the exact random-choice order used by fn_8007F564.
-    /// Empty disables Item Finder; one entry needs no pool-selection draw.
     pub item_finder_choices: Vec<usize>,
-    /// Native function identities, not executable payloads. fn_8002F200 calls
-    /// +16 before object dispatch; fn_8002F1B8 calls +20 after object dispatch.
-    pub render_before_objects: Option<NativeCallback>,
-    pub render_after_objects: Option<NativeCallback>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub(crate) struct NativeCallback(u32);
-
-impl NativeCallback {
-    pub const TITLE_SCENE: Self = Self(0x8002f440);
 }
 
 #[derive(Clone, Serialize)]
 pub(crate) struct FramebufferPasses {
-    /// fn_80023C10 first draws the copied framebuffer with GX_LEQUAL.
     pub less_equal: bool,
     /// Its second quad uses GX_GEQUAL. Neither pass writes depth.
     pub greater_equal: bool,
@@ -136,14 +119,6 @@ pub(crate) fn read(executable: &[u8]) -> Result<Phases> {
                 13 => &[0, 3, 2],
                 other => anyhow::bail!("unknown phase {id} Item Finder selector {other}"),
             };
-            let callback = |address| -> Result<Option<NativeCallback>> {
-                if address == 0 {
-                    return Ok(None);
-                }
-                ensure!(address % 4 == 0, "unaligned phase {id} native callback");
-                dol::slice(executable, address, 4)?;
-                Ok(Some(NativeCallback(address)))
-            };
             Ok(Phase {
                 id,
                 resource: (word(0) != 0)
@@ -151,14 +126,11 @@ pub(crate) fn read(executable: &[u8]) -> Result<Phases> {
                     .transpose()?,
                 location: half(6),
                 default_position: [half(8) as i16, half(10) as i16, half(12) as i16],
-                // fn_80024EDC initializes both and applies bits 2 and 1.
                 framebuffer_passes: FramebufferPasses {
                     less_equal: row[4] & 2 == 0,
                     greater_equal: row[4] & 1 == 0,
                 },
                 item_finder_choices: item_finder_choices.to_vec(),
-                render_before_objects: callback(word(16))?,
-                render_after_objects: callback(word(20))?,
             })
         })
         .collect::<Result<_>>()?;

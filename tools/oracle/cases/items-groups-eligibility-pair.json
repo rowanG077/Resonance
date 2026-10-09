@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Group-item eligibility: knockout Lloyd blocks group recovery, revival enables it, ordinary gels fill HP, and full-party HP/TP reject group items without consumption.",
-  "registration": "Controlled fixture copies items-groups-fixture-v1, knocks out Lloyd and restores all other members to full HP/TP with no conditions. The actual menus revive and heal Lloyd, verify the group-recovery gate before/after, cancel without consuming, reject full-party recovery and return to Main. This tests menu eligibility, not combat or natural damage. Native menu opens at update 40/source poll 20; later native inputs use source poll/2 + 1, matching the observed controller-processing VI. Image/state observations use equal native update/source VI with the unchanged registered clock origins and tolerance 8/1%.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/items-groups-eligibility-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "items-groups-eligibility-keyboard.json",
-    "sha256": "6c5f9ad503c29d0f43460367af9a1fa90ea74a251ba728ef3dfe1aa28db7ac62"
+    "sha256": "fd3bc49085a57bf764dfd84312e0517dbc95c84b69ff2cba3e7a1105f9b21c0b"
   },
   "dolphin": {
     "state": {

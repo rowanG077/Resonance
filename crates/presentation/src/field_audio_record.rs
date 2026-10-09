@@ -10,6 +10,7 @@ use std::path::Path;
 /// at the right time; the complete New Game recording covers that separately.
 pub fn record_field_audio(
     root: &Path,
+    map: u32,
     output: &Path,
     frames: u64,
     events: &[(u64, AudioCommand)],
@@ -29,7 +30,7 @@ pub fn record_field_audio(
         "audio request is outside the recording"
     );
     ensure!(!output.exists(), "audio recording already exists");
-    let (source, mut control) = Assets::load(root, 340)?.session();
+    let (source, mut control) = Assets::load(root, map)?.session();
     control.stereo(stereo)?;
     control.levels(levels)?;
     let mut stream = source.decoder();

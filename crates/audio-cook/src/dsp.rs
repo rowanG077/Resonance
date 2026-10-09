@@ -28,7 +28,7 @@ pub struct State {
 
 /// Return the encoded bytes needed for `sample_count` samples in ordinary
 /// `GameCube` DSP-ADPCM.  The final partial frame uses two header/rounding bytes
-/// plus one byte per pair of nibbles, just as the native DSP address code does.
+/// plus one byte per pair of nibbles.
 #[must_use]
 pub fn encoded_size(sample_count: u32) -> usize {
     let full_frames = sample_count / 14;
@@ -45,8 +45,8 @@ pub fn encoded_size(sample_count: u32) -> usize {
 ///
 /// `coefficients[predictor]` contains the two signed predictor coefficients.
 /// `history` is the `(yn1, yn2)` state before the first frame; ordinary `MusyX`
-/// samples use `[0, 0]`.  The decoder follows the native `DSPDecompressFrame`
-/// sequence, including its `+1024` rounding term and signed 16-bit clamp.
+/// samples use `[0, 0]`. Decoding rounds with a `+1024` bias and clamps
+/// each sample to the signed 16-bit range.
 ///
 /// # Errors
 ///

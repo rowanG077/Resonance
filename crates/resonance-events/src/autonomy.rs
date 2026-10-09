@@ -17,6 +17,18 @@ pub enum Behavior {
     Player = 10,
     ChasePlayer = 12,
 }
+impl Behavior {
+    pub(crate) fn enemy(mode: u8) -> Self {
+        match mode {
+            0 => Self::WanderNearHome,
+            1 | 2 => Self::Wander,
+            3 => Self::FollowPath,
+            4 | 5 => Self::ApproachPlayer,
+            6 => Self::RandomPath,
+            _ => Self::Wander,
+        }
+    }
+}
 impl TryFrom<i32> for Behavior {
     type Error = anyhow::Error;
     fn try_from(value: i32) -> Result<Self> {
@@ -78,7 +90,12 @@ impl Autonomy {
     pub fn begin_conversation(&mut self) {
         self.conversing = true;
     }
-    /// A rejected floor probe requests a new direction on the next update.
+    pub(crate) fn set_behavior(&mut self, behavior: Behavior) {
+        self.behavior = behavior;
+        self.conversing = false;
+        self.select(Activity::Select);
+    }
+    /// A rejected floor probe requests a new decision on the next update.
     pub fn resolve_floor(&mut self, available: bool) {
         self.floor_available = available;
         if !available && !self.conversing {
@@ -112,23 +129,21 @@ impl Actor {
         random: &mut impl FnMut() -> u32,
     ) -> AmbientMotion {
         let mut intent = AmbientMotion::default();
+        if self.pushable {
+            return intent;
+        }
         let Some(ai) = &mut self.autonomy else {
             return intent;
         };
         if let Some(enemy) = &mut self.enemy {
-            if free_control {
-                enemy.contact_cooldown = enemy.contact_cooldown.saturating_sub(1);
+            if enemy.pause_ticks != 0 && self.motion.is_none() {
+                if free_control && enemy.pause_ticks > 0 {
+                    enemy.pause_ticks -= 1;
+                }
+                intent.paused = true;
+                return intent;
             }
-            let alert = player.is_some_and(|p| {
-                let dx = p[0] - self.position[0];
-                let dy = p[1] - self.position[1];
-                let distance = dx.hypot(dy);
-                let angle = self.heading.to_radians();
-                distance < enemy.sight_distance
-                    && (distance == 0.
-                        || (dx * angle.sin() - dy * angle.cos()) / distance
-                            > (enemy.sight_angle.to_radians() * 0.5).cos())
-            });
+            let alert = enemy.alerted;
             ai.speed = if alert {
                 enemy.alert_speed
             } else {
@@ -245,6 +260,19 @@ impl Actor {
                 if intent.paused {
                     return intent;
                 }
+                let outside_home = ai.behavior == Behavior::WanderNearHome
+                    && (ai.radius < 0.
+                        || self
+                            .position
+                            .iter()
+                            .zip(ai.home)
+                            .map(|(a, b)| (a - b).powi(2))
+                            .sum::<f32>()
+                            > ai.radius * ai.radius);
+                if self.enemy.is_some() && outside_home {
+                    ai.remaining = 120;
+                    self.target_heading = heading(self.position, ai.home);
+                }
                 ai.remaining -= 1;
                 if ai.remaining < -1 {
                     if random() & 15 == 0 {
@@ -256,18 +284,18 @@ impl Actor {
                         self.target_heading += if ai.remaining & 1 != 0 { 90. } else { -90. };
                         ai.remaining = (random() & 31) as i32 + 8;
                     } else {
-                        self.target_heading += (random() & 63) as f32 - 32.;
+                        let mask = if self
+                            .enemy
+                            .as_ref()
+                            .is_some_and(|enemy| enemy.behavior == 1 && enemy.random_turns == 0)
+                        {
+                            127
+                        } else {
+                            63
+                        };
+                        self.target_heading += (random() & mask) as f32 - (mask / 2 + 1) as f32;
                         match ai.behavior {
-                            Behavior::WanderNearHome
-                                if ai.radius < 0.
-                                    || self
-                                        .position
-                                        .iter()
-                                        .zip(ai.home)
-                                        .map(|(a, b)| (a - b).powi(2))
-                                        .sum::<f32>()
-                                        > ai.radius * ai.radius =>
-                            {
+                            Behavior::WanderNearHome if outside_home => {
                                 ai.remaining = 60;
                                 self.target_heading = heading(self.position, ai.home);
                             }
@@ -285,7 +313,12 @@ impl Actor {
                         }
                     }
                 }
-                let angle = self.target_heading.to_radians();
+                let angle = if self.enemy.is_some() {
+                    self.heading
+                } else {
+                    self.target_heading
+                }
+                .to_radians();
                 let mut delta = [angle.sin() * ai.speed, -angle.cos() * ai.speed];
                 if self.heading.trunc() != self.target_heading.trunc() {
                     delta = delta.map(|v| (f64::from(v) / 1.5) as f32);
@@ -304,21 +337,55 @@ fn heading(from: [f32; 3], to: [f32; 3]) -> f32 {
     (to[0] - from[0]).atan2(from[1] - to[1]).to_degrees()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ActorOrigin {
-    pub autonomy: Autonomy,
-    pub position: [f32; 3],
-    pub heading: f32,
-    pub target_heading: f32,
-    pub animation_slot: Option<u16>,
-    pub animation_sample: f32,
-    pub animation_repeat: bool,
-}
-
 #[cfg(test)]
 mod path_tests {
     use super::*;
+
+    #[test]
+    fn enemy_returns_home_before_its_random_turn_timer_expires() {
+        let mut actor = Actor::new(164, [301., 0., 0.]);
+        actor.face(90.);
+        actor.turn_speed = 10.;
+        let mut ai = Autonomy::new(Behavior::WanderNearHome, 3., [0.; 3]);
+        ai.radius = 300.;
+        ai.activity = Activity::Walk;
+        ai.initialized = true;
+        ai.remaining = 500;
+        actor.autonomy = Some(ai);
+        actor.enemy = Some(crate::world::Enemy {
+            event: 0,
+            behavior: 0,
+            normal_speed: 3.,
+            alert_speed: 6.,
+            random_turns: 0,
+            chase_on_sight: false,
+            sight_angle: 90.,
+            sight_distance: 600.,
+            alerted: false,
+            event_parameters: [0; 2],
+            pause_ticks: 0,
+            reaction: crate::effect::StunEffect::None,
+        });
+        let mut seed = 1;
+        let mut random = || crate::world::random(&mut seed);
+        for _ in 0..120 {
+            actor.step_autonomy(true, false, None, &mut random);
+            actor.step_heading(false, true);
+        }
+        assert!(actor.position[0].hypot(actor.position[1]) < 300.);
+        let before = actor.position;
+        actor.step_autonomy(false, false, None, &mut random);
+        assert_eq!(actor.position, before);
+        actor.enemy.as_mut().unwrap().pause_ticks = 60;
+        for _ in 0..120 {
+            actor.step_autonomy(false, false, None, &mut random);
+        }
+        assert_eq!(actor.position, before);
+        assert_eq!(actor.enemy.as_ref().unwrap().pause_ticks, 60);
+        actor.step_autonomy(true, false, None, &mut random);
+        assert_eq!(actor.enemy.as_ref().unwrap().pause_ticks, 59);
+    }
+
     #[test]
     fn patrol_reverses_at_end_and_pauses_for_dialogue() {
         let mut actor = Actor::new(1, [0.; 3]);

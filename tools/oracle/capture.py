@@ -90,10 +90,6 @@ def main():
                         help="Diagnostic emulated CPU multiplier; non-default runs are separate evidence")
     parser.add_argument("--fast-disc", action="store_true",
                         help="Diagnostic unlimited disc speed; never changes the baseline configuration")
-    parser.add_argument("--trace-startup", action="store_true",
-                        help="Diagnostic read-only GDB trace through the first 12 movie frames")
-    parser.add_argument("--trace-random", type=int,
-                        help="Diagnostic read-only GDB trace of 1..4096 random calls")
     parser.add_argument("--watch-state", action="store_true",
                         help="Record named game words every VI without enabling the debugger")
     parser.add_argument("--watch-locations", type=Path, action="append", default=[],
@@ -107,9 +103,7 @@ def main():
     parser.add_argument("--watch-volume-group", type=int, action="append", default=[],
                         help="Observe a music/effect volume envelope (0..31); repeat up to eight times")
     args = parser.parse_args()
-    if args.trace_random is not None and (
-            not 1 <= args.trace_random <= 4096 or args.trace_startup or not args.initial_state):
-        parser.error("--trace-random needs an initial state and 1..4096 calls, without --trace-startup")
+
     if (args.frame or args.watch_vis or 0) < 1 or args.timeout <= 0:
         parser.error("frame and timeout must be positive")
     if args.video and args.watch_vis is None:
@@ -135,8 +129,6 @@ def main():
         parser.error("cpu-clock must be between 0.1 and 16")
     if args.save_state and not args.xvfb:
         parser.error("--save-state requires the isolated virtual display")
-    if args.trace_startup and args.watch_state:
-        parser.error("keep debugger traces separate from ordinary MemoryWatcher evidence")
     disc, movie = args.disc.resolve(strict=True), args.movie.resolve(strict=True)
     if movie.read_bytes()[:10] != b"DTM\x1aGQSEAF":
         parser.error("the no-blur Gecko profile supports only GQSEAF DTMs")
@@ -170,8 +162,6 @@ def main():
                 parser.error(f"conflicting watcher location: {address}")
             actor_locations[address] = name
         args.watch_state = True
-    # fn_80137FD0 / fn_8013769C: read the envelope itself so voice overlap
-    # in a mixed PCM recording cannot conceal an incorrect music fade.
     for group in set(args.watch_volume_group):
         for index, name in enumerate(["value", "target", "previous", "progress", "step"]):
             address = 0x8030817c + group * 0x30 + index * 4
@@ -188,8 +178,9 @@ def main():
             parser.error("initial-state requires its recorded .dtm companion for prefix validation")
         from state import inspect
         observation = inspect(initial_state)
+        if "battle" in observation and (args.watch_actor or args.watch_particle):
+            parser.error("field actor/particle watches require a field checkpoint")
         if args.watch_state:
-            actor_locations["8035A73C"] = "field_save_point_word"
             for controller in range(4):
                 actor_locations[f"{0x802caed8 + controller * 12 + 8:08X}"] = f"controller_{controller}_status_word"
             for offset in range(0, 0x24, 4):
@@ -394,7 +385,9 @@ def main():
             parser.error("DTM input before the initial checkpoint differs from its recorded history")
         # Addresses are discovered from this recorded state. The id word makes
         # a reused actor slot detectable; these observations span one field.
-        actors = [observation["controlled_actor"], *observation.get("actors", [])]
+        actors = observation.get("actors", [])
+        if controlled := observation.get("controlled_actor"):
+            actors = [controlled, *actors]
         for actor_id in set(args.watch_actor):
             matches = [a for a in actors if a["id"] == actor_id]
             if len(matches) != 1:
@@ -464,7 +457,7 @@ def main():
         "requested_vi_samples": args.watch_vis,
         "audio": {"backend": "No Audio Output", "muted": True, "dump": True},
         "timing": {"cpu_clock": args.cpu_clock, "fast_disc": args.fast_disc,
-                   "diagnostic_override": args.cpu_clock != 1.0 or args.fast_disc or args.trace_startup},
+                   "diagnostic_override": args.cpu_clock != 1.0 or args.fast_disc},
         "complete": False,
     }
     # A Nix launcher is a wrapper; retain the actual executable's identity too.
@@ -473,7 +466,7 @@ def main():
         metadata["dolphin_wrapped_binary_sha256"] = sha256(wrapped)
     manifest = output / "capture.json"
     manifest.write_text(json.dumps(metadata, indent=2) + "\n")
-    display = process = trace_directory = watch_directory = watcher = None
+    display = process = watch_directory = watcher = None
     env = os.environ.copy()
     try:
         if args.xvfb:
@@ -530,21 +523,11 @@ def main():
                         "-C", f"Dolphin.Core.Overclock={args.cpu_clock}"]
         if args.fast_disc:
             command += ["-C", "Dolphin.Core.FastDiscSpeed=True"]
-        if args.trace_startup or args.trace_random:
-            trace_directory = tempfile.TemporaryDirectory(prefix="resonance-trace-")
-            trace_socket = Path(trace_directory.name) / "gdb.sock"
-            command += ["-d", "-C", f"Dolphin.General.GDBSocket={trace_socket}"]
         if args.xvfb:
             command += ["-C", "Dolphin.General.HotkeysRequireFocus=False"]
         metadata["command"] = command
         with (output / "dolphin.log").open("w") as log:
             process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
-        if args.trace_startup or args.trace_random:
-            from startup_trace import trace
-            trace_kind = "random_trace" if args.trace_random else "startup_trace"
-            trace_output = output / f"{trace_kind.replace('_', '-')}.jsonl"
-            metadata[trace_kind] = trace(trace_socket, trace_output, process, args.timeout, args.trace_random)
-            metadata[trace_kind].update(path=trace_output.name, sha256=sha256(trace_output))
         frame = (output / "user" / "Dump" / "Frames" / f"framedump_{args.frame}.png"
                  if args.frame is not None else None)
         deadline = time.monotonic() + args.timeout
@@ -626,8 +609,6 @@ def main():
                 metadata["presentation"]["error"] = "no-blur Gecko instructions were not observed"
         if watch_directory is not None:
             watch_directory.cleanup()
-        if trace_directory is not None:
-            trace_directory.cleanup()
         metadata["audio"]["recordings"] = audio_evidence(output)
         if args.video:
             metadata["video"] = [{"path": str(path.relative_to(output)), "sha256": sha256(path)}

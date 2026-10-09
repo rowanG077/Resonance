@@ -4,7 +4,7 @@ use crate::{
     dol,
     read::{Field, u16 as half, u32 as word},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 const DEFINITIONS: u32 = 0x80209544;
 const DEFINITION_COUNT: usize = 166;
@@ -157,14 +157,6 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
         gem_empty: texts.fixed(executable, 0x8035d664, 4)?,
         stat_arrow: texts.fixed(executable, 0x8035d668, 8)?,
     };
-    let immediate = |address, opcode| -> Result<i16> {
-        let instruction = word(dol::slice(executable, address, 4)?, 0)?;
-        ensure!(
-            instruction & 0xffff_0000 == opcode,
-            "unsupported save-point TP rule instruction"
-        );
-        Ok(instruction as i16)
-    };
     Ok(Catalogue {
         texts: texts.values,
         definitions,
@@ -173,8 +165,8 @@ pub(crate) fn read(executable: &[u8]) -> Result<Catalogue> {
         labels,
         formats,
         save_point_rule: SavePointRule {
-            character_index: immediate(0x800cf788, 0x2c00_0000)?,
-            tp_cost: immediate(0x800cf7a0, 0x3860_0000)?,
+            character_index: 3,
+            tp_cost: 1,
         },
     })
 }
@@ -237,8 +229,6 @@ mod tests {
                     (COMPOUNDS + 4, vec![1, 255, 255, 255, 1, 2, 0x81, 0xff]),
                     (LABELS, 0u32.to_be_bytes().to_vec()),
                     (LABELS + 8, label.to_be_bytes().to_vec()),
-                    (0x800cf788, 0x2c00fff9u32.to_be_bytes().to_vec()),
-                    (0x800cf7a0, 0x3860fffeu32.to_be_bytes().to_vec()),
                 ] {
                     let source = dol::slice(&executable, address, replacement.len())?;
                     let offset = source.as_ptr() as usize - executable.as_ptr() as usize;
@@ -274,8 +264,6 @@ mod tests {
                 );
                 assert!(changed.labels[0].is_none());
                 assert_eq!(changed.labels[1], changed.labels[2]);
-                assert_eq!(changed.save_point_rule.character_index, -7);
-                assert_eq!(changed.save_point_rule.tp_cost, -2);
             }
             assert_eq!(
                 payloads.len(),

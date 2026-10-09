@@ -22,7 +22,7 @@ use std::{
 
 pub(super) mod pacing;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 type AudioBuffer = resonance_playback::Pcm;
 
@@ -295,6 +295,7 @@ pub(super) fn update(
     recording: Option<Res<super::playthrough::Recording>>,
     ready: Res<super::timing::Ready>,
     boot: Res<super::boot::Playback>,
+    testing: Option<Res<super::testing::Controls>>,
 ) {
     if !ready.0 || recording.is_some_and(|r| !r.started) {
         return;
@@ -311,7 +312,7 @@ pub(super) fn update(
             .iter()
             .any(|pad| pad.just_pressed(GamepadButton::Start));
     let ignore_skip = std::mem::take(&mut movie.ignore_initial_skip);
-    let skip = skip_pressed && !ignore_skip;
+    let skip = skip_pressed && !ignore_skip || testing.as_ref().is_some_and(|c| c.skipping);
     if skip {
         info!("Movie skipped");
         movie.finish(&mut commands, &mut pending);
@@ -322,6 +323,9 @@ pub(super) fn update(
     }
     if input.just_pressed(KeyCode::Space) {
         movie.paused = !movie.paused;
+    }
+    if testing.as_ref().is_some_and(|c| c.paused) {
+        return;
     }
     if let Err(error) = advance(
         &mut movie,
@@ -402,7 +406,7 @@ fn advance(
         }
     }
     while movie.frames.len() < 32 {
-        let Some(frame) = stream.try_video() else {
+        let Some(frame) = stream.try_video()? else {
             break;
         };
         movie.frames.push_back(frame);

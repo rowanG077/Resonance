@@ -1,6 +1,8 @@
-//! Numbered scenes use the original camera, baked actor motion and UV controllers.
+//! Numbered scenes combine camera tracks, baked actor motion and UV controllers.
 use super::*;
 use resonance_game::overworld::cinematic::Playback;
+
+pub(super) const FAR_CLIP: f32 = 12800.;
 
 pub(super) fn origin(playback: &Playback) -> Position {
     let eye = playback.camera().position;
@@ -27,13 +29,18 @@ pub(super) fn surface(id: u16, actor: u8, surface: &mut TitleSurface) {
         (id, actor),
         (516..=518, 5..=9) | (520, 2) | (521, 2..=4) | (522..=524, _) | (525..=526, 1..=2)
     ) {
-        surface.blend = true;
         surface.depth_write = false;
         surface.depth_test = !matches!((id, actor), (520, 2) | (521, 4) | (525..=526, _));
-        surface.additive = !matches!((id, actor), (521, 2..=3) | (525..=526, 2) | (526, 1));
+        surface.blend = Some(
+            if matches!((id, actor), (521, 2..=3) | (525..=526, 2) | (526, 1)) {
+                Blend::Alpha
+            } else {
+                Blend::Additive
+            },
+        );
     }
     if id == 516 && actor <= 4 {
-        surface.blend = true;
+        surface.blend = Some(Blend::Alpha);
     }
     if background(id, actor) {
         surface.depth_write = false;

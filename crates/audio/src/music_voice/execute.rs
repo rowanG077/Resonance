@@ -32,7 +32,12 @@ impl Voice<'_> {
             self.wait = Wait::default();
             match command {
                 Command::Noop => {}
-                Command::End => self.done = true,
+                Command::End => {
+                    // Macro teardown frees allocation priority, but the DSP
+                    // sample and its control jobs continue until completion.
+                    self.done = true;
+                    self.set_priority(0);
+                }
                 Command::SetVariable { destination, value } => {
                     self.set_variable(destination, i32::from(value), controls)?
                 }

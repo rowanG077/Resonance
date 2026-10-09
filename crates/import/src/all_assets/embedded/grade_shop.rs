@@ -1,6 +1,6 @@
 //! New Game Plus purchases, selection constraints and Grade accounting.
 use crate::{dol, read::u32 as word};
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
 
@@ -87,64 +87,26 @@ enum Label {
     PriceFormat,
 }
 
-fn immediate(executable: &[u8], address: u32, opcode: u32) -> Result<u16> {
-    let instruction = word(dol::slice(executable, address, 4)?, 0)?;
-    ensure!(
-        instruction >> 16 == opcode,
-        "unexpected Grade Shop instruction at {address:#x}"
-    );
-    Ok(instruction as u16)
-}
-
-fn exclusions(executable: &[u8]) -> Result<[Vec<Benefit>; 26]> {
-    let mut exclusions = std::array::from_fn(|_| Vec::new());
-    // The six restricted cases in the selection callback test these exact masks.
-    for (index, address) in (19..=24).zip([
-        0x800afaf0, 0x800afafc, 0x800afb08, 0x800afb14, 0x800afb20, 0x800afb2c,
-    ]) {
-        let instruction = word(dol::slice(executable, address, 4)?, 0)?;
-        let mask = if instruction >> 16 == 0x7503 {
-            (instruction & 0xffff) << 16 // andis.
-        } else {
-            ensure!(
-                instruction & 0xfffff801 == 0x55030001,
-                "unexpected Grade exclusion mask"
-            );
-            let first = (instruction >> 6) & 31;
-            let last = (instruction >> 1) & 31;
-            ensure!(first <= last, "wrapped Grade exclusion mask");
-            (u32::MAX >> first) & (u32::MAX << (31 - last)) // rlwinm. without rotation
-        };
-        ensure!(
-            mask >> Benefit::ALL.len() == 0 && mask & (1 << index) == 0,
-            "invalid Grade exclusions"
-        );
-        exclusions[index] = Benefit::ALL
-            .into_iter()
-            .filter(|benefit| mask & (1 << *benefit as u8) != 0)
-            .collect();
-    }
-    Ok(exclusions)
+fn exclusions(benefit: Benefit) -> Vec<Benefit> {
+    use Benefit::*;
+    let group: &[Benefit] = match benefit {
+        IncreasedHp | MinimumHp => &[IncreasedHp, MinimumHp],
+        ComboExperience | HalfExperience | DoubleExperience | TenfoldExperience => &[
+            ComboExperience,
+            HalfExperience,
+            DoubleExperience,
+            TenfoldExperience,
+        ],
+        _ => &[],
+    };
+    group
+        .iter()
+        .copied()
+        .filter(|other| *other != benefit)
+        .collect()
 }
 
 fn read(executable: &[u8]) -> Result<Catalogue> {
-    let exclusions = exclusions(executable)?;
-    let units_per_grade = u32::from(immediate(executable, 0x800afe04, 0x1ca3)?);
-    ensure!(units_per_grade > 0, "zero Grade currency scale");
-    // All 26 refund branches use the same scale and saturation constant.
-    let limit_high = immediate(executable, 0x80043c2c, 0x3c60)?;
-    let limit_low = immediate(executable, 0x80043c3c, 0x3803)?;
-    let refund_balance_limit =
-        (u32::from(limit_high) << 16).wrapping_add_signed(i32::from(limit_low as i16));
-    for index in 0..Benefit::ALL.len() as u32 {
-        let offset = index * 0x48;
-        ensure!(
-            u32::from(immediate(executable, 0x80043c40 + offset, 0x1c64)?) == units_per_grade
-                && immediate(executable, 0x80043c2c + offset, 0x3c60)? == limit_high
-                && immediate(executable, 0x80043c3c + offset, 0x3803)? == limit_low,
-            "inconsistent Grade refund accounting"
-        );
-    }
     let mut labels: BTreeMap<_, _> = [
         Label::BuyCancel,
         Label::TotalCost,
@@ -175,15 +137,15 @@ fn read(executable: &[u8]) -> Result<Catalogue> {
                     price: word(row, 0)?,
                     name: dol::text(executable, word(row, 4)?)?,
                     description: dol::text(executable, word(row, 8)?)?,
-                    excludes: exclusions[benefit as usize].clone(),
+                    excludes: exclusions(benefit),
                 })
             })
             .collect::<Result<_>>()?,
         initial_selection: Vec::new(),
         account: Account {
-            units_per_grade,
+            units_per_grade: 100,
             refund_previous_purchases: true,
-            refund_balance_limit,
+            refund_balance_limit: 99_999_999,
         },
         labels,
     })
@@ -250,15 +212,12 @@ mod tests {
                 );
             }
             assert_eq!(table, dol::slice(&executable, OPTIONS, 26 * 12)?);
-            // A changed native price and mask must reach semantic data, not fixed recipes.
-            for (address, value) in [(OPTIONS, 777u32), (0x800afb14, 0x75030020)] {
-                let source = dol::slice(&executable, address, 4)?;
-                let offset = source.as_ptr() as usize - executable.as_ptr() as usize;
-                executable[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
-            }
+            // Prices come from the item data.
+            let source = dol::slice(&executable, OPTIONS, 4)?;
+            let offset = source.as_ptr() as usize - executable.as_ptr() as usize;
+            executable[offset..offset + 4].copy_from_slice(&777u32.to_be_bytes());
             let changed = read(&executable)?;
             assert_eq!(changed.options[0].price, 777);
-            assert_eq!(changed.options[22].excludes, [Benefit::ComboExperience]);
         }
         Ok(())
     }

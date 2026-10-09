@@ -555,6 +555,7 @@ impl<'a> Voice<'a> {
         Ok(())
     }
 
+    /// Macro completion releases its slot; the DSP sample can still be audible.
     pub fn is_done(&self) -> bool {
         self.done
     }
@@ -709,12 +710,11 @@ impl<'a> Voice<'a> {
     }
 
     pub(crate) fn source_active(&self) -> bool {
-        self.source.is_some() && !self.sample_finished && !self.done
+        self.source.is_some() && !self.sample_finished
     }
 
     pub(crate) fn studio_active(&self) -> bool {
-        !self.done
-            && (self.source_active() || self.stopped_subframe.is_some_and(|phase| phase != 0))
+        self.source_active() || self.stopped_subframe.is_some_and(|phase| phase != 0)
     }
 
     pub(crate) fn waits_for_sample_end(&self) -> bool {
@@ -740,7 +740,7 @@ impl<'a> Voice<'a> {
     /// change later in a block while pitch and envelope retain their control phase.
     pub fn prepare_frame(&mut self, mut controls: Controls) -> Result<()> {
         controls.validate()?;
-        if self.done {
+        if self.done && !self.source_active() {
             return Ok(());
         }
         let phase = ((self.frame + self.block_phase) % 160) as usize;
@@ -748,23 +748,16 @@ impl<'a> Voice<'a> {
             phase == self.pending_end,
             "music block must be mixed before preparing the next block"
         );
-        let pitch_envelope = self.pitch_envelope.as_mut().map_or(0, |(envelope, depth)| {
-            (i32::from(*depth)
-                * i32::from(
-                    envelope.next_gain_at((self.frame + self.block_phase).is_multiple_of(160)),
-                ))
-                >> 7
-        });
         if self.frame.is_multiple_of(32) {
             // Resuming a macro wakes both scheduled controls.
             let woke = if let Some(woke) = self.prepared_woke.take() {
                 woke
             } else {
-                let woke = self.ready();
+                let woke = !self.done && self.ready();
                 self.commands(&mut controls)?;
                 woke
             };
-            if self.done {
+            if self.done && !self.source_active() {
                 return Ok(());
             }
             let now = self.frame / 32;
@@ -774,6 +767,9 @@ impl<'a> Voice<'a> {
             if now - self.last_pitch_ms >= 15 || pitch_dirty || woke {
                 let delta = now - self.last_pitch_ms;
                 self.last_pitch_ms = now;
+                let pitch_envelope = self.pitch_envelope.as_mut().map_or(0, |(envelope, depth)| {
+                    (i32::from(*depth) * i32::from(envelope.advance_pitch())) >> 7
+                });
                 for pan in &mut self.pan {
                     pan.advance(delta);
                 }
@@ -849,7 +845,7 @@ impl<'a> Voice<'a> {
                         .clamp(0, 127 << 16) as u32
                 };
                 // Front/back ramps and selectors retain state; stereo and mono
-                // output use only the horizontal axis, as on the original mixer.
+                // output use only the horizontal axis.
                 let lfo = if self.lfo_to_tremolo {
                     self.lfo.value
                 } else {

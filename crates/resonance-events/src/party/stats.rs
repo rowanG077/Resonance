@@ -29,7 +29,7 @@ pub struct Stats {
 }
 
 impl Member {
-    pub(super) fn clamp_vitals(&mut self) {
+    pub(crate) fn clamp_vitals(&mut self) {
         let [hp, tp] = self.maximum_vitals();
         self.hp = self.hp.min(hp);
         self.tp = self.tp.min(tp);

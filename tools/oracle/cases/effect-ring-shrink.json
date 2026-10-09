@@ -1,0 +1,29 @@
+{
+  "family": "rings",
+  "only": "ring-shrink-*",
+  "description": "Shrink the player and restore their normal size with a second cast.",
+  "source": {
+    "path": "local/oracle-fixtures/effects/ring-shrink.s01",
+    "sha256": "ce278797099ee466d0dc6e61963436e7d960982b839cd003c0eb07a6258c996e"
+  },
+  "native_sequence": {
+    "path": "local/oracle-fixtures/effects/ring-shrink.json",
+    "sha256": "5fdee7c952ee477d4da0f724fc9a5a99defb6bdc6e3a4616a3eb445342044521"
+  },
+  "inputs": [
+    {
+      "poll": 100,
+      "duration": 10,
+      "buttons": [
+        "x"
+      ]
+    },
+    {
+      "poll": 300,
+      "duration": 10,
+      "buttons": [
+        "x"
+      ]
+    }
+  ]
+}

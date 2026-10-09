@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Field paralysis alone: compare the head symbol on both sides of successive 32-update animation boundaries.",
-  "registration": "Controlled copies set Lloyd to paralysis (0x80), recorded in field-paralysis-fixture-v1/fixture.json. Use the source-observed school-grounds ambient origins at native update 64; capture updates equal source VI + 64. No inputs or clock corrections during the observation. This tests the field symbol independently of poison and menu pauses.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/field-paralysis-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "field-paralysis-keyboard.json",
-    "sha256": "d7462f2b25c59d740c082e46636fff93bcdbf65762ac1bb0b66cf94ef632db0f"
+    "sha256": "7f398c2d6bb2bad7c36358282c51eef4955c247d1adfca4e9e02a5e25112afa2"
   },
   "dolphin": {
     "state": {
@@ -54,8 +54,6 @@
       "dolphin_vi": 2,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -71,8 +69,6 @@
       "dolphin_vi": 16,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -88,8 +84,6 @@
       "dolphin_vi": 17,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -105,8 +99,6 @@
       "dolphin_vi": 18,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -122,8 +114,6 @@
       "dolphin_vi": 48,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -139,8 +129,6 @@
       "dolphin_vi": 49,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -156,8 +144,6 @@
       "dolphin_vi": 50,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -173,8 +159,6 @@
       "dolphin_vi": 80,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -190,8 +174,6 @@
       "dolphin_vi": 81,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -207,8 +189,6 @@
       "dolphin_vi": 112,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,
@@ -224,8 +204,6 @@
       "dolphin_vi": 113,
       "paralysis_state": true,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
       "regions": [
         [
           292,

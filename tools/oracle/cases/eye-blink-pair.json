@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Field eye animation: two blink cycles for Lloyd and the school-grounds NPCs.",
-  "registration": "After 64 ordinary warm-up updates, native update 64 pairs with source VI 0. Register scenery, spark births, RNG, effect phase and the three source-observed eye phases once. Eye origins are checked against the sequence and channel timers in the source savestate. Normal field updates drive every subsequent blink; source MemoryWatcher runs without the debugger. Compare rendered blink frames and next samples at open/closing/closed/rest transitions and across two cycles. Ambient animation and full-frame image gates remain enabled; actor controllers, leaf motion and timed leaf-script waits are registered from the same source checkpoint as the NPC wandering case. All subsequent updates use normal runtime behavior.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "eye-blink-keyboard.json",
-    "sha256": "7c7edb295ff76eb78f6369e7d4cce7625e7bb36dbcb9e063bc659ca97ba9729e"
+    "sha256": "9df257bbc88909d553da35d953f80632a6f2ac249ef0dea3a1aa8a81e4e384e8"
   },
   "dolphin": {
     "state": {
@@ -51,818 +51,257 @@
     {
       "name": "blink-0",
       "native": "vi-0",
-      "dolphin_vi": 0,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 0
     },
     {
       "name": "blink-59",
       "native": "vi-59",
-      "dolphin_vi": 59,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 59
     },
     {
       "name": "blink-60",
       "native": "vi-60",
-      "dolphin_vi": 60,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 60
     },
     {
       "name": "blink-61",
       "native": "vi-61",
-      "dolphin_vi": 61,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 61
     },
     {
       "name": "blink-63",
       "native": "vi-63",
-      "dolphin_vi": 63,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 63
     },
     {
       "name": "blink-64",
       "native": "vi-64",
-      "dolphin_vi": 64,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 64
     },
     {
       "name": "blink-65",
       "native": "vi-65",
-      "dolphin_vi": 65,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 65
     },
     {
       "name": "blink-67",
       "native": "vi-67",
-      "dolphin_vi": 67,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 67
     },
     {
       "name": "blink-68",
       "native": "vi-68",
-      "dolphin_vi": 68,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 68
     },
     {
       "name": "blink-69",
       "native": "vi-69",
-      "dolphin_vi": 69,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 69
     },
     {
       "name": "blink-71",
       "native": "vi-71",
-      "dolphin_vi": 71,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 71
     },
     {
       "name": "blink-72",
       "native": "vi-72",
-      "dolphin_vi": 72,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 72
     },
     {
       "name": "blink-73",
       "native": "vi-73",
-      "dolphin_vi": 73,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 73
     },
     {
       "name": "blink-85",
       "native": "vi-85",
-      "dolphin_vi": 85,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 85
     },
     {
       "name": "blink-86",
       "native": "vi-86",
-      "dolphin_vi": 86,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 86
     },
     {
       "name": "blink-87",
       "native": "vi-87",
-      "dolphin_vi": 87,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 87
     },
     {
       "name": "blink-88",
       "native": "vi-88",
-      "dolphin_vi": 88,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 88
     },
     {
       "name": "blink-90",
       "native": "vi-90",
-      "dolphin_vi": 90,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 90
     },
     {
       "name": "blink-91",
       "native": "vi-91",
-      "dolphin_vi": 91,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 91
     },
     {
       "name": "blink-92",
       "native": "vi-92",
-      "dolphin_vi": 92,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 92
     },
     {
       "name": "blink-94",
       "native": "vi-94",
-      "dolphin_vi": 94,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 94
     },
     {
       "name": "blink-95",
       "native": "vi-95",
-      "dolphin_vi": 95,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 95
     },
     {
       "name": "blink-96",
       "native": "vi-96",
-      "dolphin_vi": 96,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 96
     },
     {
       "name": "blink-98",
       "native": "vi-98",
-      "dolphin_vi": 98,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 98
     },
     {
       "name": "blink-99",
       "native": "vi-99",
-      "dolphin_vi": 99,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 99
     },
     {
       "name": "blink-100",
       "native": "vi-100",
-      "dolphin_vi": 100,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 100
     },
     {
       "name": "blink-102",
       "native": "vi-102",
-      "dolphin_vi": 102,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 102
     },
     {
       "name": "blink-103",
       "native": "vi-103",
-      "dolphin_vi": 103,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 103
     },
     {
       "name": "blink-104",
       "native": "vi-104",
-      "dolphin_vi": 104,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 104
     },
     {
       "name": "blink-106",
       "native": "vi-106",
-      "dolphin_vi": 106,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 106
     },
     {
       "name": "blink-107",
       "native": "vi-107",
-      "dolphin_vi": 107,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 107
     },
     {
       "name": "blink-108",
       "native": "vi-108",
-      "dolphin_vi": 108,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 108
     },
     {
       "name": "blink-110",
       "native": "vi-110",
-      "dolphin_vi": 110,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 110
     },
     {
       "name": "blink-111",
       "native": "vi-111",
-      "dolphin_vi": 111,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 111
     },
     {
       "name": "blink-112",
       "native": "vi-112",
-      "dolphin_vi": 112,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 112
     },
     {
       "name": "blink-113",
       "native": "vi-113",
-      "dolphin_vi": 113,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 113
     },
     {
       "name": "blink-132",
       "native": "vi-132",
-      "dolphin_vi": 132,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 132
     },
     {
       "name": "blink-133",
       "native": "vi-133",
-      "dolphin_vi": 133,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 133
     },
     {
       "name": "blink-134",
       "native": "vi-134",
-      "dolphin_vi": 134,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 134
     },
     {
       "name": "blink-191",
       "native": "vi-191",
-      "dolphin_vi": 191,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 191
     },
     {
       "name": "blink-192",
       "native": "vi-192",
-      "dolphin_vi": 192,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 192
     },
     {
       "name": "blink-193",
       "native": "vi-193",
-      "dolphin_vi": 193,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 193
     },
     {
       "name": "blink-196",
       "native": "vi-196",
-      "dolphin_vi": 196,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 196
     },
     {
       "name": "blink-197",
       "native": "vi-197",
-      "dolphin_vi": 197,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 197
     },
     {
       "name": "blink-200",
       "native": "vi-200",
-      "dolphin_vi": 200,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 200
     },
     {
       "name": "blink-201",
       "native": "vi-201",
-      "dolphin_vi": 201,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 201
     },
     {
       "name": "blink-204",
       "native": "vi-204",
-      "dolphin_vi": 204,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 204
     },
     {
       "name": "blink-205",
       "native": "vi-205",
-      "dolphin_vi": 205,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 205
     },
     {
       "name": "blink-264",
       "native": "vi-264",
-      "dolphin_vi": 264,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 264
     },
     {
       "name": "blink-265",
       "native": "vi-265",
-      "dolphin_vi": 265,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 265
     },
     {
       "name": "blink-266",
       "native": "vi-266",
-      "dolphin_vi": 266,
-      "eye_actors": [
-        1,
-        209,
-        210
-      ],
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "dolphin_vi": 266
     }
   ],
   "audio": []

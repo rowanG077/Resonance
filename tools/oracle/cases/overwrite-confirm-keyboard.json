@@ -1,6 +1,5 @@
 {
   "version": 1,
-  "presentation_origin": 39148,
   "updates": 1200,
   "inputs": [
     {"update":20,"keys":["interact"]},

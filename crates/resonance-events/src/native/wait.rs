@@ -24,7 +24,7 @@ impl Command {
             1 => Self::Resource,
             2 => Self::DialogueClosed,
             3 => Self::DialogueReady,
-            4 => Self::ActorMotion,
+            4 | 6 => Self::ActorMotion,
             7 => Self::ActorAnimation,
             8 => Self::Camera,
             9..=13 => Self::CameraPath(code as u8),
@@ -50,19 +50,19 @@ impl NativeHost<'_> {
             }
         };
         let command = Command::decode(code).ok_or_else(unsupported)?;
+        let actor = if value == crate::CONTROLLED_ACTOR {
+            self.world.controlled_actor
+        } else {
+            value
+        };
         let condition = match (command, skit) {
             (Ticks, _) => {
                 require(value >= 0, "negative wait duration")?;
-                Wait::Tick(
-                    self.world
-                        .tick
-                        .checked_add(value.max(1) as u32)
-                        .ok_or(if skit {
-                            "skit wait overflow"
-                        } else {
-                            "wait clock overflow"
-                        })?,
-                )
+                Wait::Tick(self.world.tick.checked_add(value as u32).ok_or(if skit {
+                    "skit wait overflow"
+                } else {
+                    "wait clock overflow"
+                })?)
             }
             (Resource, _) => {
                 if skit {
@@ -80,18 +80,6 @@ impl NativeHost<'_> {
                         self.world.loaded_resources.contains_key(&value),
                         "wait refers to an unloaded resource",
                     )?;
-                    if let Some(observations) = self.resource_waits {
-                        let observation = observations.front().ok_or("unobserved resource wait")?;
-                        require(
-                            observation.request_tick == self.world.tick
-                                && self.resources.binding(observation.resource)
-                                    == self.world.loaded_resources.get(&value).copied(),
-                            "resource request differs from the observed tick or resource",
-                        )?;
-                        *self.resource_wait = Some(*observation);
-                        *self.wait = Some(Wait::Tick(observation.resume_tick));
-                        return Ok(NativeResult::Suspend);
-                    }
                 }
                 // Scene readiness already made cooked dependencies resident.
                 return Ok(NativeResult::Continue(None));
@@ -112,9 +100,9 @@ impl NativeHost<'_> {
                 id: (command == MediaLoaded).then_some(value as u32),
                 position: (command == MediaPosition && value >= 0).then_some(value as u32),
             },
-            (ActorMotion, false) => Wait::ActorMotion(value),
-            (ActorAnimation, false) => Wait::ActorAnimation(value),
-            (ActorHeading, false) => Wait::ActorHeading(value),
+            (ActorMotion, false) => Wait::ActorMotion(actor),
+            (ActorAnimation, false) => Wait::ActorAnimation(actor),
+            (ActorHeading, false) => Wait::ActorHeading(actor),
             (Camera, false) => Wait::Camera {
                 after: self.world.tick,
             },

@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "EX Skills: equip a level-one gem, confirm consumption, preview and select Strong.",
-  "registration": "Controlled ex-skill-fixture-v1 grants one of each EX gem in copies of matched checkpoints. Native menu opens at update 40; subsequent inputs use source poll/2. Frames use timestamped video and compare whole images, navigation, inventories, all characters EX selections and learned compounds, and the selected character statistics.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/ex-skill-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "ex-skills-keyboard.json",
-    "sha256": "9d5a02c4d2fcf78f5230bb949dbb975719bb3b3917f9411feddb7ce8e6a32cb7"
+    "sha256": "632b144364eb2f97af2e612389ac1fc86a6c39c51619d06f87f64cb4bf1d67fd"
   },
   "dolphin": {
     "state": {

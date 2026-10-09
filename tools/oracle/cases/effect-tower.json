@@ -1,0 +1,13 @@
+{
+  "family": "tower",
+  "matte_depth": 20,
+  "source": {
+    "path": "local/oracle-fixtures/effects/base.s01",
+    "sha256": "945b0d1d733f20304f1f3ec8ce93306db0547d6df348a2273009a0fb069c2b05"
+  },
+  "native_sequence": {
+    "path": "local/oracle-fixtures/effects/tower.json",
+    "sha256": "c0ce54b9c7d4f388305102390456fa7ccb06971e14d68565ee3c5e30a50a0d82"
+  },
+  "description": "Tower model resources loaded through scenario commands on the registered Martel effect stage."
+}

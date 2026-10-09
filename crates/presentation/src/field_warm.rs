@@ -24,6 +24,19 @@ use std::{
 };
 const LAYER: usize = 30;
 
+enum MaterialVariant {
+    Actor {
+        depth_write: bool,
+        lighting: bool,
+        blend: Option<resonance_events::effect::Blend>,
+        two_sided: bool,
+    },
+    Override {
+        blend: resonance_events::effect::Blend,
+        depth_write: bool,
+    },
+}
+
 #[derive(Resource, Clone, Default)]
 pub(super) struct Shared(Arc<Mutex<Report>>);
 #[derive(Default)]
@@ -164,6 +177,8 @@ fn begin(
         commands
             .spawn((
                 Camera3d::default(),
+                // Match FieldCamera even before a script enables fog.
+                DistanceFog::default(),
                 Camera {
                     order: -20,
                     ..default()
@@ -212,13 +227,75 @@ fn begin(
     let mut retained = Vec::new();
     for (&resource, parts) in &art.models {
         for (index, part) in parts.iter().enumerate() {
-            // Actor appearance can override depth writes independently of the
-            // material recipe. Exercise both keys, including hidden geometry.
-            for depth_write in [false, true] {
-                let materials = art
-                    .surfaces(resource, index, &mut images, &mut sampled)
-                    .map(|mut surface| {
-                        surface.depth_write = depth_write;
+            // Scripts may draw any loaded model as an actor or a model particle.
+            // Warm every blend/depth key, including currently hidden geometry.
+            use resonance_events::effect::Blend;
+            for variant in [false, true]
+                .into_iter()
+                .flat_map(|depth_write| {
+                    [false, true].into_iter().flat_map(move |lighting| {
+                        [
+                            (None, false),
+                            (Some(Blend::Alpha), false),
+                            (Some(Blend::Additive), false),
+                            (Some(Blend::Subtractive), false),
+                            (Some(Blend::Alpha), true),
+                            (Some(Blend::Additive), true),
+                            (Some(Blend::Subtractive), true),
+                        ]
+                        .map(|(blend, two_sided)| MaterialVariant::Actor {
+                            depth_write,
+                            lighting,
+                            blend,
+                            two_sided,
+                        })
+                    })
+                })
+                .chain(
+                    [Blend::Alpha, Blend::Additive, Blend::Subtractive]
+                        .into_iter()
+                        .flat_map(|blend| {
+                            [false, true]
+                                .map(|depth_write| MaterialVariant::Override { blend, depth_write })
+                        }),
+                )
+            {
+                let source = match variant {
+                    MaterialVariant::Actor { .. } => art
+                        .surfaces(resource, index, &mut images, &mut sampled)
+                        .collect(),
+                    MaterialVariant::Override { .. } => part.surfaces(&mut images, &mut sampled),
+                };
+                let materials = source
+                    .into_iter()
+                    .enumerate()
+                    .map(|(material, mut surface)| {
+                        match variant {
+                            MaterialVariant::Actor {
+                                depth_write,
+                                lighting,
+                                blend,
+                                two_sided,
+                            } => {
+                                surface.blend = blend.or_else(|| {
+                                    part.spec.materials[material].blend.then_some(Blend::Alpha)
+                                });
+                                if two_sided {
+                                    surface.cull = resonance_content::CullFace::None;
+                                }
+                                surface.depth_write = depth_write;
+                                surface.toon_ramp = art.toon_ramp_for(
+                                    resource,
+                                    index,
+                                    &part.spec.materials[material],
+                                    Some(i32::from(lighting)),
+                                );
+                            }
+                            MaterialVariant::Override { blend, depth_write } => {
+                                super::field_model_particles::material(&mut surface, blend);
+                                surface.depth_write = depth_write;
+                            }
+                        }
                         let handle = surfaces.add(surface);
                         retained.push(handle.clone());
                         handle
@@ -333,7 +410,7 @@ fn effects(
     preparation: Option<ResMut<Preparation>>,
     shared: Res<Shared>,
     art: Option<Res<Art>>,
-    meshes: Query<(&Mesh3d, &MeshMaterial3d<TitleSurface>), With<super::field_effects::EffectDraw>>,
+    effects: Option<Res<super::field_effects::Artwork>>,
 ) {
     let Some(mut preparation) = preparation else {
         return;
@@ -341,12 +418,12 @@ fn effects(
     if preparation.effects_copied || art.as_ref().is_none_or(|a| !a.ready) {
         return;
     }
+    let Some(effects) = effects else { return };
     let mut report = shared.0.lock().unwrap();
     // Effect and shadow assets are created by field preparation before this
     // pass. Copy their bindings into the offscreen view, not their state.
-    let bindings = meshes
-        .iter()
-        .map(|(m, s)| (m.0.clone(), s.0.clone()))
+    let bindings = effects
+        .prepared_bindings()
         .chain(art.as_ref().and_then(|a| a.shadow_binding()));
     for (mesh, material) in bindings {
         let entity = commands
@@ -498,6 +575,18 @@ fn rendered(
         if count != report.prepared_pipeline_count
             || relevant().any(|p| !matches!(p.state, CachedPipelineState::Ok(_)))
         {
+            for pipeline in relevant().skip(report.prepared_pipeline_count) {
+                if let PipelineDescriptor::RenderPipelineDescriptor(d) = &pipeline.descriptor {
+                    error!(
+                        "Unprepared pipeline {:?}: vertex={:?}, cull={:?}, depth={:?}, fragment={:?}",
+                        d.label,
+                        d.vertex.buffers,
+                        d.primitive.cull_mode,
+                        d.depth_stencil,
+                        d.fragment.as_ref().map(|f| (&f.shader_defs, &f.targets))
+                    );
+                }
+            }
             report.failure = Some(format!(
                 "field {:?} requested an unprepared rendering pipeline after activation (prepared {}, now {})",
                 report.map, report.prepared_pipeline_count, count

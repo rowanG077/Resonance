@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Memory-circle save confirmation: one complete cursor cycle over the dimmed slot menu",
-  "registration": "Both starts are free control on the activated school-grounds memory circle at story 2500. Use the ordinary field checkpoint; ambient presentation restarts. Open Save and select the first empty slot with ordinary input. Storage waits are skipped natively. Register the settled Yes confirmation once: native update 180 (menu clock 160) corresponds to Dolphin dump 403 and VI observation 404 (UI clock 38488), with the same clock phase modulo 24. Compare 25 consecutive updates without further adjustment. Every frame checks both the whole image and the complete popup, including its cursor. This case does not claim audio equivalence. Set the shared UI presentation origin once to 38308: observed source VI 404 has UI clock 38488 and pairs native update 180. Every one of this case's 25 frame observations yields the same source-UI-minus-native-update constant. The runtime already used the shared UI clock before the first cleanup; the former fixture registered only the local menu clock. No per-frame clock adjustment, capture movement, source substitution or relaxed gate is applied.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/paired-school-grounds.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "save-confirm-keyboard.json",
-    "sha256": "219bb8e020b4dd7aedc1f3037c022af90ffe5b50b5100ac3b1ab2f754662eb72"
+    "sha256": "b128104e0fa16bb7e4485bd8c3f71e9840677ced70ac30521113099a71d31a95"
   },
   "dolphin": {
     "state": {

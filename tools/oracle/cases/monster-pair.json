@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Monster List: encountered catalogue, scanned statistics, row selection, page jumps, list confirmation and an animated model preview.",
-  "registration": "Controlled inventory fixture grants item 71 and records catalogue knowledge for monsters 0–15 in copies of matched checkpoints; story progress is unchanged. Provenance: local/findings-menu/monster-fixture-v1/fixture.json. Native menu opens at update 40 for field initialization. Later input uses source poll/2. Preview origins are observed controller samples from monster-source-v2/memory.jsonl, registered once per newly selected model because native preparation omits disc waits. After registration, animations advance normally; every listed frame compares the clock, duration, selected row, variant, list scroll, yaw and distance as well as the whole image.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/monster-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "monster-keyboard.json",
-    "sha256": "c8c0f3cb0d18697bb32193679cadea361a571ed691f0da0809dfb889d7f87b81"
+    "sha256": "7684bd4172bcb96887a7390a19fa6de464eb7c926d257c1d823e397da7b5a879"
   },
   "dolphin": {
     "state": {

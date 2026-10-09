@@ -1,6 +1,7 @@
 //! Exercise the actual movie systems and native mixer without an output device.
 use super::*;
 use crate::{Art, Clock, FieldAssets, Menu, Replay};
+use resonance_events::input::{Button, Buttons};
 use resonance_game::TitleState;
 use std::{path::PathBuf, thread};
 
@@ -37,7 +38,7 @@ fn subtitles_follow_media_time_when_video_is_held() {
     assert_eq!(movie.timeline_frame(Some(Duration::ZERO)), None);
 }
 
-fn fixture() -> App {
+pub(crate) fn fixture() -> App {
     let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
         PathBuf::from,
@@ -57,6 +58,7 @@ fn fixture() -> App {
         boot_frame: None,
         skip_intro: false,
         skip_battles: false,
+        allow_incomplete_scripts: false,
         record_playthrough: None,
         record_title_ticks: 1000,
     };
@@ -455,7 +457,8 @@ fn new_game_confirm_opens_script_movie_and_preserves_the_field_session() {
                     } else {
                         [0.; 2]
                     },
-                    interact: choose && selected == Some(1),
+                    pressed_buttons: Buttons::default()
+                        .with(Button::Accept, choose && selected == Some(1)),
                     ..Default::default()
                 })
                 .unwrap();

@@ -10,6 +10,7 @@ use bevy::{
 };
 use resonance_content::ANIMATION_HZ;
 use resonance_content::{SceneClip, TextureAnimation, TextureBinding, TextureWrap, TitleScene};
+use resonance_events::effect::Blend;
 use std::sync::Arc;
 
 #[derive(Component)]
@@ -207,7 +208,7 @@ pub(super) fn animate_field(
             (clip, sampled, false)
         };
         let spec = &part.schedule[clip];
-        // Original controllers sample their last key before wrapping.
+        // Include the final key before wrapping to the next animation cycle.
         let time = if repeat && elapsed > spec.duration_seconds {
             let phase = elapsed % spec.duration_seconds;
             if phase == 0. {
@@ -340,7 +341,7 @@ pub(super) fn prepare_field(
             let surface = surfaces.add(TitleSurface {
                 multiply: sampled_image(p.multiply, &mut images, &mut sampled),
                 vertex_color: p.vertex_color,
-                blend: p.blend,
+                blend: p.blend.then_some(Blend::Alpha),
                 depth_write: p.depth_write,
                 ..TitleSurface::textured(sampled_image(p.color, &mut images, &mut sampled))
             });

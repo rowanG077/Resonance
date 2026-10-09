@@ -49,6 +49,27 @@ fn scheduled_sources_pause_resume_and_complete_on_consumed_frames() {
     handle.stop();
     output.next(); // finish prior frame
     assert_eq!(output.next(), Some(8.)); // old stop cannot cancel this epoch
+
+    next.stop();
+    output.next();
+    let fast = control
+        .play(false, || Ok(Box::new(Samples((1..=12).map(|v| v as f32)))))
+        .unwrap();
+    fast.set_transport(false, true);
+    assert_eq!(output.by_ref().take(2).collect::<Vec<_>>(), [2., 3.]);
+    assert_eq!(fast.audible_frames(), 2);
+    fast.set_transport(true, true);
+    assert_eq!(output.by_ref().take(8).collect::<Vec<_>>(), [0.; 8]);
+    assert_eq!(fast.audible_frames(), 2);
+    fast.set_transport(false, false);
+    assert_eq!(output.by_ref().take(2).collect::<Vec<_>>(), [5., 6.]);
+    fast.set_transport(false, true);
+    assert_eq!(
+        output.by_ref().take(6).collect::<Vec<_>>(),
+        [8., 9., 11., 12., 0., 0.]
+    );
+    assert_eq!(fast.audible_frames(), 6);
+    assert!(fast.empty());
 }
 
 struct Identity;

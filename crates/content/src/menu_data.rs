@@ -3,6 +3,7 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 mod cooking;
+pub mod crafting;
 mod customize;
 mod ex_skills;
 mod manual;
@@ -69,6 +70,8 @@ pub struct MenuData {
     pub strategy: StrategyData,
     pub synopsis: SynopsisData,
     pub cooking: CookingData,
+    #[serde(default)]
+    pub crafting: crafting::Data,
     pub customize: CustomizeData,
     pub status: StatusData,
     pub world_map: WorldMapData,
@@ -240,6 +243,7 @@ impl MenuData {
         self.strategy.validate()?;
         self.synopsis.validate()?;
         self.cooking.validate(self.items.len())?;
+        self.crafting.validate(self.items.len())?;
         self.customize.validate()?;
         self.status.validate(&self.items)?;
         self.world_map.validate(self.items.len())?;
@@ -331,6 +335,7 @@ impl MenuData {
             .chain(self.rename.texts())
             .chain(self.synopsis.texts())
             .chain(self.cooking.texts())
+            .chain(self.crafting.texts())
             .chain(self.customize.texts())
             .chain(self.status.texts())
             .chain(self.world_map.texts())

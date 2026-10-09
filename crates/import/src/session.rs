@@ -58,35 +58,35 @@ pub(crate) fn cook_text(
         characters,
         items: names,
         titles,
+        techniques: menu
+            .arte
+            .definitions
+            .iter()
+            .enumerate()
+            .filter_map(|(id, arte)| arte.name.as_ref().map(|name| (id as u16, name.clone())))
+            .collect(),
     };
     let path = "game/text.json";
     write_atomic(&output.join(path), &serde_json::to_vec_pretty(&text)?)?;
     Ok(path.into())
 }
 
-/// Nine logical party bits, including shared swordsman gear and its source exceptions.
-pub(crate) fn equipment_owners(
-    executable: &[u8],
-    items: &[crate::item::Definition],
-) -> Result<Vec<u16>> {
-    let kratos_only = [0x800eba48, 0x800eba54, 0x800eba60, 0x800eba6c]
-        .into_iter()
-        .map(|address| {
-            let instruction = crate::read::u32(dol::slice(executable, address, 4)?, 0)?;
-            ensure!(
-                instruction >> 16 == 0x2c05,
-                "unsupported equipment owner check"
-            );
-            Ok(usize::from(instruction as u16))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(items
+/// Expand the shared swordsman bit into distinct Zelos and Kratos ownership.
+fn equipment_owners(items: &[crate::item::Definition]) -> Vec<u16> {
+    const FLAMBERGE: usize = 236;
+    const BRUNNHILDE: usize = 284;
+    const SIGURD: usize = 327;
+    const ARREDOVAL: usize = 363;
+    items
         .iter()
         .enumerate()
         .map(|(item, row)| {
-            expand_equipment_owners(row.equipment_owner_mask, kratos_only.contains(&item))
+            expand_equipment_owners(
+                row.equipment_owner_mask,
+                matches!(item, FLAMBERGE | BRUNNHILDE | SIGURD | ARREDOVAL),
+            )
         })
-        .collect())
+        .collect()
 }
 
 fn expand_equipment_owners(raw: u8, kratos_only: bool) -> u16 {
@@ -99,7 +99,7 @@ pub(crate) fn cook(executable: &[u8], menu: &crate::menu::Inputs, output: &Path)
     let arte_catalogue = &menu.arte;
     let defaults = &menu.characters;
     let items = &menu.items;
-    let owners = equipment_owners(executable, items)?;
+    let owners = equipment_owners(items);
     let titles = &menu.titles;
     let items = items
         .iter()

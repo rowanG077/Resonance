@@ -25,10 +25,11 @@ pub(super) enum Request {
     SecondaryMotion(i32, usize),
     Shadow(i32),
     Emote(i32),
+    FieldDamage,
     Paralysis,
     Billboard(i32),
+    ModelParticle(i32, usize),
     Refraction(i32),
-    Particle(i32),
     SavePoint(usize, u8),
     Dialogue(u8),
     Choice(u8),
@@ -47,6 +48,18 @@ pub(super) struct Applied {
     expected: BTreeSet<Request>,
 }
 impl Applied {
+    pub fn model_particles_ready(&self, tick: u32) -> Result<bool> {
+        let ready = self
+            .expected
+            .iter()
+            .filter(|request| matches!(request, Request::ModelParticle(..)))
+            .all(|request| self.requests.contains(request));
+        if !ready {
+            validate(tick, self, Instant::now())?;
+        }
+        Ok(ready)
+    }
+
     pub fn ack(&mut self, request: Request) {
         self.loading.remove(&request);
         self.requests.insert(request);
@@ -65,7 +78,7 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
     applied.expected = expected(&state.get().events.world, |resource| {
         art.models.get(&resource).map_or(1, Vec::len)
     });
-    if state.get().menu.is_some() || state.get().shop.is_some() {
+    if state.get().menu_is_open() {
         applied.expected.insert(Request::Menu);
     }
     if state.get().active_skit.is_some() {
@@ -149,10 +162,21 @@ fn expected(
         }
     }
     expected.extend(world.emotes.keys().map(|id| Request::Emote(*id)));
+    if world.damage_numbers.samples(world.tick).next().is_some() {
+        expected.insert(Request::FieldDamage);
+    }
     expected.extend(world.paralysis.map(|_| Request::Paralysis));
-    expected.extend(world.billboards.keys().map(|id| Request::Billboard(*id)));
+    expected.extend(
+        world
+            .billboards
+            .iter()
+            .filter(|(_, effect)| world.tick >= effect.born)
+            .map(|(id, _)| Request::Billboard(*id)),
+    );
+    expected.extend(world.model_particles.iter().flat_map(|(&id, p)| {
+        (0..parts(p.resource).max(1)).map(move |part| Request::ModelParticle(id, part))
+    }));
     expected.extend(world.refractions.keys().map(|id| Request::Refraction(*id)));
-    expected.extend(world.particles.iter().map(|p| Request::Particle(p.handle)));
     expected.extend(
         (0..world.save_points.len())
             .flat_map(|index| (0..2).map(move |pass| Request::SavePoint(index, pass))),
@@ -232,9 +256,10 @@ mod tests {
         world.emotes.insert(
             -100,
             resonance_events::Emote {
-                actor: 1,
-                kind: 4,
+                draw_order: 0,
                 phase: 0,
+                actor: 1,
+                kind: resonance_events::emote::Kind::Blush,
                 offset: [0.; 3],
                 start_tick: 0,
                 duration: None,
@@ -259,6 +284,7 @@ mod tests {
             resource: resonance_content::field::SAVE_POINT_RESOURCE,
             born: 0,
             active: false,
+            unlock_flag: None,
             glow_scale: 0.08,
         });
         applied.expected = expected(&world, |_| 1);
@@ -276,13 +302,21 @@ mod tests {
         validate(0, &applied, Instant::now()).unwrap();
         let pulse = world
             .emit_refraction(resonance_events::effect::RefractionPulse {
+                draw_order: 0,
+                operation: None,
+                owner: None,
+                image: resonance_events::effect::RefractionImage::Ripple,
+                palette: resonance_events::effect::NEUTRAL_PALETTE,
+                orientation: resonance_events::effect::SpriteOrientation::World,
+                rotation: [0.; 3],
                 position: [0.; 3],
+                velocity: [0.; 3],
                 born: 0,
                 lifetime: 30,
                 size: 20.,
                 growth: 40.,
                 alpha: 224.,
-                fade: 8.,
+                fade: resonance_events::effect::Fade::Tail { after: 0 },
             })
             .unwrap();
         applied.expected = expected(&world, |_| 1);
@@ -293,15 +327,19 @@ mod tests {
     #[test]
     fn loading_is_bounded_and_acknowledgements_expire_each_frame() {
         let mut applied = Applied::default();
-        let request = Request::Attachment(1, 0);
+        let request = Request::ModelParticle(1, 0);
         applied.expected.insert(request.clone());
         applied.loading(request.clone());
+        assert!(!applied.model_particles_ready(4).unwrap());
         let since = applied.loading[&request];
         validate(4, &applied, since).unwrap();
         assert!(validate(4, &applied, since + LOAD_TIMEOUT).is_err());
         applied.ack(request);
         validate(4, &applied, since + LOAD_TIMEOUT).unwrap();
+        applied.expected.insert(Request::Dialogue(0));
+        assert!(applied.model_particles_ready(4).unwrap());
         applied.requests.clear();
+        assert!(applied.model_particles_ready(5).is_err());
         assert!(validate(5, &applied, since + LOAD_TIMEOUT).is_err());
     }
     #[test]

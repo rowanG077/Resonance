@@ -103,9 +103,14 @@ pub(crate) fn declarations(bytes: &[u8]) -> Result<Declarations> {
                 .is_some_and(|(op, _)| op == Op::Native(NativeCall::CreateTreasureChest as u8))
         }),
         save_point: analysis.instructions.keys().any(|&pc| {
-            program
-                .instruction(pc)
-                .is_some_and(|(op, _)| op == Op::Native(NativeCall::CreateSavePoint as u8))
+            program.instruction(pc).is_some_and(|(op, _)| {
+                [
+                    NativeCall::CreateSavePoint,
+                    NativeCall::CreateSealedSavePoint,
+                ]
+                .into_iter()
+                .any(|call| op == Op::Native(call as u8))
+            })
         }),
     })
 }
@@ -251,12 +256,16 @@ done:
         let declared = declarations(&bytes).unwrap();
         assert_eq!(declared.resources, [0x2000e, 0x2001c].into());
         assert!(!declared.save_point);
-        let with_save_point = scenario::assemble(&source.replace(
-            "done:\n end",
-            &format!("done:\n proc {}\n end", NativeCall::CreateSavePoint as u8),
-        ))
-        .unwrap();
-        assert!(declarations(&with_save_point).unwrap().save_point);
+        for call in [
+            NativeCall::CreateSavePoint,
+            NativeCall::CreateSealedSavePoint,
+        ] {
+            let with_save_point = scenario::assemble(
+                &source.replace("done:\n end", &format!("done:\n proc {}\n end", call as u8)),
+            )
+            .unwrap();
+            assert!(declarations(&with_save_point).unwrap().save_point);
+        }
         validate_cooked(&declared.resources, [0x2000e, 0x2001c]).unwrap();
         assert!(
             validate_cooked(&declared.resources, [0x2000e])

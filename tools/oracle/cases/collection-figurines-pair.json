@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Collector’s Book sorting with one collected figurine; the Figurine Book joins the usable key-item group.",
-  "registration": "Controlled menu fixture created with inventory-fixture --grant-item 70 --discover-all. The original state/save hashes and exact semantic changes are recorded in local/findings-menu/collection-full-fixture-v1/fixture.json. Only the book is added to inventory; other items are marked discovered, retaining original recent-item highlights. This verifies catalogue rendering/navigation, not story progression. Initial native menu input uses update 40 for field setup; subsequent inputs use source poll/2. Native Page Up/Down inputs match the source C-stick. Native UI origin is the source-observed 38084; subsequent inputs use source poll/2 + 1, matching the source input-processing VI. The collection gate now also checks the UI clock, page fade and description crossfade. A second Rust fixture records figurine 0 in both copies without changing item discovery or inventory. Together with the empty figurine collection in collection-full-pair, this checks the ownership-dependent key-item sorting rule.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/collection-figurines-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "collection-full-keyboard.json",
-    "sha256": "ab954e2414a2c6cb8f568bfbf9f5ca85d8c8a10765140d88d007e634886bdc24"
+    "sha256": "65c6d25e96747be7cf6f3ec5a370d1d872eb051acd5e3cff7474be3e6bc073ef"
   },
   "dolphin": {
     "state": {

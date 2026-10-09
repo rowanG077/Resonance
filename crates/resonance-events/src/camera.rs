@@ -2,19 +2,38 @@
 use crate::Actor;
 use std::collections::BTreeMap;
 pub mod motion;
+mod shake;
 use motion::{FovTween, MotionCamera, Tween};
+pub use shake::Shake;
 
 /// Script-addressable camera target, present for the lifetime of a field.
 pub const ANCHOR_ACTOR: i32 = 90_020;
 pub const ANCHOR_RESOURCE: u32 = 24;
 
-/// Exponential perspective fog configured by original scene scripts.
+/// Exponential-squared perspective fog (GX type 5).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Fog {
     pub start: f32,
     pub end: f32,
     pub color: [u8; 3],
+}
+
+pub(crate) struct FogEffect {
+    pub fog: Fog,
+    pub operation: crate::Operation,
+}
+
+impl crate::GameWorld {
+    /// The newest live override takes precedence over the scene camera's fog.
+    pub fn fog(&self) -> Option<&Fog> {
+        self.fog_effects
+            .values()
+            .rev()
+            .find(|effect| effect.operation.is_pending())
+            .map(|effect| &effect.fog)
+            .or_else(|| self.field_camera.as_ref()?.current().fog.as_ref())
+    }
 }
 
 pub fn anchor() -> Actor {
@@ -24,6 +43,7 @@ pub fn anchor() -> Actor {
         interaction_anchor: true,
         grounded: false,
         collidable: false,
+        contact: crate::ActorContact::None,
         casts_shadow: false,
         autonomy: Some(crate::Autonomy::new(
             crate::Behavior::Stationary,
@@ -165,7 +185,8 @@ impl EntryCamera {
 
 #[derive(Debug, Clone)]
 pub struct CameraRig {
-    /// Presentation supplies its actual horizontal framing; scripts retain the original camera.
+    pub shake: Shake,
+    /// Presentation supplies its actual horizontal framing; scripts read the authored camera.
     pub view_aspect_ratio: f32,
     pub motion: Option<MotionCamera>,
     /// Native selector -1 edits the next field's entry camera, leaving this
@@ -185,6 +206,7 @@ pub struct CameraRig {
 impl Default for CameraRig {
     fn default() -> Self {
         Self {
+            shake: Shake::default(),
             view_aspect_ratio: 4. / 3.,
             motion: None,
             entry: None,
@@ -297,8 +319,12 @@ impl CameraRig {
         self.target_settled = false;
     }
     pub fn step(&mut self, actors: &BTreeMap<i32, Actor>) {
+        self.step_positions(|id| actors.get(&id).map(|actor| actor.position));
+    }
+
+    pub(crate) fn step_positions(&mut self, position: impl Fn(i32) -> Option<[f32; 3]>) {
         if let Some(motion) = &mut self.motion {
-            (self.position, self.target) = motion.step(actors);
+            (self.position, self.target) = motion.step(position);
             return;
         }
         let camera = &mut self.cameras[self.selected];
@@ -309,9 +335,9 @@ impl CameraRig {
         }
         self.distance += (camera.distance - self.distance) / rate;
         if camera.follow
-            && let Some(actor) = actors.get(&camera.actor)
+            && let Some(position) = position(camera.actor)
         {
-            camera.target = std::array::from_fn(|i| actor.position[i] + camera.offset[i]);
+            camera.target = std::array::from_fn(|i| position[i] + camera.offset[i]);
             camera.look_offset = std::array::from_fn(|i| camera.target[i] - camera.position[i]);
             if camera.anchor_to_actor {
                 camera.anchor = camera.target;
@@ -322,7 +348,7 @@ impl CameraRig {
             // follow is disabled, without converting through Euler angles.
             camera.target = std::array::from_fn(|i| camera.position[i] + camera.look_offset[i]);
         }
-        // Original camera order is Rz * Rx * Ry, applied to (0, -distance, 0).
+        // Orbit rotation is Rz * Rx * Ry, applied to (0, -distance, 0).
         let [x, _, z] = self.angles.map(f32::to_radians);
         let orbit = [
             z.sin() * x.cos() * self.distance,

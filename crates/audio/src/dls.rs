@@ -188,29 +188,44 @@ impl<'a> Envelope<'a> {
         self.next_gain_at(self.sample.is_multiple_of(160))
     }
 
+    fn advance_millisecond(&mut self) -> (i32, i32) {
+        let old = self.value;
+        if !matches!(self.phase, Phase::Sustain | Phase::Done) {
+            if self.phase == Phase::Attack {
+                self.value += self.step;
+            } else {
+                self.logarithmic += self.step;
+                self.value = self.tables.level(self.logarithmic);
+            }
+        }
+        let delta = (self.value - old) / (1 << 21);
+        if !matches!(self.phase, Phase::Sustain | Phase::Done) {
+            self.remaining -= 1;
+            if self.remaining == 0 {
+                self.advance_phase();
+            }
+        }
+        (old >> 16, delta)
+    }
+
+    pub(crate) fn advance_pitch(&mut self) -> u16 {
+        for _ in 0..15 {
+            if self.is_done() {
+                break;
+            }
+            self.advance_millisecond();
+        }
+        (self.value >> 16) as u16
+    }
+
     pub(crate) fn next_gain_at(&mut self, block_start: bool) -> u16 {
         if self.sample.is_multiple_of(32) {
-            let old = self.value;
             let step = self.step;
-            if !matches!(self.phase, Phase::Sustain | Phase::Done) {
-                if self.phase == Phase::Attack {
-                    self.value += step;
-                } else {
-                    self.logarithmic += step;
-                    self.value = self.tables.level(self.logarithmic);
-                }
-            }
-            let delta = (self.value - old) / (1 << 21);
-            if block_start || self.sample == 0 || step != 0 || self.delta != delta || self.is_done()
-            {
-                self.gain = old >> 16;
+            let done = self.is_done();
+            let (gain, delta) = self.advance_millisecond();
+            if block_start || self.sample == 0 || step != 0 || self.delta != delta || done {
+                self.gain = gain;
                 self.delta = delta;
-            }
-            if !matches!(self.phase, Phase::Sustain | Phase::Done) {
-                self.remaining -= 1;
-                if self.remaining == 0 {
-                    self.advance_phase();
-                }
             }
         }
         let gain = self.gain.clamp(0, 32767) as u16;
@@ -262,6 +277,28 @@ mod tests {
             .resolve(&tables, 64, 99)
             .is_err()
         );
+    }
+
+    #[test]
+    fn pitch_jobs_use_the_completed_fifteen_millisecond_level() {
+        let tables = tables();
+        let mut env = Envelope::new(
+            Parameters {
+                attack_ms: 30,
+                decay_ms: 40,
+                sustain: 0,
+                release_ms: 30,
+            },
+            &tables,
+        )
+        .unwrap();
+        assert_eq!(env.advance_pitch(), 16383);
+        assert_eq!(env.advance_pitch(), 32767);
+        assert_eq!(env.advance_pitch(), tables.attenuation[72]);
+        env.release();
+        assert!(env.advance_pitch() < tables.attenuation[72]);
+        assert_eq!(env.advance_pitch(), 0);
+        assert_eq!(env.advance_pitch(), 0);
     }
 
     #[test]

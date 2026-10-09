@@ -218,7 +218,7 @@ impl NativeHost<'_> {
                 scene.subtitle_started = self.world.tick;
                 scene.panel_started.get_or_insert(self.world.tick);
             }
-            NativeCall::PlayMovie => {
+            NativeCall::PlayVoice => {
                 self.world
                     .audio_commands
                     .push(crate::AudioCommand::StopVoice);

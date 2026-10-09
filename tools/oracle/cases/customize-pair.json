@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Customize: all 14 option rows, scrolling, the Cancel/Default actions and return to the main menu.",
-  "registration": "Use the source-observed school-grounds party and clocks. Apply the Customize confirmation at update 411, when source input poll 820 takes effect, and release at 412. The native runtime now performs the original System and Main closing transitions before Customize opens; the previous update 427 compensated for immediate page entry and would apply that delay twice. The accepted dense customize-transitions recording independently verifies System closing at VIs 411-418, Main closing at 419-429 and first visible Customize at 430. Other input edges, capture times, source replay, origins and the full-frame tolerance-8/1% gate are unchanged.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "customize-keyboard.json",
-    "sha256": "cd3dd5279ae0cef59e3f643e725fb57e434b7b2eb58d40edb5aa49b211f611ae"
+    "sha256": "3924e36bce42d9f06f9a3279073228f16cafdfe158e6a404d0b33c1573956fed"
   },
   "dolphin": {
     "state": {

@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Colette cooks Cream Stew for an injured party with ordinary poison: verify its smaller, slower puff emission, then curing and revival.",
-  "registration": "Controlled paired copies learn recipe 15, grant the ingredients and set member vitals listed in cooking-mild-poison-fixture-v1/fixture.json. No story progression or recipe acquisition is claimed. Use the unchanged source-observed school-grounds ambient and gameplay RNG origins at native update 64; inputs and captures are source VI + 64. The source fixture has no poison puffs yet: clear native preparation puffs once at the registered initial frame, then observe source particle slot 3 through the menu. Source poison timers remain frozen through VI 1562 and first advance at VI 1563 after menu dismissal. Start the native closing animation at update 1615, corresponding to the source close press at VI 1551. Its eleven updates complete at 1626, so field resumption matches without postponing the close input. Captures retain native update = source VI + 64; the main-menu-transitions case separately checks the intervening images.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/cooking-mild-poison-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "cooking-mild-poison-keyboard.json",
-    "sha256": "d1e91ed6109b3b0e2ae02695690fa14aeb617de06e8be0670bee2e2abecc579a"
+    "sha256": "8478659e493e9114b2da260bcacfc7a3e1bfa89e40f8d7f4d11f71733aaef0c0"
   },
   "dolphin": {
     "state": {
@@ -189,11 +189,6 @@
       "native": "poison-first",
       "dolphin_vi": 2,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ],
       "regions": [
         [
           295,
@@ -208,11 +203,6 @@
       "native": "poison-second",
       "dolphin_vi": 6,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ],
       "regions": [
         [
           295,
@@ -227,11 +217,6 @@
       "native": "poison-third",
       "dolphin_vi": 10,
       "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ],
       "regions": [
         [
           295,
@@ -245,133 +230,73 @@
       "name": "overview",
       "native": "overview",
       "dolphin_vi": 350,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "cooks",
       "native": "cooks",
       "dolphin_vi": 500,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "colette",
       "native": "colette",
       "dolphin_vi": 650,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "selected-chef",
       "native": "selected-chef",
       "dolphin_vi": 750,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "recipe-navigation",
       "native": "recipe-navigation",
       "dolphin_vi": 900,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "recipe-preview",
       "native": "recipe-preview",
       "dolphin_vi": 980,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "selected-recipe",
       "native": "selected-recipe",
       "dolphin_vi": 1050,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "result",
       "native": "result",
       "dolphin_vi": 1180,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "result-held",
       "native": "result-held",
       "dolphin_vi": 1250,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "return",
       "native": "return",
       "dolphin_vi": 1350,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "main",
       "native": "main",
       "dolphin_vi": 1470,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     },
     {
       "name": "field-cured",
       "native": "field",
       "dolphin_vi": 1620,
-      "cooking_state": true,
-      "effect_state": true,
-      "gameplay_random_state": true,
-      "poison_particles": [
-        3
-      ]
+      "cooking_state": true
     }
   ],
   "audio": []

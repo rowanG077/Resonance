@@ -1,7 +1,5 @@
 {
   "version": 1,
-  "presentation_origin": 38084,
-  "session_origin": 34583,
   "updates": 5060,
   "inputs": [
     {
@@ -648,16 +646,5 @@
     "4630": "vi-4630",
     "4710": "vi-4710",
     "4790": "vi-4790"
-  },
-  "ambient_origin": {
-    "update": 0,
-    "samples": {},
-    "skit": {
-      "id": 600,
-      "remaining": 1498,
-      "opacity": 255,
-      "control_ticks": 7501,
-      "text_opacity": 255
-    }
   }
 }

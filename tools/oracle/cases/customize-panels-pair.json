@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Customize nested panels: RGBA color editing, independent volume levels and stereo, duplicate-free controller remapping, screen offsets/reset, and committing preferences.",
-  "registration": "Use the same source checkpoint and once-verified field origins as the accepted party-menu case. Warm up 64 updates and pair native update 64 with source VI 0. Open at update 76, when the source pauses the field. Apply Customize confirmation at update 475 (source poll 820 first takes effect at VI 411) and release at 476, matching the accepted dense customize-transitions case. Native now performs System closing at VIs 411-418, Main closing at 419-429 and Customize opening from VI 430. The previous update 491 compensated for immediate native page entry; retaining it would delay the preview clock twice. All remaining input edges now use poll/2 + 1 + 64, matching the independently accepted dense Customize replay. Exact source memory confirms the first Down at VI 501: row remains 0 through VI 500 with preview shown 24/wait 2, then becomes 1 at 501 and retains those counters; the obsolete update 564 fired one VI early and retained wait 1. Likewise row 3 becomes 4 at VI 621 and Colors opens at VI 661. Captures and clock origins remain unchanged. Capture settled panels 30 VIs after each named input. No repeated origins, state fitting, image shifts or threshold changes are allowed. This case ends in the main menu; the separate windows case covers field return. Compare every active draft preference and panel selection against read-only source memory. Screen-position comparisons use the framebuffer stage on both sides: the original Customize routine changes VI origin without changing rendered geometry, and Dolphin dumps that framebuffer before scanout positioning. Native recordings explicitly identify the framebuffer stage; interactive scanout retains the display offset. Compare both nonzero-position frames directly, without image translation; draft offsets remain independently gated against source memory. Applied mixer settings are also compared: draft BGM previews immediately; effects, voice and stereo retain committed preferences until leaving Customize. The initial and returned main-menu frames check committed mixer settings.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "customize-panels-keyboard.json",
-    "sha256": "82e0f76f2ef0a4868ac1a3fd6036da5b424383985985bcd83047a74b7d61e23e"
+    "sha256": "1f3abb04190127190e68c020df207965a5c643dbfecf5434c2c68cc167760065"
   },
   "dolphin": {
     "state": {
@@ -417,13 +417,6 @@
       "name": "initial-field",
       "native": "initial-field",
       "dolphin_vi": 0,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": false,
       "audio_state": true
     },
@@ -431,13 +424,6 @@
       "name": "color-heading",
       "native": "color-heading",
       "dolphin_vi": 690,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -445,13 +431,6 @@
       "name": "dialogue-color",
       "native": "dialogue-color",
       "dolphin_vi": 770,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -459,13 +438,6 @@
       "name": "color-red",
       "native": "color-red",
       "dolphin_vi": 850,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -473,13 +445,6 @@
       "name": "color-red-increase",
       "native": "color-red-increase",
       "dolphin_vi": 890,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -487,13 +452,6 @@
       "name": "color-green-decrease",
       "native": "color-green-decrease",
       "dolphin_vi": 970,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -501,13 +459,6 @@
       "name": "volume-music",
       "native": "volume-music",
       "dolphin_vi": 1090,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -515,13 +466,6 @@
       "name": "volume-music-decrease",
       "native": "volume-music-decrease",
       "dolphin_vi": 1130,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -529,13 +473,6 @@
       "name": "volume-effects-decrease",
       "native": "volume-effects-decrease",
       "dolphin_vi": 1210,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -543,13 +480,6 @@
       "name": "volume-music-second-step",
       "native": "volume-music-second-step",
       "dolphin_vi": 1290,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -557,13 +487,6 @@
       "name": "volume-stereo",
       "native": "volume-stereo",
       "dolphin_vi": 1490,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -571,13 +494,6 @@
       "name": "volume-mono",
       "native": "volume-mono",
       "dolphin_vi": 1530,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -585,13 +501,6 @@
       "name": "controls-first",
       "native": "controls-first",
       "dolphin_vi": 1650,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -599,13 +508,6 @@
       "name": "controls-first-remapped",
       "native": "controls-first-remapped",
       "dolphin_vi": 1690,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -613,13 +515,6 @@
       "name": "controls-first-restored",
       "native": "controls-first-restored",
       "dolphin_vi": 1730,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -627,13 +522,6 @@
       "name": "controls-second-remapped",
       "native": "controls-second-remapped",
       "dolphin_vi": 1810,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -641,13 +529,6 @@
       "name": "controls-second-restored",
       "native": "controls-second-restored",
       "dolphin_vi": 1850,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -655,13 +536,6 @@
       "name": "screen-position",
       "native": "screen-position",
       "dolphin_vi": 2210,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -669,13 +543,6 @@
       "name": "screen-right",
       "native": "screen-right",
       "dolphin_vi": 2250,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -683,13 +550,6 @@
       "name": "screen-down",
       "native": "screen-down",
       "dolphin_vi": 2290,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -697,13 +557,6 @@
       "name": "screen-reset",
       "native": "screen-reset",
       "dolphin_vi": 2330,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": true,
       "audio_state": false
     },
@@ -711,13 +564,6 @@
       "name": "main-customized",
       "native": "main-customized",
       "dolphin_vi": 2410,
-      "effect_state": true,
-      "ambient_animations": {
-        "999980": "field_12_track_0",
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "-2147483648": "save_point_1_track_0"
-      },
       "customize_state": false,
       "audio_state": true
     }

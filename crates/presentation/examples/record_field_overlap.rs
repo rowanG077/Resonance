@@ -16,6 +16,7 @@ fn main() -> Result<()> {
     ensure!(args.next().is_none(), "unexpected arguments");
     resonance_presentation::record_field_audio(
         Path::new(&root),
+        340,
         Path::new(&output),
         frames,
         &[

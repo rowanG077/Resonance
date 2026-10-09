@@ -1,5 +1,6 @@
 //! Player menus own input while the field remains at a controllable checkpoint.
 use crate::{DirectionRepeat, field::FieldCheckpoint};
+use resonance_events::input::Button;
 use std::sync::Arc;
 pub mod collection;
 pub mod cooking;
@@ -41,6 +42,28 @@ pub(crate) fn fade_description(fade: &mut u8, changed: bool) -> u8 {
     let opacity = 255 - *fade;
     *fade = fade.saturating_sub(16);
     opacity
+}
+
+/// Move a selection and keep it visible. Page jumps move the window together.
+pub(crate) fn move_list(
+    row: &mut usize,
+    first: &mut usize,
+    len: usize,
+    visible: usize,
+    delta: isize,
+) -> i8 {
+    if len == 0 {
+        return 0;
+    }
+    let old = *first;
+    *row = row.saturating_add_signed(delta).min(len - 1);
+    if delta.unsigned_abs() >= visible {
+        *first = first
+            .saturating_add_signed(delta)
+            .min(len.saturating_sub(visible));
+    }
+    *first = (*first).min(*row).max(row.saturating_sub(visible - 1));
+    i8::from(*first > old) - i8::from(*first < old)
 }
 
 /// A submenu's slide is independent of the retained Main-menu backdrop.
@@ -181,6 +204,7 @@ pub struct Menu {
     pub cooking: cooking::Cooking,
     pub customize: customize::Customize,
     party_changed: bool,
+    initial_field_leader: Option<u8>,
     pub play_time: crate::clock::PlayTime,
     pub page: Page,
     pub selected: usize,
@@ -252,6 +276,7 @@ impl Menu {
             cooking: Default::default(),
             customize: Default::default(),
             party_changed: false,
+            initial_field_leader: checkpoint.as_ref().map(|c| c.progress.party.field_leader),
             play_time: Default::default(),
             page,
             selected: 0,
@@ -375,6 +400,12 @@ impl Menu {
             let progress = &self.checkpoint.as_ref().unwrap().progress;
             (progress.party.clone(), progress.gameplay_random.clone())
         })
+    }
+    pub(crate) fn field_leader_changed(&self) -> bool {
+        self.checkpoint
+            .as_ref()
+            .map(|c| c.progress.party.field_leader)
+            != self.initial_field_leader
     }
     pub(crate) fn set_play_time(&mut self, time: crate::clock::PlayTime) {
         self.play_time = time;
@@ -546,8 +577,14 @@ impl Menu {
         });
         self.held = held;
         if matches!(self.page, Page::Status | Page::Cooking) {
-            input.previous_page |= page_up;
-            input.next_page |= page_down;
+            input.pressed_buttons = input.pressed_buttons.with(
+                Button::PreviousPage,
+                input.pressed(Button::PreviousPage) || page_up,
+            );
+            input.pressed_buttons = input.pressed_buttons.with(
+                Button::NextPage,
+                input.pressed(Button::NextPage) || page_down,
+            );
         }
         if self.busy || self.closed {
             return None;
@@ -575,13 +612,13 @@ impl Menu {
             return None;
         }
         if self.notice.is_some() {
-            if input.interact || input.cancel {
+            if input.pressed(Button::Accept) || input.pressed(Button::Cancel) {
                 self.notice = None;
                 return Some(3);
             }
             return None;
         }
-        if input.start
+        if input.pressed(Button::Start)
             && matches!(
                 self.page,
                 Page::Main | Page::Party | Page::Character(_) | Page::System
@@ -591,11 +628,11 @@ impl Menu {
             return Some(1);
         }
         if let Some(yes) = &mut self.confirmation {
-            if input.cancel {
+            if input.pressed(Button::Cancel) {
                 self.confirmation = None;
                 return Some(3);
             }
-            if input.interact {
+            if input.pressed(Button::Accept) {
                 let cue = if *yes { 2 } else { 3 };
                 if *yes {
                     self.command = Some(match self.page {
@@ -639,7 +676,7 @@ impl Menu {
             | Page::System
             | Page::Slots(_) => {}
         }
-        if input.cancel || input.menu {
+        if input.pressed(Button::Cancel) || input.pressed(Button::Menu) {
             match self.page {
                 Page::Main => self.closing = true,
                 Page::Character(_) => self.page = Page::Main,
@@ -682,7 +719,7 @@ impl Menu {
                 } else {
                     self.selected
                 };
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     let available = self.resources.is_some() && self.checkpoint.is_some();
                     match MAIN_ENTRIES[self.selected].0 {
                         Page::Unison if self.has_unison() => self.open_unison(),
@@ -732,7 +769,7 @@ impl Menu {
             }
             Page::Character(destination) => {
                 let cue = self.move_party_cursor(input, up, down);
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if matches!(destination, CharacterMenu::Tech | CharacterMenu::Equip)
                         && self.member().knocked_out()
                     {
@@ -773,7 +810,7 @@ impl Menu {
                 if down {
                     self.selected = (self.selected + 1) % 3;
                 }
-                if input.interact
+                if input.pressed(Button::Accept)
                     && self.selected == 2
                     && self.resources.is_some()
                     && self.checkpoint.is_some()
@@ -782,7 +819,7 @@ impl Menu {
                     self.system_closing = true;
                     return Some(2);
                 }
-                if input.interact
+                if input.pressed(Button::Accept)
                     && (self.selected == 1 || self.selected == 0 && self.at_save_point)
                 {
                     self.entering = Some(Page::Slots(if self.selected == 0 {
@@ -793,13 +830,13 @@ impl Menu {
                     self.system_closing = true;
                     return Some(2);
                 }
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     return Some(4);
                 }
             }
             Page::Slots(mode) => {
                 if self.focus == SlotFocus::Bank {
-                    if input.interact {
+                    if input.pressed(Button::Accept) {
                         self.focus = SlotFocus::List;
                         return Some(2);
                     }
@@ -819,7 +856,7 @@ impl Menu {
                     .first_slot
                     .min(self.slot)
                     .max(self.slot.saturating_sub(VISIBLE_SLOTS - 1));
-                if input.interact {
+                if input.pressed(Button::Accept) {
                     if mode == Mode::Save || matches!(self.slots[self.index()], Slot::Saved { .. })
                     {
                         self.confirmation = Some(
@@ -851,7 +888,7 @@ mod tests {
         menu.finish(None);
         menu.focus = SlotFocus::List;
         let accept = FieldInput {
-            interact: true,
+            pressed_buttons: [Button::Accept].into(),
             ..Default::default()
         };
         menu.step(accept);
@@ -861,7 +898,7 @@ mod tests {
         }
         assert_eq!(menu.popup.as_ref().unwrap().opacity, 255);
         menu.step(FieldInput {
-            cancel: true,
+            pressed_buttons: [Button::Cancel].into(),
             ..Default::default()
         });
         assert!(menu.confirmation.is_none());
@@ -888,7 +925,7 @@ mod tests {
             }
         ));
         menu.step(FieldInput {
-            cancel: true,
+            pressed_buttons: [Button::Cancel].into(),
             ..Default::default()
         });
         for _ in 0..6 {
@@ -903,7 +940,7 @@ mod tests {
         assert_eq!(menu.take_command(), Some(Command::ReadSlots));
         menu.finish(None);
         let accept = FieldInput {
-            interact: true,
+            pressed_buttons: [Button::Accept].into(),
             ..Default::default()
         };
         menu.step(accept);
@@ -924,7 +961,7 @@ mod tests {
         });
         assert_eq!(menu.take_command(), Some(Command::Save(0)));
         menu.step(FieldInput {
-            cancel: true,
+            pressed_buttons: [Button::Cancel].into(),
             ..Default::default()
         });
         assert!(!menu.closed);
@@ -932,12 +969,12 @@ mod tests {
         menu.step(accept);
         assert!(menu.notice.is_none());
         menu.step(FieldInput {
-            cancel: true,
+            pressed_buttons: [Button::Cancel].into(),
             ..Default::default()
         });
         assert!(!menu.closed);
         menu.step(FieldInput {
-            cancel: true,
+            pressed_buttons: [Button::Cancel].into(),
             ..Default::default()
         });
         assert!(menu.closed);
@@ -950,7 +987,7 @@ mod tests {
         menu.finish(None);
         menu.slots[0] = Slot::Invalid("Invalid save".into());
         let accept = FieldInput {
-            interact: true,
+            pressed_buttons: [Button::Accept].into(),
             ..Default::default()
         };
         menu.step(accept);
