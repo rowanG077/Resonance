@@ -24,6 +24,8 @@ mod equipment;
 mod ex_skills;
 #[path = "field_ui_menu/figurines.rs"]
 mod figurines;
+#[path = "field_ui_menu/grade_shop.rs"]
+mod grade_shop;
 #[path = "field_ui_menu/items.rs"]
 mod items;
 #[path = "field_ui_menu/manual.rs"]
@@ -400,6 +402,7 @@ impl MenuArtwork {
             draw.opacity = 255 - menu.foreground_fade();
             draw.plane = 1;
             let anchor = match menu.page {
+                Page::GradeShop => draw.grade_shop(menu)?,
                 Page::Slots(mode) => draw.slots(menu, mode)?,
                 Page::Main | Page::Party | Page::System | Page::Character(_) => {
                     draw.main(menu, cursor)?

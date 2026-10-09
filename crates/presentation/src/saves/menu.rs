@@ -104,21 +104,24 @@ fn start(world: &mut World, command: Command) -> Result<()> {
         Command::ReadSlots => {
             let context = world
                 .get_resource::<new_game::Session>()
-                .map(|session| {
-                    session
-                        .files()
-                        .json("game/session-data.json")
-                        .map(|data| (session.identity.clone(), data))
+                .map(|session| -> Result<_> {
+                    let data = session
+                        .events()
+                        .resources()
+                        .session_data
+                        .clone()
+                        .context("session definitions are missing")?;
+                    Ok((session.identity.clone(), data))
                 })
                 .transpose()?;
             let root = world.resource::<crate::RunOptions>().assets.clone();
             world.insert_resource(Pending(loading::Task::spawn(move |_| {
                 let (identity, data) = context.map_or_else(
                     || -> Result<_> {
-                        let data = serde_json::from_slice(&std::fs::read(
-                            root.join("game/session-data.json"),
-                        )?)?;
-                        Ok((new_game::Session::identity(&root)?, data))
+                        Ok((
+                            new_game::Session::identity(&root)?,
+                            std::sync::Arc::new(slot_data(&root)?),
+                        ))
                     },
                     Ok,
                 )?;
@@ -190,6 +193,15 @@ fn start(world: &mut World, command: Command) -> Result<()> {
     }
     Ok(())
 }
+
+fn slot_data(root: &std::path::Path) -> Result<resonance_content::session::SessionData> {
+    let mut data: resonance_content::session::SessionData =
+        serde_json::from_slice(&std::fs::read(root.join("game/session-data.json"))?)?;
+    let menu: resonance_content::menu_data::MenuData =
+        serde_json::from_slice(&std::fs::read(root.join("game/menu-data.json"))?)?;
+    data.ex_skills = Some(std::sync::Arc::new(menu.ex_skills));
+    Ok(data)
+}
 fn slot_id(index: usize) -> Result<SlotId> {
     ensure!(index < SLOTS_PER_BANK * 2, "save slot is out of range");
     SlotId::new(format!(
@@ -243,4 +255,66 @@ fn read_slots(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires cooked party and menu definitions; no devices"]
+    fn clear_save_with_ex_skills_is_readable_in_the_slot_browser() -> Result<()> {
+        let root = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked")
+            });
+        let data = slot_data(&root)?;
+        let mut party = resonance_events::party::Party::new(&data, Default::default())?;
+        party.new_game_plus.cleared = true;
+        party.members[0].ex_gems[0] = 1;
+        party.members[0].ex_skills[0] = data.ex_skills.as_ref().unwrap().characters[0].levels[0][0];
+        [party.members[0].hp, party.members[0].tp] = party.members[0].maximum_vitals();
+        let mut script_globals = vec![0; 256];
+        script_globals[0x40 / 4] = 1;
+        let checkpoint = SceneCheckpoint::Field(FieldCheckpoint {
+            allow_incomplete_scripts: false,
+            map_id: 5,
+            position: [0.; 3],
+            heading: 0.,
+            camera: None,
+            progress: resonance_events::SavedProgress {
+                script_globals,
+                party,
+                script_state: Default::default(),
+                event_flags: Default::default(),
+                event_records: Default::default(),
+                random_state: 0,
+                gameplay_random: Default::default(),
+                tick: 0,
+            },
+            played_ticks: Some(9000),
+        });
+        let identity = Identity {
+            schema: 2,
+            content: [0; 32],
+        };
+        let header = Header {
+            identity: identity.clone(),
+            label: "Clear".into(),
+            location: checkpoint.location(),
+            played_ticks: checkpoint.played_ticks(),
+            saved_unix_seconds: 0,
+        };
+        let directory = tempfile::tempdir()?;
+        let store = Store::new(directory.path());
+        store.write(
+            Kind::Save,
+            &slot_id(0)?,
+            &resonance_persistence::encode(&header, &checkpoint)?,
+        )?;
+        let slots = read_slots(&store, &identity, &data)?;
+        assert!(matches!(&slots[0], Slot::Saved { location, checkpoint, .. }
+            if location == "Game cleared" && checkpoint.progress.party.members[0].ex_gems[0] == 1));
+        Ok(())
+    }
 }
