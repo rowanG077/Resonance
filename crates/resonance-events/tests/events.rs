@@ -260,6 +260,43 @@ fn charged_light_gathers_then_travels_and_reports_completion() {
 }
 
 #[test]
+fn charging_ray_gathers_then_sends_growing_lights_along_its_path() {
+    use resonance_content::effect::sprite::ELECTRIC_ARC_SPRITE;
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(67, 3, &[69, 10, 10, 1, 120, 0, 0, 100, 100, 250]),
+    )]);
+    let release = script(&[(Call::SetActorProperty, &[500, 33, 2])]);
+    let mut events = interactive_effect(&setup, &release);
+    steps(&mut events, 10);
+    assert!(!events.world.billboards.is_empty());
+    assert!(events.world.billboards.values().all(|p| {
+        p.position
+            .iter()
+            .zip(p.velocity)
+            .map(|(x, v)| x * v)
+            .sum::<f32>()
+            < 0.
+    }));
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 12);
+    let (&id, arc) = events
+        .world
+        .billboards
+        .iter()
+        .find(|(_, p)| p.recipe == ELECTRIC_ARC_SPRITE)
+        .unwrap();
+    let size = arc.size;
+    assert_eq!(arc.velocity, [3., 0., 0.]);
+    assert!(arc.position[0] > 0.);
+    steps(&mut events, 2);
+    assert!(events.world.billboards[&id].size[0] > size[0]);
+    events.world.actors.remove(&500);
+    steps(&mut events, 100);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn light_sheets_stretch_without_drifting_and_bursts_finish() {
     for kind in [71, 72] {
         let setup = script(&[(

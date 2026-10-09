@@ -34,6 +34,76 @@ fn screen_radial(camera: [f32; 3], angle: f32) -> [f32; 3] {
     super::rotated(radial, axis, angle)
 }
 
+#[derive(Debug, Clone, Default)]
+pub(super) struct ChargedRay {
+    pub palette: u16,
+    pub size: f32,
+    pub variation: u32,
+    pub interval: u32,
+    pub direction: [f32; 3],
+    pub radius: f32,
+    pub radius_variation: u32,
+    pub growth: f32,
+}
+impl ChargedRay {
+    pub fn emit(
+        &mut self,
+        phase: &mut u8,
+        (owner, center): (i32, [f32; 3]),
+        born: u32,
+        clock: u32,
+        speed: f32,
+        rng: &mut u32,
+        out: &mut super::Births,
+    ) -> Result<(), String> {
+        random(rng);
+        if clock.is_multiple_of(2) {
+            return Ok(());
+        }
+        if *phase == 0 {
+            self.direction = std::array::from_fn(|i| self.direction[i] - center[i]);
+            *phase = 1;
+        }
+        if *phase <= 2 && speed <= 0. {
+            return Err("charging ray needs positive particle speed".into());
+        }
+        if *phase == 1 && clock.is_multiple_of(self.interval) {
+            let color = self.palette + (random(rng) % 4) as u16;
+            let size = self.size + (random(rng) % self.variation) as f32;
+            let radial = screen_radial(self.direction, (random(rng) % 360) as f32);
+            let radius = self.radius + (random(rng) % self.radius_variation) as f32;
+            let mut p = particle(center, born, color, (radius / speed) as u32 + 1);
+            p.field_fog = false;
+            p.size = [size; 2];
+            p.position = std::array::from_fn(|i| center[i] + radial[i] * radius);
+            p.velocity = radial.map(|v| -v * speed);
+            out.push(p);
+        } else if *phase == 2 {
+            use crate::effect::{ELECTRIC_ARC_SPRITE, ORB_SPRITE};
+            let distance = self.direction.iter().map(|v| v * v).sum::<f32>().sqrt();
+            let velocity = super::normalized(self.direction).map(|v| v * speed);
+            for (recipe, scale) in [(ORB_SPRITE, 1.), (ELECTRIC_ARC_SPRITE, 0.5)] {
+                let mut p = particle(center, born, self.palette, (distance / speed) as u32 + 1);
+                p.recipe = recipe;
+                p.owner = Some(owner);
+                p.field_fog = false;
+                p.size = [self.size * scale; 2];
+                p.size_delta = self.growth;
+                p.velocity = velocity;
+                if recipe == ELECTRIC_ARC_SPRITE {
+                    p.angular_velocity[2] = if random(rng).is_multiple_of(2) {
+                        -100.
+                    } else {
+                        100.
+                    };
+                }
+                out.push(p);
+            }
+        }
+        Ok(())
+    }
+}
+
 pub(super) fn impact_spheres(
     center: [f32; 3],
     born: u32,
