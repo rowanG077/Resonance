@@ -178,6 +178,72 @@ fn radial_flash_expands_once_and_its_sparks_travel_outward() {
 }
 
 #[test]
+fn lightning_and_colored_flames_obey_their_spawn_bounds_and_cleanup() {
+    use resonance_content::effect::sprite::{GLOW_SPRITE, LIGHTNING_BOLT_SPRITE};
+    for (kind, parameters) in [(25, [60, 57, 64, 30, 0]), (39, [57, 60, 1000, 0, 0])] {
+        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 0, &parameters))]);
+        let remove = script(&[(Call::DespawnActor, &[500])]);
+        let mut events = interactive_effect(&setup, &remove);
+        events.world.effect_palette.0[57] = [10, 20, 90, 255];
+        steps(&mut events, 20);
+        assert!(!events.world.billboards.is_empty());
+        for p in events.world.billboards.values() {
+            if kind == 25 {
+                assert_eq!(p.recipe, GLOW_SPRITE);
+                assert_eq!(p.rgba, [64, 30, 90, 255]);
+                assert!(p.velocity[2] >= 2. && p.size_delta < 0.);
+            } else {
+                assert_eq!(p.recipe, LIGHTNING_BOLT_SPRITE);
+                assert!((96. ..128.).contains(&p.size[0]));
+                assert_eq!(p.size[1], 1024.);
+                assert!(p.position[0].hypot(p.position[1]) < 1000.);
+            }
+        }
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        steps(&mut events, 80);
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
+fn travelling_ray_leaves_glow_and_arcs_along_its_direction() {
+    use resonance_content::effect::sprite::{ELECTRIC_ARC_SPRITE, ORB_SPRITE};
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(32, 25, &[70, 200, 0, 0, 100, 0, 0]),
+    )]);
+    let remove = script(&[(Call::DespawnActor, &[500])]);
+    let mut events = interactive_effect(&setup, &remove);
+    steps(&mut events, 8);
+    assert_eq!(events.world.actors[&500].position, [200., 0., 0.]);
+    let glows: Vec<_> = events
+        .world
+        .billboards
+        .values()
+        .filter(|p| p.recipe == ORB_SPRITE)
+        .collect();
+    let arcs: Vec<_> = events
+        .world
+        .billboards
+        .values()
+        .filter(|p| p.recipe == ELECTRIC_ARC_SPRITE)
+        .collect();
+    assert_eq!(glows.len(), 8);
+    assert_eq!(arcs.len(), 8);
+    for (i, (glow, arc)) in glows.iter().zip(&arcs).enumerate() {
+        assert_eq!(glow.position, [i as f32 * 25., 0., 0.]);
+        assert!((arc.position[0] - glow.position[0]).abs() <= 15.);
+        assert!(glow.alpha(events.world.tick) <= 255.);
+        assert!(arc.angular_velocity[2].abs() > 0.);
+    }
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    steps(&mut events, 30);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn phased_cloud_keeps_its_particles_moving_after_emission_stops() {
     use resonance_content::effect::sprite::{GLOW_SPRITE, ORB_SPRITE};
     for phase in 0..=2 {

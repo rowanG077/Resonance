@@ -38,7 +38,9 @@ impl Emitter {
                 size: 0.,
                 smoke: a[5] != 0,
             },
-            9 | 17 | 24 | 36 | 41 | 44 | 54 | 62 | 75 => Kind::Stream(stream::Stream::new(a[5])),
+            9 | 17 | 24 | 25 | 36 | 39 | 41 | 44 | 54 | 62 | 75 => {
+                Kind::Stream(stream::Stream::new(a[5]))
+            }
             12 => Kind::Glow {
                 angle: 0.,
                 palette: 0,
@@ -91,6 +93,12 @@ impl Emitter {
                     ..super::particle([0.; 3], 0, 0, 61)
                 },
                 radius: 0.,
+            },
+            32 => Kind::Ray {
+                palette: 0,
+                size: 0.,
+                target: [0.; 3],
+                velocity: None,
             },
             34 => Kind::Bloom(Default::default()),
             38 => Kind::Inward {
@@ -258,6 +266,7 @@ impl Emitter {
                         | Kind::Fireball { velocity, .. }
                         | Kind::LinearTrail { velocity, .. }
                         | Kind::ModelTrail { velocity, .. } => *velocity = None,
+                        Kind::Ray { velocity, .. } => *velocity = None,
                         Kind::Mote(mote) => mote.path = None,
                         Kind::Stream(stream::Stream::Smoke { emitted, .. }) => *emitted = 0,
                         _ => {}
@@ -287,6 +296,17 @@ impl Emitter {
                 velocity,
             } => match slot {
                 1 => setting!(*remaining, value, nonnegative),
+                4..=6 => displacement(target, velocity.as_mut(), slot - 4, value),
+                _ => Ok(0),
+            },
+            Kind::Ray {
+                palette: color,
+                size,
+                target,
+                velocity,
+            } => match slot {
+                0 => setting!(*color, value, palette_index),
+                1 => setting!(*size, value),
                 4..=6 => displacement(target, velocity.as_mut(), slot - 4, value),
                 _ => Ok(0),
             },
@@ -644,6 +664,22 @@ impl stream::Stream {
     fn property(&mut self, slot: usize, value: Option<i32>) -> Result<i32, String> {
         use stream::Stream::*;
         match self {
+            Lightning { sprite, radius } => match slot {
+                0 => color(sprite, value, palette_index),
+                1 => lifetime(sprite, value),
+                2 => setting!(*radius, value, nonnegative),
+                _ => Ok(0),
+            },
+            Flame {
+                size,
+                palette: color,
+                tint,
+            } => match slot {
+                0 => setting!(*size, value, nonnegative),
+                1 => setting!(*color, value, palette_index),
+                2..=4 => setting!(tint[slot - 2], value),
+                _ => Ok(0),
+            },
             Embers {
                 radius,
                 size,
@@ -908,7 +944,7 @@ mod tests {
             }
             let mut world = crate::GameWorld::default();
             for birth in output.items {
-                if let super::super::Birth::Sprite(particle) = birth {
+                if let super::super::Birth::Sprite(particle, _) = birth {
                     world.emit_billboard(particle).unwrap();
                 }
             }
@@ -945,7 +981,7 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(actor.position, [0., 0., -48.]);
-        let super::super::Birth::Sprite(particle) = output.items.last().unwrap() else {
+        let super::super::Birth::Sprite(particle, _) = output.items.last().unwrap() else {
             panic!("expected a descending sprite");
         };
         assert_eq!(particle.rgba[3], 128);
