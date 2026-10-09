@@ -5,6 +5,8 @@ mod coverage;
 mod damage;
 #[path = "field_ui_failure.rs"]
 mod failure;
+#[path = "session_screen.rs"]
+pub(crate) mod session_screen;
 pub(super) use failure::update as transition_failure;
 #[path = "field_ui_menu.rs"]
 mod menu;

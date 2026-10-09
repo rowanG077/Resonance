@@ -569,6 +569,7 @@ pub(super) fn enter(world: &mut World) {
 /// A fully validated candidate can replace the title only after preparation succeeds.
 pub(super) fn activate(world: &mut World, session: Session) {
     super::saves::title::retire(world);
+    super::session_screen::retire(world);
     let files = session.files();
     *world
         .resource::<super::loading::Resident>()
@@ -591,17 +592,20 @@ pub(super) fn activate(world: &mut World, session: Session) {
     for entity in music {
         world.despawn(entity);
     }
-    // Retire title artwork, while retaining the shared camera/output/movie
-    // surfaces for the field renderer to take over.
+    // Retain the title for returning sessions and share its output/camera.
     let models: Vec<_> = world
-        .query_filtered::<Entity, With<WorldAssetRoot>>()
+        .query_filtered::<Entity, (With<WorldAssetRoot>, Without<super::scene::PartRoot>)>()
         .iter(world)
         .collect();
     for entity in models {
         world.despawn(entity);
     }
     let title_art: Vec<_> = world
-        .query_filtered::<Entity, Or<(With<super::TitleQuad>, With<super::glow::GlowMesh>)>>()
+        .query_filtered::<Entity, Or<(
+            With<super::TitleQuad>,
+            With<super::glow::GlowMesh>,
+            With<super::scene::PartRoot>,
+        )>>()
         .iter(world)
         .collect();
     for entity in title_art {
@@ -770,7 +774,7 @@ pub(super) fn advance(
     let Some(session) = &mut session else {
         return;
     };
-    if session.overworld.is_some() {
+    if session.overworld.is_some() || session.events().world.screen_request.is_some() {
         return;
     }
     if movie.active {

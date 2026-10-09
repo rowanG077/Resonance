@@ -52,6 +52,7 @@ pub mod ring;
 pub mod rumble;
 pub use gameplay_random::GameplayRandom;
 pub mod menu;
+pub mod session_screen;
 pub mod skit;
 pub use persistent::{PersistentState, SavedProgress, script_global};
 

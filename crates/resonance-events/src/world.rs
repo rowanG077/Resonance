@@ -567,6 +567,7 @@ pub struct GameWorld {
     pub skit: Option<crate::skit::Scene>,
     pub skit_request: Option<crate::skit::Request>,
     pub menu_request: Option<crate::menu::Request>,
+    pub screen_request: Option<crate::session_screen::Request>,
     pub actors: BTreeMap<i32, Actor>,
     pub(crate) duplicate_actors: BTreeMap<i32, i32>,
     pub(crate) automatic_wings: Option<(u64, u64)>,

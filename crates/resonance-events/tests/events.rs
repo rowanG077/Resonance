@@ -2738,6 +2738,33 @@ fn native_music_requests_decode_before_reaching_the_mixer() {
 }
 
 #[test]
+#[ignore = "requires cooked party definitions; no devices"]
+fn terminal_session_screens_suspend_the_scene_until_its_owner_retires_it() {
+    use resonance_events::session_screen::Target;
+    for (setting, target) in [(13, Target::Title), (14, Target::GameOver)] {
+        let code = script(&[
+            (Call::ConfigureSession, &[setting, 0]),
+            (Call::SetEventBit, &[2000]),
+        ]);
+        let mut events = party_runtime(&code, &[0x20ff]);
+        let request = events.world.screen_request.clone().unwrap();
+        assert_eq!(request.target, target);
+        assert!(!events.player_has_control());
+        let tick = events.tick();
+        steps(&mut events, 3);
+        assert_eq!(events.tick(), tick);
+        assert!(!events.world.event_flags.contains(&2000));
+        assert!(request.operation.is_pending());
+        events.cancel();
+        assert!(events.world.screen_request.is_none());
+        assert_eq!(
+            request.operation.progress().outcome,
+            Some(resonance_events::Outcome::Cancelled)
+        );
+    }
+}
+
+#[test]
 fn missing_cooked_destination_is_owned_by_the_scene_loader() {
     let code = script(&[
         (Call::PreloadField, &[340]),

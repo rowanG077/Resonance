@@ -396,6 +396,9 @@ impl FieldSession {
         Ok(())
     }
     fn step_inner(&mut self, input: FieldInput) -> Result<()> {
+        if self.events.world.screen_request.is_some() {
+            return Ok(());
+        }
         self.play_time.advance();
         self.events.world.played_ticks = self.play_time.total();
         self.effect_clock.advance();
