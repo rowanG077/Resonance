@@ -200,6 +200,7 @@ impl FieldPackage {
             self.files.json(&self.assets.effects)?;
         effects.validate()?;
         entry.effect_palette = resonance_events::effect::Palette(effects.palette);
+        entry.rising_light_destination = Some(effects.rising_light_destination);
         entry.menu_data = Some(Arc::new(menu));
         entry.text = Arc::new(self.files.json("game/text.json")?);
         entry.services = Some(self.services.clone());

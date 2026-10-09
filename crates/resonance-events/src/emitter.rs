@@ -23,6 +23,12 @@ use crate::{
 
 pub(crate) const PHASE_PROPERTY: i32 = 33;
 
+#[derive(Default)]
+pub(crate) struct Assets {
+    pub textures: [Option<(u32, u8)>; 2],
+    pub rising_light_destination: Option<[f32; 3]>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Emitter {
     phase: u8,
@@ -554,7 +560,17 @@ impl Emitter {
             }
             Kind::Rising(lights) => lights.emit(center, born, clock, camera, random, out),
             Kind::RisingOrbs(orbs) => {
-                orbs.emit(center, born, clock, (owner, actor), random, out);
+                if let Some(target) = orbs.destination
+                    && *phase != 0
+                {
+                    crate::world::random(random);
+                    if *phase == 1 {
+                        out.release = Some(Release::Toward(owner, target));
+                        *phase = 2;
+                    }
+                } else {
+                    orbs.emit(center, born, clock, (owner, actor), random, out);
+                }
             }
             Kind::Aura {
                 palette, offset, ..
@@ -993,7 +1009,12 @@ enum Birth {
 struct Births {
     items: Vec<Birth>,
     shake: Option<f32>,
-    release: Option<i32>,
+    release: Option<Release>,
+}
+#[derive(Clone, Copy)]
+enum Release {
+    Guided(i32),
+    Toward(i32, [f32; 3]),
 }
 impl Births {
     fn push(&mut self, sprite: BillboardEffect) {
@@ -1079,14 +1100,37 @@ impl GameWorld {
                 }
             }
         }
-        if let Some(owner) = output.release {
+        if let Some(release) = output.release {
+            let (Release::Guided(owner) | Release::Toward(owner, _)) = release;
             for p in self
                 .billboards
                 .values_mut()
                 .filter(|p| p.owner == Some(owner))
             {
-                if let Some(BillboardController::Guided(guided)) = &mut p.controller {
-                    guided.release();
+                match (release, &mut p.controller) {
+                    (Release::Guided(_), Some(BillboardController::Guided(guided))) => {
+                        guided.release()
+                    }
+                    (
+                        Release::Toward(_, target),
+                        Some(BillboardController::Drift { speed, .. }),
+                    ) => {
+                        if *speed <= 0. {
+                            return Err("light convergence needs positive speed".into());
+                        }
+                        let delta = std::array::from_fn(|i| target[i] - p.position[i]);
+                        p.velocity = normalized(delta).map(|v| v * *speed);
+                        let lifetime =
+                            (delta.iter().map(|v| v * v).sum::<f32>().sqrt() / *speed) as u32 + 1;
+                        p.rgba[3] = p.alpha(self.tick).clamp(0., 255.) as u8;
+                        p.born = self.tick;
+                        p.lifetime = lifetime;
+                        if matches!(p.fade, Fade::Tail { .. }) {
+                            p.fade = Fade::tail(lifetime);
+                        }
+                        p.controller = None;
+                    }
+                    _ => {}
                 }
             }
         }

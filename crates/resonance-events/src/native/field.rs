@@ -841,7 +841,12 @@ impl NativeHost<'_> {
             NativeCall::CreateEffectEmitter => {
                 let emitter = crate::emitter::Emitter::from_native(
                     a,
-                    self.world.effect_textures.get(&0).copied(),
+                    crate::emitter::Assets {
+                        textures: std::array::from_fn(|i| {
+                            self.world.effect_textures.get(&(i as u8)).copied()
+                        }),
+                        rising_light_destination: self.resources.rising_light_destination,
+                    },
                 )?;
                 let resource = if a[4] == 0 || !matches!(a[5], 46 | 50) {
                     0

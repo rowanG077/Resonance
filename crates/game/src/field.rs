@@ -43,6 +43,7 @@ pub struct FieldEntry {
     pub services: Option<Arc<crate::authored::FieldServices>>,
     pub attachments: attachments::Attachments,
     pub effect_palette: resonance_events::effect::Palette,
+    pub rising_light_destination: Option<[f32; 3]>,
     pub play_time: crate::clock::PlayTime,
     pub persistent: resonance_events::PersistentState,
     pub data: Option<Arc<resonance_content::session::SessionData>>,
@@ -1293,6 +1294,7 @@ fn start_with_entry(
         }
     }
     let mut resources = ResourceLibrary {
+        rising_light_destination: entry.rising_light_destination,
         station_script: entry
             .services
             .as_ref()

@@ -140,6 +140,7 @@ impl FieldCheckpoint {
         let leader = i32::from(self.progress.party.field_leader);
         Ok(FieldEntry {
             effect_palette: Default::default(),
+            rising_light_destination: None,
             services: None,
             attachments: Default::default(),
             allow_incomplete_scripts: self.allow_incomplete_scripts,

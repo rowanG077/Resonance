@@ -80,7 +80,7 @@ impl Orbiting {
     ) -> Result<(), String> {
         random(rng);
         if *phase == 2 {
-            out.release = Some(owner);
+            out.release = Some(super::Release::Guided(owner));
             *phase = 3;
         }
         if *phase != 0 || self.expanding && clock.is_multiple_of(2) {

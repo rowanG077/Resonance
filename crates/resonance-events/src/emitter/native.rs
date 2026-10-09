@@ -17,10 +17,11 @@ macro_rules! setting {
 }
 
 impl Emitter {
-    pub fn from_native(a: &[i32], impact_texture: Option<(u32, u8)>) -> Result<Self, String> {
+    pub fn from_native(a: &[i32], assets: super::Assets) -> Result<Self, String> {
         if a.len() != 18 {
             return Err("invalid emitter arguments".into());
         }
+        let impact_texture = assets.textures[0];
         let kind = match a[5] {
             11 => Kind::Gathering {
                 delay: 0,
@@ -57,8 +58,20 @@ impl Emitter {
                 palette: 0,
                 size: 0.,
             },
-            15 | 30 => Kind::RisingOrbs(super::rays::RisingOrbs {
-                drifting: a[5] == 30,
+            15 | 30 | 73 => Kind::RisingOrbs(super::rays::RisingOrbs {
+                drifting: a[5] != 15,
+                alpha: 255,
+                fade: -1.,
+                field_fog: true,
+                destination: if a[5] == 73 {
+                    Some(
+                        assets
+                            .rising_light_destination
+                            .ok_or("light destination is not cooked")?,
+                    )
+                } else {
+                    None
+                },
                 ..Default::default()
             }),
             16 => Kind::Crown {
@@ -488,7 +501,16 @@ impl Emitter {
                 1 => setting!(s.radius, value, nonnegative),
                 2 => setting!(s.size, value),
                 3 => setting!(s.variation, value, at_least_one),
+                4 if s.destination.is_some() => flag(&mut s.field_fog, value),
                 5 => setting!(s.speed_variation, value, at_least_one),
+                6 if s.destination.is_some() => setting!(s.alpha, value, alpha),
+                7 if s.destination.is_some() => {
+                    let previous = s.fade as i32;
+                    if let Some(v) = value {
+                        s.fade = v.wrapping_mul(16) as i16 as f32 / 16.;
+                    }
+                    Ok(previous)
+                }
                 8 => setting!(s.interval, value, at_least_one),
                 9 => {
                     let old = i32::from(!s.preserve_particles);
@@ -1034,10 +1056,10 @@ mod tests {
             let mut args = [0; 18];
             args[5] = preset;
             args[8] = 33;
-            let mut emitter = Emitter::from_native(&args, None).unwrap();
+            let mut emitter = Emitter::from_native(&args, Default::default()).unwrap();
             for palette in [-1, maximum + 1, i32::MAX] {
                 args[8] = palette;
-                assert!(Emitter::from_native(&args, None).is_err());
+                assert!(Emitter::from_native(&args, Default::default()).is_err());
                 assert!(emitter.property(113, Some(palette)).is_err());
                 assert_eq!(emitter.property(113, None).unwrap(), 33);
             }
@@ -1073,7 +1095,7 @@ mod tests {
             &[
                 500, 0, 0, 0, 0, 31, 0, 0, 33, 20, 60, 1, 10, 20, 20, 255, 0, 0,
             ],
-            None,
+            Default::default(),
         )
         .unwrap();
         let mut actor = crate::Actor::new(0, [0.; 3]);
@@ -1107,7 +1129,7 @@ mod tests {
     fn invalid_count_updates_leave_a_usable_emitter() {
         let mut emitter = Emitter::from_native(
             &[500, 0, 0, 0, 0, 60, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            None,
+            Default::default(),
         )
         .unwrap();
         for count in [-1, 5, i32::MAX] {
