@@ -6,6 +6,30 @@ use crate::{
 };
 use resonance_content::effect::sprite::STREAK_SPRITE;
 
+pub(super) fn flash_sparks(
+    center: [f32; 3],
+    born: u32,
+    camera: [f32; 3],
+    rng: &mut u32,
+    out: &mut super::Births,
+) {
+    let axis = super::normalized(camera.map(|v| -v));
+    let radial = super::normalized([-axis[1], axis[0], axis[2]]);
+    for _ in 0..8 {
+        let angle = (random(rng) % 360) as f32;
+        for offset in [0., 90., 270., 180.] {
+            let mut spark = particle(center, born, 72, 36);
+            spark.recipe = crate::effect::SEAL_SPARK_SPRITE;
+            spark.field_fog = false;
+            spark.size = [75.; 2];
+            spark.rgba[3] = 200;
+            let speed = (9 + random(rng) % 5) as f32;
+            spark.velocity = super::rotated(radial, axis, angle + offset).map(|v| v * speed);
+            out.push(spark);
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn aura(
     center: [f32; 3],

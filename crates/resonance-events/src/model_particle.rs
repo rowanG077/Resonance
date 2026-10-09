@@ -78,6 +78,18 @@ impl ModelParticle {
             ..Self::new(resource)
         }
     }
+    pub(crate) fn streak(resource: u32, position: [f32; 3], heading: f32) -> Self {
+        Self {
+            position,
+            rotation: [0., 0., heading],
+            scale: [1.5; 3],
+            rgba: [32, 32, 126, 75],
+            blend: Blend::Additive,
+            remaining: Some(5),
+            scale_delta: [0., 0., 0.3],
+            ..Self::new(resource)
+        }
+    }
     pub(crate) fn scoped(resource: u32, operation: crate::Operation) -> Self {
         Self {
             operation: Some(operation),
