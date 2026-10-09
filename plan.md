@@ -218,3 +218,160 @@ The rebase does not implement encounter-pool selection, battle route overrides,
 or additional coliseum/stat-adjustment rules. Combat preparation rejects these
 unsupported requests explicitly; main's `--skip-battles` exploration workflow
 remains available. Nothing was pushed.
+
+## Post-rebase simplification — 2026-10-10
+
+This review covers the rebased implementation at `aacf265` and its working-tree
+changes. The sections below record the additional ownership and loading work;
+the final audit states the verification scope and remaining asset limitations.
+
+Completed in this batch:
+
+- Shared session-definition admission lives in `content::session::SessionData::load`.
+  Field, world and save loading use it; the presentation-only callback loader and
+  its byte copies are removed.
+- Field packages prepare their rules, text, skit catalogue and effect definitions
+  before entry. Entry and restore reuse those values. The presentation session no
+  longer stores separate session definitions or a separate skit catalogue; callers
+  borrow the active scene's admitted definitions.
+- Skit preparation has one resource-aware entry point. The duplicate loader that
+  re-read session/text JSON without binding gameplay rules is removed. The skit
+  continuation test now calls production continuation code instead of a test-only
+  `next_field` method.
+- Attacks validate contact and thrown-weapon definitions in the event walk that
+  already validates timing and projectiles. Four iterator/wrapper methods and two
+  extra event traversals are removed.
+- Gameplay, field captures and world captures share surface/output material setup.
+  UI material, shader and draw extraction registration also have one entry point.
+- Removed the 256-combination copied-field test and a subtraction assertion that
+  never used the production blend state. Actual shader compilation, pixel checks
+  and blend configuration checks remain.
+- `battle-simplification.md` is now the concise design contract. Its stale open
+  proposals and duplicate historical progress reports no longer compete with this
+  plan.
+
+Validation logs: `local/simplification-post-rebase-20261010/`.
+
+| Check | Result |
+| --- | --- |
+| Strict Clippy, workspace and all targets | Passed. |
+| Content, battle, game and presentation library tests | **1,118 passed, 0 failed, 157 ignored**. |
+| Formatting and diff whitespace | Passed. |
+| Synthetic headless rendering (`ci_render`) | Surface and movie/output pixel checks passed on Vulkan/llvmpipe. |
+| Selected resource checks | **Three failed before gameplay on stale local assets**: optional-label and authored-entry cases lack `grade_shop`; opening checkpoint loading lacks `collision`. No compatibility fallback or fabricated asset data was added. |
+
+The resource checks used `local/battle-recovery-roles-assets`. Its menu version
+number alone does not establish compatibility with main's new fields. These
+checks require current publications before they can verify field restore and
+entry behavior; the earlier rebase validation also did not exercise them.
+
+## Active scene and save loading — 2026-10-10
+
+The scene owner now contains either a field or a world. A world session no longer
+retains a suspended field, its prepared package or an `anchor_field` in its save.
+World loading reads the shared and world inventories without preparing a field.
+Field transitions retain only the active CPU package; the renderer's separate
+artwork cache still reuses GPU resources when revisiting a field.
+
+Scene saves use an explicitly tagged `field` or `world` envelope. The custom
+JSON dispatcher and untagged format are removed. Save menus, quicksaves, fixture
+writers and diagnostic probes use the same format. Existing save files must be
+regenerated; there is no compatibility reader.
+
+All quickloads prepare a replacement through the same candidate loader used by
+menu loads. The synchronous in-place restore and its separate script-refresh
+path are gone. Input and presentation clocks wait while a quickload is pending;
+failed preparation leaves the live scene intact. Test setup calls the production
+candidate constructor, and the edited-script test exercises actual reloads.
+Obsolete cache-shape assertions and duplicate warm-restore checks are removed.
+
+Scene-neutral consumers use the active menu, events, play time and readiness.
+Field-only rendering and diagnostics are guarded by the scene type. Battle and
+menu-model shading use the shared lighting texture without borrowing field
+artwork. Model previews read script sources from the current inventory, removing
+the duplicate source map from field artwork and capture setup. This also removes
+the field-only readiness gate that could prevent world audio from starting.
+
+Validation logs: `local/scene-ownership-20261010/`.
+
+| Check | Result |
+| --- | --- |
+| Content, battle, game and presentation library tests | **1,118 passed, 0 failed, 157 ignored**. Includes tagged field/world saves with numeric JSON keys and scene-owner classification. |
+| Strict Clippy, workspace and all targets | Passed on the final source and test callers. |
+| Formatting and diff whitespace | Passed. |
+| Asset integration | Not rerun against the already identified stale publications. Field/world entry, audio handoff and graphical model-preview integration still require current cooked assets. |
+
+Retained asset fixtures now wait for asynchronous preparation instead of assuming
+that field 340 is cached at startup or that a quickload publishes synchronously.
+The quicksave probe compares the published restore snapshot after preparation
+finishes. These fixtures compile; they have not been claimed as executed.
+
+## Menu checkpoints and final ownership audit — 2026-10-10
+
+Menus and save loading now share `resonance_game::Checkpoint`, with explicit
+field and world variants. World menus retain the actual world checkpoint;
+the fake field snapshot and world-checkpoint reconstruction are deleted.
+Menu pages borrow common progress through the checkpoint. Saved-slot summaries
+keep only party, location and play time, without retaining the full scene state.
+The numeric-key serialization test moved to the shared type and now exercises
+menu edits and the play clock for both variants; no duplicate matrix was added.
+
+Quicksaves and field diagnostic snapshots use the same eligibility checks.
+The old world-save fallback for an absent `map_display` and its compatibility
+assertion are removed. Save formats may break, as required by this review.
+
+World preparation extends the already verified shared inventory. It no longer
+reads that inventory a second time or replaces the caller's diagnostic policy.
+The loader, capture routes and fixtures supply the same explicit input.
+Renderer artwork remains reusable during area changes, but returning to the
+title clears it. CPU field packages already follow the active scene's lifetime.
+
+The saved-slot EX-rule test now loads only session definitions, menu definitions
+and a save identity, instead of thousands of unrelated field resources. It still
+checks accepted EX skills, rule binding and rejection of an invalid skill.
+The temporary importer example was removed from source; its unsuccessful full
+inventory refresh is retained only under ignored `local/` for diagnosis.
+
+Validation logs: `local/menu-snapshot-20261010/`.
+
+| Check | Result |
+| --- | --- |
+| Game and presentation libraries after checkpoint migration | **467 passed, 0 failed, 157 ignored**. |
+| Strategy and Unison ordinary integration | **15 passed**, 2 resource cases ignored in that run. One stale Unison decoder failed initially; its focused rerun passed after using the scene checkpoint. |
+| Strategy and Unison with fresh menu definitions | **2 passed**. |
+| Menu drawing/resource checks with fresh menu definitions | **8 passed**. The first command used a file name instead of the module path and selected zero tests; only the corrected `field_ui::menu::` run counts. |
+| Saved-slot EX-rule admission | **1 passed**, including malformed-skill rejection. |
+| World simulation/restore tests after removing the old save fallback | **45 passed**. |
+| Presentation save tests after sharing eligibility checks | **17 passed**, 6 resource cases ignored. |
+| Prepared-resource tests after sharing the world input snapshot | **8 passed**: snapshot reuse, integrity checks, cancellation and diagnostic-policy preservation. |
+| `cargo clippy --locked --workspace --all-targets -- -D warnings` | Passed after the final world-loader change, including every migrated fixture and capture caller. |
+| `cargo fmt --all -- --check` and `git diff --check` | Passed. |
+
+The fresh menu publication contains 67 dependencies generated by the current
+importer from the user's extracted disc. It is sufficient for the eleven menu
+and slot checks above. Extending it into a complete field publication fails on
+older field data missing `collision`; no compatibility fallback or invented
+field data was introduced. Current field/world assets are still needed to run
+the ignored scene-entry, audio-handoff and full graphical integration checks.
+These results do not claim that those checks passed or that a full recook ran.
+
+### Completion evidence
+
+- The twelve findings at the start of this plan have maintained implementations
+  and the behavior checks recorded above. The final source review checked typed
+  action insertion, actor/setup ownership, independent volleys, direct normal and
+  Special Guard policies, and atomic Tech edits. Removed preparation setters,
+  release registry variants and fixture-only bypasses remain absent.
+- Field/world ownership is explicit. Admission, save checkpoints, quickload
+  preparation, menu progress and world inventory extension each have one path.
+  The scoped source scan found no references to decompiled implementations.
+- Reduced tests retain distinct behavioral boundaries. Asset-dependent checks
+  remain opt-in; obsolete compatibility assertions and duplicated matrices are
+  deleted rather than newly ignored. Hardware testing remains the accepted
+  manual follow-up above.
+- `plan.md` records the changes and evidence; `battle-simplification.md` contains
+  the current design contract. The newer backup branch
+  `backup/rowan-battle1-before-main-20261010-aacf265` (`22ef82e`) preserves the
+  committed and uncommitted state before this final pass. The original pre-rebase
+  backup remains intact. Main was fetched and verified at `598f27a`; the repeat
+  rebase was a no-op. Nothing was pushed.
