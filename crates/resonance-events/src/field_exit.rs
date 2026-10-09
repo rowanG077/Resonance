@@ -40,6 +40,9 @@ impl GameWorld {
                 .doors
                 .iter()
                 .filter_map(|door| {
+                    if let Some(bone) = self.exit_door {
+                        return (door.bone == bone).then_some((door, 0.));
+                    }
                     let distance = (0..3)
                         .map(|i| (door.position[i] - actor.position[i]).powi(2))
                         .sum::<f32>()
@@ -192,5 +195,57 @@ impl GameWorld {
         }
         self.field_exit = Some(exit);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_exit_uses_its_door_even_when_another_is_closer() {
+        let mut world = GameWorld::default();
+        world.actors.insert(1, crate::Actor::new(1, [0.; 3]));
+        world
+            .actors
+            .insert(SCENERY_ACTOR, crate::Actor::new(10, [0.; 3]));
+        world.controlled_actor = 1;
+        let resources = ResourceLibrary {
+            doors: [0, 1]
+                .map(|bone| Door {
+                    bone,
+                    position: [f32::from(bone) * 1000., 0., 0.],
+                    approach: [0.; 3],
+                    heading: 0.,
+                    pull: false,
+                    angle: 90.,
+                })
+                .into(),
+            animations: [(
+                FIELD_SERVICE_MOTION_RESOURCE_BASE + 1,
+                [(
+                    20,
+                    crate::resources::AnimationClip {
+                        duration_ticks: 60,
+                        attachments: None,
+                    },
+                )]
+                .into(),
+            )]
+            .into(),
+            ..Default::default()
+        };
+        for (selected, expected) in [(None, 0), (Some(1), 1)] {
+            world.exit_door = selected;
+            let request = FieldTransition {
+                map: 38,
+                position: [0.; 3],
+                heading: 0.,
+                camera: None,
+                operation: world.operations.begin().unwrap(),
+            };
+            world.begin_field_exit(request, &resources).unwrap();
+            assert_eq!(world.field_exit.as_ref().unwrap().door.bone, expected);
+        }
     }
 }
