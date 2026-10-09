@@ -1387,6 +1387,12 @@ impl NativeHost<'_> {
                     .map_err(|e| e.to_string())?;
                 }
             }
+            NativeCall::SetPlayerModel => {
+                let resource = self.resolve(a[0], ResourceKind::Model)?;
+                self.world
+                    .replace_controlled_model(self.resources, self.world.controlled_actor, resource)
+                    .map_err(|e| e.to_string())?;
+            }
             NativeCall::TriggerExists => {
                 value = Some(i32::from(self.world.triggers.iter().any(|trigger| {
                     trigger.kind() as i16 == a[0] as i16 && trigger.key == a[1] as u32

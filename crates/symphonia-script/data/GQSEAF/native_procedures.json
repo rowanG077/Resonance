@@ -295,10 +295,11 @@
     },
     {
       "opcode": 35,
-      "name": "native_23",
+      "name": "set_player_model",
       "arguments": [
-        "arg0"
-      ]
+        "resource"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 36,

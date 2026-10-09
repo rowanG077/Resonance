@@ -51,7 +51,7 @@ native_calls! {
     ChangeItemCount = 0x20,
     GetItemCount = 0x21,
     SelectPartyMember = 0x22,
-    Unknown23 = 0x23,
+    SetPlayerModel = 0x23,
     AddPartyMember = 0x24,
     RemovePartyMember = 0x25,
     Unknown26 = 0x26,

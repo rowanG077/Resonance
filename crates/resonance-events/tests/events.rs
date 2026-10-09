@@ -2022,6 +2022,43 @@ fn explicit_party_selection_recreates_the_actor_but_alias_and_query_preserve_it(
 }
 
 #[test]
+fn player_model_swaps_preserve_position_and_restore_the_selected_member() {
+    let resources = ResourceLibrary {
+        bindings: [(398, (ResourceKind::Model, 400))].into(),
+        models: [
+            (1, model([animation::slot::IDLE], 60)),
+            (400, model([animation::slot::IDLE], 40)),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = controlled_world();
+    world.controlled_actor = 1;
+    let mut actor = Actor::new(1, [20., 30., 40.]);
+    actor.face(135.);
+    world.insert_actor(1, actor);
+    let code = script(&[
+        (Call::SetPlayerModel, &[398]),
+        (Call::YieldCommand, &[0, 2]),
+        (Call::SelectPartyMember, &[CONTROLLED_ACTOR]),
+    ]);
+    let mut events = runtime(program(&code, &[0x20ff]), resources, world);
+    let actor = &events.world.actors[&1];
+    assert_eq!(actor.resource, 400);
+    assert_eq!(actor.animation.as_ref().unwrap().resource, 400);
+    assert_eq!(actor.position, [20., 30., 40.]);
+    assert_eq!(actor.heading, 135.);
+    assert_eq!(
+        actor.autonomy.as_ref().unwrap().behavior,
+        resonance_events::Behavior::Player
+    );
+    steps(&mut events, 3);
+    assert_eq!(events.world.controlled_actor, 1);
+    assert_eq!(events.world.actors[&1].resource, 1);
+    assert_eq!(events.world.actors[&1].position, [20., 30., 40.]);
+}
+
+#[test]
 fn recreated_player_keeps_the_default_pose_until_its_idle_handler_runs() {
     use animation::slot;
     let resources = ResourceLibrary {
