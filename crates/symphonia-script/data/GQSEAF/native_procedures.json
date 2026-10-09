@@ -207,10 +207,11 @@
     },
     {
       "opcode": 27,
-      "name": "native_1b",
+      "name": "despawn_actor_after_movement",
       "arguments": [
-        "arg0"
-      ]
+        "actor_id"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 28,

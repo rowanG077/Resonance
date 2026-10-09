@@ -43,7 +43,7 @@ native_calls! {
     MoveActorRelative = 0x18,
     SetActorPosition = 0x19,
     FaceActorAfterMovement = 0x1a,
-    Unknown1B = 0x1b,
+    DespawnActorAfterMovement = 0x1b,
     GetActorProperty = 0x1c,
     SetActorProperty = 0x1d,
     SetActorPathPoint = 0x1e,
