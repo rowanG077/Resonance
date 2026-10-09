@@ -591,6 +591,7 @@ pub enum RotationOrder {
 pub(crate) enum BillboardController {
     Orbit(crate::emitter::Orbit),
     Guided(crate::emitter::orbiting::Guided),
+    Stretch([f32; 2]),
     Scatter {
         direction: [f32; 3],
         speed: f32,
@@ -876,6 +877,11 @@ impl crate::GameWorld {
                 }
             }
             match &mut effect.controller {
+                Some(BillboardController::Stretch(growth)) => {
+                    for (size, growth) in effect.size.iter_mut().zip(growth) {
+                        *size += *growth;
+                    }
+                }
                 Some(BillboardController::Orbit(orbit)) => {
                     effect.position = orbit.position(self.tick.saturating_sub(effect.born));
                 }

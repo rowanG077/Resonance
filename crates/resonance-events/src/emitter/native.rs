@@ -23,6 +23,17 @@ impl Emitter {
         }
         let impact_texture = assets.textures[0];
         let kind = match a[5] {
+            70 => Kind::Cylinder(super::planes::Cylinder {
+                palette: 0,
+                textures: [
+                    assets.textures[0].ok_or("cylinder texture 0 is not bound")?,
+                    assets.textures[1].ok_or("cylinder texture 1 is not bound")?,
+                ],
+            }),
+            71 | 72 => Kind::Sheet(super::planes::Sheet {
+                burst: a[5] == 72,
+                ..Default::default()
+            }),
             11 => Kind::Gathering {
                 delay: 0,
                 state: Default::default(),
@@ -320,6 +331,21 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
+            Kind::Cylinder(cylinder) => match slot {
+                0 => setting!(cylinder.palette, value, palette_index),
+                _ => Ok(0),
+            },
+            Kind::Sheet(sheet) => match slot {
+                0 => setting!(sheet.palette, value, palette_index),
+                1 => setting!(sheet.offset, value),
+                2 => duration(&mut sheet.lifetime, value),
+                3..=4 => setting!(sheet.size[slot - 3], value),
+                5 => setting!(sheet.alpha, value, alpha),
+                6 => setting!(sheet.fade, value),
+                7 => setting!(sheet.growth, value),
+                8 => setting!(sheet.rate, value, count),
+                _ => Ok(0),
+            },
             Kind::RadialSpray { palette: color } => match slot {
                 0 => setting!(*color, value, palette_index),
                 _ => Ok(0),
