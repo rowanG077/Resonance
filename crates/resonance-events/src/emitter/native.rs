@@ -46,6 +46,7 @@ impl Emitter {
                 retire_with_emitter: false,
             },
             13 => Kind::Scatter(Default::default()),
+            59 => Kind::Cloud(Default::default()),
             14 => Kind::Portal {
                 palette: 0,
                 size: 0.,
@@ -499,6 +500,18 @@ impl Emitter {
                 2 => flag(travelling, value),
                 3 => setting!(*radius, value),
                 4..=6 => displacement(target, velocity.as_mut(), slot - 4, value),
+                _ => Ok(0),
+            },
+            Kind::Cloud(s) => match slot {
+                0 => setting!(s.palette, value, palette_group),
+                1..=2 => setting!(s.size[slot - 1], value),
+                3..=4 => setting!(s.lifetime[slot - 3], value, nonnegative),
+                5..=6 => setting!(s.alpha[slot - 5], value, nonnegative),
+                7..=8 => scaled(
+                    &mut s.fade[slot - 7],
+                    value.map(|v| i32::from(v as i16)),
+                    16.,
+                ),
                 _ => Ok(0),
             },
             Kind::Scatter(s) => match slot {

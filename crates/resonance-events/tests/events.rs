@@ -178,6 +178,64 @@ fn radial_flash_expands_once_and_its_sparks_travel_outward() {
 }
 
 #[test]
+fn phased_cloud_keeps_its_particles_moving_after_emission_stops() {
+    use resonance_content::effect::sprite::{GLOW_SPRITE, ORB_SPRITE};
+    for phase in 0..=2 {
+        let setup = script(&[
+            (
+                Call::CreateEffectEmitter,
+                &emitter(59, 8, &[69, 35, 25, 300, 120, 100, 150, -16, 0]),
+            ),
+            (Call::SetActorProperty, &[500, 33, phase]),
+        ]);
+        let stop = script(&[(Call::SetActorProperty, &[500, 33, 3])]);
+        let mut events = interactive_effect(&setup, &stop);
+        steps(&mut events, 9);
+        assert!(
+            events
+                .world
+                .billboards
+                .values()
+                .any(|p| p.recipe == GLOW_SPRITE)
+        );
+        assert!(
+            events
+                .world
+                .billboards
+                .values()
+                .any(|p| p.recipe == ORB_SPRITE)
+        );
+        if phase == 2 {
+            assert!(
+                events
+                    .world
+                    .billboards
+                    .values()
+                    .filter(|p| p.recipe == GLOW_SPRITE)
+                    .all(|p| p.position[1] == 0.)
+            );
+        }
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        let positions: Vec<_> = events
+            .world
+            .billboards
+            .iter()
+            .map(|(&id, p)| (id, p.position))
+            .collect();
+        steps(&mut events, 5);
+        assert_eq!(events.world.billboards.len(), positions.len());
+        assert!(
+            positions
+                .iter()
+                .all(|(id, position)| events.world.billboards[id].position != *position)
+        );
+        steps(&mut events, 310);
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
 fn model_trail_reaches_its_target_then_its_copies_expire() {
     let mut input = emitter(50, 0, &[0, 4, 0, 0, 100, 0, 0]);
     input[4] = 1;

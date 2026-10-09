@@ -122,3 +122,13 @@ pub(crate) fn drift(direction: &mut [f32; 3], rng: &mut u32) {
         };
     }
 }
+
+pub(crate) fn diffuse(direction: &mut [f32; 3], rng: &mut u32) {
+    for value in direction {
+        *value += if random(rng).is_multiple_of(2) {
+            -2.
+        } else {
+            2.
+        };
+    }
+}

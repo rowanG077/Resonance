@@ -599,6 +599,7 @@ pub(crate) enum BillboardController {
     Drift {
         direction: [f32; 3],
         speed: f32,
+        spatial: bool,
     },
     Accelerate {
         multiplier: f32,
@@ -816,10 +817,18 @@ impl crate::GameWorld {
                     wandering.then_some(crate::emitter::scatter::wander as Change),
                     f32::from(*planar) * crate::emitter::scatter::RISE_PER_TICK,
                 ),
-                Some(BillboardController::Drift { direction, speed }) => (
+                Some(BillboardController::Drift {
+                    direction,
+                    speed,
+                    spatial,
+                }) => (
                     direction,
                     *speed,
-                    Some(crate::emitter::scatter::drift as Change),
+                    Some(if *spatial {
+                        crate::emitter::scatter::diffuse as Change
+                    } else {
+                        crate::emitter::scatter::drift as Change
+                    }),
                     0.,
                 ),
                 _ => continue,

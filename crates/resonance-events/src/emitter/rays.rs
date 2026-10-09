@@ -182,6 +182,7 @@ impl RisingOrbs {
             p.controller = Some(crate::effect::BillboardController::Drift {
                 direction: [0., 0., 100.],
                 speed: rise,
+                spatial: false,
             });
             p.angular_velocity[2] = spin;
             p.rotation[2] = spin;
