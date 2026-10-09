@@ -101,6 +101,13 @@ impl Emitter {
                 velocity: None,
             },
             34 => Kind::Bloom(Default::default()),
+            42 => Kind::TwinGlow {
+                size: 0,
+                satellite_size: 0,
+                angles: [0.; 2],
+            },
+            43 => Kind::Explosion(Default::default()),
+            45 => Kind::RadialSpray { palette: 0 },
             38 => Kind::Inward {
                 palette: 0,
                 radius: 0,
@@ -283,6 +290,28 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
+            Kind::RadialSpray { palette: color } => match slot {
+                0 => setting!(*color, value, palette_index),
+                _ => Ok(0),
+            },
+            Kind::Explosion(s) => match slot {
+                0 => setting!(s.palette, value, palette_index),
+                1 => setting!(s.size, value),
+                2 => setting!(s.variation, value, nonnegative),
+                3 => setting!(s.count, value, count),
+                4 => setting!(s.color_group, value),
+                _ => Ok(0),
+            },
+            Kind::TwinGlow {
+                size,
+                satellite_size,
+                angles,
+            } => match slot {
+                1 => setting!(*size, value),
+                2 => setting!(*satellite_size, value),
+                3..=4 => setting!(angles[slot - 3], value),
+                _ => Ok(0),
+            },
             Kind::Flash { sparks, lifetime } => {
                 if *sparks && slot == 0 {
                     duration(lifetime, value)

@@ -13,8 +13,6 @@ pub(super) fn flash_sparks(
     rng: &mut u32,
     out: &mut super::Births,
 ) {
-    let axis = super::normalized(camera.map(|v| -v));
-    let radial = super::normalized([-axis[1], axis[0], axis[2]]);
     for _ in 0..8 {
         let angle = (random(rng) % 360) as f32;
         for offset in [0., 90., 270., 180.] {
@@ -24,8 +22,97 @@ pub(super) fn flash_sparks(
             spark.size = [75.; 2];
             spark.rgba[3] = 200;
             let speed = (9 + random(rng) % 5) as f32;
-            spark.velocity = super::rotated(radial, axis, angle + offset).map(|v| v * speed);
+            spark.velocity = screen_radial(camera.map(|v| -v), angle + offset).map(|v| v * speed);
             out.push(spark);
+        }
+    }
+}
+
+fn screen_radial(camera: [f32; 3], angle: f32) -> [f32; 3] {
+    let axis = super::normalized(camera);
+    let radial = super::normalized([-axis[1], axis[0], axis[2]]);
+    super::rotated(radial, axis, angle)
+}
+
+pub(super) fn spray(
+    center: [f32; 3],
+    born: u32,
+    camera: [f32; 3],
+    color: u16,
+    rng: &mut u32,
+    out: &mut super::Births,
+) {
+    use crate::effect::{ORB_SPRITE, SEAL_SPARK_SPRITE, STAR_SPRITE};
+    random(rng);
+    let mut p = particle(center, born, color, 36);
+    p.recipe = [STAR_SPRITE, SEAL_SPARK_SPRITE, ORB_SPRITE][random(rng) as usize % 3];
+    p.field_fog = false;
+    p.size = [75.; 2];
+    p.rgba[3] = 200;
+    let speed = (9 + random(rng) % 5) as f32;
+    if p.recipe == STAR_SPRITE {
+        p.rotation[2] = 45.;
+    }
+    p.angular_velocity[2] = if random(rng).is_multiple_of(2) {
+        -3.
+    } else {
+        3.
+    };
+    p.velocity = screen_radial(camera.map(|v| -v), (random(rng) % 360) as f32).map(|v| v * speed);
+    out.push(p);
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct Explosion {
+    pub palette: u16,
+    pub size: f32,
+    pub variation: u32,
+    pub count: u32,
+    pub color_group: i32,
+}
+impl Explosion {
+    pub fn emit(
+        &self,
+        center: [f32; 3],
+        born: u32,
+        actor: &crate::Actor,
+        rng: &mut u32,
+        out: &mut super::Births,
+    ) {
+        use crate::effect::{SEAL_SPARK_SPRITE, STAR_SPRITE};
+        let mut glow = particle(center, born, self.palette, 181);
+        glow.field_fog = false;
+        glow.size = [actor.heading + (random(rng) % 10) as f32; 2];
+        glow.rgba[3] = 200;
+        glow.size_delta = 10.;
+        glow.fade = Fade::Linear(-2.);
+        out.push(glow);
+        for _ in 0..self.count {
+            let star = random(rng).is_multiple_of(2);
+            let color = if (1..=4).contains(&self.color_group) {
+                palette(104 + self.color_group, rng)
+            } else {
+                self.palette
+            };
+            let mut p = particle(center, born, color, 61);
+            p.recipe = if star { STAR_SPRITE } else { SEAL_SPARK_SPRITE };
+            p.field_fog = false;
+            p.size = [self.size + super::stream::spread(rng, self.variation) as f32; 2];
+            p.fade = Fade::Linear(-5.);
+            if star {
+                p.rotation[2] = 45.;
+            }
+            p.angular_velocity[2] = if random(rng).is_multiple_of(2) {
+                -3.
+            } else {
+                3.
+            };
+            let mut direction = [1., 0., 0.];
+            for axis in [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]] {
+                direction = super::rotated(direction, axis, (random(rng) % 360) as f32);
+            }
+            p.velocity = direction.map(|v| v * actor.movement_speed());
+            out.push(p);
         }
     }
 }
