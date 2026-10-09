@@ -843,14 +843,14 @@ impl NativeHost<'_> {
                     a,
                     self.world.effect_textures.get(&0).copied(),
                 )?;
-                let resource = if a[4] == 0 || a[5] == 47 {
+                let resource = if a[4] == 0 || !matches!(a[5], 46 | 50) {
                     0
                 } else {
                     self.resolve(a[4], ResourceKind::Model)?
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
-                // Recipe 46 keeps its model solely for independent afterimages.
-                actor.visible = resource != 0 && !matches!(a[5], 46 | 50);
+                // Emitters draw through their particles; model resources supply copies only.
+                actor.visible = false;
                 actor.contact = crate::ActorContact::None;
                 actor.collidable = false;
                 actor.grounded = false;

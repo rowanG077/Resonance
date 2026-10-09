@@ -152,13 +152,14 @@ impl Emitter {
                 angle: 0.,
                 count: 0,
             },
-            10 | 37 | 61 | 66 => Kind::Projectile {
+            10 | 37 | 40 | 61 | 66 => Kind::Projectile {
                 completed_phase: match a[5] {
                     37 => None,
                     66 => Some(3),
                     _ => Some(2),
                 },
                 color: match a[5] {
+                    40 => ProjectileColor::White,
                     10 => ProjectileColor::Violet,
                     37 => ProjectileColor::Selected(0),
                     _ => ProjectileColor::Changing { fade: 0. },
@@ -168,7 +169,11 @@ impl Emitter {
                 curvature: 0,
                 size: 0.,
                 target: [0.; 3],
-                texture: if a[5] == 66 { impact_texture } else { None },
+                texture: match a[5] {
+                    40 => Some(impact_texture.ok_or("projectile impact texture is not bound")?),
+                    66 => impact_texture,
+                    _ => None,
+                },
             },
             kind => return Err(format!("unsupported emitter {kind}")),
         };
