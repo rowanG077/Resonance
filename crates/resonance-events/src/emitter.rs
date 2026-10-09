@@ -97,6 +97,7 @@ enum Kind {
         afterimages: bool,
     },
     Projectile {
+        completed_phase: u8,
         path: Option<mote::Path>,
         launch: [f32; 3],
         curvature: i32,
@@ -185,6 +186,7 @@ impl Emitter {
                 fire::emit(center, born, clock, *size, *smoke, random, out);
             }
             Kind::Projectile {
+                completed_phase,
                 path,
                 launch,
                 curvature,
@@ -195,7 +197,7 @@ impl Emitter {
                 ..
             } => {
                 crate::world::random(random);
-                if *phase >= 3 {
+                if *phase >= *completed_phase {
                     return Ok(());
                 }
                 if speed <= 0. {
@@ -219,7 +221,7 @@ impl Emitter {
                             *texture,
                         ));
                     }
-                    *phase = 3;
+                    *phase = *completed_phase;
                 } else {
                     *phase = 1;
                 }

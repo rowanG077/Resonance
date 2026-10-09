@@ -59,6 +59,52 @@ fn enemy_resources() -> ResourceLibrary {
 }
 
 #[test]
+fn rising_smoke_fills_its_volume_then_runs_out_and_fades() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(41, 100, &[3, 40, 0, 4, 10, 20, 5, 100, 20]),
+    )]);
+    let query = script(&[(Call::GetActorProperty, &[500, 113])]);
+    let mut events = interactive_effect(&setup, &query);
+    steps(&mut events, 5);
+    assert_eq!(events.world.billboards.len(), 3);
+    for (i, p) in events.world.billboards.values().enumerate() {
+        assert_eq!(p.position[0], 0.);
+        assert!(p.position[1].abs() <= 4.);
+        assert!((i as f32 * 10. ..=i as f32 * 10. + 5.).contains(&p.position[2]));
+        assert!((100..120).contains(&p.rgba[3]));
+    }
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    steps(&mut events, 50);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
+fn curved_projectiles_stop_at_completion_and_leave_a_finite_trail() {
+    for (kind, phase) in [(61, 2), (66, 3)] {
+        let setup = script(&[(
+            Call::CreateEffectEmitter,
+            &emitter(kind, 5, &[100, 40, 0, -400, 100, 0, 0, 0, 0, 100]),
+        )]);
+        let query = script(&[(Call::GetActorProperty, &[500, 33])]);
+        let mut events = interactive_effect(&setup, &query);
+        steps(&mut events, 10);
+        assert!(events.world.actors[&500].position[2] > 15.);
+        steps(&mut events, 10);
+        let end = events.world.actors[&500].position;
+        assert!(!events.world.billboards.is_empty());
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), phase);
+        steps(&mut events, 65);
+        assert_eq!(events.world.actors[&500].position, end);
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
 fn genis_fireball_travels_and_its_trail_finishes_after_the_emitter_is_removed() {
     const FLIGHT: u32 = 80;
     let mut input = emitter(51, 0, &[100, FLIGHT as i32]);
