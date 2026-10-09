@@ -71,6 +71,15 @@ enum Kind {
         sparks: bool,
         lifetime: u32,
     },
+    RadialSpray {
+        palette: u16,
+    },
+    Explosion(rays::Explosion),
+    TwinGlow {
+        size: i32,
+        satellite_size: i32,
+        angles: [f32; 2],
+    },
     Shafts(rays::Shafts),
     Convergence(rays::Convergence),
     Rising(rays::Rising),
@@ -237,6 +246,54 @@ impl Emitter {
                 *phase = if *remaining < 0 { 2 } else { 1 };
             }
             Kind::Burst(burst) => burst.emit(center, born, phase, random, out),
+            Kind::RadialSpray { palette } => {
+                rays::spray(center, born, camera, *palette, random, out)
+            }
+            Kind::Explosion(explosion) => {
+                crate::world::random(random);
+                if *phase == 0 {
+                    explosion.emit(center, born, actor, random, out);
+                    *phase = 1;
+                }
+            }
+            Kind::TwinGlow {
+                size,
+                satellite_size,
+                angles,
+            } => {
+                crate::world::random(random);
+                let mut core = particle(center, born, 50, 2);
+                core.owner = Some(owner);
+                core.field_fog = false;
+                core.size = [*size as f32; 2];
+                core.rgba[3] = 100;
+                core.fade = Fade::Linear(0.);
+                out.push(core);
+                if *phase == 0 {
+                    for (color, radial, sign) in [(35, [1., 0., 0.], 1.), (34, [0., 1., 0.], -1.)] {
+                        let radial = rotated(
+                            rotated(radial, [0., 0., 1.], angles[0] * sign),
+                            [0., 1., 0.],
+                            angles[1] * sign,
+                        );
+                        let position =
+                            std::array::from_fn(|i| center[i] + radial[i] * (*size / 5) as f32);
+                        let mut glow = particle(position, born, color, 61);
+                        glow.owner = Some(owner);
+                        glow.field_fog = false;
+                        glow.size = [if *satellite_size == 0 {
+                            *size / 10
+                        } else {
+                            *satellite_size
+                        } as f32; 2];
+                        glow.rgba[3] = 160;
+                        glow.fade = Fade::Linear(-4.);
+                        out.push(glow);
+                    }
+                    angles[0] += 5.;
+                    angles[1] += (crate::world::random(random) % 2) as f32;
+                }
+            }
             Kind::Ray {
                 palette,
                 size,

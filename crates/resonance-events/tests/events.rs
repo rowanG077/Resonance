@@ -178,6 +178,68 @@ fn radial_flash_expands_once_and_its_sparks_travel_outward() {
 }
 
 #[test]
+fn explosion_and_spray_particles_move_outward_and_expire() {
+    for kind in [43, 45] {
+        let parameters = if kind == 43 {
+            vec![73, 20, 10, 16, 2]
+        } else {
+            vec![73]
+        };
+        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 5, &parameters))]);
+        let remove = script(&[(Call::DespawnActor, &[500])]);
+        let mut events = interactive_effect(&setup, &remove);
+        steps(&mut events, 10);
+        let moving: Vec<_> = events
+            .world
+            .billboards
+            .values()
+            .filter(|p| p.velocity != [0.; 3])
+            .collect();
+        assert!(!moving.is_empty());
+        assert!(
+            moving
+                .iter()
+                .filter(|p| p.born < events.world.tick)
+                .all(|p| p.position != [0.; 3])
+        );
+        if kind == 43 {
+            assert_eq!(events.world.billboards.len(), 17);
+            assert!(events.world.billboards.values().any(|p| p.size[0] >= 90.));
+        }
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        steps(&mut events, 120);
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
+fn twin_glow_stops_its_satellites_without_losing_its_core() {
+    let setup = script(&[(Call::CreateEffectEmitter, &emitter(42, 0, &[0, 100, 10]))]);
+    let stop = script(&[(Call::SetActorProperty, &[500, 33, 1])]);
+    let mut events = interactive_effect(&setup, &stop);
+    steps(&mut events, 10);
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .any(|p| p.position != [0.; 3])
+    );
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    steps(&mut events, 50);
+    assert!(!events.world.billboards.is_empty());
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .all(|p| p.position == [0.; 3] && p.size == [100.; 2])
+    );
+}
+
+#[test]
 fn converging_shafts_and_spirals_follow_their_emitter_center() {
     let center = [150., 200., 50.];
     for kind in [20, 21] {
