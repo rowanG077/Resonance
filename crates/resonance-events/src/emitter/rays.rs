@@ -229,6 +229,50 @@ pub(super) fn spray(
 }
 
 #[derive(Debug, Clone, Default)]
+pub(super) struct SoftBurst {
+    pub count: u32,
+    pub lifetime: u32,
+    pub lifetime_variation: u32,
+    pub size: f32,
+    pub size_variation: u32,
+    pub speed_variation: u32,
+    pub growth_variation: u32,
+}
+impl SoftBurst {
+    pub fn emit(
+        &self,
+        center: [f32; 3],
+        born: u32,
+        camera: [f32; 3],
+        speed: f32,
+        rng: &mut u32,
+        out: &mut super::Births,
+    ) {
+        for _ in 0..self.count {
+            let bright = random(rng) % 3 != 2;
+            let lifetime = self.lifetime + random(rng) % self.lifetime_variation;
+            let size = self.size + (random(rng) % self.size_variation) as f32;
+            let speed = (speed + (random(rng) % self.speed_variation) as f32) / 100.;
+            let growth = (random(rng) % self.growth_variation / 100) as f32;
+            let radial = screen_radial(camera.map(|v| -v), (random(rng) % 360) as f32);
+            let mut p = particle(center, born, if bright { 93 } else { 32 }, lifetime);
+            p.recipe = crate::effect::GLOW_SPRITE;
+            p.field_fog = false;
+            p.blend = Some(if bright {
+                crate::effect::Blend::Additive
+            } else {
+                crate::effect::Blend::Alpha
+            });
+            p.size = [size; 2];
+            p.size_delta = growth;
+            p.rgba[3] = 200;
+            p.velocity = radial.map(|v| v * speed);
+            out.push(p);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 pub(super) struct Explosion {
     pub palette: u16,
     pub size: f32,
