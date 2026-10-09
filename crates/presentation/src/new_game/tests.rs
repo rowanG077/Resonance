@@ -881,8 +881,13 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
                 .filter(|c| c.operation.is_pending())
             {
                 choosing = true;
-                let selected = pending.selected_line - pending.first_line;
-                assert!(choice <= pending.last_line - pending.first_line);
+                let selected = pending.selection.lines().unwrap().selected_line
+                    - pending.selection.lines().unwrap().first_line;
+                assert!(
+                    choice
+                        <= pending.selection.lines().unwrap().last_line
+                            - pending.selection.lines().unwrap().first_line
+                );
                 observed.choices.insert(pending.operation.id(), selected);
                 direction[1] = match selected.cmp(&choice) {
                     std::cmp::Ordering::Less => -1.,

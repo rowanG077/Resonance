@@ -143,6 +143,7 @@ impl Playback {
             let (reason, moved) = self.choices.step(
                 choice,
                 crate::choice::ChoiceInput {
+                    horizontal: 0,
                     direction: input.direction,
                     confirm: input.confirm,
                     cancel: input.cancel,

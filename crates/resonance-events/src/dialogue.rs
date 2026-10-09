@@ -72,9 +72,11 @@ impl crate::GameWorld {
             *slot,
             Choice {
                 operation: choice.clone(),
-                first_line,
-                last_line,
-                selected_line: first_line,
+                selection: Selection::Lines(LineSelection {
+                    first_line,
+                    last_line,
+                    selected_line: first_line,
+                }),
                 cancel_allowed: true,
                 confirmation: ChoiceConfirmation::Accept,
                 timeout_ticks: None,
@@ -225,17 +227,60 @@ impl Dialogue {
     }
 }
 
-/// A selection over a contiguous range of lines in an existing dialogue.
-/// Line indices are zero based here; the native binding returns one based lines.
+/// A line or number selection sharing its dialogue window's lifetime.
 #[derive(Debug, Clone)]
 pub struct Choice {
     pub operation: Operation,
-    pub first_line: u8,
-    pub last_line: u8,
-    pub selected_line: u8,
+    pub selection: Selection,
     pub cancel_allowed: bool,
     pub confirmation: ChoiceConfirmation,
     pub timeout_ticks: Option<u16>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Selection {
+    Lines(LineSelection),
+    Number(NumberSelection),
+}
+
+/// Zero-based display lines; the script result is one based.
+#[derive(Debug, Clone)]
+pub struct LineSelection {
+    pub first_line: u8,
+    pub last_line: u8,
+    pub selected_line: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct NumberSelection {
+    pub value: i32,
+    pub minimum: i32,
+    pub maximum: i32,
+    pub digits: u8,
+    /// Decimal place, counting from the units digit.
+    pub place: u8,
+    pub wrap_digits: bool,
+}
+
+impl Selection {
+    pub fn lines(&self) -> Option<&LineSelection> {
+        match self {
+            Self::Lines(lines) => Some(lines),
+            Self::Number(_) => None,
+        }
+    }
+    pub fn lines_mut(&mut self) -> Option<&mut LineSelection> {
+        match self {
+            Self::Lines(lines) => Some(lines),
+            Self::Number(_) => None,
+        }
+    }
+    pub fn value(&self) -> i32 {
+        match self {
+            Self::Lines(lines) => i32::from(lines.selected_line) + 1,
+            Self::Number(number) => number.value,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,8 +327,7 @@ impl Choice {
             ChoiceExit::Cancel => 1,
             ChoiceExit::Timeout => 2,
         })?;
-        self.operation
-            .complete(Some(i32::from(self.selected_line) + 1))
+        self.operation.complete(Some(self.selection.value()))
     }
 }
 

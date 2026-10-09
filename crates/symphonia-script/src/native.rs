@@ -128,7 +128,7 @@ native_calls! {
     RumbleController = 0x6e,
     SinDegrees = 0x6f,
     CosDegrees = 0x70,
-    Unknown71 = 0x71,
+    ShowNumberInput = 0x71,
     SetScenarioTimer = 0x72,
     CreateCircleTrigger = 0x73,
     CreateAutomaticCircleTrigger = 0x74,

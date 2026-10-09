@@ -617,7 +617,8 @@ done:
                         "invented interactive viewer resources"
                     );
                     if name == "testfield_02.bin" {
-                        let inputs = call_arguments(&program, &analysis, NativeCall::Unknown71, 5)?;
+                        let inputs =
+                            call_arguments(&program, &analysis, NativeCall::ShowNumberInput, 5)?;
                         for (input, lhs, memory, maximum, base, sites) in numeric {
                             ensure!(
                                 inputs.get(&input)

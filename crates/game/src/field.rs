@@ -992,12 +992,13 @@ impl FieldSession {
             .map(|(&slot, _)| slot);
         for (slot, player) in &mut self.dialogue {
             let accepts_input = choice_slot.is_none_or(|choice| choice == *slot);
+            let before_selection_page = player.page + 1 < player.pages.len();
             let voices = if input.skip_dialogue && choice_slot.is_none() {
                 player.skip_step()?
             } else {
                 player.step(
                     (input.pressed(Button::Accept) || input.pressed(Button::Cancel))
-                        && choice_slot.is_none(),
+                        && (choice_slot.is_none() || before_selection_page && accepts_input),
                     input.held_buttons.contains(Button::Accept) && accepts_input,
                 )?
             };
@@ -1049,19 +1050,43 @@ impl FieldSession {
                 .get_mut(&slot)
                 .ok_or_else(|| anyhow::anyhow!("choice dialogue player is missing"))?;
             let choice = self.events.world.choices.get_mut(&slot).unwrap();
-            let lines = 1 + player
-                .current()
-                .glyphs
-                .iter()
-                .filter(|g| g.character == '\n')
-                .count();
-            ensure!(
-                usize::from(choice.last_line) < lines,
-                "choice extends beyond dialogue lines"
-            );
+            let final_page = player.page + 1 == player.pages.len();
+            if final_page {
+                match &choice.selection {
+                    resonance_events::dialogue::Selection::Lines(lines) => {
+                        let count = 1 + player
+                            .current()
+                            .glyphs
+                            .iter()
+                            .filter(|g| g.character == '\n')
+                            .count();
+                        ensure!(
+                            usize::from(lines.last_line) < count,
+                            "choice extends beyond dialogue lines"
+                        );
+                    }
+                    resonance_events::dialogue::Selection::Number(number) => {
+                        ensure!(
+                            player
+                                .current()
+                                .number
+                                .as_ref()
+                                .is_some_and(|range| range.len() == usize::from(number.digits)),
+                            "number input is missing from the final dialogue page"
+                        );
+                    }
+                }
+            }
             let (reason, moved) = self.choices.step(
                 choice,
                 crate::choice::ChoiceInput {
+                    horizontal: if input.direction[0] > 0.5 {
+                        1
+                    } else if input.direction[0] < -0.5 {
+                        -1
+                    } else {
+                        0
+                    },
                     direction: if input.direction[1] > 0.5 {
                         -1
                     } else if input.direction[1] < -0.5 {
@@ -1075,8 +1100,11 @@ impl FieldSession {
                                 || input.pressed(Button::NextPage)),
                     cancel: input.pressed(Button::Cancel),
                 },
-                player.accepts_input() && player.fully_revealed(),
+                final_page && player.accepts_input() && player.fully_revealed(),
             );
+            if let resonance_events::dialogue::Selection::Number(number) = &choice.selection {
+                player.pages[player.page].set_number(number.value)?;
+            }
             if moved {
                 self.events
                     .world
@@ -2316,7 +2344,7 @@ mod tests {
                 && session
                     .dialogue
                     .get(&1)
-                    .is_some_and(|page| page.accepts_input())
+                    .is_some_and(|page| page.accepts_input() && page.fully_revealed())
             {
                 return;
             }
@@ -2394,7 +2422,14 @@ mod tests {
             .unwrap();
         reveal_choices(&mut session);
         assert!(!session.dialogue[&0].closed);
-        assert_eq!(session.events.world.choices[&1].selected_line, 0);
+        assert_eq!(
+            session.events.world.choices[&1]
+                .selection
+                .lines()
+                .unwrap()
+                .selected_line,
+            0
+        );
         assert!(!session.events.world.input_enabled);
         session
             .step(FieldInput {
@@ -2459,6 +2494,105 @@ mod tests {
     }
 
     #[test]
+    fn number_input_edits_digits_and_returns_after_the_window_closes() {
+        for (wrap, initial, maximum, expected, cancel) in [
+            (false, 19, 99, 30, false),
+            (true, 19, 99, 20, true),
+            (false, 99, 99, 99, false),
+            (true, 29, 29, 20, false),
+        ] {
+            let mut code = vec![4, 0, 0, 0];
+            native(
+                &mut code,
+                NativeCall::ConfigureDialogue,
+                &[1, 0x1000, -2, 7, 0, 0, 0, 1],
+            );
+            native(
+                &mut code,
+                NativeCall::ShowNumberInput,
+                &[1, initial, 0, maximum, i32::from(wrap)],
+            );
+            code.extend([0x3000, 0x1200, 0x100, 0x1200, 0x20, 0x3010, 0x3000]);
+            native(&mut code, NativeCall::CloseDialogue, &[1]);
+            code.push(0x20ff);
+            let mut session = session(runtime(
+                code,
+                ResourceLibrary {
+                    messages: vec![
+                        Message { tokens: vec![] },
+                        Message {
+                            tokens: vec![
+                                Token::Text {
+                                    text: "Choose an amount.\u{c}Spend: ".into(),
+                                },
+                                Token::Control {
+                                    opcode: 8,
+                                    expression: vec![0, 2, 0x30, 0, 0x20, 0xff],
+                                },
+                            ],
+                        },
+                    ],
+                    ..Default::default()
+                },
+            ));
+            // An early confirmation advances the explanation, but cannot submit the number.
+            for _ in 0..120 {
+                if session.dialogue.get(&1).is_some_and(|p| p.page == 1) {
+                    break;
+                }
+                session
+                    .step(FieldInput {
+                        pressed_buttons: [Button::Accept].into(),
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            reveal_choices(&mut session);
+            assert_eq!(
+                session.dialogue[&1].current().text(),
+                format!("Spend: {initial:02}")
+            );
+            assert!(!session.can_skip_event());
+            for direction in [[0., 1.], [-1., 0.], [0., 1.]] {
+                session
+                    .step(FieldInput {
+                        direction,
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            assert_eq!(
+                session.dialogue[&1].current().text(),
+                format!("Spend: {expected:02}")
+            );
+            session
+                .step(FieldInput {
+                    pressed_buttons: [if cancel {
+                        Button::Cancel
+                    } else {
+                        Button::Accept
+                    }]
+                    .into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(session.events.memory().read(0x100, Width::S32).unwrap(), 0);
+            for _ in 0..6 {
+                session.step(FieldInput::default()).unwrap();
+            }
+            assert_eq!(
+                session.events.memory().read(0x100, Width::S32).unwrap(),
+                expected
+            );
+            assert_eq!(
+                session.events.memory().read(0x24, Width::S32).unwrap(),
+                i32::from(cancel)
+            );
+            assert!(session.events.world.choices.is_empty());
+        }
+    }
+
+    #[test]
     fn choice_wrap_repeat_and_timeout_wait_for_revealed_text() {
         use crate::choice::{ChoiceInput, ChoicePlayer};
         use resonance_events::dialogue::ChoiceExit;
@@ -2475,12 +2609,12 @@ mod tests {
             assert_eq!(player.step(&mut choice, up, false), (None, false));
         }
         assert_eq!(player.step(&mut choice, up, true), (None, true));
-        assert_eq!(choice.selected_line, 1); // Wrap from first to last.
+        assert_eq!(choice.selection.lines().unwrap().selected_line, 1); // Wrap from first to last.
         for _ in 0..19 {
             assert_eq!(player.step(&mut choice, up, true), (None, false));
         }
         assert_eq!(player.step(&mut choice, up, true), (None, true));
-        assert_eq!(choice.selected_line, 0);
+        assert_eq!(choice.selection.lines().unwrap().selected_line, 0);
         for _ in 0..8 {
             assert_eq!(
                 player.step(&mut choice, ChoiceInput::default(), true),
@@ -2496,6 +2630,6 @@ mod tests {
         reveal_choices(&mut fresh);
         let choice = fresh.events.world.choices.get_mut(&1).unwrap();
         assert_eq!(player.step(choice, up, true), (None, true));
-        assert_eq!(choice.selected_line, 1);
+        assert_eq!(choice.selection.lines().unwrap().selected_line, 1);
     }
 }
