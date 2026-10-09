@@ -1331,21 +1331,6 @@ fn start_with_entry(
         );
         bind_clips(&mut resources, resource, &model.clips)?;
     }
-    for (model, poses) in entry.attachments {
-        for &(source, resource, slot) in poses.clips.keys() {
-            ensure!(
-                resources
-                    .clips(resource, source)
-                    .is_some_and(|clips| clips.contains_key(&slot)),
-                "prepared attachment clip is missing"
-            );
-        }
-        resources
-            .models
-            .get_mut(&model)
-            .context("prepared attachment model is missing")?
-            .attachments = poses;
-    }
     let (mut world, memory) = entry.persistent.into_world();
     world.effect_palette = entry.effect_palette;
     world.current_field = Some(assets.map_id);
@@ -1436,6 +1421,21 @@ fn start_with_entry(
             ));
         }
         world.insert_actor(actor, instance);
+    }
+    for (model, poses) in entry.attachments {
+        for &(source, resource, slot) in poses.clips.keys() {
+            ensure!(
+                resources
+                    .clips(resource, source)
+                    .is_some_and(|clips| clips.contains_key(&slot)),
+                "prepared attachment clip is missing"
+            );
+        }
+        resources
+            .models
+            .get_mut(&model)
+            .context("prepared attachment model is missing")?
+            .attachments = poses;
     }
     if entry.kind == EntryKind::Arrival {
         // Resolve the entrance before scripts configure the live camera.

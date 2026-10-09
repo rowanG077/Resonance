@@ -14,8 +14,18 @@ pub fn prepare(
     mut read: impl FnMut(&str) -> Result<Arc<[u8]>>,
 ) -> Result<Attachments> {
     let mut poses = Attachments::new();
-    for actor in &assets.actors {
-        let model = actor.parts.first().context("attachment model is missing")?;
+    let models = assets
+        .actors
+        .iter()
+        .map(|actor| (actor.resource, actor.parts.first()))
+        .chain(assets.parts.iter().map(|part| {
+            (
+                resonance_content::field::SCENERY_RESOURCE_BASE + u32::from(part.resource),
+                Some(part),
+            )
+        }));
+    for (resource, model) in models {
+        let model = model.context("attachment model is missing")?;
         if model.bone_names.is_empty() {
             continue;
         }
@@ -24,7 +34,7 @@ pub fn prepare(
             skeleton.bones.iter().map(|b| &b.name).eq(&model.bone_names),
             "attachment skeleton differs from scene"
         );
-        let poses = poses.entry(actor.resource).or_default();
+        let poses = poses.entry(resource).or_default();
         poses.skeleton = Some(skeleton.clone());
         // Following effects and scenario attachment queries can sample any live clip.
         for clip in &model.clips {
@@ -32,7 +42,7 @@ pub fn prepare(
             use resonance_events::animation::AnimationSource;
             let (source, resource) = clip
                 .animation_resource
-                .map_or((AnimationSource::Model, actor.resource), |id| {
+                .map_or((AnimationSource::Model, resource), |id| {
                     (AnimationSource::Resource, id)
                 });
             poses.clips.insert(
