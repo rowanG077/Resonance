@@ -162,6 +162,7 @@ enum Kind {
 
 #[derive(Debug, Clone)]
 enum ProjectileColor {
+    White,
     Violet,
     Selected(u16),
     Changing { fade: f32 },
@@ -380,7 +381,8 @@ impl Emitter {
                 ..
             } => {
                 crate::world::random(random);
-                if completed_phase.is_some_and(|done| *phase >= done) {
+                let through = matches!(color, ProjectileColor::White);
+                if !through && completed_phase.is_some_and(|done| *phase >= done) {
                     return Ok(());
                 }
                 if speed <= 0. {
@@ -393,6 +395,7 @@ impl Emitter {
                 actor.position = path.advance();
                 if emitting {
                     let (color, fade) = match color {
+                        ProjectileColor::White => (33, -10.),
                         ProjectileColor::Violet => (65, -10.),
                         ProjectileColor::Selected(color) => (*color, -10.),
                         ProjectileColor::Changing { fade } => (palette(108, random), *fade),
@@ -404,7 +407,9 @@ impl Emitter {
                     out.push(trail);
                 }
                 if path.arrived() {
-                    if let Some(texture) = texture {
+                    if through && emitting {
+                        rays::impact_spheres(actor.position, born, texture.unwrap(), random, out);
+                    } else if !through && let Some(texture) = texture {
                         out.push(arrival_flash(
                             actor.position,
                             born,

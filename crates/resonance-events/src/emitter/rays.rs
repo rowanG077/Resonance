@@ -34,6 +34,29 @@ fn screen_radial(camera: [f32; 3], angle: f32) -> [f32; 3] {
     super::rotated(radial, axis, angle)
 }
 
+pub(super) fn impact_spheres(
+    center: [f32; 3],
+    born: u32,
+    texture: (u32, u8),
+    rng: &mut u32,
+    out: &mut super::Births,
+) {
+    for _ in 0..5 {
+        let mut p = particle(center, born, 33, 31);
+        p.texture = Some(texture);
+        p.uv = Some([0., 0., 254. / 256., 254. / 256.]);
+        p.size = [0.; 2];
+        p.size_delta = 25.;
+        p.blend = Some(crate::effect::Blend::Additive);
+        p.rotation = std::array::from_fn(|_| (random(rng) % 360) as f32);
+        out.push(p);
+    }
+    let mut glow = particle(center, born, 33, 31);
+    glow.size = [0.; 2];
+    glow.size_delta = 50.;
+    out.push(glow);
+}
+
 pub(super) fn spray(
     center: [f32; 3],
     born: u32,

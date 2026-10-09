@@ -82,6 +82,58 @@ fn rising_smoke_fills_its_volume_then_runs_out_and_fades() {
 }
 
 #[test]
+fn curved_projectile_emits_one_impact_then_leaves_it_to_finish() {
+    let mut input = emitter(40, 5, &[100, 40, 0, 0, 100, 0, 0, 0, 0, 100]);
+    input[4] = 999; // This sprite emitter does not need a model resource.
+    let setup = script(&[(Call::CreateEffectEmitter, &input)]);
+    let query = script(&[(Call::GetActorProperty, &[500, 33])]);
+    let program = program(&setup, &query);
+    assert!(
+        EventRuntime::with_state(
+            program.clone(),
+            Arc::new(Default::default()),
+            controlled_world(),
+            Default::default()
+        )
+        .is_err()
+    );
+    let mut world = controlled_world();
+    world.effect_textures.insert(0, (100, 0));
+    let mut events = runtime(program, Default::default(), world);
+    assert!(!events.world.actors[&500].visible);
+    steps(&mut events, 20);
+    let impact: Vec<_> = events
+        .world
+        .billboards
+        .iter()
+        .filter(|(_, p)| p.texture == Some((100, 0)))
+        .map(|(&id, p)| (id, p.position))
+        .collect();
+    assert_eq!(impact.len(), 5);
+    let arrival = events.world.actors[&500].position;
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 5);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
+    assert_ne!(events.world.actors[&500].position, arrival);
+    assert_eq!(
+        events
+            .world
+            .billboards
+            .values()
+            .filter(|p| p.texture.is_some())
+            .count(),
+        5
+    );
+    for (id, position) in impact {
+        let p = &events.world.billboards[&id];
+        assert_eq!(p.position, position);
+        assert!(p.size[0] > 0.);
+    }
+    steps(&mut events, 70);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn curved_projectiles_finish_their_trails_and_report_their_phase() {
     for (kind, phase, color) in [
         (10, 2, Some(65)),
