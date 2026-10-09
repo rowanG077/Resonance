@@ -207,6 +207,53 @@ fn ordinary_locomotion_replaces_same_slot_from_a_block_animation_bank() {
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
+fn battle_rules_survive_saves_and_are_captured_when_an_encounter_starts() {
+    let data = Arc::new(cooked::<resonance_content::session::SessionData>(
+        "session-data.json",
+    ));
+    let mut world = controlled_world();
+    world.party = Some(party::Party::new(&data, Default::default()).unwrap());
+    let setup = script(&[
+        (Call::ConfigureBattleRules, &[0, 0x1234]),
+        (Call::ConfigureBattleRules, &[1, 0x20]),
+        (Call::ConfigureBattleRules, &[2, 2]),
+        (Call::ConfigureBattleRules, &[3, -25]),
+        (Call::ConfigureBattleRules, &[4, 50]),
+        (Call::ConfigureBattleRules, &[5, -1]),
+    ]);
+    let battle = script(&[
+        (Call::ConfigureBattleRules, &[5, -1]),
+        (Call::Unknown37, &[30, 79, 0]),
+    ]);
+    let mut events = runtime(
+        program(&setup, &battle),
+        ResourceLibrary {
+            session_data: Some(data),
+            ..Default::default()
+        },
+        world,
+    );
+    let expected = battle::Rules {
+        modifiers: 0x1234,
+        disabled_commands: 0x20,
+        coliseum: true,
+        attack_adjustment: -25,
+        defense_adjustment: 50,
+        intelligence_adjustment: -1,
+    };
+    let saved = serde_json::to_vec(events.world.party.as_ref().unwrap()).unwrap();
+    events.world.party = Some(serde_json::from_slice(&saved).unwrap());
+    assert_eq!(events.world.party.as_ref().unwrap().battle_rules, expected);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), -1);
+    let request = events.world.battle_request.as_ref().unwrap();
+    events.world.party.as_mut().unwrap().battle_rules = Default::default();
+    assert_eq!(request.rules, expected);
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
 fn short_battle_command_waits_for_and_returns_the_real_outcome() {
     let data = cooked::<resonance_content::session::SessionData>("session-data.json");
     for (flags, outcome, defeat) in [

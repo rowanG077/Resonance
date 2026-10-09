@@ -33,6 +33,19 @@ impl NativeHost<'_> {
             Ok(id as usize - 1)
         };
         match op {
+            NativeCall::ConfigureBattleRules => {
+                use std::mem::replace;
+                let rules = &mut party.battle_rules;
+                value = Some(match a[0] {
+                    0 => i32::from(replace(&mut rules.modifiers, a[1] as u16)),
+                    1 => i32::from(replace(&mut rules.disabled_commands, a[1] as u8)),
+                    2 => i32::from(replace(&mut rules.coliseum, a[1] != 0)),
+                    3 => i32::from(replace(&mut rules.attack_adjustment, a[1] as i8)),
+                    4 => i32::from(replace(&mut rules.defense_adjustment, a[1] as i8)),
+                    5 => i32::from(replace(&mut rules.intelligence_adjustment, a[1] as i8)),
+                    _ => return Err("unknown battle rule".into()),
+                });
+            }
             NativeCall::ConfigureMonsterKnowledge => {
                 let id = u8::try_from(a[0])
                     .ok()

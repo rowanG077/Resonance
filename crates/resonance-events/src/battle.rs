@@ -2,6 +2,17 @@
 //! prepares and runs the encounter, then resumes the original caller once.
 use crate::Operation;
 
+/// Script-selected restrictions and percentage adjustments for the next encounter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Rules {
+    pub modifiers: u16,
+    pub disabled_commands: u8,
+    pub coliseum: bool,
+    pub attack_adjustment: i8,
+    pub defense_adjustment: i8,
+    pub intelligence_adjustment: i8,
+}
+
 /// Native battle-entry counters queried by inn/skit conditions.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct History {
@@ -108,6 +119,7 @@ impl TryFrom<i32> for Outcome {
 #[derive(Debug, Clone)]
 pub struct Request {
     pub setup: Setup,
+    pub rules: Rules,
     /// Mode 5 overrides the next scene's initial black/white clear.
     pub transition_white: Option<bool>,
     pub(crate) operation: Operation,
@@ -152,11 +164,14 @@ impl crate::GameWorld {
         if self.battle_request.is_some() {
             return Err("nested battle request".into());
         }
-        if self.party.is_none() {
-            return Err("battle requires a party".into());
-        }
+        let rules = self
+            .party
+            .as_ref()
+            .ok_or("battle requires a party")?
+            .battle_rules;
         let request = Request {
             setup,
+            rules,
             transition_white: self.next_transition_white.take(),
             operation: self.operations.begin()?,
         };

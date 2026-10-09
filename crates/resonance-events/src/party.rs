@@ -305,6 +305,8 @@ pub struct Party {
     #[serde(default)]
     pub battles: crate::battle::History,
     #[serde(default)]
+    pub battle_rules: crate::battle::Rules,
+    #[serde(default)]
     pub figurines: BTreeSet<u16>,
     #[serde(default)]
     pub monsters: BTreeMap<u8, MonsterKnowledge>,
@@ -534,6 +536,7 @@ impl Party {
                 .collect(),
             formation: vec![1],
             battles: Default::default(),
+            battle_rules: Default::default(),
             monsters: BTreeMap::new(),
             figurines: BTreeSet::new(),
             travel: Travel::default(),
