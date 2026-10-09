@@ -28,6 +28,7 @@ impl Host for NativeHost<'_> {
         SpawnCollisionActor(8) -> () = field;
         SpawnSceneryActor(8) -> () = field;
         DespawnActor(1) -> () = field;
+        DespawnActorAfterMovement(1) -> () = dispatch;
         SetActorHeading(2) -> () = field;
         FaceActorAfterMovement(2) -> () = dispatch;
         TransformActorNode(6) -> () = dispatch;

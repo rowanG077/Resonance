@@ -323,6 +323,20 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::GetEventActor => value = Some(i32::from(self.event_actor)),
+            NativeCall::DespawnActorAfterMovement => {
+                let actor = if a[0] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[0]
+                };
+                let mut wait = Wait::Service {
+                    condition: Box::new(Wait::DespawnAfterMotion(actor)),
+                    ready_at: None,
+                };
+                wait.poll(self.world)?;
+                *self.wait = Some(wait);
+                return Ok(NativeResult::Suspend);
+            }
             NativeCall::SetActorPosition => {
                 // Position updates for absent actors are ignored.
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {

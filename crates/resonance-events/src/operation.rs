@@ -124,6 +124,7 @@ pub(crate) enum Wait {
         channel: u8,
     },
     ActorMotion(i32),
+    DespawnAfterMotion(i32),
     ActorHeading(i32),
     FaceAfterMotion {
         actor: i32,
@@ -220,6 +221,13 @@ impl Wait {
             }
             Self::ActorMotion(id) => {
                 return Ok(world.actors.get(id).is_none_or(|a| a.motion.is_none()));
+            }
+            Self::DespawnAfterMotion(id) => {
+                if world.actors.get(id).is_some_and(|a| a.motion.is_some()) {
+                    return Ok(false);
+                }
+                world.remove_actor(*id);
+                return Ok(true);
             }
             Self::FaceAfterMotion { actor, heading } => {
                 let Some(actor) = world.actors.get_mut(actor) else {
