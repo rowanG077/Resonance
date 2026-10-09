@@ -407,6 +407,7 @@ fn record(
         app.update();
         playthrough::check_exit(&app)?;
         playthrough::attach::<movie::MovieAudio>(app.world_mut(), &mixer)?;
+        playthrough::attach::<crate::credits::Audio>(app.world_mut(), &mixer)?;
         playthrough::attach::<GameAudio>(app.world_mut(), &mixer)?;
         playthrough::attach::<field_audio::FieldSource>(app.world_mut(), &mixer)?;
         let end = (step + 1) * 32028 * resonance_game::clock::UPDATE_RATE_DENOMINATOR

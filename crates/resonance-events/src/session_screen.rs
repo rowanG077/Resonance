@@ -5,6 +5,7 @@ use crate::Operation;
 pub enum Target {
     Title,
     GameOver,
+    Credits,
 }
 
 #[derive(Debug, Clone)]

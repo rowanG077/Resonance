@@ -444,7 +444,7 @@ impl NativeHost<'_> {
                 party.raise_level(data, index, level, growth, || crate::world::random(random))?;
             }
             NativeCall::ConfigureSession => {
-                if matches!(a[0], 13 | 14) {
+                if matches!(a[0], 13 | 14 | 18) {
                     use crate::session_screen::{Request, Target};
                     require(
                         self.world.screen_request.is_none(),
@@ -452,14 +452,21 @@ impl NativeHost<'_> {
                     )?;
                     let operation = self.world.operations.begin()?;
                     self.world.screen_request = Some(Request {
-                        target: if a[0] == 13 {
-                            Target::Title
-                        } else {
-                            Target::GameOver
+                        target: match a[0] {
+                            13 => Target::Title,
+                            14 => Target::GameOver,
+                            _ => Target::Credits,
                         },
                         operation: operation.clone(),
                     });
-                    *self.wait = Some(crate::operation::Wait::Complete(operation));
+                    *self.wait = Some(if a[0] == 18 {
+                        self.world
+                            .audio_commands
+                            .push(crate::AudioCommand::Music(crate::MusicCommand::Stop));
+                        crate::operation::Wait::Result(operation)
+                    } else {
+                        crate::operation::Wait::Complete(operation)
+                    });
                     return Ok(NativeResult::Suspend);
                 }
                 if a[0] == 16 {
