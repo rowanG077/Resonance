@@ -49,6 +49,7 @@ impl Host for NativeHost<'_> {
         GetItemStackLimit(0) -> i32 = party;
         ChangeItemCount(2) -> i32 = party;
         SelectPartyMember(1) -> i32 = field;
+        SetPlayerModel(1) -> () = field;
         AddPartyMember(1) -> i32 = party;
         RemovePartyMember(1) -> i32 = party;
         FindPartyMember(1) -> i32 = party;

@@ -9,8 +9,13 @@ impl GameWorld {
         id: i32,
     ) -> Result<()> {
         if id == self.controlled_actor {
-            ensure!(self.actors.contains_key(&id), "controlled actor is missing");
-            return Ok(());
+            let actor = self
+                .actors
+                .get(&id)
+                .context("controlled actor is missing")?;
+            if actor.resource == id as u32 {
+                return Ok(());
+            }
         }
         self.replace_party_member(resources, id)
     }
@@ -21,9 +26,18 @@ impl GameWorld {
         id: i32,
     ) -> Result<()> {
         ensure!((1..=9).contains(&id), "invalid playable party member {id}");
+        self.replace_controlled_model(resources, id, id as u32)
+    }
+
+    pub(crate) fn replace_controlled_model(
+        &mut self,
+        resources: &ResourceLibrary,
+        id: i32,
+        resource: u32,
+    ) -> Result<()> {
         let model = resources
-            .model(id as u32)
-            .context("party member model is not cooked")?;
+            .model(resource)
+            .context("controlled actor model is not cooked")?;
         let idle = model
             .clips
             .get(&slot::IDLE)
@@ -32,12 +46,12 @@ impl GameWorld {
             .actors
             .get_mut(&self.controlled_actor)
             .context("controlled actor is missing")?;
-        let mut actor = Actor::new(id as u32, previous.position);
+        let mut actor = Actor::new(resource, previous.position);
         actor.autonomy = Some(crate::Autonomy::new(crate::Behavior::Player, 0., [0.; 3]));
         // Model initialization evaluates its default clip before the first
         // activity selection; a later idle handler may choose the event pose.
         actor.animation = Some(crate::Animation {
-            ..crate::Animation::new(id as u32, slot::IDLE, idle.duration_ticks, self.tick)
+            ..crate::Animation::new(resource, slot::IDLE, idle.duration_ticks, self.tick)
         });
         actor.face(previous.heading);
         actor.target_heading = previous.target_heading;
