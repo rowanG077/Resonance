@@ -208,6 +208,7 @@ impl Emitter {
         match &self.kind {
             Kind::RisingOrbs(effect) => !effect.preserve_particles,
             Kind::Inward { clear, .. } => *clear == 1,
+            Kind::Stream(stream::Stream::Flame { cleanup, .. }) => *cleanup,
             _ => true,
         }
     }
@@ -1128,7 +1129,7 @@ impl GameWorld {
                     }
                 }
                 Birth::Model(p) => {
-                    self.emit_model_particle(p)?;
+                    self.emit_model_particle(p, self.tick)?;
                 }
                 Birth::Refraction(p) => {
                     self.emit_refraction(p)?;

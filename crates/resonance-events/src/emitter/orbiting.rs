@@ -34,7 +34,7 @@ impl Guided {
         if self.released && ready {
             let delta = std::array::from_fn(|i| self.target[i] - position[i]);
             let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
-            let lifetime = (distance / self.speed) as u32 + if self.gate.is_some() { 6 } else { 1 };
+            let lifetime = (distance / self.speed) as u32 + if self.gate.is_some() { 6 } else { 0 };
             self.travelling = true;
             return Some((normalized(delta).map(|v| v * self.speed), lifetime));
         }

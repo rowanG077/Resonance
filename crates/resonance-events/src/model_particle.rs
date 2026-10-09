@@ -252,12 +252,13 @@ impl crate::GameWorld {
     pub(crate) fn emit_model_particle(
         &mut self,
         mut particle: ModelParticle,
+        born: u32,
     ) -> Result<i32, String> {
         if self.model_particles.len() >= POOL_CAPACITY {
             return Ok(0);
         }
         let handle = self.allocate_effect()?;
-        particle.born = self.tick + 1;
+        particle.born = born;
         self.model_particles.insert(handle, particle);
         Ok(handle)
     }

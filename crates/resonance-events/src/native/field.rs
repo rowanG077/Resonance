@@ -832,6 +832,7 @@ impl NativeHost<'_> {
                 let resource = self.resolve(a[0], ResourceKind::Model)?;
                 value = Some(self.world.emit_model_particle(
                     crate::model_particle::ModelParticle::from_native(resource, a),
+                    self.world.tick + 1,
                 )?);
             }
             NativeCall::SetModelParticleProperty => {

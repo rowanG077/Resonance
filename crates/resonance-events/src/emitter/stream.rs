@@ -57,6 +57,7 @@ pub(crate) enum Stream {
         size: u32,
         palette: u16,
         tint: [u8; 3],
+        cleanup: bool,
     },
     Embers {
         radius: u32,
@@ -147,6 +148,7 @@ impl Stream {
                 size: 0,
                 palette: 0,
                 tint: [0; 3],
+                cleanup: false,
             },
             62 => Self::Embers {
                 radius: 0,
@@ -236,9 +238,14 @@ impl Stream {
                 p.size = [(45 + random(rng) % 45) as f32; 2];
                 p.rgba[3] = 150;
                 p.fade = Fade::Linear(0.);
-                let mut origin = center;
-                origin[2] += 5.;
-                let mut orbit = super::Orbit::new(origin, [0., 0., 1.], 150., 1., 105., 15.);
+                // This scene effect spirals around a fixed focus; the emitter
+                // chooses the initial bearing and height.
+                const FOCUS: [f32; 2] = [130., 335.];
+                let angle = (center[1] + 150. - FOCUS[1])
+                    .atan2(center[0] - FOCUS[0])
+                    .to_degrees();
+                let origin = [FOCUS[0], FOCUS[1], center[2] + 5.];
+                let mut orbit = super::Orbit::new(origin, [0., 0., 1.], 150., 1., angle + 15., 15.);
                 orbit.rise = 5.;
                 p.controller = Some(crate::effect::BillboardController::Orbit(orbit));
                 out.push(p);
@@ -311,6 +318,7 @@ impl Stream {
                 size,
                 palette,
                 tint,
+                ..
             } if clock.is_multiple_of(4) => {
                 if *size == 0 {
                     *size = 60;
