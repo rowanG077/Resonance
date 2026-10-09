@@ -6,6 +6,79 @@ use crate::{
 };
 use resonance_content::effect::sprite::STREAK_SPRITE;
 
+pub(super) fn awakening(
+    phase: &mut u8,
+    size: &mut f32,
+    center: [f32; 3],
+    born: u32,
+    clock: u32,
+    rng: &mut u32,
+    out: &mut super::Births,
+) {
+    use crate::effect::{BillboardEffect, STAR_SPRITE};
+    const CHARGE_LIMIT: f32 = 700.;
+    const CHARGE_STEP: f32 = 50.;
+    let variation = random(rng) % 4;
+    let mut star = particle(center, born, 2, 5);
+    star.recipe = STAR_SPRITE;
+    star.size = [20. + variation as f32; 2];
+    star.rotation[2] = 45.;
+    star.fade = Fade::Linear(-48.);
+    out.push(star);
+    let glow = |color, size, alpha, lifetime, fade| {
+        let mut p = particle(center, born, color, lifetime);
+        p.size = [size; 2];
+        p.rgba[3] = alpha;
+        p.fade = Fade::Linear(fade);
+        p
+    };
+    let spark = |position| {
+        let mut p = BillboardEffect::rising_spark(
+            position,
+            8.,
+            -(1. + variation as f32 / 32.),
+            born,
+            clock,
+        );
+        p.palette = Some(0);
+        p.fade = Fade::Linear(-4.);
+        p
+    };
+    if *phase == 1 {
+        if *size < CHARGE_LIMIT {
+            out.push(glow(26, *size, 32, 3, -9.));
+            *size += CHARGE_STEP;
+        } else {
+            out.push(glow(26, *size, 255, 121, -2.));
+            *phase = 2;
+        }
+        let spread = (*size as u32 / 2).max(1);
+        for _ in 0..20 {
+            let position = std::array::from_fn(|i| {
+                center[i] + (random(rng) % spread) as f32 - (spread / 2) as f32
+            });
+            out.push(spark(position));
+        }
+    }
+    if *phase >= 1 {
+        out.push(glow(
+            26,
+            80. + 20. * (clock as f32).to_radians().sin(),
+            32,
+            2,
+            0.,
+        ));
+        out.push(glow(2, 50. + (random(rng) % 16) as f32, 143, 5, 0.));
+        if clock.is_multiple_of(4) {
+            let mut position = center;
+            for value in &mut position[..2] {
+                *value += (random(rng) % 16) as f32 - 7.;
+            }
+            out.push(spark(position));
+        }
+    }
+}
+
 pub(super) fn flash_sparks(
     center: [f32; 3],
     born: u32,
