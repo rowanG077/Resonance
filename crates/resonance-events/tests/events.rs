@@ -230,6 +230,36 @@ fn radial_flash_expands_once_and_its_sparks_travel_outward() {
 }
 
 #[test]
+fn charged_light_gathers_then_travels_and_reports_completion() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(58, 10, &[0, 100, 0, -5, 100]),
+    )]);
+    let launch = script(&[
+        (Call::SetActorProperty, &[500, 33, 1]),
+        (Call::YieldCommand, &[0, 20]),
+        (Call::GetActorProperty, &[500, 33]),
+    ]);
+    let mut events = interactive_effect(&setup, &launch);
+    steps(&mut events, 10);
+    assert_eq!(events.world.actors[&500].position, [0.; 3]);
+    assert!(events.world.billboards.values().all(|p| {
+        p.position
+            .iter()
+            .zip(p.velocity)
+            .map(|(x, v)| x * v)
+            .sum::<f32>()
+            < 0.
+    }));
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 25);
+    assert_eq!(events.world.actors[&500].position, [100., 0., 0.]);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 3);
+    steps(&mut events, 100);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn orbiting_particles_release_existing_lights_toward_their_destination() {
     for kind in [65, 68] {
         let setup = script(&[(
