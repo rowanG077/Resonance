@@ -89,6 +89,8 @@ pub struct RefractionPulse {
     pub angular_velocity: [f32; 3],
     pub position: [f32; 3],
     pub velocity: [f32; 3],
+    pub speed: f32,
+    pub normalize_velocity: bool,
     pub born: u32,
     pub lifetime: u32,
     pub size: f32,
@@ -105,7 +107,8 @@ pub enum RefractionImage {
 impl RefractionPulse {
     pub(crate) fn step(&mut self, tick: u32) -> bool {
         if tick > self.born {
-            for (position, velocity) in self.position.iter_mut().zip(self.velocity) {
+            let delta = motion_delta(self.velocity, self.speed, self.normalize_velocity);
+            for (position, velocity) in self.position.iter_mut().zip(delta) {
                 *position += velocity;
             }
             self.size += self.growth;
@@ -544,6 +547,8 @@ pub struct BillboardEffect {
     pub lifetime: u32,
     pub position: [f32; 3],
     pub velocity: [f32; 3],
+    pub speed: f32,
+    pub normalize_velocity: bool,
     pub(crate) controller: Option<BillboardController>,
     pub gravity: f32,
     pub rotation: [f32; 3],
@@ -669,6 +674,8 @@ impl Default for BillboardEffect {
             lifetime: 0,
             position: [0.; 3],
             velocity: [0.; 3],
+            speed: 0.,
+            normalize_velocity: false,
             controller: None,
             gravity: 0.,
             rotation: [0.; 3],
@@ -718,8 +725,9 @@ impl BillboardEffect {
     }
 
     pub fn step(&mut self) {
-        for i in 0..3 {
-            self.position[i] += self.velocity[i];
+        let delta = motion_delta(self.velocity, self.speed, self.normalize_velocity);
+        for (i, delta) in delta.into_iter().enumerate() {
+            self.position[i] += delta;
             self.rotation[i] += self.angular_velocity[i];
         }
         self.velocity[2] += self.gravity;
@@ -746,6 +754,14 @@ impl BillboardEffect {
         }
         self.fade
             .alpha(f32::from(self.rgba[3]), tick.saturating_sub(self.born))
+    }
+}
+
+fn motion_delta(velocity: [f32; 3], speed: f32, normalized: bool) -> [f32; 3] {
+    if normalized {
+        emission::normalized(velocity).map(|component| component * speed)
+    } else {
+        velocity
     }
 }
 

@@ -201,6 +201,8 @@ impl SavePoints {
                         rotation: [0.; 3],
                         position: [position[0], position[1], position[2] + 10.],
                         velocity: [0.; 3],
+                        speed: 0.,
+                        normalize_velocity: false,
                         born: world.tick,
                         lifetime: 30,
                         size: 20.,

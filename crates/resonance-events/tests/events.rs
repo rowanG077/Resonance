@@ -1359,6 +1359,106 @@ fn bound_particles_move_grow_fade_and_expire() {
 }
 
 #[test]
+fn sprite_constructors_share_animation_and_preserve_their_motion_units() {
+    use resonance_content::effect::sprite::{
+        FLAME_SPRITE, GLOW_SPRITE, SMOKE_SPRITE, STATION_GLOW_SPRITE, STATION_HALO_SPRITE,
+    };
+    for kind in [
+        GLOW_SPRITE,
+        SMOKE_SPRITE,
+        STATION_GLOW_SPRITE,
+        FLAME_SPRITE,
+        STATION_HALO_SPRITE,
+    ] {
+        let setup = script(&[
+            (
+                Call::CreateParticle,
+                &[i32::from(kind), 100, 0, 0, 0, 3, 4, 0, 20, 200, -1, 0, 0],
+            ),
+            (
+                Call::CreateEffectObject,
+                &[
+                    i32::from(kind),
+                    100,
+                    0,
+                    0,
+                    0,
+                    30,
+                    40,
+                    0,
+                    500,
+                    20,
+                    200,
+                    -1,
+                    0,
+                    0,
+                ],
+            ),
+        ]);
+        let mut events = runtime(
+            program(&setup, &[0x20ff]),
+            Default::default(),
+            Default::default(),
+        );
+        steps(&mut events, 6);
+        let a = &events.world.billboards[&1];
+        let b = &events.world.billboards[&2];
+        assert_eq!(a.recipe, kind);
+        assert_eq!(a.position, [15., 20., 0.]);
+        assert_eq!(a.position, b.position);
+        assert_eq!(a.rotation, b.rotation);
+        assert_eq!(a.alpha(events.tick()), b.alpha(events.tick()));
+        steps(&mut events, 96);
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
+fn changing_particle_velocity_preserves_position_until_the_next_motion_update() {
+    let setup = script(&[
+        (
+            Call::CreateParticle,
+            &[0, 100, 0, 0, 0, 0, 0, 0, 20, 200, -1, 0, 0],
+        ),
+        (Call::SetEffectProperty, &[1, 129, 50]),
+        (Call::SetEffectProperty, &[1, 131, -150]),
+    ]);
+    let change = script(&[(Call::SetEffectProperty, &[1, 138, 2])]);
+    let mut events = interactive_effect(&setup, &change);
+    steps(&mut events, 3);
+    assert_eq!(events.world.billboards[&1].position, [1., 0., -3.]);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    events.step().unwrap();
+    assert_eq!(events.world.billboards[&1].position, [2., 0., -6.]);
+    events.step().unwrap();
+    assert_eq!(events.world.billboards[&1].position, [4., 0., -7.5]);
+}
+
+#[test]
+fn directed_particles_retain_direction_while_stopped_and_can_resume_at_fractional_speed() {
+    for kind in [0, 27] {
+        let setup = script(&[(
+            Call::CreateEffectObject,
+            &[kind, 100, 0, 0, 0, 10, 0, 0, 99, 20, 255, 0, 0, 0],
+        )]);
+        let change = script(&[(Call::SetEffectProperty, &[1, 136, 50])]);
+        let mut events = interactive_effect(&setup, &change);
+        let position = |world: &GameWorld| match kind {
+            0 => world.billboards[&1].position,
+            _ => world.refractions[&1].position,
+        };
+        steps(&mut events, 3);
+        assert_eq!(position(&events.world), [0.; 3]);
+        assert!(events.trigger(42, true).unwrap());
+        steps(&mut events, 2);
+        assert_eq!(position(&events.world), [0.; 3]);
+        events.step().unwrap();
+        assert_eq!(position(&events.world), [0.5, 0., 0.]);
+    }
+}
+
+#[test]
 fn explicit_particle_tints_can_replace_palette_channels_with_neutral() {
     for channel in 0..3 {
         let mut world = controlled_world();

@@ -312,6 +312,8 @@ mod tests {
                 rotation: [0.; 3],
                 position: [0.; 3],
                 velocity: [0.; 3],
+                speed: 0.,
+                normalize_velocity: false,
                 born: 0,
                 lifetime: 30,
                 size: 20.,
