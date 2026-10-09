@@ -20,6 +20,8 @@ pub struct Travel {
     /// Scenario countdown; continues while mapped input is disabled.
     #[serde(default)]
     pub field_countdown: u32,
+    /// Story and minigame scripts may suppress automatic skit announcements.
+    pub skit_prompts_disabled: bool,
     /// Saved by event command 0x89, independent of the current party order.
     #[serde(default)]
     pub saved_formation: Vec<u8>,
