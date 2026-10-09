@@ -373,7 +373,6 @@ def effect_events(effect):
                 parameters[definition.slots[name]] = value
         speed = effect['speed']
         yield [birth, 0xbf, [handle, *effect['position'], 0, variant, 0, speed, *parameters]]
-        yield [birth, 0xb2, [handle, 0]]
         yield [birth, 0x1d, [handle, 34, 3]]
         yield [birth, 0x1d, [handle, 5, speed]]
     elif kind in ('sprite', 'model'):
