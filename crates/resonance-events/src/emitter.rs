@@ -8,6 +8,7 @@ mod gathering;
 mod mote;
 mod native;
 pub(crate) mod orbiting;
+mod planes;
 mod rays;
 pub(crate) mod scatter;
 mod seal;
@@ -132,6 +133,8 @@ enum Kind {
     Scatter(scatter::Scatter),
     Cloud(cloud::Cloud),
     Orbiting(orbiting::Orbiting),
+    Cylinder(planes::Cylinder),
+    Sheet(planes::Sheet),
     Travel {
         flight: Option<Flight>,
         texture: Option<(u32, u8)>,
@@ -217,6 +220,14 @@ impl Emitter {
         let phase = &mut self.phase;
         let tick = self.age;
         match &mut self.kind {
+            Kind::Cylinder(cylinder) => {
+                crate::world::random(random);
+                cylinder.emit(phase, center, born, clock, random, out);
+            }
+            Kind::Sheet(sheet) => {
+                crate::world::random(random);
+                sheet.emit(phase, center, born, clock, camera, out);
+            }
             Kind::Flash { sparks, lifetime } => {
                 crate::world::random(random);
                 if *phase == 0 {
@@ -1073,6 +1084,12 @@ impl GameWorld {
             match birth {
                 Birth::Sprite(mut p, tint) => {
                     match &p.controller {
+                        Some(BillboardController::Stretch(growth)) => {
+                            for (size, growth) in p.size.iter_mut().zip(growth) {
+                                *size += *growth;
+                            }
+                            p.step();
+                        }
                         Some(BillboardController::Orbit(orbit)) => p.position = orbit.position(0),
                         Some(BillboardController::CameraOffset {
                             center, distance, ..

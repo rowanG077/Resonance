@@ -32,9 +32,11 @@ pub mod sprite {
     pub const LIGHTNING_BOLT_SPRITE: u16 = 74;
     pub const PLANE_LIGHT_SPRITES: [u16; 4] = [75, 76, 77, 78];
     pub const FLAME_PLUME_SPRITE: u16 = 80;
+    pub const CYLINDER_RAY_SPRITE: u16 = 82;
+    pub const LIGHT_SHEET_SPRITE: u16 = 95;
     pub const COOKING_CLOUDS: std::ops::RangeInclusive<u16> = 501..=505;
 
-    pub const ALL: [u16; 31] = [
+    pub const ALL: [u16; 33] = [
         GLOW_SPRITE,
         SMOKE_SPRITE,
         STATION_GLOW_SPRITE,
@@ -66,6 +68,8 @@ pub mod sprite {
         PLANE_LIGHT_SPRITES[2],
         PLANE_LIGHT_SPRITES[3],
         FLAME_PLUME_SPRITE,
+        CYLINDER_RAY_SPRITE,
+        LIGHT_SHEET_SPRITE,
     ];
 }
 

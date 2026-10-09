@@ -260,6 +260,64 @@ fn charged_light_gathers_then_travels_and_reports_completion() {
 }
 
 #[test]
+fn light_sheets_stretch_without_drifting_and_bursts_finish() {
+    for kind in [71, 72] {
+        let setup = script(&[(
+            Call::CreateEffectEmitter,
+            &emitter(kind, 0, &[33, 10, 20, 30, 40, 200, 0, 2, 3]),
+        )]);
+        let mut events = interactive_effect(&setup, &[0x20ff]);
+        steps(&mut events, 4);
+        let (&id, p) = events.world.billboards.first_key_value().unwrap();
+        let (size, position) = (p.size, p.position);
+        assert_eq!(position, [0., 10., 0.]);
+        steps(&mut events, 2);
+        let p = &events.world.billboards[&id];
+        assert_eq!(p.position, position);
+        assert_eq!(p.size, [size[0] + 4., size[1] + 16.]);
+        steps(&mut events, 30);
+        assert_eq!(events.world.billboards.is_empty(), kind == 72);
+    }
+}
+
+#[test]
+fn cylinder_layers_animate_then_release_one_flash() {
+    use resonance_content::effect::sprite::CYLINDER_RAY_SPRITE;
+    let setup = script(&[(Call::CreateEffectEmitter, &emitter(70, 0, &[33]))]);
+    let release = script(&[(Call::SetActorProperty, &[500, 33, 1])]);
+    let mut world = controlled_world();
+    world.effect_textures.extend([(0, (100, 0)), (1, (101, 0))]);
+    let mut events = runtime(program(&setup, &release), Default::default(), world);
+    steps(&mut events, 12);
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .any(|p| p.texture == Some((100, 0)))
+    );
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .any(|p| p.recipe == CYLINDER_RAY_SPRITE && p.size[1] > 80.)
+    );
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 20);
+    assert_eq!(events.world.billboards.len(), 2);
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .all(|p| p.position[2] == 150.)
+    );
+    steps(&mut events, 70);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn rising_lights_release_toward_the_cooked_destination() {
     let setup = script(&[(
         Call::CreateEffectEmitter,
