@@ -229,6 +229,10 @@ pub(crate) struct RisingOrbs {
     pub interval: u32,
     pub preserve_particles: bool,
     pub drifting: bool,
+    pub alpha: u8,
+    pub fade: f32,
+    pub field_fog: bool,
+    pub destination: Option<[f32; 3]>,
 }
 impl RisingOrbs {
     pub fn emit(
@@ -285,6 +289,11 @@ impl RisingOrbs {
         };
         let mut p = particle(center, born, color, 301);
         p.recipe = MOTE_SPRITES[style];
+        p.field_fog = self.field_fog;
+        p.rgba[3] = self.alpha;
+        if self.destination.is_some() {
+            p.owner = Some(owner);
+        }
         p.position[0] += sin * radius;
         p.position[1] -= cos * radius;
         p.velocity[2] = rise;
@@ -301,7 +310,9 @@ impl RisingOrbs {
             p.owner = Some(owner);
         }
         p.size = [size; 2];
-        p.fade = Fade::Linear(-1.);
+        if self.fade != 0. {
+            p.fade = Fade::Linear(self.fade);
+        }
         out.push(p);
     }
 }

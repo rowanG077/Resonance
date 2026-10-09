@@ -260,6 +260,39 @@ fn charged_light_gathers_then_travels_and_reports_completion() {
 }
 
 #[test]
+fn rising_lights_release_toward_the_cooked_destination() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(73, 200, &[101, 50, 15, 15, 0, 20, 200, 0, 2]),
+    )]);
+    let release = script(&[(Call::SetActorProperty, &[500, 33, 1])]);
+    let destination = [500., 0., 100.];
+    let resources = ResourceLibrary {
+        rising_light_destination: Some(destination),
+        ..Default::default()
+    };
+    let mut events = runtime(program(&setup, &release), resources, controlled_world());
+    steps(&mut events, 20);
+    assert!(!events.world.billboards.is_empty());
+    let ids: std::collections::BTreeSet<_> = events.world.billboards.keys().copied().collect();
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 2);
+    for (id, p) in &events.world.billboards {
+        assert!(ids.contains(id));
+        assert!(!p.field_fog);
+        let delta: [f32; 3] = std::array::from_fn(|i| destination[i] - p.position[i]);
+        let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let speed = p.velocity.iter().map(|v| v * v).sum::<f32>().sqrt();
+        assert!(speed > 0.);
+        for i in 0..3 {
+            assert!((p.velocity[i] / speed - delta[i] / distance).abs() < 0.001);
+        }
+    }
+    steps(&mut events, 300);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn orbiting_particles_release_existing_lights_toward_their_destination() {
     for kind in [65, 68] {
         let setup = script(&[(

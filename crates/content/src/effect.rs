@@ -164,6 +164,7 @@ pub struct FieldEffects<Image = String> {
     pub refraction: RefractionRecipe<Image>,
     pub air_refraction: SpriteRecipe<Image>,
     pub mouth_cycle: Vec<u8>,
+    pub rising_light_destination: [f32; 3],
 }
 pub const FIELD_EFFECTS_VERSION: u32 = 10;
 pub const SMOKE_UPDATES: u32 = 56;
@@ -265,6 +266,10 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
                 && sprite::ALL.iter().all(|id| self.sprites.contains_key(id))
                 && self.palette.len() == FIELD_PALETTE_COLORS,
             "invalid or outdated field effects; run cook-all"
+        );
+        ensure!(
+            self.rising_light_destination.iter().all(|v| v.is_finite()),
+            "invalid light destination"
         );
         crate::validate_asset_path(self.emote_texture.as_ref())?;
         crate::validate_asset_path(self.status_texture.as_ref())?;
