@@ -3045,11 +3045,13 @@ fn dialogue_completion_resumes_only_its_caller_and_cannot_fire_twice() {
 #[test]
 fn choices_return_the_selected_line_and_completion_reason_once() {
     use resonance_events::dialogue::ChoiceExit;
-    for (reason, flags, expected_reason) in [
-        (ChoiceExit::Confirm, 0x104, 0),
-        (ChoiceExit::Cancel, 4, 1),
-        (ChoiceExit::Timeout, 0x104, -1),
+    for (reason, flags, expected_reason, page_break) in [
+        (ChoiceExit::Confirm, 0x104, 0, false),
+        (ChoiceExit::Cancel, 4, 1, false),
+        (ChoiceExit::Timeout, 0x104, -1, false),
+        (ChoiceExit::Confirm, 0x104, 0, true),
     ] {
+        let page_start = if page_break { 2 } else { 0 };
         let mut code = Vec::new();
         native(
             &mut code,
@@ -3067,18 +3069,21 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
                 Message { tokens: vec![] },
                 Message {
                     tokens: vec![Token::Text {
-                        text: "Heading\nDescription\nOne\nTwo\nThree".into(),
+                        text: format!(
+                            "Heading\nDescription{}One\nTwo\nThree",
+                            if page_break { '\u{c}' } else { '\n' }
+                        ),
                     }],
                 },
             ],
             ..Default::default()
         };
         let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
-        assert_eq!(events.world.choices[&1].selected_line, 3);
+        assert_eq!(events.world.choices[&1].selected_line, 3 - page_start);
         steps(&mut events, 4);
         assert!(events.world.texture_bindings.is_empty());
         let choice = events.world.choices.get_mut(&1).unwrap();
-        choice.selected_line = 4;
+        choice.selected_line = 4 - page_start;
         let callback = choice.clone();
         choice.finish(reason).unwrap();
         events.step().unwrap();
@@ -3087,7 +3092,10 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
         events.step().unwrap();
         assert!(events.world.texture_bindings.is_empty());
         events.step().unwrap();
-        assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), 5);
+        assert_eq!(
+            events.memory().read(0x100, Width::S32).unwrap(),
+            i32::from(5 - page_start)
+        );
         assert_eq!(
             events.memory().read(0x24, Width::S32).unwrap(),
             expected_reason

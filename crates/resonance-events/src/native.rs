@@ -905,11 +905,30 @@ impl NativeHost<'_> {
                 require((0..=32767).contains(&a[3]), "invalid choice timeout")?;
                 require(a[4] & !choice_flags::ALL == 0, "unsupported choice flags")?;
                 let initial = ((a[4] & choice_flags::INITIAL_LINE) - 1).clamp(first, last);
+                // Script lines span the whole message; the cursor belongs to its final page.
+                let mut line = 0;
+                let mut page_start = 0;
+                for token in &dialogue.body.tokens {
+                    if let crate::dialogue::TextToken::Text { text } = token {
+                        for character in text.chars() {
+                            if matches!(character, '\n' | '\u{c}') {
+                                line += 1;
+                            }
+                            if character == '\u{c}' {
+                                page_start = line;
+                            }
+                        }
+                    }
+                }
+                require(
+                    first >= page_start && last <= line,
+                    "choice is outside the final message page",
+                )?;
                 let choice = crate::dialogue::Choice {
                     operation: self.world.operations.begin()?,
-                    first_line: first as u8,
-                    last_line: last as u8,
-                    selected_line: initial as u8,
+                    first_line: (first - page_start) as u8,
+                    last_line: (last - page_start) as u8,
+                    selected_line: (initial - page_start) as u8,
                     cancel_allowed: a[4] & choice_flags::DISABLE_CANCEL == 0,
                     confirmation: if a[4] & choice_flags::SHOULDER_CONFIRM != 0 {
                         ChoiceConfirmation::AcceptOrShoulder
