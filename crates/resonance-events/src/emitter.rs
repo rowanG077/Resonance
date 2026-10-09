@@ -1,5 +1,6 @@
 //! Scene effects share particle births, analytic paths and bounded stage timing.
 mod burst;
+mod cloud;
 mod column;
 mod contract;
 mod fire;
@@ -101,6 +102,7 @@ enum Kind {
         travelling: bool,
     },
     Scatter(scatter::Scatter),
+    Cloud(cloud::Cloud),
     Travel {
         flight: Option<Flight>,
         texture: Option<(u32, u8)>,
@@ -229,6 +231,7 @@ impl Emitter {
                 *phase = if *remaining < 0 { 2 } else { 1 };
             }
             Kind::Burst(burst) => burst.emit(center, born, phase, random, out),
+            Kind::Cloud(cloud) => cloud.emit(center, born, clock, *phase, actor, random, out),
             Kind::ModelTrail {
                 remaining,
                 target,
