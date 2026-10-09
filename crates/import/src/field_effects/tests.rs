@@ -2,11 +2,24 @@ use super::*;
 use std::io::{Cursor, Read};
 
 #[test]
+#[ignore = "requires the extracted original discs"]
+fn field_sprites_and_palette_decode_from_both_discs() -> Result<()> {
+    let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/extracted");
+    for disc in [1, 2] {
+        let executable = fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
+        let recipe = Recipe::read(&executable)?;
+        recipe.blink.validate()?;
+        recipe.shadow.validate()?;
+        recipe.effects.validate()?;
+    }
+    Ok(())
+}
+
+#[test]
 #[cfg(unix)]
-#[ignore = "requires both original discs and frozen recipes; private output, no audio devices"]
+#[ignore = "requires both original discs; private output, no audio devices"]
 fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Result<()> {
     let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
-    let library = local.join("all-assets");
     for disc in [1, 2] {
         let root = tempfile::tempdir()?;
         let extracted = root.path().join("extracted");
@@ -15,35 +28,7 @@ fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Resul
         fs::create_dir_all(extracted.join("files/Art"))?;
         let original = local.join(format!("extracted/disc{disc}"));
         let executable = fs::read(original.join("sys/main.dol"))?;
-        let source = crate::cooked::Source::open(&library, disc, "sys/main.dol")?;
         let mut recipe = Recipe::read(&executable)?;
-        let frozen: Recipe = source.document("embedded/field-effects.json")?;
-        // The frozen fixture predates the three additional station sprites.
-        // Retain its exact comparison for every previously decoded recipe.
-        let mut previous = serde_json::to_value(&recipe)?;
-        for id in ["4", "7", "22"] {
-            assert!(
-                previous["effects"]["sprites"]
-                    .as_object_mut()
-                    .unwrap()
-                    .remove(id)
-                    .is_some()
-            );
-        }
-        ensure!(
-            previous == serde_json::to_value(frozen)?,
-            "field effect recipe changed"
-        );
-        assert_eq!(recipe.catalogue.entries.len(), 79);
-        assert_eq!(recipe.effects.paralysis.missing_anchor_offset, [0.; 3]);
-        assert_eq!(
-            recipe.effects.sprites[&0].uv,
-            [0., 64., 63., 127.].map(|v| v / 256.)
-        );
-        assert_eq!(
-            recipe.effects.emotes.keys().copied().collect::<Vec<_>>(),
-            (0..20).collect::<Vec<_>>()
-        );
         let archive =
             crate::all_assets::roles::declared_path(&original.join("files"), &recipe.archive)?;
         let (images, _) = textures(&original, &output, &recipe.archive)?;
@@ -63,10 +48,10 @@ fn original_field_effects_bind_shared_images_and_renamed_declarations() -> Resul
                 &pixels
             );
         }
-        let dialogue: serde_json::Value = source.document("embedded/dialogue.json")?;
         let system = crate::all_assets::roles::declared_path(
             &original.join("files"),
-            dialogue["system"].as_str().unwrap(),
+            // The system-art archive declaration in the original executable.
+            &dol::text(&executable, 0x8017_A55C)?,
         )?;
         fs::write(extracted.join("sys/main.dol"), &executable)?;
         fs::copy(

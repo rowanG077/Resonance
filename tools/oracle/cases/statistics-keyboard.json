@@ -1,7 +1,6 @@
 {
   "version": 1,
   "updates": 1700,
-  "session_origin": 34583,
   "inputs": [
     {
       "update": 40,
@@ -208,16 +207,5 @@
     "1450": "vi-1450",
     "1560": "vi-1560",
     "1650": "vi-1650"
-  },
-  "ambient_origin": {
-    "update": 0,
-    "samples": {},
-    "skit": {
-      "id": 600,
-      "remaining": 1498,
-      "opacity": 255,
-      "control_ticks": 7501,
-      "text_opacity": 255
-    }
   }
 }

@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Iselia outdoor boundaries: keyboard walking from school grounds to the village and back",
-  "registration": "Both starts are free control in field 332, story 2500, at [1791,-622,0], heading 185, after returning from the village. Native update zero follows ordinary field initialization. Wait 1275 native updates so the restarted skit notification appears and the low seven bits of the shared button/spark counter match (native tick 18842, source counter 35610). At that first capture, register scenery loops 0/2/12 at cooked samples 135/335/135 and the idle circle at 33.400062561035156, twice the animation times observed in the source state. These are one-time replay origins, never quicksave data. Wait ten further native updates before walking, matching the initial twenty neutral Dolphin controller polls. Native school walk update 1305 pairs with source VI 30/dump 31. Both use stick displacement 32 for walking. Native releases the held direction when a boundary takes control, while the source held direction ends during its longer loading period. Native village walk updates 1428/1429/1430 pair with source VIs 773/774/775 and dumps 753/754/755. VI observations continue during loading while image dumps skip unchanged frames; consecutive rendered camera/actor poses verify this mapping. Settled arrivals are native update 1405/source VI 200/dump 180 and native update 1525/source VI 1000/dump 948. Normal inputs and animation updates drive every frame after the first registration. Music still needs an origin and acceptance window.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/school-grounds-route-quicksave.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "iselia-boundaries-keyboard.json",
-    "sha256": "f00e6e5dadbd411320e59d73ac35769b6a6a8da5f364666b35c51dc347b56c4f"
+    "sha256": "c17dcf13f25cf7cebc2dc34de98bd7537bc2790f550ba98078bc757a732beb1d"
   },
   "dolphin": {
     "state": {
@@ -71,26 +71,14 @@
       "native": "initial",
       "dolphin": 1,
       "dolphin_vi": 0,
-      "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "skit_prompt": true
     },
     {
       "name": "school-walk",
       "native": "school-walk",
       "dolphin": 31,
       "dolphin_vi": 30,
-      "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0",
-        "-2147483648": "save_point_1_track_0"
-      }
+      "skit_prompt": true
     },
     {
       "name": "village-arrival",

@@ -203,6 +203,7 @@ fn update(world: &mut World) {
         attach::<super::audio::GameAudio>(world, &device.control)?;
         attach::<super::field_audio::FieldSource>(world, &device.control)?;
         attach::<super::movie::MovieAudio>(world, &device.control)?;
+        super::testing::audio(world);
         Ok(())
     })();
     if let Err(error) = result {

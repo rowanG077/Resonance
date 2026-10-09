@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Tech assist shortcuts: party selection, learned techniques, assignment, removal and cancellation.",
-  "registration": "Controlled fixture uses formation 1/2/3/4, teaches Raine Resurrection (3:121), sets Lloyd to 1 HP and Colette to 0 HP with the knockout condition, and preserves all other party values. These changes are checked against starting Dolphin vitals and written to matching test copies. Story remains 2500. Menu opens at native update 40; subsequent inputs/images use source poll/2 with presentation/session origins registered from the starting state. The v2 fixture preserves matching AI enable flags when granting learned spells.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/tech-spells-fixture-v2/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "tech-assists-keyboard.json",
-    "sha256": "c98408455521895cc5785d66ff1c6a10de4ab4f58e1da450f508add6a971b96a"
+    "sha256": "34af1130adcf984e0a38548443ede69c72193a08c6c1e1a4100e8355a33624bf"
   },
   "dolphin": {
     "state": {

@@ -7,7 +7,7 @@ fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let root = args
         .next()
-        .context("ASSETS OUTPUT MUSIC SECONDS [VOLUME FADE_TICKS MODE] required")?;
+        .context("ASSETS OUTPUT MUSIC SECONDS [VOLUME FADE_TICKS MODE MAP] required")?;
     let output = args.next().context("OUTPUT required")?;
     let music = args.next().context("MUSIC required")?.parse()?;
     let seconds: u64 = args.next().context("SECONDS required")?.parse()?;
@@ -18,6 +18,7 @@ fn main() -> Result<()> {
         Some("mono") => false,
         _ => anyhow::bail!("mode must be stereo or mono"),
     };
+    let map = args.next().map(|s| s.parse()).transpose()?.unwrap_or(340);
     ensure!(args.next().is_none(), "unexpected arguments");
     ensure!(
         (1..=300).contains(&seconds),
@@ -27,6 +28,7 @@ fn main() -> Result<()> {
     let frames = seconds * 32028;
     resonance_presentation::record_field_audio(
         Path::new(&root),
+        map,
         Path::new(&output),
         frames,
         &[

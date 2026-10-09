@@ -1,7 +1,7 @@
 //! Available skit titles are transient field notifications, not save-state data.
 use super::*;
-use anyhow::Context;
 use resonance_content::skit::{SkitCatalog, SkitCondition, SkitLocation};
+use resonance_events::input::Button;
 
 const REFRESH_TICKS: u32 = 1200;
 const HOLD_TICKS: u16 = 1800;
@@ -46,32 +46,6 @@ impl Skits {
             control_ticks: self.control_ticks,
             ..Default::default()
         }
-    }
-
-    /// Apply a source-observed notification phase for an oracle replay.
-    /// Notifications remain transient and are never included in checkpoints.
-    pub fn apply_origin(
-        &mut self,
-        id: u16,
-        control_ticks: u32,
-        remaining: u16,
-        opacity: u8,
-        text_opacity: u8,
-    ) -> Result<()> {
-        let data = self.data.as_ref().context("skit catalog is missing")?;
-        let selected = data
-            .skits
-            .iter()
-            .position(|skit| skit.id == id)
-            .context("source skit id is not in the catalog")?;
-        ensure!(remaining <= HOLD_TICKS, "source skit timer is out of range");
-        self.control_ticks = control_ticks;
-        self.selected = Some(selected);
-        self.remaining = remaining;
-        self.opacity = opacity;
-        self.text_opacity = text_opacity;
-        self.visible = true;
-        Ok(())
     }
 
     pub fn prompt(&self) -> Option<SkitPrompt<'_>> {
@@ -221,8 +195,9 @@ impl FieldSession {
         if skit.step(
             &mut self.events,
             crate::skit::Input {
-                confirm: input.interact,
-                cancel: input.cancel,
+                confirm: input.pressed(Button::Accept),
+                skip_dialogue: input.skip_dialogue,
+                cancel: input.pressed(Button::Cancel),
                 direction: if input.direction[1] > 0.5 {
                     -1
                 } else if input.direction[1] < -0.5 {
@@ -230,8 +205,8 @@ impl FieldSession {
                 } else {
                     0
                 },
-                accelerate: input.accelerate_dialogue,
-                skip: input.menu || input.start,
+                accelerate: input.held_buttons.contains(Button::Accept) || input.skip_dialogue,
+                skip: input.pressed(Button::Menu) || input.pressed(Button::Start),
             },
         )? {
             self.active_skit = None;
@@ -263,7 +238,8 @@ mod tests {
             media: BTreeMap::new(),
         });
         let mut skits = Skits::new(Some(catalog));
-        skits.apply_origin(600, 1, 100, 255, 255).unwrap();
+        skits.selected = Some(0);
+        skits.visible = true;
         assert_eq!(skits.open(), Some(600));
         assert!(skits.prompt().is_none());
     }

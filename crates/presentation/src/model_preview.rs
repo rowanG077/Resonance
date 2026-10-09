@@ -23,6 +23,7 @@ use bevy::{
 };
 use material::{Composite, Surface};
 use resonance_content::model_preview::{ModelPreview, PreviewPart};
+use resonance_events::effect::Blend;
 use resonance_game::menu::preview::PreviewId;
 use resonance_model_behavior::{PoseOverrides, PreparedBehavior};
 pub(super) use source::register;
@@ -520,8 +521,8 @@ impl Part {
                     &mut assets.images,
                     sampled,
                 ),
-                constant_color: scene.outline_color.is_some(),
-                tint: scene.outline_color.map_or(Vec4::ONE, |c| {
+                constant_color: scene.outline_color_for(spec).is_some(),
+                tint: scene.outline_color_for(spec).map_or(Vec4::ONE, |c| {
                     Vec4::from_array(c.map(|c| f32::from(c) / 255.))
                 }),
                 toon_ramp: (scene.outline_color.is_none() && spec.color.is_some())
@@ -530,8 +531,11 @@ impl Part {
                 shade_colors: [49., 66.].map(|v| Vec3::splat(v / 255.).extend(1.)),
                 // Fade each surface so overlapping triangles remain visible.
                 // The same prepared pipeline also handles full opacity.
-                blend: true,
-                additive: self.spec.additive,
+                blend: Some(if self.spec.additive {
+                    Blend::Additive
+                } else {
+                    Blend::Alpha
+                }),
                 depth_write: spec.depth_write,
                 cull: spec.cull,
                 ..crate::materials::TitleSurface::textured(crate::scene::sampled_image(
@@ -662,7 +666,7 @@ fn animate(
         // Each ready part must be sampled before dynamics initialize, even while
         // another part is still loading.
         for part in viewer.parts.iter().filter(|part| part.ready) {
-            for handle in &part.materials {
+            for (index, handle) in part.materials.iter().enumerate() {
                 let surface = &mut surfaces
                     .get_mut(handle)
                     .context("prepared preview material is missing")?
@@ -672,7 +676,7 @@ fn animate(
                     * part
                         .spec
                         .scene
-                        .outline_color
+                        .outline_color_for(&part.spec.scene.materials[index])
                         .map_or(1., |c| f32::from(c[3]) / 255.);
             }
             if let Some(index) = part.clip {
@@ -857,8 +861,7 @@ mod tests {
                             let binding = Binding(nodes.map(|entity| (entity, rest)).into());
                             restore_pose(&binding, &mut transforms, &mut affine).unwrap();
                             if hidden {
-                                // A native scale setter replaces matrix mode, including
-                                // its translation/shear; it must not decompose the matrix.
+                                // Hiding geometry preserves its bone origin.
                                 affine.set(
                                     nodes[0],
                                     &mut transforms.get_mut(nodes[0]).unwrap(),
@@ -886,14 +889,17 @@ mod tests {
                 )
                 .unwrap();
             for nodes in entities {
-                assert_eq!(
-                    *world.get::<Transform>(nodes[0]).unwrap(),
-                    if hidden {
-                        Transform::from_scale(Vec3::ZERO)
-                    } else {
-                        rest
-                    }
-                );
+                let pose = world
+                    .resource::<Locals>()
+                    .get(nodes[0], *world.get::<Transform>(nodes[0]).unwrap())
+                    .global()
+                    .affine();
+                if hidden {
+                    assert_eq!(pose.translation, Vec3::splat(20.).into());
+                    assert_eq!(pose.matrix3, bevy::math::Mat3A::ZERO);
+                } else {
+                    assert_eq!(pose, rest.compute_affine());
+                }
                 assert_eq!(*world.get::<Transform>(nodes[1]).unwrap(), rest);
             }
         }

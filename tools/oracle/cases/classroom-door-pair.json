@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Return to Iselia school: slope walking, scripted door approach, facing, opening and fade.",
-  "registration": "An ordinary field checkpoint restores story 2500 and the source camera distance of 1890. Warm 2237 updates for the restarted skit notification, then register only scenery loops 0/2/12 at samples 52/252/52 observed in the source state. Player animation and secondary motion are never sought. Walking and the interaction establish the subsequent poses naturally. Native update 2237 + N pairs with Dolphin VI N / dump N + 1 through the opening fade. Source loading stalls are outside these image gates; the native replay independently requires free classroom control afterward. Audio is recorded without a playback device; no audio gate is accepted here.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/milestone-3/classroom-door-quicksave.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "classroom-door-keyboard.json",
-    "sha256": "3b23f97288cb735c2f1af5bf65486cdb0e7d5d4e809f52d849167e3ef8144e33"
+    "sha256": "70b590f729dab2705a73fab1cea1fb82748ee6636e98ff296835e117e89a674c"
   },
   "dolphin": {
     "state": {
@@ -78,60 +78,35 @@
       "native": "door-000",
       "dolphin": 1,
       "dolphin_vi": 0,
-      "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      }
+      "skit_prompt": true
     },
     {
       "name": "door-011",
       "native": "door-011",
       "dolphin": 12,
       "dolphin_vi": 11,
-      "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      }
+      "skit_prompt": true
     },
     {
       "name": "door-012",
       "native": "door-012",
       "dolphin": 13,
       "dolphin_vi": 12,
-      "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      }
+      "skit_prompt": true
     },
     {
       "name": "door-013",
       "native": "door-013",
       "dolphin": 14,
       "dolphin_vi": 13,
-      "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      }
+      "skit_prompt": true
     },
     {
       "name": "door-014",
       "native": "door-014",
       "dolphin": 15,
       "dolphin_vi": 14,
-      "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      }
+      "skit_prompt": true
     },
     {
       "name": "door-100",
@@ -139,11 +114,6 @@
       "dolphin": 101,
       "dolphin_vi": 100,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -165,11 +135,6 @@
       "dolphin": 103,
       "dolphin_vi": 102,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -191,11 +156,6 @@
       "dolphin": 104,
       "dolphin_vi": 103,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -217,11 +177,6 @@
       "dolphin": 105,
       "dolphin_vi": 104,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -243,11 +198,6 @@
       "dolphin": 106,
       "dolphin_vi": 105,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -269,11 +219,6 @@
       "dolphin": 107,
       "dolphin_vi": 106,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -295,11 +240,6 @@
       "dolphin": 108,
       "dolphin_vi": 107,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -321,11 +261,6 @@
       "dolphin": 109,
       "dolphin_vi": 108,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -347,11 +282,6 @@
       "dolphin": 110,
       "dolphin_vi": 109,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -373,11 +303,6 @@
       "dolphin": 111,
       "dolphin_vi": 110,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -399,11 +324,6 @@
       "dolphin": 112,
       "dolphin_vi": 111,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -425,11 +345,6 @@
       "dolphin": 113,
       "dolphin_vi": 112,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -451,11 +366,6 @@
       "dolphin": 114,
       "dolphin_vi": 113,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -477,11 +387,6 @@
       "dolphin": 115,
       "dolphin_vi": 114,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -503,11 +408,6 @@
       "dolphin": 116,
       "dolphin_vi": 115,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -529,11 +429,6 @@
       "dolphin": 125,
       "dolphin_vi": 124,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -555,11 +450,6 @@
       "dolphin": 138,
       "dolphin_vi": 137,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -581,11 +471,6 @@
       "dolphin": 139,
       "dolphin_vi": 138,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -607,11 +492,6 @@
       "dolphin": 140,
       "dolphin_vi": 139,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -633,11 +513,6 @@
       "dolphin": 141,
       "dolphin_vi": 140,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -659,11 +534,6 @@
       "dolphin": 142,
       "dolphin_vi": 141,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -685,11 +555,6 @@
       "dolphin": 146,
       "dolphin_vi": 145,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -711,11 +576,6 @@
       "dolphin": 151,
       "dolphin_vi": 150,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -737,11 +597,6 @@
       "dolphin": 161,
       "dolphin_vi": 160,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,
@@ -763,11 +618,6 @@
       "dolphin": 171,
       "dolphin_vi": 170,
       "skit_prompt": true,
-      "ambient_animations": {
-        "999996": "field_0_track_0",
-        "999998": "field_2_track_0",
-        "999980": "field_12_track_0"
-      },
       "regions": [
         [
           280,

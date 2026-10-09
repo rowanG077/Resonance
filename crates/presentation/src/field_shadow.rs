@@ -9,6 +9,7 @@ use bevy::{
     prelude::*,
 };
 use resonance_content::field::ContactShadow;
+use resonance_events::effect::Blend;
 use std::collections::BTreeMap;
 
 pub(super) struct Artwork {
@@ -64,6 +65,7 @@ pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
     let Some(session) = world.get_resource::<crate::new_game::Session>() else {
         return serde_json::Value::Null;
     };
+    let collision = session.field.collision();
     serde_json::Value::Array(
         session
             .field
@@ -75,7 +77,7 @@ pub(crate) fn diagnostic(world: &mut World) -> serde_json::Value {
                 serde_json::json!({
                     "actor": id,
                     "casts_shadow": actor.casts_shadow,
-                    "ground": session.field.ground_surface(actor.position).map(|s| s.height),
+                    "ground": collision.ground_surface(actor.position).map(|s| s.height),
                     "quad": shadows.get(&id),
                 })
             })
@@ -107,8 +109,9 @@ pub(super) fn sync(
         }
         shadows.mesh = Some(meshes.add(mesh));
         shadows.material = Some(surfaces.add(TitleSurface {
+            field_fog: true,
             tint: Vec4::new(0., 0., 0., f32::from(shadows.spec.alpha) / 255.),
-            blend: true,
+            blend: Some(Blend::Alpha),
             depth_write: false,
             cull: resonance_content::CullFace::None,
             ..TitleSurface::textured(Some(shadows.texture.clone()))
@@ -129,10 +132,14 @@ pub(super) fn sync(
         if !actor.casts_shadow || shadows.instances.contains_key(&id) {
             continue;
         }
+        let material = surfaces
+            .get(shadows.material.as_ref().unwrap())
+            .unwrap()
+            .clone();
         let entity = commands
             .spawn((
                 Mesh3d(shadows.mesh.as_ref().unwrap().clone()),
-                MeshMaterial3d(shadows.material.as_ref().unwrap().clone()),
+                MeshMaterial3d(surfaces.add(material)),
                 Transform::default(),
                 Visibility::Hidden,
                 // Contact shadows darken translucent floor effects too.
@@ -151,9 +158,16 @@ pub(super) fn pose(
     actors: Query<&ActorPart>,
     mut transforms: ParamSet<(
         TransformHelper,
-        Query<(&mut Shadow, &mut Transform, &mut Visibility, &mut DrawOrder)>,
+        Query<(
+            &mut Shadow,
+            &mut Transform,
+            &mut Visibility,
+            &mut DrawOrder,
+            &MeshMaterial3d<TitleSurface>,
+        )>,
     )>,
     mut applied: ResMut<Applied>,
+    mut materials: ResMut<Assets<TitleSurface>>,
 ) {
     // Animation has run, but propagation has not. Compute this tick's joint
     // transforms explicitly so moving characters do not leave a delayed shadow.
@@ -177,10 +191,18 @@ pub(super) fn pose(
             ))
         })
         .collect();
-    for (mut shadow, mut transform, mut visibility, mut order) in &mut transforms.p1() {
+    let collision = state.get().collision();
+    for (mut shadow, mut transform, mut visibility, mut order, material) in &mut transforms.p1() {
         let Some(actor) = state.get().events.world.actors.get(&shadow.0) else {
             continue;
         };
+        let alpha = f32::from(actor.shadow_alpha) / 255.;
+        if materials
+            .get(&material.0)
+            .is_some_and(|m| m.tint.w != alpha)
+        {
+            materials.get_mut(&material.0).unwrap().tint.w = alpha;
+        }
         // Overlapping black-alpha quads still round differently when reordered.
         let actor_order = state
             .get()
@@ -191,14 +213,15 @@ pub(super) fn pose(
             .position(|id| *id == shadow.0)
             .expect("shadow actor has a submission order");
         order.set_if_neq(DrawOrder(crate::draw_order::CONTACT_SHADOWS, actor_order));
-        let surface = state.get().ground_surface(actor.position);
         let anchor = anchors.get(&shadow.0);
         *visibility = Visibility::Hidden;
         if actor.visible
+            && state.get().events.world.tick >= actor.visible_from
             && !actor.appearance.model_hidden
             && actor.casts_shadow
             && let Some(anchor) = anchor
         {
+            let surface = collision.ground_surface(actor.position);
             // A missing floor keeps the actor's height and last floor tilt.
             // A replacement actor starts with a horizontal shadow.
             transform.translation = Vec3::new(

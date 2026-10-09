@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "World-map location paging and visited-shop directories: both worlds, multiple shops, item descriptions and icons, page jumps, final-page bounds and nested cancellation.",
-  "registration": "Controlled map-directory fixture grants both maps, marks all 55 listed locations and shops 1–51 visited in copies of the matched source/native checkpoints. Provenance: local/findings-menu/world-map-full-fixture-v1/fixture.json. It does not advance story or claim to test story unlocks. Native menu input at update 40 allows setup; subsequent input uses source poll/2. Compare complete native-resolution menu images and all map selection/focus/scroll fields. The presentation clock starts at 38084, the source savestate's observed UI clock, so crosshair pulses retain their global phase.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/world-map-full-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "world-map-full-keyboard.json",
-    "sha256": "c78d67d37b38735aa9fbffde4a73d388d94bb051a160796d1ac8593c150f2b05"
+    "sha256": "f23cda56d9511c83f4cafecaef40ae1cc656b1feada29a0454629593c9bafd4f"
   },
   "dolphin": {
     "state": {

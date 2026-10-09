@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Items world maps: saved Iselia visit, unvisited shop restriction, both map images, empty Tethe'alla list and return to Items.",
-  "registration": "Controlled menu inventory fixture grants maps 68 and 69 to copies of matched checkpoints and records source-observed travel history; no locations or shops are unlocked. Provenance: local/findings-menu/world-map-fixture-v1/fixture.json. Native menu opens at update 40 for field setup; later inputs use source poll/2. Compare whole native-resolution menu images and map world, focus, location/shop/item rows and scroll positions. The presentation clock starts at 38084, the source savestate's observed UI clock, so crosshair pulses retain their global phase.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/world-map-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "world-map-keyboard.json",
-    "sha256": "2dbaa77f67d759debaea77d33fe318f318d84f25c26c122a0944d49812e2a7c2"
+    "sha256": "d2b8abc6565718ab7ce73696548d8c99644f24ab3917112f7346d31609bbf8a8"
   },
   "dolphin": {
     "state": {

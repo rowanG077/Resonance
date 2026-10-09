@@ -1,4 +1,7 @@
 //! Authored animation playback. Slots are resource-table byte offsets.
+mod locomotion;
+pub(crate) use locomotion::Locomotion;
+
 pub mod slot {
     pub const IDLE: u16 = 12;
     pub const TALK: u16 = 24;
@@ -7,17 +10,12 @@ pub mod slot {
     pub const TURN_RIGHT: u16 = 44;
     pub const TURN_LEFT: u16 = 48;
     pub const TALK_FALLBACK: u16 = 52;
+    pub const STAGGER: u16 = 76;
     pub const EVENT_TALK: u16 = 112;
     pub const EVENT_IDLE: u16 = 116;
     pub const EVENT_WALK: u16 = 120;
     pub const EVENT_RUN: u16 = 124;
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BindingTiming {
-    BeforeDraw,
-    AfterDraw,
-}
-
 #[derive(Debug, Clone)]
 pub struct Animation {
     pub resource: u32,
@@ -32,10 +30,6 @@ pub struct Animation {
     pub duration_ticks: u32,
     pub slot: u16,
     pub start_tick: u32,
-    /// Explicit native binding evaluates once before the ordinary actor update.
-    pub binding_updates: u32,
-    /// VM bindings can be observed by attachments before their first model draw.
-    pub binding_timing: BindingTiming,
     /// Last seek/rate update; changing speed does not restart a cross-fade.
     pub phase_tick: u32,
     pub repeat: bool,
@@ -63,8 +57,6 @@ impl Animation {
             paused_rate: None,
             loop_start: 0.,
             blend_ticks: 0,
-            binding_updates: 0,
-            binding_timing: BindingTiming::BeforeDraw,
             repeat: true,
             paused_at: None,
             paused_ticks: 0,
@@ -82,39 +74,26 @@ impl Animation {
 
     pub fn elapsed(&self, tick: u32, presentation_delay: u32) -> f32 {
         let tick = self.animation_tick(tick);
-        let binding_age = tick
-            .saturating_sub(self.start_tick)
-            .saturating_add(self.binding_updates);
-        let phase_age = tick.saturating_sub(self.phase_tick).saturating_add(
-            if self.phase_tick == self.start_tick {
-                self.binding_updates
-            } else {
-                0
-            },
-        );
-        self.start_frame
-            + binding_age
-                .saturating_sub(self.blend_ticks.saturating_sub(1))
-                .min(phase_age)
-                .saturating_sub(presentation_delay) as f32
-                * self.rate
-    }
-    /// Hold the new clip’s first sample while the old pose blends out.
-    /// Blend weights progress from 1/(duration+1) to duration/(duration+1).
-    pub fn blend_weight(&self, tick: u32) -> f32 {
-        let tick = self.animation_tick(tick);
         let age = tick
             .saturating_sub(self.start_tick)
-            .saturating_add(self.binding_updates);
-        if age >= self.blend_ticks {
-            1.
-        } else {
-            (age + 1) as f32 / (self.blend_ticks + 1) as f32
+            .saturating_sub(self.blend_ticks);
+        let phase_age = tick.saturating_sub(self.phase_tick);
+        self.start_frame + age.min(phase_age).saturating_sub(presentation_delay) as f32 * self.rate
+    }
+    /// Blend from the displayed pose before advancing the new clip.
+    pub fn blend_weight(&self, tick: u32) -> f32 {
+        if self.blend_ticks == 0 {
+            return 1.;
         }
+        (self.animation_tick(tick).saturating_sub(self.start_tick) as f32
+            / (self.blend_ticks as f32 + 1.))
+            .min(1.)
     }
     pub fn sample(&self, tick: u32, presentation_delay: u32, duration: f32) -> f32 {
-        let elapsed = self.elapsed(tick, presentation_delay).max(0.);
-        if self.repeat && duration > self.loop_start && elapsed > duration {
+        let elapsed = self.elapsed(tick, presentation_delay);
+        if self.repeat && duration > 0. && elapsed < 0. {
+            elapsed.rem_euclid(duration)
+        } else if self.repeat && duration > self.loop_start && elapsed > duration {
             let phase = (elapsed - self.loop_start) % (duration - self.loop_start);
             if phase == 0. {
                 duration
@@ -122,7 +101,7 @@ impl Animation {
                 self.loop_start + phase
             }
         } else {
-            elapsed.min(duration)
+            elapsed.clamp(0., duration)
         }
     }
     pub fn seek(&mut self, sample: f32, tick: u32) {
@@ -168,6 +147,21 @@ impl Animation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reverse_loops_cross_zero_and_keep_moving_after_multiple_cycles() {
+        let mut clip = Animation::new(1, 12, 100, 0);
+        clip.start_frame = 10.;
+        clip.rate = -2.;
+        clip.loop_start = 20.;
+        assert_eq!(clip.sample(5, 0, 100.), 0.);
+        assert_eq!(clip.sample(6, 0, 100.), 98.);
+        assert_eq!(clip.sample(55, 0, 100.), 0.);
+        assert_eq!(clip.sample(106, 0, 100.), 98.);
+        clip.repeat = false;
+        assert_eq!(clip.sample(6, 0, 100.), 0.);
+        assert_eq!(clip.sample(106, 0, 100.), 0.);
+    }
 
     #[test]
     fn changing_speed_during_a_script_pause_keeps_the_pose_until_resume() {

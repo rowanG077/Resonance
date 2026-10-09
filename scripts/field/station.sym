@@ -1,0 +1,8 @@
+script field;
+use game::actors;
+use game::effects;
+pub task interact(station: actors::Actor) {
+    let player = actors::controlled();
+    await actors::interact(station);
+    await effects::station_transfer(station, player);
+}

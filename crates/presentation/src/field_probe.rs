@@ -1,17 +1,9 @@
 //! Registered rendering diagnostics, separate from the normal New Game replay.
 use anyhow::{Context, Result, ensure};
+use resonance_events::input::Button;
 use resonance_game::field::{FieldInput, FieldSession};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-
-/// Isolate stochastic effects using a documented seed at a naturally reached
-/// script pose. The script still creates and animates every particle itself.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ParticleProbe {
-    pub anchor: resonance_game::field::replay::InputReplay,
-    pub random_state: u32,
-}
 
 /// Isolate an authored pose or dialogue at a documented observer position.
 /// Samples select existing cooked clips; no observed bones or pixels are loaded.
@@ -68,7 +60,7 @@ impl ClassroomProbe {
                 "probe interaction target differs"
             );
             session.step(FieldInput {
-                interact: true,
+                pressed_buttons: [Button::Accept].into(),
                 ..Default::default()
             })?;
         }
@@ -94,7 +86,6 @@ impl ClassroomProbe {
             animation.start_frame = sample;
             // This diagnostic explicitly chooses the already-evaluated pose;
             // it does not perform another native animation binding.
-            animation.binding_updates = 0;
             animation.start_tick = tick.saturating_sub(animation.blend_ticks);
             animation.phase_tick = tick;
         }

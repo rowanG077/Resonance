@@ -1,8 +1,6 @@
 //! Bind field effects to shared textures and parsed animation recipes.
-mod catalogue;
-mod constructors;
-mod emotes;
 mod recipe;
+mod sprites;
 #[cfg(test)]
 mod tests;
 use crate::{dol, write_atomic};
@@ -10,8 +8,7 @@ use anyhow::{Context, Result, ensure};
 pub(crate) use recipe::Atlas;
 use recipe::Recipe;
 use resonance_content::effect::{
-    BlinkCycle, EmoteTrack, FieldEffects, FlutterRecipe, RefractionRecipe, Sprite, SpriteRecipe,
-    VerticalAnchor,
+    BlinkCycle, FieldEffects, FlutterRecipe, RefractionRecipe, SpriteRecipe,
 };
 use resonance_content::field::ContactShadow;
 use std::fs;
@@ -26,7 +23,7 @@ pub(crate) fn cook_recipe(executable: &[u8], output: &Path) -> Result<Vec<String
     Ok(vec![path.into()])
 }
 
-/// The native decompressor accepts exactly one CAB member, regardless of its name.
+/// Effect texture archives contain one CAB member; its name is unused.
 pub(crate) fn textures(
     extracted: &Path,
     output: &Path,
@@ -60,7 +57,6 @@ pub(crate) fn cook(extracted: &Path, output: &Path) -> Result<Prepared> {
 }
 
 fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> {
-    recipe.catalogue.encode()?;
     let (textures, _) = textures(extracted, output, &recipe.archive)?;
     let status = crate::font::system_texture(extracted, output)?.path;
     let image = |atlas| -> Result<String> {
@@ -78,6 +74,8 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
             texture: image(value.texture)?,
             uv: value.uv,
             additive: value.additive,
+            frames: value.frames,
+            repeat: value.repeat,
         })
     };
     let source = recipe.shadow;
@@ -95,17 +93,17 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
         version: source.version,
         emote_texture: image(source.emote_texture)?,
         status_texture: image(source.status_texture)?,
-        paralysis: source.paralysis,
+        palette: source.palette,
         sprites: source
             .sprites
             .into_iter()
             .map(|(id, value)| Ok((id, sprite(value)?)))
             .collect::<Result<_>>()?,
+        air_refraction: sprite(source.air_refraction)?,
         refraction: RefractionRecipe {
             sprite: sprite(source.refraction.sprite)?,
             displacement: source.refraction.displacement,
         },
-        emotes: source.emotes,
         mouth_cycle: source.mouth_cycle,
     };
     effects.validate()?;
@@ -133,6 +131,7 @@ fn prepare(extracted: &Path, output: &Path, recipe: Recipe) -> Result<Prepared> 
         &effects.emote_texture,
         &effects.status_texture,
         &effects.refraction.sprite.texture,
+        &effects.air_refraction.texture,
         &shadow.texture,
     ]
     .into_iter()

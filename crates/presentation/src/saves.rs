@@ -347,7 +347,10 @@ fn load(world: &mut World) -> Result<String> {
     ))
 }
 
-fn restored(world: &mut World, changing_field: bool) {
+pub(super) fn reset_scene(world: &mut World, changing_field: bool) {
+    if let Some(mut menu) = world.get_resource_mut::<super::dungeons::Menu>() {
+        menu.testing = false;
+    }
     world.remove_resource::<new_game::TransitionFailure>();
     let files = world.resource::<new_game::Session>().files();
     *world.resource::<loading::Resident>().files.write().unwrap() = Some(files);
@@ -359,6 +362,10 @@ fn restored(world: &mut World, changing_field: bool) {
     }
     field_view::reset_live(world);
     super::field_audio::retire(world);
+}
+
+fn restored(world: &mut World, changing_field: bool) {
+    reset_scene(world, changing_field);
     // Keep the last field image until its new actor instances are prepared.
     // Output compositing continues; only cameras writing the scene image pause.
     let source = world.resource::<super::display::Targets>().source.id();
@@ -383,7 +390,14 @@ pub(super) fn release_frame(world: &mut World) {
     {
         return;
     }
-    for (entity, active) in world.remove_resource::<RetainedFrame>().unwrap().0 {
+    release_retained_frame(world);
+}
+
+pub(super) fn release_retained_frame(world: &mut World) {
+    let Some(frame) = world.remove_resource::<RetainedFrame>() else {
+        return;
+    };
+    for (entity, active) in frame.0 {
         if let Some(mut camera) = world.get_mut::<Camera>(entity) {
             camera.is_active = active;
         }
@@ -490,41 +504,28 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires cooked fields and the captured slope quicksave; no window or audio device"]
+    #[ignore = "requires cooked school grounds; no window or audio device"]
     fn restored_frame_releases_during_authored_notice_without_enabling_saves() {
         use std::{fs, path::Path, sync::atomic::Ordering};
-        struct Directory(PathBuf);
-        impl Drop for Directory {
-            fn drop(&mut self) {
-                let _ = fs::remove_dir_all(&self.0);
-            }
-        }
-        let scripts = Directory(
-            std::env::temp_dir().join(format!("resonance-retained-frame-{}", std::process::id())),
-        );
-        fs::create_dir(&scripts.0).unwrap();
+        let scripts = tempfile::tempdir().unwrap();
         fs::write(
-            scripts.0.join("fields.json"),
+            scripts.path().join("fields.json"),
             r#"{"332":{"module":"entry","task":"run","on":"entry"}}"#,
         )
         .unwrap();
         fs::write(
-            scripts.0.join("entry.sym"),
-            "use game::field; pub task run() { await field::notice(\"Ready.\"); }",
+            scripts.path().join("entry.sym"),
+            "script field; use game::field; pub task run() { await field::notice(\"Ready.\"); }",
         )
         .unwrap();
         let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
             || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/cooked"),
             PathBuf::from,
         );
-        let identity = new_game::Session::identity(&root).unwrap();
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../local/milestone-3/slope-quicksave.json");
-        let (_, saved): (_, FieldCheckpoint) =
-            resonance_persistence::decode(&fs::read(fixture).unwrap(), &identity).unwrap();
+        let saved = new_game::tests::school_checkpoint(&root);
         let mut cache = loading::Cache {
             scripts: Some(resonance_game::authored::FieldScripts::new(
-                scripts.0.clone(),
+                scripts.path().to_path_buf(),
             )),
             ..default()
         };

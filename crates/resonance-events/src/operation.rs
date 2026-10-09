@@ -142,6 +142,21 @@ pub(crate) enum Wait {
     Position(Operation, u32),
 }
 impl Wait {
+    pub fn track(&self, scope: &mut OperationScope) -> Result<(), String> {
+        match self {
+            Self::Service { condition, .. } => condition.track(scope),
+            Self::Choice { result, window } => {
+                scope.track(result)?;
+                window.track(scope)
+            }
+            Self::Complete(op)
+            | Self::Battle(op)
+            | Self::Menu(op)
+            | Self::Ready(op)
+            | Self::Position(op, _) => scope.track(op),
+            _ => Ok(()),
+        }
+    }
     pub fn poll(&mut self, world: &mut crate::GameWorld) -> Result<bool, String> {
         let operation = match self {
             Self::Service {
@@ -182,7 +197,14 @@ impl Wait {
                     .actors
                     .get(id)
                     .and_then(|a| a.animation.as_ref())
-                    .is_none_or(|a| a.elapsed(world.tick, 0) >= a.duration_ticks as f32));
+                    .is_none_or(|a| {
+                        let frame = a.elapsed(world.tick, 0);
+                        if a.script_rate() < 0. {
+                            frame <= 0.
+                        } else {
+                            frame >= a.duration_ticks as f32
+                        }
+                    }));
             }
             Self::ActorAnimationFrame(id, frame) => {
                 // Native model time is in 30-Hz authored frames; cooked poses

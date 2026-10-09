@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Walk from the classroom checkpoint, choose Okay, fine, and check prepared-resource fade boundaries plus every frame of the signed 60-tick pastor camera pan.",
-  "registration": "Source VI 0 defines the unchanged source-observed actor, eye, RNG and UI origins and native update 0. One complete source-presentation mapping applies to every input edge, capture, expected state and replay duration: native_update = source_vi minus the number of source VIs with no emitted video presentation at or before it. Actual video packet timestamps verify the complete missing-presentation intervals 193..197, 6006..6011. These are interrupted field callbacks: the last missing VI is followed by the same callback's completed presentation, not an extra actor update. Source UI advances throughout; presentation_advances restores skipped UI ticks at the first retained presentation. Field effects receive no extra ticks. Inputs retain their key sequence/order; all original scored source VIs, regions and strict thresholds are unchanged. The source first visible fade at VI6012 remains represented, where applicable. Eight resource waits preserve the observed request, readiness-clear and continuation boundaries while actor/effect/UI/audio clocks continue. The oracle-only schedule validates the actual resource and post-call script PC; ordinary preloaded gameplay stays immediate. Additional read-only VM observations are bound by resource_wait_source. All 6,269 overlapping decoded frames and all 1,014 common state labels across 6,280 VIs are identical to the unchanged original reference (local/visual-fixes/pastor-source-video-equivalence.json and pastor-old-new-state-audit.json). No delay was selected by image matching. Complete packet/memory proof and previous pins are in timeline-provenance.json. Audio is recorded silently without an audio gate. The saved source VI 0 still defines all actor/eye/RNG/UI origins and native update 0 remains captured, but its initial image is not scored: independent raw-video checks found a one-frame globally softened source presentation with every camera word unchanged across VI 0..5. The first scored sample instead compares source VI 1 with native update 1, allowing both engines their ordinary one animation update; it is never compared with native update 0. The original first gate name is retained for report continuity and its thresholds/regions are unchanged. Evidence: local/iselia-followup/oracle/pastor-first-presents-v1/finding.json, SHA256 6074280842ecef42c58d583835162da5158162a686204ba982655bbea48c109d. No other source registration changes. Source VI 0 also supplies the observed action-prompt origin (id 2, opacity 255, remaining 29), restored through the guarded oracle-only ambient-origin API. This restores existing transient presentation state without changing the runtime default, input edges, source VIs, or gates. Evidence: local/iselia-followup/oracle/pastor-action-origin-implementation.json and local/iselia-followup/oracle/pastor-first-presents-v1/native-provenance-correction.json.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/iselia-followup/oracle/pastor-native-save.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "classroom-pastor-okay-keyboard.json",
-    "sha256": "93486013139b4cba0d307a56885ea8765fa8e49bfc6835997b2dd4ef1d26f709"
+    "sha256": "2a09454ebde507dd7bb727f2f575542ecad41d20de5ebcdd4db5bba64baac8e5"
   },
   "dolphin": {
     "state": {
@@ -626,12 +626,5 @@
       "dolphin_vi": 6200
     }
   ],
-  "audio": [],
-  "resource_wait_source": {
-    "capture": {
-      "path": "../../../local/visual-fixes/source-v1/pastor/capture.json",
-      "sha256": "7e9fa69d8197da87b93e8ea7e00f7db226f8e95e4d5b2913c9d1063082c85604"
-    },
-    "slot": 1
-  }
+  "audio": []
 }

@@ -5,6 +5,20 @@ use resonance_content::{SceneMaterial, ScenePart, TextureBinding, texture::Filte
 use serde_json::Value;
 
 pub(super) fn project(scene: &Scene, gltf: &Value, textures: Vec<String>) -> Result<ScenePart> {
+    project_image(
+        scene,
+        gltf,
+        textures,
+        resonance_content::SceneImage::Palette,
+    )
+}
+
+pub(super) fn project_image(
+    scene: &Scene,
+    gltf: &Value,
+    textures: Vec<String>,
+    image: resonance_content::SceneImage,
+) -> Result<ScenePart> {
     let nodes = gltf["nodes"].as_array().context("cooked model nodes")?;
     ensure!(
         nodes.len() >= scene.bone_names.len(),
@@ -43,7 +57,12 @@ pub(super) fn project(scene: &Scene, gltf: &Value, textures: Vec<String>) -> Res
             );
             bind(texture)
         };
-        let color = (combination.texture_count() > 0)
+        let captured = image == resonance_content::SceneImage::Capture;
+        ensure!(
+            !captured || combination.texture_count() == 1,
+            "capture requires one texture stage"
+        );
+        let color = (!captured && combination.texture_count() > 0)
             .then(|| binding(0))
             .transpose()?;
         let multiply = (combination.texture_count() == 2)
@@ -62,6 +81,12 @@ pub(super) fn project(scene: &Scene, gltf: &Value, textures: Vec<String>) -> Res
                 .as_object()
                 .context("primitive attributes")?;
             ensure!(
+                !captured
+                    || primitive["mode"].as_u64().unwrap_or(4) == 4
+                        && attributes.contains_key("TEXCOORD_0"),
+                "captured mesh requires triangles and primary UVs"
+            );
+            ensure!(
                 !attributes.contains_key("_NORMAL_BASIS_1"),
                 "runtime material {} needs a normal-basis consumer",
                 draw.name
@@ -76,6 +101,7 @@ pub(super) fn project(scene: &Scene, gltf: &Value, textures: Vec<String>) -> Res
             "too many authored draws in scene part"
         );
         materials.push(SceneMaterial {
+            image,
             blend: draw.preview_blend || multiply.is_some(),
             color,
             multiply,

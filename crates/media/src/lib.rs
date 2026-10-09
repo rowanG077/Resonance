@@ -16,7 +16,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender, TryRecvError},
     },
-    thread::{self, JoinHandle},
+    thread,
     time::Duration,
 };
 
@@ -51,7 +51,6 @@ pub const VIDEO_LOOKAHEAD: usize = 10;
 struct Track<T> {
     receiver: Mutex<Option<Receiver<DecodeResult<T>>>>,
     cancelled: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
 }
 impl<T: Send + 'static> Track<T> {
     fn start(
@@ -62,7 +61,7 @@ impl<T: Send + 'static> Track<T> {
         let (sender, receiver) = mpsc::sync_channel(capacity);
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop = cancelled.clone();
-        let worker = thread::Builder::new().name(name.into()).spawn(move || {
+        thread::Builder::new().name(name.into()).spawn(move || {
             let result = decode(&stop, &sender);
             if !stop.load(Ordering::Acquire) {
                 let _ = sender.send(result.map(|()| None).map_err(|error| format!("{error:#}")));
@@ -71,7 +70,6 @@ impl<T: Send + 'static> Track<T> {
         Ok(Self {
             receiver: Mutex::new(Some(receiver)),
             cancelled,
-            worker: Some(worker),
         })
     }
     fn complete(&self) -> bool {
@@ -107,15 +105,42 @@ impl<T> Drop for Track<T> {
             .get_mut()
             .expect("movie receiver poisoned")
             .take();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancelling_a_busy_decoder_returns_before_the_decode_finishes() {
+        let (started, started_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let (finished, finished_rx) = mpsc::channel();
+        let track = Track::<()>::start("cancel-test", 1, move |cancelled, _| {
+            started.send(())?;
+            release_rx.recv()?;
+            finished.send(cancelled.load(Ordering::Acquire))?;
+            Ok(())
+        })
+        .unwrap();
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (dropped, dropped_rx) = mpsc::channel();
+        let caller = thread::spawn(move || {
+            drop(track);
+            dropped.send(()).unwrap();
+        });
+        let returned = dropped_rx.recv_timeout(Duration::from_secs(1));
+        release.send(()).unwrap();
+        assert!(finished_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+        caller.join().unwrap();
+        assert!(returned.is_ok(), "cancellation waited for the decoder");
     }
 }
 
 /// Independent local-file audio/video workers with bounded queues. Video runs
 /// ten decoded frames ahead; neither decoding nor video backpressure holds up
-/// audio. Each track cancels and joins its worker when dropped.
+/// audio. Dropping a track cancels its worker without waiting for a decode or read.
 pub struct MovieDecoder {
     video: Track<VideoFrame>,
     audio: Track<AudioChunk>,

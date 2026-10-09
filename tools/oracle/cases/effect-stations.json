@@ -1,0 +1,12 @@
+{
+  "source": {
+    "path": "local/oracle-fixtures/effects/ring-bomb.s01",
+    "sha256": "fa62757c2f1fccf7db6032d2c905863543789ef0b12312b599d8b2449dc40f59"
+  },
+  "native_sequence": {
+    "path": "local/oracle-fixtures/effects/ring-bomb.json",
+    "sha256": "7fa85436a654629b6db25cc2056a5f4a0056a888d5c3147ed287a1b220262b39"
+  },
+  "family": "stations",
+  "description": "Ring-station models and emitted lights, including generated property changes and overlapping effects."
+}

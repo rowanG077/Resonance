@@ -8,6 +8,18 @@ use bevy::{
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d, Material2dKey},
 };
+use resonance_events::effect::Blend;
+
+#[cfg(test)]
+#[path = "surface_shader_tests.rs"]
+mod shader_tests;
+
+pub(super) fn embed_shaders(app: &mut App) {
+    bevy::asset::embedded_asset!(app, "title_surface.wgsl");
+    bevy::asset::embedded_asset!(app, "title_surface_vertex.wgsl");
+    bevy::shader::load_shader_library!(app, "surface_bindings.wgsl");
+    bevy::shader::load_shader_library!(app, "effect_color.wgsl");
+}
 
 /// Each geometry mesh has one authored draw recipe, bound per scene instance.
 #[derive(Component, Reflect, Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +34,26 @@ impl MaterialSlot {
             "undeclared material slot {index} (count {count})"
         );
         Ok(index)
+    }
+
+    /// The scene graph, unlike the GLB mesh catalogue, contains only authored draws.
+    pub fn scene_slots(
+        world: &World,
+        count: usize,
+    ) -> anyhow::Result<std::collections::BTreeSet<usize>> {
+        use anyhow::Context;
+        let Some(mut meshes) = world.try_query::<(Entity, &Mesh3d)>() else {
+            return Ok(Default::default());
+        };
+        meshes
+            .iter(world)
+            .map(|(entity, _)| {
+                world
+                    .get::<Self>(entity)
+                    .context("scene mesh has no material slot")?
+                    .index(count)
+            })
+            .collect()
     }
 }
 
@@ -159,20 +191,28 @@ pub(super) struct TitleSurface {
     pub uv_offsets: Vec4,
     pub uv_scales: Vec4,
     pub tint: Vec4,
+    /// Native RGB ambient bytes (64 is neutral); W enables unlit actor modulation.
+    pub ambient_color: Vec4,
     #[texture(6)]
     #[sampler(7)]
     pub toon_ramp: Option<Handle<Image>>,
     /// World-space light position and channel strength (0..255).
     pub field_light: Vec4,
     pub shade_colors: [Vec4; 2],
-    /// Linear scene fog: RGB color, and camera-depth start/end (zero disables).
+    /// Scene fog: RGB color, depth start/end, and nonlinear exponent (zero is linear).
     pub fog_color: Vec4,
     pub fog_range: Vec4,
+    /// Use per-view field fog; menu previews and overworld materials keep their own fog.
+    pub field_fog: bool,
     pub vertex_color: bool,
     pub constant_color: bool,
-    pub blend: bool,
-    pub additive: bool,
-    pub subtractive: bool,
+    /// Clamp the texture/color product before fog and framebuffer blending.
+    pub clamp_color: bool,
+    /// Apply particle opacity to byte-valued vertex alpha before interpolation.
+    pub vertex_alpha: bool,
+    /// Smallest covered alpha value, in byte units, after tinting.
+    pub alpha_cutoff: u8,
+    pub blend: Option<Blend>,
     pub depth_test: bool,
     pub depth_write: bool,
     pub cull: resonance_content::CullFace,
@@ -188,15 +228,18 @@ impl Default for TitleSurface {
             uv_offsets: Vec4::ZERO,
             uv_scales: Vec4::ONE,
             tint: Vec4::ONE,
+            ambient_color: Vec4::new(64., 64., 64., 0.),
             field_light: Vec4::ZERO,
             shade_colors: [Vec4::ONE; 2],
             fog_color: Vec4::ZERO,
             fog_range: Vec4::ZERO,
+            field_fog: false,
             vertex_color: true,
             constant_color: false,
-            blend: false,
-            additive: false,
-            subtractive: false,
+            clamp_color: false,
+            vertex_alpha: false,
+            alpha_cutoff: 1,
+            blend: None,
             depth_test: true,
             depth_write: true,
             cull: resonance_content::CullFace::Back,
@@ -221,10 +264,12 @@ pub(super) struct SurfaceUniform {
     uv_offsets: Vec4,
     uv_scales: Vec4,
     tint: Vec4,
+    ambient_color: Vec4,
     field_light: Vec4,
     shade_colors: [Vec4; 2],
     fog_color: Vec4,
     fog_range: Vec4,
+    alpha_cutoff: f32,
 }
 impl From<&TitleSurface> for SurfaceUniform {
     fn from(value: &TitleSurface) -> Self {
@@ -232,10 +277,15 @@ impl From<&TitleSurface> for SurfaceUniform {
             uv_offsets: value.uv_offsets,
             uv_scales: value.uv_scales,
             tint: value.tint,
+            ambient_color: value.ambient_color,
             field_light: value.field_light,
             shade_colors: value.shade_colors,
             fog_color: value.fog_color,
-            fog_range: value.fog_range,
+            fog_range: value
+                .fog_range
+                .truncate()
+                .extend(if value.field_fog { 1. } else { 0. }),
+            alpha_cutoff: f32::from(value.alpha_cutoff) / 255.,
         }
     }
 }
@@ -245,11 +295,11 @@ pub(super) struct SurfaceKey {
     vertex_color: bool,
     field_lighting: bool,
     constant_color: bool,
+    clamp_color: bool,
+    vertex_alpha: bool,
     depth_test: bool,
     depth_write: bool,
-    blend: bool,
-    additive: bool,
-    subtractive: bool,
+    blend: Option<Blend>,
     cull: resonance_content::CullFace,
 }
 
@@ -259,11 +309,11 @@ impl From<&TitleSurface> for SurfaceKey {
             vertex_color: material.vertex_color,
             field_lighting: material.toon_ramp.is_some(),
             constant_color: material.constant_color,
+            clamp_color: material.clamp_color,
+            vertex_alpha: material.vertex_alpha,
             depth_test: material.depth_test,
             depth_write: material.depth_write,
             blend: material.blend,
-            additive: material.additive,
-            subtractive: material.subtractive,
             cull: material.cull,
         }
     }
@@ -315,14 +365,23 @@ impl Material for TitleSurface {
                 fragment.shader_defs.push("FIELD_LIGHTING".into());
             }
         }
+        if key.bind_group_data.vertex_alpha {
+            descriptor.vertex.shader_defs.push("VERTEX_ALPHA".into());
+            if let Some(fragment) = &mut descriptor.fragment {
+                fragment.shader_defs.push("VERTEX_ALPHA".into());
+            }
+        }
         if key.bind_group_data.constant_color
             && let Some(fragment) = &mut descriptor.fragment
         {
             fragment.shader_defs.push("CONSTANT_COLOR".into());
         }
         if let Some(fragment) = &mut descriptor.fragment {
+            if key.bind_group_data.clamp_color {
+                fragment.shader_defs.push("CLAMP_COLOR".into());
+            }
             for target in fragment.targets.iter_mut().flatten() {
-                if key.bind_group_data.subtractive {
+                if key.bind_group_data.blend == Some(Blend::Subtractive) {
                     let component = BlendComponent {
                         src_factor: BlendFactor::One,
                         dst_factor: BlendFactor::One,
@@ -332,7 +391,7 @@ impl Material for TitleSurface {
                         color: component,
                         alpha: component,
                     });
-                } else if key.bind_group_data.additive {
+                } else if key.bind_group_data.blend == Some(Blend::Additive) {
                     let component = BlendComponent {
                         src_factor: BlendFactor::SrcAlpha,
                         dst_factor: BlendFactor::One,
@@ -342,7 +401,7 @@ impl Material for TitleSurface {
                         color: component,
                         alpha: component,
                     });
-                } else if !key.bind_group_data.blend {
+                } else if key.bind_group_data.blend.is_none() {
                     target.blend = None;
                 }
             }
@@ -359,5 +418,44 @@ impl Material for TitleSurface {
             });
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_fog_uses_the_view_without_changing_overworld_fog() {
+        let mut surface = TitleSurface {
+            fog_color: Vec4::new(0.2, 0.3, 0.4, 1.),
+            fog_range: Vec4::new(100., 1000., 1., 0.),
+            ..default()
+        };
+        let overworld = SurfaceUniform::from(&surface);
+        assert_eq!(overworld.fog_range, surface.fog_range);
+        assert_eq!(overworld.fog_color, surface.fog_color);
+        surface.field_fog = true;
+        let field = SurfaceUniform::from(&surface);
+        assert_eq!(field.fog_range.w, 1.);
+        assert_eq!(field.fog_range.truncate(), overworld.fog_range.truncate());
+        assert_eq!(
+            SurfaceUniform::from(&TitleSurface::default()).fog_range,
+            Vec4::ZERO
+        );
+    }
+
+    #[test]
+    fn unused_catalogue_slots_are_allowed_but_unbound_scene_meshes_are_rejected() {
+        let mut world = World::new();
+        let unbound = world.spawn(Mesh3d::default()).id();
+        assert!(MaterialSlot::scene_slots(&world, 3).is_err());
+        world.despawn(unbound);
+        world.spawn((Mesh3d::default(), MaterialSlot(0)));
+        let mesh = world.spawn((Mesh3d::default(), MaterialSlot(2))).id();
+        assert_eq!(MaterialSlot::scene_slots(&world, 3).unwrap(), [0, 2].into());
+        assert!(MaterialSlot::scene_slots(&world, 2).is_err());
+        world.entity_mut(mesh).remove::<MaterialSlot>();
+        assert!(MaterialSlot::scene_slots(&world, 3).is_err());
     }
 }

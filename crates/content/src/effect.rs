@@ -1,25 +1,66 @@
-//! Cooked camera-facing sprites; no original draw commands at runtime.
+//! Camera-facing sprite content.
+pub const FIELD_PALETTE_COLORS: usize = 110;
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+/// Shared field artwork, addressed by scenario sprite IDs.
+pub mod sprite {
+    pub const GLOW_SPRITE: u16 = 0;
+    pub const SMOKE_SPRITE: u16 = 1;
+    pub const STATION_GLOW_SPRITE: u16 = 4;
+    pub const CAMERA_DISC_SPRITE: u16 = 5;
+    pub const WORLD_GLOW_SPRITE: u16 = 6;
+    pub const STAR_SPRITE: u16 = 7;
+    pub const SPINNING_STAR_SPRITE: u16 = 8;
+    pub const ORB_SPRITE: u16 = 10;
+    pub const FLAME_SPRITE: u16 = 11;
+    pub const TRAIL_GLOW_SPRITE: u16 = 12;
+    pub const ELECTRIC_ARC_SPRITE: u16 = 14;
+    pub const STATION_HALO_SPRITE: u16 = 22;
+    pub const STREAK_SPRITE: u16 = 23;
+    pub const RING_SPRITE: u16 = 41;
+    pub const ELECTRIC_SPARK_SPRITE: u16 = 42;
+    pub const DEBRIS_SPRITES: [u16; 3] = [52, 53, 54];
+    pub const SEAL_STAR_SPRITE: u16 = 68;
+    pub const SEAL_SPARK_SPRITE: u16 = 69;
+
+    pub const ALL: [u16; 20] = [
+        GLOW_SPRITE,
+        SMOKE_SPRITE,
+        STATION_GLOW_SPRITE,
+        CAMERA_DISC_SPRITE,
+        WORLD_GLOW_SPRITE,
+        STAR_SPRITE,
+        SPINNING_STAR_SPRITE,
+        ORB_SPRITE,
+        FLAME_SPRITE,
+        TRAIL_GLOW_SPRITE,
+        ELECTRIC_ARC_SPRITE,
+        STATION_HALO_SPRITE,
+        STREAK_SPRITE,
+        RING_SPRITE,
+        ELECTRIC_SPARK_SPRITE,
+        DEBRIS_SPRITES[0],
+        DEBRIS_SPRITES[1],
+        DEBRIS_SPRITES[2],
+        SEAL_STAR_SPRITE,
+        SEAL_SPARK_SPRITE,
+    ];
+}
 
 /// Eye atlas frames at the fixed update rate, including the open-eye rest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlinkCycle {
     pub frames: Vec<u8>,
-    pub initial_tick: u16,
-    pub initial_spread: u16,
 }
 impl BlinkCycle {
     pub fn validate(&self) -> Result<()> {
         ensure!(
             !self.frames.is_empty()
                 && self.frames.len() <= 1024
-                && self.frames.iter().all(|frame| *frame < 16)
-                && self.initial_spread > 0
-                && usize::from(self.initial_tick) + usize::from(self.initial_spread)
-                    <= self.frames.len(),
+                && self.frames.iter().all(|frame| *frame < 16),
             "invalid eye blink animation"
         );
         Ok(())
@@ -97,21 +138,67 @@ pub struct FieldEffects<Image = String> {
     pub version: u32,
     pub emote_texture: Image,
     pub status_texture: Image,
-    pub paralysis: EmoteTrack,
     pub sprites: BTreeMap<u16, SpriteRecipe<Image>>,
+    #[serde(default)]
+    pub palette: Vec<[u8; 4]>,
     pub refraction: RefractionRecipe<Image>,
-    pub emotes: BTreeMap<u16, EmoteTrack>,
+    pub air_refraction: SpriteRecipe<Image>,
     pub mouth_cycle: Vec<u8>,
 }
+pub const FIELD_EFFECTS_VERSION: u32 = 10;
+pub const SMOKE_UPDATES: u32 = 56;
+/// Maximum simultaneous distortion planes in a field view.
+pub const REFRACTION_LIMIT: usize = 16;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpriteFrame {
+    pub uv: [f32; 4],
+    pub ticks: u16,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpriteRecipe<Image = String> {
     pub texture: Image,
     pub uv: [f32; 4],
     pub additive: bool,
+    /// Frame durations include the native timer-zero pose.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frames: Vec<SpriteFrame>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub repeat: bool,
 }
 impl<Image: AsRef<str>> SpriteRecipe<Image> {
+    pub fn uv_at(&self, mut age: u32) -> [f32; 4] {
+        if self.repeat {
+            let period = self.frames.iter().map(|f| u32::from(f.ticks)).sum::<u32>();
+            if period > 0 {
+                age %= period;
+            }
+        }
+        for frame in &self.frames {
+            if age < u32::from(frame.ticks) {
+                return frame.uv;
+            }
+            age -= u32::from(frame.ticks);
+        }
+        self.frames.last().map_or(self.uv, |frame| frame.uv)
+    }
+
     pub fn validate(&self) -> Result<()> {
         crate::validate_asset_path(self.texture.as_ref())?;
+        ensure!(
+            self.frames.len() <= 126
+                && self.frames.iter().all(|frame| {
+                    frame.ticks > 0
+                        && frame.uv[0] < frame.uv[2]
+                        && frame.uv[1] < frame.uv[3]
+                        && frame
+                            .uv
+                            .iter()
+                            .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+                }),
+            "invalid sprite animation"
+        );
         ensure!(
             self.uv
                 .iter()
@@ -129,42 +216,6 @@ pub struct RefractionRecipe<Image = String> {
     /// Signed displacements in authored scene texels.
     pub displacement: [f32; 2],
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmoteTrack {
-    pub anchor: String,
-    /// Added to logical actor position when the named model node is absent.
-    /// Sprite offsets already include their ordinary height above the anchor.
-    pub missing_anchor_offset: [f32; 3],
-    pub rotation: EmoteRotation,
-    /// Frames are interleaved by the controller's initial random phase.
-    #[serde(default = "single_phase")]
-    pub phase_count: u8,
-    pub intro: Vec<Vec<Sprite>>,
-    pub cycle: Vec<Vec<Sprite>>,
-}
-
-/// Rotation can follow the shared effect clock independently of a sprite's age.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(tag = "clock", rename_all = "snake_case")]
-pub enum EmoteRotation {
-    Fixed,
-    GlobalTick { degrees_per_tick: u16 },
-}
-impl EmoteRotation {
-    pub fn angle(self, tick: u32) -> f32 {
-        match self {
-            Self::Fixed => 0.,
-            Self::GlobalTick { degrees_per_tick } => {
-                // The authored angle is a signed 16-bit degree value.
-                tick.wrapping_mul(u32::from(degrees_per_tick)) as i16 as f32
-            }
-        }
-    }
-}
-fn single_phase() -> u8 {
-    1
-}
-
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VerticalAnchor {
@@ -191,21 +242,19 @@ fn opaque() -> u8 {
 impl<Image: AsRef<str>> FieldEffects<Image> {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 5
-                && self.emotes.len() <= 256
+            self.version == FIELD_EFFECTS_VERSION
                 && self.sprites.len() <= 256
-                && self.sprites.contains_key(&10),
+                && sprite::ALL.iter().all(|id| self.sprites.contains_key(id))
+                && self.palette.len() == FIELD_PALETTE_COLORS,
             "invalid or outdated field effects; run cook-all"
         );
         crate::validate_asset_path(self.emote_texture.as_ref())?;
         crate::validate_asset_path(self.status_texture.as_ref())?;
-        ensure!(
-            self.paralysis.intro.is_empty()
-                && self.paralysis.cycle.len() == 2
-                && self.paralysis.cycle.iter().all(|frame| frame.len() == 1),
-            "paralysis requires two visible symbol poses"
-        );
-        for sprite in self.sprites.values().chain([&self.refraction.sprite]) {
+        for sprite in self
+            .sprites
+            .values()
+            .chain([&self.refraction.sprite, &self.air_refraction])
+        {
             sprite.validate()?;
         }
         ensure!(
@@ -221,104 +270,6 @@ impl<Image: AsRef<str>> FieldEffects<Image> {
                 && self.mouth_cycle.iter().all(|f| *f < 8),
             "invalid mouth animation"
         );
-        for track in self.emotes.values().chain([&self.paralysis]) {
-            ensure!(
-                !track.anchor.is_empty()
-                    && track.missing_anchor_offset.iter().all(|v| v.is_finite())
-                    && (1..=32).contains(&track.phase_count)
-                    && !track.cycle.is_empty()
-                    && track
-                        .intro
-                        .len()
-                        .is_multiple_of(usize::from(track.phase_count))
-                    && track
-                        .cycle
-                        .len()
-                        .is_multiple_of(usize::from(track.phase_count))
-                    && track.intro.len() + track.cycle.len() <= 4096,
-                "invalid emote track"
-            );
-            for frame in track.intro.iter().chain(&track.cycle) {
-                ensure!(frame.len() <= 64, "emote frame exceeds sprite limit");
-                for sprite in frame {
-                    ensure!(
-                        sprite
-                            .offset
-                            .iter()
-                            .chain(&sprite.size)
-                            .chain(&sprite.uv)
-                            .all(|v| v.is_finite())
-                            && sprite.rotation.is_finite(),
-                        "nonfinite emote sprite"
-                    );
-                }
-            }
-        }
         Ok(())
-    }
-}
-impl EmoteTrack {
-    pub fn frame_with_phase(&self, age: usize, phase: u8) -> &[Sprite] {
-        let phases = usize::from(self.phase_count);
-        let phase = usize::from(phase) % phases;
-        let intro = self.intro.len() / phases;
-        if age < intro {
-            &self.intro[age * phases + phase]
-        } else {
-            &self.cycle[((age - intro) % (self.cycle.len() / phases)) * phases + phase]
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn emote_phase_variants_preserve_age_and_sprite_defaults() {
-        let data = serde_json::json!({
-            "anchor":"head", "missing_anchor_offset":[0.,0.,128.],
-            "rotation":{"clock":"fixed"}, "intro":[[]], "cycle":[[{
-                "offset":[0.,0.,0.], "size":[3.,3.], "uv":[0.,0.,1.,1.], "rotation":0.
-            }]]
-        });
-        let mut track: EmoteTrack = serde_json::from_value(data).unwrap();
-        assert!(track.frame_with_phase(0, 0).is_empty());
-        assert_eq!(track.frame_with_phase(1, 31)[0].alpha, 255);
-        assert!(matches!(
-            track.frame_with_phase(1, 0)[0].vertical_anchor,
-            VerticalAnchor::Center
-        ));
-
-        let mut alternate = track.cycle[0].clone();
-        alternate[0].alpha = 30;
-        track.phase_count = 2;
-        track.intro = vec![Vec::new(); 2];
-        track
-            .cycle
-            .extend([alternate.clone(), alternate, track.cycle[0].clone()]);
-        assert!(track.frame_with_phase(0, 1).is_empty());
-        assert_eq!(track.frame_with_phase(1, 0)[0].alpha, 255);
-        assert_eq!(track.frame_with_phase(1, 31)[0].alpha, 30);
-        assert_eq!(track.frame_with_phase(2, 0)[0].alpha, 30);
-        assert_eq!(track.frame_with_phase(3, 0)[0].alpha, 255);
-    }
-
-    #[test]
-    fn global_emote_rotation_preserves_signed_angle_wrap() {
-        let rotation = EmoteRotation::GlobalTick {
-            degrees_per_tick: 4,
-        };
-        for (tick, angle) in [
-            (0, 0.),
-            (90, 360.),
-            (8191, 32764.),
-            (8192, -32768.),
-            (16384, 0.),
-            (u32::MAX, -4.),
-        ] {
-            assert_eq!(rotation.angle(tick), angle);
-            assert_eq!(EmoteRotation::Fixed.angle(tick), 0.);
-        }
     }
 }

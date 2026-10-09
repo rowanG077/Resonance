@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Menu status portraits: curse/paralysis animations, petrification, knockout precedence and cures across party/menu pages.",
-  "registration": "Controlled fixture changes only vitals/condition flags in matched copies of tech-groups-fixture-v1: Lloyd has curse plus deadly poison, Genis paralysis plus poison, Sheena petrification plus those conditions, and knocked-out Colette also has the lesser conditions. These combinations test visual priority; they do not claim natural status acquisition. Raine retains the learned cure spells and 90 TP. Menu opens at native update 40 and source poll 20; later inputs and captures use source poll/2 with established clock origins. Two-tick animation samples cover a full 40-tick curse/paralysis cycle. Cures are actual menu actions and check every party member against source state. Status receives an additional 40 idle updates before its first settled portrait observation on both sides. The v1 comparison records a separate unimplemented Status entrance transition at update 520; this case tests settled pages and the condition animation cycle, not page entrances. The petrified Status capture moves native update and source VI together from 720 to the next actual video presentation at 721, preserving the clock origin and tolerance.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/tech-conditions-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "tech-conditions-keyboard.json",
-    "sha256": "5b1bf3a9b0b7b7157de2b5f286f87d324c2c0a85a3bd186368eac5dc6d14338c"
+    "sha256": "cc30c9537787c0d8b4520e72c300794e205a0edad24ad9281f3ca7cc3123d41c"
   },
   "dolphin": {
     "state": {

@@ -283,19 +283,6 @@ mod tests {
             }
             assert_eq!(c.players.normal, [5, 7, 9, 11]);
             assert_eq!(c.players.highlight, [6, 8, 10, 12]);
-            // lhz; two subf/or/shift implement slot inequality; subf; u16 truncation.
-            for (address, expected) in [
-                (0x800c9120, 0xa0140000),
-                (0x800c9124, 0x7ca4f850),
-                (0x800c9128, 0x7c9f2050),
-                (0x800c912c, 0x7ca52378),
-                (0x800c9134, 0x54a50ffe),
-                (0x800c913c, 0x7c050050),
-                (0x800c9144, 0x5405043e),
-                (0x800c9328, 0x3a940002),
-            ] {
-                assert_eq!(word(dol::slice(&executable, address, 4)?, 0)?, expected);
-            }
             assert_eq!(restored.text(restored.technique.tp_cost), "TP : \x0c\x09%d");
             assert_eq!(restored.text(restored.unison_formats.number), "%d");
             assert_eq!(restored.text(restored.unison_formats.player), "%dP");

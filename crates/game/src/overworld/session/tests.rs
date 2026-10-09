@@ -7,6 +7,7 @@ use resonance_content::{
     overworld::{Interaction, Marker},
     session::SessionData,
 };
+use resonance_events::input::Button;
 use resonance_events::party::Party;
 
 fn data() -> Arc<SessionData> {
@@ -164,7 +165,16 @@ fn temporary_battle_bypass_resumes_world_and_scripted_encounters_as_victories() 
             0x4000,
         ]);
     }
-    words.extend([0x20cd, 0x20ff]);
+    words.push(0x20cd);
+    // The resumed field caller mutes the battle transition before the combat
+    // owner restores the retained track (the Tower of Salvation route).
+    for value in [0_i32, 0, 1] {
+        words.extend([0x0200, value as u16, 0, 0x3000, 0x4000]);
+    }
+    words.extend([
+        0x2000 | symphonia_script::NativeCall::SetAudioFade as u16,
+        0x20ff,
+    ]);
     let program = Arc::new(Program::decode(
         &words
             .into_iter()
@@ -198,6 +208,22 @@ fn temporary_battle_bypass_resumes_world_and_scripted_encounters_as_victories() 
     );
     events.step()?;
     assert!(events.player_has_control());
+    assert!(
+        matches!(
+            events.world.audio_commands.as_slice(),
+            [
+                resonance_events::AudioCommand::MusicVolume {
+                    volume: 0,
+                    duration_ticks: 1
+                },
+                resonance_events::AudioCommand::MusicVolume {
+                    volume: 127,
+                    duration_ticks: 0
+                }
+            ]
+        ),
+        "a skipped battle restores music once"
+    );
     for address in [0x20, 0x24] {
         assert_eq!(
             events.memory().read(address, Width::S32)?,
@@ -860,7 +886,7 @@ fn cinematic_completion_preserves_return_pose_and_publishes_each_destination_onc
                 },
                 confirm: true,
                 menu: crate::field::FieldInput {
-                    menu: true,
+                    pressed_buttons: [Button::Menu].into(),
                     ..Default::default()
                 },
                 ..Default::default()

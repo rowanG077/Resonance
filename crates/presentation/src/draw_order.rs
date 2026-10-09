@@ -17,6 +17,8 @@ pub(super) struct DrawOrder(pub u32, pub usize);
 pub(super) const FIELD_TRANSLUCENCY: u32 = 1 << 21;
 pub(super) const CONTACT_SHADOWS: u32 = 3 << 20;
 pub(super) const EFFECTS: u32 = 1 << 22;
+pub(super) const MODEL_EFFECTS: u32 = EFFECTS + (1 << 16);
+pub(super) const EFFECT_UI_OFFSET: u32 = 2 << 16;
 
 pub(super) struct DrawOrderPlugin;
 impl Plugin for DrawOrderPlugin {

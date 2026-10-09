@@ -1,5 +1,6 @@
 //! Sparse animation curves and deterministic, renderer-independent bone poses.
 mod codec;
+mod skeleton;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
@@ -209,17 +210,20 @@ impl Skeleton {
         bone: u16,
         point: [f32; 3],
     ) -> Result<[f32; 3]> {
-        ensure!(
-            frame.is_finite() && frame >= 0. && frame <= motion.duration_frames,
-            "motion frame outside clip"
-        );
-        let matrix = self.sampled_global(motion, frame, bone, 0)?;
-        let point = transform_point(matrix, point);
+        let point = transform_point(self.sample_matrix(motion, frame, bone)?, point);
         ensure!(
             point.iter().all(|v| v.is_finite()),
             "invalid attachment position"
         );
         Ok(point)
+    }
+
+    pub fn sample_matrix(&self, motion: &Motion, frame: f32, bone: u16) -> Result<Matrix> {
+        ensure!(
+            frame.is_finite() && frame >= 0. && frame <= motion.duration_frames,
+            "motion frame outside clip"
+        );
+        self.sampled_global(motion, frame, bone, 0)
     }
 
     fn sampled_global(
@@ -400,6 +404,42 @@ impl Transform {
             ],
         ]
     }
+}
+
+/// Extract a normalized quaternion from the 3x3 basis; translation is ignored.
+pub fn matrix_rotation(matrix: Matrix) -> Result<[f32; 4]> {
+    let m = |row: usize, col: usize| matrix[col][row];
+    let trace = m(0, 0) + m(1, 1) + m(2, 2);
+    let mut q = [0.; 4];
+    if trace > 0. {
+        let scale = (1. + trace).sqrt();
+        q[3] = 0.5 * scale;
+        let scale = 0.5 / scale;
+        q[0] = (m(2, 1) - m(1, 2)) * scale;
+        q[1] = (m(0, 2) - m(2, 0)) * scale;
+        q[2] = (m(1, 0) - m(0, 1)) * scale;
+    } else {
+        let mut i = usize::from(m(1, 1) > m(0, 0));
+        if m(2, 2) > m(i, i) {
+            i = 2;
+        }
+        let j = (i + 1) % 3;
+        let k = (j + 1) % 3;
+        let mut scale = ((m(i, i) - (m(j, j) + m(k, k))) + 1.).sqrt();
+        q[i] = 0.5 * scale;
+        if scale != 0. {
+            scale = 0.5 / scale;
+        }
+        q[3] = (m(k, j) - m(j, k)) * scale;
+        q[j] = (m(i, j) + m(j, i)) * scale;
+        q[k] = (m(i, k) + m(k, i)) * scale;
+    }
+    let length = q.iter().map(|v| v * v).sum::<f32>();
+    ensure!(
+        q.iter().all(|v| v.is_finite()) && length.is_finite() && length > 0.,
+        "invalid native matrix rotation"
+    );
+    Ok(q.map(|v| v / length.sqrt()))
 }
 
 pub fn multiply(a: Matrix, b: Matrix) -> Matrix {

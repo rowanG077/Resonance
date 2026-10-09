@@ -542,7 +542,7 @@ impl Session {
             self.menu_sound(cue)?;
             return Ok(Vec::new());
         }
-        if input.menu.menu && self.player_has_control() {
+        if input.menu.pressed(resonance_events::input::Button::Menu) && self.player_has_control() {
             self.open_menu()?;
             return Ok(Vec::new());
         }
@@ -561,6 +561,7 @@ impl Session {
                         0
                     },
                     accelerate: input.accelerate_dialogue,
+                    skip_dialogue: false,
                     skip: input.skip_skit,
                 },
             )? {

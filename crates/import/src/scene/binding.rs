@@ -95,6 +95,18 @@ pub(crate) fn model(root: &Path, directory: &str) -> Result<(ScenePart, Glb)> {
 }
 
 /// Project a decoded model directly; only terminal publication needs a path.
+pub(crate) fn captured(model: &crate::scene::decoded::Model) -> Result<ScenePart> {
+    let mut part = super::projection::project_image(
+        &model.geometry.scene,
+        &model.geometry.gltf,
+        Vec::new(),
+        resonance_content::SceneImage::Capture,
+    )?;
+    part.mesh.clone_from(&model.geometry.scene.mesh);
+    Ok(part)
+}
+
+/// Project a decoded model directly; only terminal publication needs a path.
 pub(crate) fn decoded(
     model: &crate::geometry::DecodedGeometry,
     textures: &crate::texture::Catalogue,
@@ -253,9 +265,9 @@ impl<'a> Map<'a> {
     }
 
     pub(crate) fn script(&self) -> Result<Vec<u8>> {
-        let bytes = self.archive.section(6)?;
-        symphonia_script::Program::decode(bytes)?;
-        Ok(bytes.to_vec())
+        let bytes = crate::field_script::prepare(self.archive.section(6)?);
+        symphonia_script::Program::decode(&bytes)?;
+        Ok(bytes.into_owned())
     }
 
     pub(crate) fn messages(&self) -> Result<Vec<symphonia_script::message::Message>> {

@@ -4,13 +4,37 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const FIELD_VERSION: u32 = 9;
+pub const FIELD_VERSION: u32 = 11;
 /// Reserved resource range for static scenery, separate from character models.
 pub const SCENERY_RESOURCE_BASE: u32 = 0x1000_0000;
+/// Ordinary actor models embedded in a field archive, addressed by signed script IDs.
+pub const LOCAL_MODEL_RESOURCES: std::ops::Range<u32> = 0xffee_0000..0xffef_0000;
 /// Shared save-point model, addressed by the field service rather than scripts.
 pub const SAVE_POINT_RESOURCE: u32 = 0x2000_0000;
 /// Character-specific field service animations, separate from script banks.
-pub const DOOR_MOTION_RESOURCE_BASE: u32 = 0x2100_0000;
+pub const FIELD_SERVICE_MOTION_RESOURCE_BASE: u32 = 0x2100_0000;
+/// Shared automatic flight accessory (native col_wing resource).
+pub const COLETTE_WINGS_RESOURCE: u32 = 0x2200_0000;
+#[derive(Clone, Copy)]
+#[repr(u16)]
+pub enum ServiceMotion {
+    OpenDoor = 20,
+    PullDoor = 24,
+    HoldBlock = 32,
+    PushBlock = 36,
+    PullBlock = 40,
+    CastRing = 52,
+}
+impl ServiceMotion {
+    pub const ALL: [Self; 6] = [
+        Self::OpenDoor,
+        Self::PullDoor,
+        Self::HoldBlock,
+        Self::PushBlock,
+        Self::PullBlock,
+        Self::CastRing,
+    ];
+}
 /// One model part's authored material orders. Actor bodies and outlines use two parts.
 pub const MODEL_DRAW_SPAN: u32 = 1 << 16;
 
@@ -64,6 +88,21 @@ pub struct CollisionGroup {
     pub triangles: Vec<[u16; 3]>,
 }
 
+#[derive(Clone, Copy)]
+#[repr(u32)]
+pub enum CollisionQuery {
+    All = 0,
+    Player = 1 << 19,
+    Enemy = (1 << 19) | (1 << 20),
+    Block = 1 << 21,
+}
+
+impl CollisionQuery {
+    pub fn accepts(self, surface: u32) -> bool {
+        surface & self as u32 == 0
+    }
+}
+
 impl CollisionGroup {
     pub fn validate(&self) -> Result<()> {
         // Authored empty groups retain their slot and surface classification.
@@ -103,6 +142,8 @@ pub struct FieldAssets {
     pub doors: Vec<Door>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub camera_tracks: BTreeMap<u32, Vec<crate::CameraKey>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub texture_animations: Vec<FieldTextureAnimation>,
     #[serde(default)]
     pub actors: Vec<ActorAssets>,
     /// Geometry recipes requiring a caller texture binding before instantiation.
@@ -118,10 +159,39 @@ pub struct FieldAssets {
     pub overlays: BTreeMap<i32, String>,
     #[serde(default)]
     pub save_point_tutorial: Vec<crate::font::TextSpan>,
+    #[serde(default)]
+    pub save_point_unlock: Vec<crate::font::TextSpan>,
+    #[serde(default)]
+    pub save_point_no_gem: Vec<crate::font::TextSpan>,
     /// Complete cooked dependency inventory, excluding this manifest itself.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
 }
+
+/// Native field callback operands: either a fixed value or a live slot written
+/// by ConfigureRendering. Actor and texture targets use the same slot table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RenderValue {
+    Fixed(i32),
+    Setting(u8),
+    SettingOffset { slot: u8, offset: i32 },
+}
+impl RenderValue {
+    pub fn resolve(&self, settings: &BTreeMap<i32, i32>) -> i32 {
+        match *self {
+            Self::Fixed(value) => value,
+            Self::Setting(slot) => settings.get(&i32::from(slot)).copied().unwrap_or(0),
+            Self::SettingOffset { slot, offset } => settings
+                .get(&i32::from(slot))
+                .copied()
+                .unwrap_or(0)
+                .wrapping_add(offset),
+        }
+    }
+}
+
+mod texture_animation;
+pub use texture_animation::{FieldTextureAnimation, FieldTextureWave, TextureClock, TextureMotion};
 
 /// A scenery hinge and the standing pose used to open it before a field exit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,9 +236,17 @@ impl<Image: AsRef<str>> ContactShadow<Image> {
 pub struct ActorAssets {
     pub resource: u32,
     pub parts: Vec<ScenePart>,
+    pub collision: ModelCollision,
     /// Attachment geometry disabled when this field actor is created.
     #[serde(default)]
     pub hidden_nodes: Vec<u16>,
+}
+
+/// Actor-local geometry: native package slots 29 (floors) and 30 (solid volumes).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ModelCollision {
+    pub floors: Vec<CollisionGroup>,
+    pub solids: Vec<CollisionGroup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +259,14 @@ pub struct UnboundGeometry {
 impl FieldAssets {
     pub fn validate(&self) -> Result<()> {
         ensure!(self.version == FIELD_VERSION, "unsupported field assets");
+        for animation in &self.texture_animations {
+            animation.validate()?;
+        }
+        for actor in &self.actors {
+            for group in actor.collision.floors.iter().chain(&actor.collision.solids) {
+                group.validate()?;
+            }
+        }
         for track in self.camera_tracks.values() {
             ensure!(
                 track.len() >= 2
@@ -282,19 +368,24 @@ impl FieldAssets {
         validate_asset_path(&self.toon_ramp)?;
         validate_asset_path(&self.effects)?;
         ensure!(self.particles.len() <= 256, "too many particle recipes");
-        ensure!(
-            self.save_point_tutorial.len() <= 128,
-            "system notice is too long"
-        );
-        for span in &self.save_point_tutorial {
-            span.validate()?;
+        for text in [
+            &self.save_point_tutorial,
+            &self.save_point_unlock,
+            &self.save_point_no_gem,
+        ] {
+            ensure!(text.len() <= 128, "system notice is too long");
+            for span in text {
+                span.validate()?;
+            }
         }
         ensure!(
             !self
                 .actors
                 .iter()
                 .any(|a| a.resource == SAVE_POINT_RESOURCE)
-                || !self.save_point_tutorial.is_empty(),
+                || (!self.save_point_tutorial.is_empty()
+                    && !self.save_point_unlock.is_empty()
+                    && !self.save_point_no_gem.is_empty()),
             "memory-circle tutorial is missing; recook the field"
         );
         for overlay in self.overlays.values() {
@@ -413,5 +504,29 @@ impl crate::ScenePart {
             );
         }
         Ok(())
+    }
+}
+
+/// Prepared local geometry used by field ring effects.
+pub const RING_BEAM_RESOURCE: u32 = LOCAL_MODEL_RESOURCES.start;
+pub const RING_BOMB_RESOURCE: u32 = LOCAL_MODEL_RESOURCES.start + 12;
+
+/// Room scenery required by abilities that use local geometry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RingScenery {
+    #[default]
+    None,
+    Bomb,
+    Bubble,
+    Sunlight,
+}
+impl RingScenery {
+    pub fn for_field(map: u32) -> Self {
+        match map {
+            412..=415 => Self::Bomb,
+            492..=498 => Self::Bubble,
+            511..=518 => Self::Sunlight,
+            _ => Self::None,
+        }
     }
 }

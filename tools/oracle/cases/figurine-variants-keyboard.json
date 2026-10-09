@@ -1,7 +1,5 @@
 {
   "version": 1,
-  "presentation_origin": 38084,
-  "session_origin": 34583,
   "updates": 1800,
   "inputs": [
     {
@@ -167,47 +165,5 @@
     "1540": "vi-1540",
     "1660": "vi-1660",
     "1780": "vi-1780"
-  },
-  "ambient_origin": {
-    "update": 0,
-    "samples": {},
-    "skit": {
-      "id": 600,
-      "remaining": 1498,
-      "opacity": 255,
-      "control_ticks": 7501,
-      "text_opacity": 255
-    }
-  },
-  "preview_origins": {
-    "820": {
-      "figurine": 12,
-      "tick": 79
-    },
-    "940": {
-      "figurine": 53,
-      "tick": 79
-    },
-    "1060": {
-      "figurine": 108,
-      "tick": 80
-    },
-    "1180": {
-      "figurine": 118,
-      "tick": 76
-    },
-    "1301": {
-      "figurine": 125,
-      "tick": 78
-    },
-    "1421": {
-      "figurine": 172,
-      "tick": 78
-    },
-    "1540": {
-      "figurine": 287,
-      "tick": 26
-    }
   }
 }
-

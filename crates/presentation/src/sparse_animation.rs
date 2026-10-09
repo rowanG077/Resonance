@@ -146,32 +146,69 @@ pub(super) fn sample(
         let &(entity, rest) = bones
             .get(usize::from(track.bone))
             .context("animation bone outside bound model")?;
-        let bind = PoseTransform {
-            translation: rest.translation.to_array(),
-            rotation: rest.rotation.to_array(),
-            scale: rest.scale.to_array(),
-        };
-        let pose = if track.matrices.is_some() {
-            affine::Pose::Affine(bevy::math::Affine3A::from_mat4(Mat4::from_cols_array_2d(
-                &track.sample_matrix(frame, bind)?,
-            )))
-        } else {
-            let pose = track.sample(frame, bind)?;
-            affine::Pose::Trs(Transform {
-                translation: Vec3::from_array(pose.translation),
-                rotation: Quat::from_array(pose.rotation),
-                scale: Vec3::from_array(pose.scale),
-            })
-        };
+        let pose = sample_track(track, frame, rest)?;
         affine.set(entity, &mut *nodes.get_mut(entity)?, pose);
     }
     Ok(())
+}
+
+pub(super) fn sample_track(
+    track: &resonance_content::animation::Track,
+    frame: f32,
+    rest: Transform,
+) -> Result<affine::Pose> {
+    let bind = PoseTransform {
+        translation: rest.translation.to_array(),
+        rotation: rest.rotation.to_array(),
+        scale: rest.scale.to_array(),
+    };
+    Ok(if track.matrices.is_some() {
+        affine::Pose::Affine(bevy::math::Affine3A::from_mat4(Mat4::from_cols_array_2d(
+            &track.sample_matrix(frame, bind)?,
+        )))
+    } else {
+        let pose = track.sample(frame, bind)?;
+        affine::Pose::Trs(Transform {
+            translation: Vec3::from_array(pose.translation),
+            rotation: Quat::from_array(pose.rotation),
+            scale: Vec3::from_array(pose.scale),
+        })
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn joint_twist_uses_the_bind_axes_without_moving_its_origin() {
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        let mut transform = Transform::from_xyz(4., 5., 6.)
+            .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2));
+        let mut locals = affine::Locals::default();
+        for affine_pose in [false, true] {
+            let rest = transform;
+            if affine_pose {
+                locals.set(
+                    entity,
+                    &mut transform,
+                    affine::Pose::Affine(rest.compute_affine()),
+                );
+            }
+            locals.rotate_local(entity, &mut transform, Quat::from_rotation_x(0.5));
+            let pose = locals.get(entity, transform).global();
+            assert!(pose.translation().abs_diff_eq(rest.translation, 0.00001));
+            assert!(
+                pose.affine()
+                    .transform_vector3(Vec3::X)
+                    .abs_diff_eq(Vec3::Z, 0.00001)
+            );
+            transform = rest;
+            locals = affine::Locals::default();
+        }
+    }
 
     #[test]
     fn indexed_binding_keeps_distinct_bones_with_repeated_names() {

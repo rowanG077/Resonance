@@ -270,6 +270,7 @@ impl Assets {
             stereo: true,
             levels: [127; 3],
             in_field: true,
+            skipping: Default::default(),
         };
         (
             FieldSource {
@@ -295,13 +296,18 @@ pub(super) struct Control {
     stereo: bool,
     levels: [u8; 3],
     in_field: bool,
+    skipping: Arc<AtomicBool>,
 }
 type Completions = Arc<Mutex<VecDeque<(u64, Arc<AtomicBool>)>>>;
 type VoiceRequests = Arc<Mutex<VecDeque<(u32, Arc<AtomicBool>)>>>;
 
 impl resonance_game::dialogue::VoiceFeedback for Control {
     fn begin(&self, resource: u32) -> Arc<AtomicBool> {
-        let complete = Arc::new(AtomicBool::new(false));
+        let skipping = self.skipping.load(Ordering::Acquire);
+        let complete = Arc::new(AtomicBool::new(skipping));
+        if skipping {
+            return complete;
+        }
         let mut requests = self
             .voice_requests
             .lock()
@@ -326,6 +332,18 @@ enum Message {
 #[derive(Resource, Default)]
 pub(super) struct Trace(pub Vec<serde_json::Value>);
 impl Control {
+    pub(super) fn set_skipping(&self, skipping: bool) -> Result<()> {
+        if self.skipping.swap(skipping, Ordering::AcqRel) != skipping && skipping {
+            for (_, token) in self.voice_requests.lock().unwrap().drain(..) {
+                token.store(true, Ordering::Release);
+            }
+            for (_, token) in self.completions.lock().unwrap().drain(..) {
+                token.store(true, Ordering::Release);
+            }
+            self.enqueue(Message::Script(AudioCommand::StopVoice))?;
+        }
+        Ok(())
+    }
     fn enqueue(&self, message: Message) -> Result<()> {
         self.send
             .try_send(message)
@@ -368,8 +386,15 @@ impl Control {
         }
         Ok(())
     }
-    fn send(&self, command: AudioCommand) -> Result<()> {
+    fn send(&self, mut command: AudioCommand) -> Result<()> {
         self.check()?;
+        if self.skipping.load(Ordering::Acquire) {
+            match &mut command {
+                AudioCommand::Voice(_) | AudioCommand::Sound { .. } => return Ok(()),
+                AudioCommand::MusicVolume { duration_ticks, .. } => *duration_ticks = 0,
+                _ => {}
+            }
+        }
         if let AudioCommand::Voice(id) = command {
             let mut requests = self
                 .voice_requests
@@ -641,7 +666,11 @@ impl Frames {
             }
             AudioCommand::StopVoice => self.voice = None,
             AudioCommand::SelectBank(bank) => {
-                ensure!(bank == 0 || bank == 2, "uncooked event sound bank {bank}")
+                // The native selector addresses eight event banks. The cooker
+                // resolves each cue's unique owner across that complete table;
+                // all sounds needed by this field are already resident, so a
+                // bank switch needs no additional load or playback change.
+                ensure!(bank < 8, "invalid event sound bank {bank}")
             }
         }
         Ok(())
@@ -939,13 +968,6 @@ pub(super) fn update(world: &mut World) {
                     .voice_feedback = Some(Arc::new(control));
             }
         }
-        let commands = std::mem::take(
-            &mut world
-                .resource_mut::<super::new_game::Session>()
-                .events_mut()
-                .world
-                .audio_commands,
-        );
         let owner = world.resource::<super::new_game::Session>();
         let preferences = owner
             .events()
@@ -981,25 +1003,7 @@ pub(super) fn update(world: &mut World) {
         let session = world.resource::<super::new_game::Session>();
         let movie_active = session.movie_owns_audio() || session.events().world.blocked_by_movie();
         world.resource_mut::<Control>().movie(movie_active)?;
-        if world.contains_resource::<Trace>() {
-            let tick = world.resource::<super::new_game::Session>().events().tick();
-            let frame = world.resource::<Control>().rendered_frames();
-            let mut trace = world.resource_mut::<Trace>();
-            ensure!(
-                trace.0.len() + commands.len() <= 4096,
-                "field audio evidence limit exceeded"
-            );
-            for command in &commands {
-                trace.0.push(serde_json::json!({"tick":tick,"source_frame":frame,"command":format!("{command:?}")}));
-            }
-        }
-        let control = world
-            .get_resource::<Control>()
-            .context("field audio session is unavailable")?;
-        control.check()?;
-        for command in commands {
-            control.send(command)?;
-        }
+        flush_commands(world)?;
         Ok(())
     })();
     if let Err(error) = result {
@@ -1012,10 +1016,41 @@ pub(super) fn update(world: &mut World) {
     }
 }
 
+fn flush_commands(world: &mut World) -> Result<()> {
+    let commands = std::mem::take(
+        &mut world
+            .resource_mut::<super::new_game::Session>()
+            .events_mut()
+            .world
+            .audio_commands,
+    );
+    if world.contains_resource::<Trace>() {
+        let tick = world.resource::<super::new_game::Session>().events().tick();
+        let frame = world.resource::<Control>().rendered_frames();
+        let mut trace = world.resource_mut::<Trace>();
+        ensure!(
+            trace.0.len() + commands.len() <= 4096,
+            "field audio evidence limit exceeded"
+        );
+        for command in &commands {
+            trace.0.push(serde_json::json!({"tick":tick,"source_frame":frame,"command":format!("{command:?}")}));
+        }
+    }
+    let control = world
+        .get_resource::<Control>()
+        .context("field audio session is unavailable")?;
+    control.check()?;
+    for command in commands {
+        control.send(command)?;
+    }
+    Ok(())
+}
+
 /// Field effects and dialogue end at the boundary; music and its clock survive.
 pub(super) fn leave_field(world: &mut World) -> Result<()> {
-    if let Some(mut control) = world.get_resource_mut::<Control>() {
-        control.leave_field()?;
+    if world.contains_resource::<Control>() {
+        flush_commands(world)?;
+        world.resource_mut::<Control>().leave_field()?;
     }
     Ok(())
 }
@@ -1059,6 +1094,7 @@ pub(super) fn acknowledge(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resonance_events::input::{Button, Buttons};
 
     #[test]
     #[ignore = "requires RESONANCE_WORLD_ASSETS; synthesizes native world music and vehicles without a device"]
@@ -1269,6 +1305,139 @@ mod tests {
         control.check().unwrap();
         drop(control);
         assert!(frames.frame().unwrap().is_none());
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS with the Tower of Salvation; no devices"]
+    fn salvation_scene_keeps_kratos_theme_audible_after_battle() -> Result<()> {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("RESONANCE_TEST_ASSETS").context("set RESONANCE_TEST_ASSETS")?,
+        );
+        let mut field = crate::field_test::Scene::story(&root, 535, 2_302_000, |entry| {
+            entry.persistent.party.as_mut().unwrap().formation = vec![1, 2, 3, 4, 9];
+            Ok(())
+        })?;
+        let mut heard_introduction = false;
+        let battles = field.replay(|field| {
+            if field.events.world.dialogue.values().any(|d| d.body.tokens.iter().any(|token| {
+                matches!(token, resonance_events::dialogue::TextToken::Text { text } if text.contains("I am of Cruxis"))
+            })) {
+                heard_introduction = true;
+                assert_eq!(field.audio.frames.music_id, Some(106));
+                assert!(field.audio.frames.fade.value() > 0.5, "Kratos theme was muted after the battle");
+            }
+            Ok(field.events.world.field_transition.is_some())
+        })?;
+        assert!(heard_introduction);
+        assert_eq!(battles, 3);
+        assert_eq!(field.story_progress()?, 2_306_000);
+        assert_eq!(
+            field.events.world.field_transition.as_ref().unwrap().map,
+            277
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires RESONANCE_TEST_ASSETS with Triet; no window or audio device"]
+    fn colette_room_exit_restores_inn_music_before_the_next_scene() -> Result<()> {
+        use crate::new_game::{FieldPackage, Session};
+        use resonance_game::field::{FieldEntry, FieldInput};
+
+        let mut app = crate::movie::tests::fixture();
+        let root = app.world().resource::<crate::RunOptions>().assets.clone();
+        let mut session = Session::load(&root)?;
+        let package = FieldPackage::prepare(&root, 528, &mut Default::default(), || false)?;
+        let mut persistent = session.field.events.persistent_state()?;
+        persistent
+            .memory
+            .write(0x40, symphonia_script::Width::S32, 1_203_000)?;
+        session.field = package.enter(FieldEntry {
+            persistent,
+            data: Some(Arc::new(package.files.json("game/session-data.json")?)),
+            available_fields: crate::new_game::available_fields(&root)?,
+            ..Default::default()
+        })?;
+        session.assets = package.assets.clone();
+        let mut audio = validation::Playback::new((*package.audio).clone(), &mut session.field);
+        app.insert_resource(session);
+        app.insert_resource(audio.control.clone());
+        let mut heard_scene_music = false;
+        for tick in 0..5000 {
+            app.world_mut()
+                .resource_mut::<Session>()
+                .field
+                .step(FieldInput {
+                    pressed_buttons: Buttons::default().with(Button::Accept, tick % 2 == 0),
+                    held_buttons: Buttons::default().with(Button::Accept, true),
+                    ..Default::default()
+                })?;
+            let exiting = app
+                .world()
+                .resource::<Session>()
+                .events()
+                .world
+                .field_transition
+                .is_some();
+            if exiting {
+                // Exercise the production scene handoff before its usual audio update.
+                let start = std::time::Instant::now();
+                while app.world().resource::<Session>().field.map_id == 528 {
+                    crate::new_game::transition(app.world_mut());
+                    ensure!(start.elapsed().as_secs() < 30, "inn transition stalled");
+                    std::thread::yield_now();
+                }
+            } else {
+                flush_commands(app.world_mut())?;
+            }
+            audio.advance()?;
+            heard_scene_music |= audio.frames.music_id == Some(51);
+            if exiting {
+                break;
+            }
+        }
+        assert!(heard_scene_music);
+        assert_eq!(app.world().resource::<Session>().field.map_id, 526);
+        assert_eq!(audio.frames.music_id, Some(8));
+
+        // The next room inherits the same mixer; its script only changes volume.
+        let package = FieldPackage::prepare(&root, 529, &mut Default::default(), || false)?;
+        let persistent = app
+            .world()
+            .resource::<Session>()
+            .field
+            .events
+            .persistent_state()?;
+        app.world_mut().resource_mut::<Session>().field = package.enter(FieldEntry {
+            persistent,
+            data: Some(Arc::new(package.files.json("game/session-data.json")?)),
+            available_fields: crate::new_game::available_fields(&root)?,
+            ..Default::default()
+        })?;
+        app.world_mut()
+            .resource_mut::<Control>()
+            .enter_field((*package.audio).clone())?;
+        for tick in 0..5000 {
+            app.world_mut()
+                .resource_mut::<Session>()
+                .field
+                .step(FieldInput {
+                    pressed_buttons: Buttons::default().with(Button::Accept, tick % 2 == 0),
+                    held_buttons: Buttons::default().with(Button::Accept, true),
+                    ..Default::default()
+                })?;
+            flush_commands(app.world_mut())?;
+            audio.advance()?;
+            assert_eq!(audio.frames.music_id, Some(8));
+            if app.world().resource::<Session>().field.story_progress()? == 1_204_000 {
+                break;
+            }
+        }
+        assert_eq!(
+            app.world().resource::<Session>().field.story_progress()?,
+            1_204_000
+        );
+        Ok(())
     }
 
     #[test]

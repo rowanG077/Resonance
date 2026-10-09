@@ -113,21 +113,14 @@ impl Drawing<'_> {
         match shop.focus {
             Focus::Root => {}
             Focus::Confirm { yes } => {
-                self.highlight([284., if yes { 372. } else { 400. }, 72., 24.], 255);
-                for (key, y) in [
-                    ("shop_confirm", 336.),
-                    ("shop_yes", 372.),
-                    ("shop_no", 400.),
-                ] {
-                    let label = &self.spec.labels[key];
-                    self.text(
-                        label,
-                        [((640. - self.text_width(label, 24.)?) / 2.).floor(), y],
-                        24.,
-                        WHITE,
-                    )?;
-                }
-                anchor = [284., if yes { 380. } else { 408. } + self.offset[1]];
+                anchor = self.shop_confirmation(
+                    [
+                        &self.spec.labels["shop_confirm"],
+                        &self.spec.labels["shop_yes"],
+                        &self.spec.labels["shop_no"],
+                    ],
+                    yes,
+                )?;
             }
             Focus::Empty => {
                 let label = &self.spec.labels["shop_empty"];
@@ -142,36 +135,13 @@ impl Drawing<'_> {
                 )?;
             }
             _ => {
-                for (description, alpha) in [
-                    (shop.description_previous, 255 - shop.description_opacity),
-                    (
-                        shop.description(),
-                        crossfade_opacity(shop.description_opacity, opacity),
-                    ),
-                ] {
-                    self.opacity = alpha;
-                    match description {
-                        Description::None => {}
-                        Description::Category(category) => {
-                            let label = &data.inventory_categories[category];
-                            self.text(
-                                label,
-                                [(306. - self.text_width(label, 24.)? / 2.).trunc(), 368.],
-                                24.,
-                                WHITE,
-                            )?;
-                        }
-                        Description::Item(id)
-                            if shop.statistics
-                                && shop.resources.session.items[usize::from(id)]
-                                    .equipment_kind
-                                    .is_some() =>
-                        {
-                            self.shop_item_statistics(shop, id)?
-                        }
-                        Description::Item(id) => self.item_description_data(data, id)?,
-                    }
-                }
+                self.shop_description(
+                    &shop.resources,
+                    [shop.description_previous, shop.description()],
+                    shop.description_opacity,
+                    opacity,
+                    shop.statistics,
+                )?;
             }
         }
         self.offset = [0.; 2];
@@ -179,7 +149,59 @@ impl Drawing<'_> {
         Ok(anchor)
     }
 
-    fn shop_heading(&mut self, text: &str) -> Result<()> {
+    pub(super) fn shop_confirmation(&mut self, labels: [&str; 3], yes: bool) -> Result<[f32; 2]> {
+        let y = if yes { 372. } else { 400. };
+        self.highlight([284., y, 72., 24.], 255);
+        for (label, y) in labels.into_iter().zip([336., 372., 400.]) {
+            self.text(
+                label,
+                [((640. - self.text_width(label, 24.)?) / 2.).floor(), y],
+                24.,
+                WHITE,
+            )?;
+        }
+        Ok([284., y + 8. + self.offset[1]])
+    }
+    pub(super) fn shop_description(
+        &mut self,
+        resources: &resonance_game::menu::Resources,
+        descriptions: [Description; 2],
+        fade: u8,
+        opacity: u8,
+        statistics: bool,
+    ) -> Result<()> {
+        let data = &resources.data;
+        for (description, alpha) in [
+            (descriptions[0], 255 - fade),
+            (descriptions[1], crossfade_opacity(fade, opacity)),
+        ] {
+            self.opacity = alpha;
+            match description {
+                Description::None => {}
+                Description::Category(category) => {
+                    let label = &data.inventory_categories[category];
+                    self.text(
+                        label,
+                        [(306. - self.text_width(label, 24.)? / 2.).trunc(), 368.],
+                        24.,
+                        WHITE,
+                    )?;
+                }
+                Description::Item(id)
+                    if statistics
+                        && resources.session.items[usize::from(id)]
+                            .equipment_kind
+                            .is_some() =>
+                {
+                    self.item_statistics_data(resources, id)?
+                }
+                Description::Item(id) => self.item_description_data(data, id)?,
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn shop_heading(&mut self, text: &str) -> Result<()> {
         let x = if let Some(index) = self.window().heading {
             self.quad(
                 texture_layer(index),
@@ -465,10 +487,14 @@ impl Drawing<'_> {
         Ok(())
     }
 
-    fn shop_item_statistics(&mut self, shop: &Shop, id: u16) -> Result<()> {
-        let item = &shop.resources.data.items[usize::from(id)];
-        let lloyd_swords = shop.resources.session.items[usize::from(id)].equipment_kind == Some(0)
-            && shop.resources.session.items[usize::from(id)].allowed_characters & 1 != 0;
+    pub(super) fn item_statistics_data(
+        &mut self,
+        resources: &resonance_game::menu::Resources,
+        id: u16,
+    ) -> Result<()> {
+        let item = &resources.data.items[usize::from(id)];
+        let lloyd_swords = resources.session.items[usize::from(id)].equipment_kind == Some(0)
+            && resources.session.items[usize::from(id)].allowed_characters & 1 != 0;
         self.sprite_rect(
             self.spec.sprites.item_images[usize::from(id)],
             [36., 348., 100., 412.],
@@ -536,7 +562,7 @@ impl Drawing<'_> {
             )?;
             self.opacity = opacity;
         }
-        let category = &shop.resources.data.item_categories[usize::from(item.category)];
+        let category = &resources.data.item_categories[usize::from(item.category)];
         self.text(
             category,
             [612. - self.text_width(category, 20.)?, 344.],

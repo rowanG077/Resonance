@@ -65,6 +65,17 @@ pub(super) fn bones(
             }
             continue;
         }
+        if actor
+            .appearance
+            .bone_adjustments
+            .values()
+            .any(|a| a.translation.is_some())
+            && let Some(rig) = rig
+        {
+            for bone in (0..).map_while(|i| rig.bone_at(i)) {
+                affine.translation_boundary(bone);
+            }
+        }
         for (&slot, adjustment) in &actor.appearance.bone_adjustments {
             let entity = match &adjustment.bone {
                 resonance_events::BoneTarget::Index(index) => {
@@ -78,23 +89,86 @@ pub(super) fn bones(
                 && let Ok(mut transform) = nodes.get_mut(entity)
             {
                 saved.0.entry(entity).or_insert(*transform);
-                rotate_bone(
+                adjust_bone(
                     entity,
                     &mut transform,
                     &mut affine,
                     adjustment,
+                    rig.and_then(|rig| rig.bind_scale(entity))
+                        .expect("resolved rig bone"),
                     state.get().events.tick(),
                 );
-                if adjustment.translation.is_some() {
-                    affine.translate(
-                        entity,
-                        &mut transform,
-                        Vec3::from_array(adjustment.translation(state.get().events.tick())),
-                    );
-                }
                 applied.ack(Request::Bone(part.actor, part.part, slot));
             }
         }
+    }
+}
+
+pub(super) fn outlines(
+    art: Res<super::field_view::Art>,
+    actors: Query<(&ActorPart, &super::field_animation::Rig)>,
+    mut transforms: ParamSet<(TransformHelper, ResMut<Locals>)>,
+) {
+    let helper = transforms.p0();
+    let primary: BTreeMap<_, Vec<_>> = actors
+        .iter()
+        .filter(|(part, _)| part.part == 0 && part.prepared)
+        .map(|(part, rig)| {
+            let matrices = (0..)
+                .map_while(|i| rig.bone_at(i))
+                .map(|bone| {
+                    helper
+                        .compute_global_transform(bone)
+                        .expect("prepared bone")
+                })
+                .collect();
+            (part.actor, matrices)
+        })
+        .collect();
+    let mut poses = Vec::new();
+    for (part, rig) in &actors {
+        if !part.prepared
+            || art.models[&part.resource][part.part]
+                .spec
+                .outline_color
+                .is_none()
+        {
+            continue;
+        }
+        let Some(primary) = primary.get(&part.actor) else {
+            continue;
+        };
+        poses.extend(
+            primary
+                .iter()
+                .enumerate()
+                .filter_map(|(i, pose)| rig.bone_at(i as u16).map(|bone| (bone, *pose))),
+        );
+    }
+    let mut affine = transforms.p1();
+    for (bone, pose) in poses {
+        affine.set_world(bone, pose);
+    }
+}
+
+pub(super) fn adjust_bone(
+    entity: Entity,
+    transform: &mut Transform,
+    affine: &mut Locals,
+    adjustment: &resonance_events::BoneAdjustment,
+    bind_scale: Vec3,
+    tick: u32,
+) {
+    rotate_bone(entity, transform, affine, adjustment, tick);
+    if let Some(scale) = &adjustment.scale {
+        affine.scale(
+            entity,
+            transform,
+            Vec3::from_array(scale.sample(tick, bind_scale.to_array())),
+        );
+    }
+    if adjustment.translation.is_some() {
+        affine.translate(entity, Vec3::from_array(adjustment.translation(tick)));
     }
 }
 
@@ -114,54 +188,91 @@ fn rotate_bone(
         pose.rotation = rotation;
         affine.set(entity, transform, Pose::Trs(pose));
     } else if [x, y, z] != [0.; 3] {
-        affine.rotate(entity, transform, rotation);
+        affine.rotate_local(entity, transform, rotation);
     }
+}
+
+#[derive(Component)]
+pub(super) struct AttachmentFrame {
+    actor: i32,
+    bone: String,
+    parent: Transform,
 }
 
 #[allow(clippy::type_complexity)] // Read attachment world poses before writing their local transforms.
 pub(super) fn attachments(
+    mut commands: Commands,
     state: State,
-    actors: Query<(Entity, &ActorPart)>,
+    actors: Query<(Entity, &ActorPart, Option<&AttachmentFrame>)>,
     children: Query<&Children>,
     names: Query<&Name>,
     mut transforms: ParamSet<(TransformHelper, (Query<&mut Transform>, ResMut<Locals>))>,
     mut applied: ResMut<Applied>,
 ) {
     let mut targets = Vec::new();
+    let mut parents = BTreeMap::new();
+    let world = &state.get().events.world;
+    let mut ordered: Vec<_> = actors.iter().collect();
+    ordered.sort_by_key(|(_, part, _)| {
+        std::iter::successors(Some(part.actor), |id| {
+            world.actors.get(id)?.attachment.as_ref().map(|a| a.actor)
+        })
+        .take(world.actors.len())
+        .count()
+    });
     let helper = transforms.p0();
-    for (root, part) in &actors {
-        let Some(actor) = state.get().events.world.actors.get(&part.actor) else {
+    for (root, part, retained) in ordered {
+        let Some(actor) = world.actors.get(&part.actor) else {
             continue;
         };
-        let Some(attachment) = &actor.attachment else {
+        let Some(attachment) = actor
+            .wings
+            .as_ref()
+            .and_then(|w| w.layer(part.pass, world.effect_tick).echo)
+            .map_or(actor.attachment.as_ref(), |echo| echo.attachment.as_ref())
+        else {
             continue;
         };
         let owner = actors
             .iter()
-            .find(|(_, other)| other.actor == attachment.actor && other.part == 0);
-        let Some((owner, owner_part)) = owner else {
-            continue;
-        };
-        if !part.prepared || !owner_part.prepared {
+            .find(|(_, other, _)| other.actor == attachment.actor && other.part == 0);
+        if !part.prepared || owner.is_some_and(|(_, owner, _)| !owner.prepared) {
             applied.loading(Request::Attachment(part.actor, part.part));
             continue;
         }
-        let bone = children.iter_descendants(owner).find(|entity| {
-            names
-                .get(*entity)
-                .is_ok_and(|name| name.as_str() == attachment.bone)
-        });
-        if let Some(bone) = bone
-            && let Ok(pose) = helper.compute_global_transform(bone)
-        {
-            let local = Transform::from_translation(Vec3::from_array(actor.position))
-                .with_rotation(Quat::from_rotation_z(actor.heading.to_radians()));
-            let pose = pose.mul_transform(local);
-            let target = if helper.has_affine(bone) {
-                Pose::Affine(pose.affine())
-            } else {
-                Pose::Trs(pose.compute_transform())
+        let parent = if let Some((owner, _, _)) = owner {
+            children.iter_descendants(owner).find_map(|entity| {
+                names
+                    .get(entity)
+                    .ok()
+                    .filter(|name| name.as_str() == attachment.bone)?;
+                let pose = helper.global_with(entity, &parents).ok()?;
+                Some(
+                    Transform::from_translation(pose.translation())
+                        .with_rotation(super::sparse_animation::affine::rotation(pose.affine())),
+                )
+            })
+        } else {
+            // Triet removes and recreates Colette while her wings remain;
+            // retain the last resolved frame during that gap. A never-resolved
+            // or changed attachment still fails the ordinary presentation audit.
+            retained
+                .filter(|frame| frame.actor == attachment.actor && frame.bone == attachment.bone)
+                .map(|frame| frame.parent)
+        };
+        if let Some(parent) = parent {
+            commands.entity(root).insert(AttachmentFrame {
+                actor: attachment.actor,
+                bone: attachment.bone.clone(),
+                parent,
+            });
+            // sync() already applied the child's own scale, Euler rotation,
+            // fixed facing and visual displacement to its root.
+            let Ok(local) = helper.local(root) else {
+                continue;
             };
+            let target = Pose::Affine(parent.compute_affine() * local.global().affine());
+            parents.insert(root, target);
             targets.push((root, part.actor, part.part, target));
         }
     }
@@ -199,6 +310,7 @@ mod tests {
                 duration_ticks: 1,
                 start_tick: 0,
                 translation: None,
+                scale: None,
             };
             let mut pose = rest;
             rotate_bone(entity, &mut pose, &mut affine, &adjustment, 0);

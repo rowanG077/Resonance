@@ -1,5 +1,6 @@
 use super::*;
 use resonance_content::figurine::Figurine;
+use resonance_events::input::Button;
 
 pub const VISIBLE: usize = 12;
 
@@ -36,7 +37,7 @@ impl Menu {
         if state.view.advance_model(state.row) {
             return None;
         }
-        if input.cancel {
+        if input.pressed(Button::Cancel) {
             state.view.page_closing = true;
             return Some(3);
         }

@@ -8,7 +8,7 @@ use bevy::{
 
 use resonance_content::{HEIGHT, SCENE_HEIGHT, WIDTH};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct Resolution {
     pub width: u32,
     pub height: u32,

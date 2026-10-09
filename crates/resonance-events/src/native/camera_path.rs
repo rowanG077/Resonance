@@ -37,6 +37,26 @@ impl NativeHost<'_> {
             // Preserve signed endpoints: a pan from 15 to -15 crosses zero.
             14 => path.angles.request(xyz.map(|v| v % 360.), a[4])?,
             18 => self.registers[..3].copy_from_slice(&path.angles.value.map(|v| v as i32)),
+            19 => {
+                let actor = if a[1] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[1]
+                };
+                let actor = self
+                    .world
+                    .actors
+                    .get(&actor)
+                    .ok_or("camera aim actor is missing")?;
+                let [x, y, z] = std::array::from_fn(|i| {
+                    actor.position[i] + a[i + 2] as f32 - path.position.value[i] as f32
+                });
+                self.registers[..3].copy_from_slice(&[
+                    x.hypot(y).atan2(-z).to_degrees() as i32,
+                    0,
+                    (-x).atan2(y).to_degrees().rem_euclid(360.) as i32,
+                ]);
+            }
             _ => return Err(format!("camera path command {} is not implemented", a[0])),
         }
         Ok(())

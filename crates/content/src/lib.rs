@@ -1,6 +1,7 @@
 //! Cooked asset contracts shared by the importer and game.
 use serde::{Deserialize, Serialize};
 pub mod animation;
+pub mod appearance;
 pub mod effect;
 pub mod field;
 pub mod field_audio;
@@ -198,7 +199,7 @@ pub struct ScenePart {
     /// A node toggle affects its attached geometry, not its skeletal children.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub material_nodes: Vec<Vec<u16>>,
-    /// Constant-color inverted hull, when this layer supplies actor outlines.
+    /// Color for untextured draws in this layer's inverted outline hull.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline_color: Option<[u8; 4]>,
     #[serde(
@@ -206,6 +207,13 @@ pub struct ScenePart {
         skip_serializing_if = "secondary_motion::Definition::is_empty"
     )]
     pub secondary_motion: secondary_motion::Definition,
+}
+
+impl ScenePart {
+    pub fn outline_color_for(&self, material: &SceneMaterial) -> Option<[u8; 4]> {
+        self.outline_color
+            .filter(|_| material.color.is_none() && material.multiply.is_none())
+    }
 }
 
 /// Optional vertical atlas channels supplied by character model metadata.
@@ -278,6 +286,8 @@ impl SceneClip {
 /// Ordinary material recipes. Original GPU command words stay in the importer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneMaterial {
+    #[serde(default, skip_serializing_if = "SceneImage::is_palette")]
+    pub image: SceneImage,
     pub color: Option<TextureBinding>,
     pub multiply: Option<TextureBinding>,
     pub vertex_color: bool,
@@ -287,6 +297,19 @@ pub struct SceneMaterial {
     pub cull: CullFace,
     /// Authored scene draw sequence; lower values draw first.
     pub draw_order: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SceneImage {
+    #[default]
+    Palette,
+    Capture,
+}
+impl SceneImage {
+    fn is_palette(&self) -> bool {
+        *self == Self::Palette
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -437,6 +460,11 @@ impl TitleAssets {
                 );
                 for material in &part.materials {
                     anyhow::ensure!(
+                        material.image != SceneImage::Capture
+                            || material.color.is_none() && material.multiply.is_none(),
+                        "scene capture cannot also bind a palette"
+                    );
+                    anyhow::ensure!(
                         draw_orders.insert(material.draw_order),
                         "duplicate authored scene draw order"
                     );
@@ -494,3 +522,6 @@ pub struct ScriptAsset {
     pub path: String,
     pub sha256: String,
 }
+
+#[cfg(feature = "test-support")]
+pub mod test_support;

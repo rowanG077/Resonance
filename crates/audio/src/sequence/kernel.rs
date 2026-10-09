@@ -67,10 +67,10 @@ impl<'a> Kernel<'a> {
         // Toggle musical clocks on a loop so held notes retain their pre-loop
         // note-off deadlines while new notes use the rewound timeline.
         let time = [0u64; 2];
-        let increments = [match clock_start {
-            ClockStart::Cold => 0,
-            ClockStart::Running => tick_delta(bpm),
-        }; 2];
+        let increments = match clock_start {
+            ClockStart::Cold => [0; 2],
+            ClockStart::Running => [tick_delta(bpm); 2],
+        };
         let clock = 0;
         let voices: Vec<Active<'_>> = Vec::with_capacity(64);
         // Allocate from a FIFO; reused slots retain audible LFO phase.
@@ -132,14 +132,18 @@ impl<'a> Kernel<'a> {
     }
     pub(super) fn sync_slots(&mut self) {
         let Some(random) = &self.random else { return };
-        for active in self.voices.iter_mut().filter(|v| !v.retired) {
-            if !random.owns(active.lease.unwrap()) {
+        for active in &mut self.voices {
+            let lease = active.lease.unwrap();
+            if !random.current(lease) || !active.retired && !random.owns(lease) {
                 active.voice.kill();
                 active.retired = true;
             }
         }
-        self.studio_order
-            .retain(|slot| self.voices.iter().any(|v| !v.retired && v.slot == *slot));
+        self.studio_order.retain(|slot| {
+            self.voices
+                .iter()
+                .any(|v| v.voice.studio_active() && v.slot == *slot)
+        });
     }
     pub(super) fn wakes(&self) -> impl Iterator<Item = (shared::Lease, shared::Wake)> + '_ {
         self.voices
@@ -264,19 +268,16 @@ impl<'a> Kernel<'a> {
     pub(super) fn source_changes(
         &mut self,
     ) -> impl Iterator<Item = (shared::Lease, u64, bool)> + '_ {
-        self.voices
-            .iter_mut()
-            .filter(|v| !v.retired)
-            .filter_map(|v| {
-                v.voice
-                    .take_source_change()
-                    .map(|(order, start)| (v.lease.unwrap(), order, start))
-            })
+        self.voices.iter_mut().filter_map(|v| {
+            v.voice
+                .take_source_change()
+                .map(|(order, start)| (v.lease.unwrap(), order, start))
+        })
     }
     pub(super) fn source_priority(&self, slot: shared::Lease) -> Option<u32> {
         self.voices
             .iter()
-            .find(|v| !v.retired && v.lease == Some(slot))
+            .find(|v| v.lease == Some(slot))
             .filter(|v| v.voice.studio_active())
             .map(|v| v.voice.priority())
     }
@@ -335,6 +336,10 @@ impl<'a> Kernel<'a> {
                             let slot = self.available.pop_front().ok_or_else(|| {
                                 anyhow::anyhow!("preview needs voice allocation/stealing")
                             })?;
+                            // Reusing the macro slot also replaces its old DSP source.
+                            for previous in self.voices.iter_mut().filter(|v| v.slot == slot) {
+                                previous.voice.kill();
+                            }
                             (slot, None, self.retained_lfo[slot])
                         };
                         if let Some(random) = &self.random {
@@ -448,7 +453,11 @@ impl<'a> Kernel<'a> {
         for (time_value, increment) in self.time.iter_mut().zip(self.increments) {
             *time_value += increment;
         }
-        for active in self.voices.iter_mut().filter(|v| !v.retired) {
+        for active in self
+            .voices
+            .iter_mut()
+            .filter(|v| !v.retired || v.voice.source_active())
+        {
             if let Some(controls) = &mut active.sound_controls {
                 controls.group_volume = input.volume;
                 controls.mono = input.mono;
@@ -457,7 +466,7 @@ impl<'a> Kernel<'a> {
                 }
             }
             active.voice.set_tempo(self.bpm);
-            if self.random.is_some() {
+            if self.random.is_some() && !active.retired {
                 active.voice.defer_commands();
             }
         }
@@ -478,7 +487,11 @@ impl<'a> Kernel<'a> {
             self.frame = frame + 1;
             let mut finished = Vec::new();
             let mut source_before = [false; 64];
-            for active in self.voices.iter().filter(|v| !v.retired) {
+            for active in self
+                .voices
+                .iter()
+                .filter(|v| !v.retired || v.voice.source_active())
+            {
                 source_before[active.slot] = active.voice.source_active();
             }
             if frame.is_multiple_of(32) {
@@ -515,7 +528,11 @@ impl<'a> Kernel<'a> {
                     }
                 }
             }
-            for active in self.voices.iter_mut().filter(|v| !v.retired) {
+            for active in self
+                .voices
+                .iter_mut()
+                .filter(|v| !v.retired || v.voice.source_active())
+            {
                 let was_active = source_before[active.slot];
                 active.voice.prepare_frame(
                     active
@@ -533,12 +550,12 @@ impl<'a> Kernel<'a> {
                         self.studio_order.insert(0, active.slot);
                     }
                 }
-                if active.voice.is_done() {
+                self.retained_lfo[active.slot] = active.voice.retained_lfo();
+                if active.voice.is_done() && !active.retired {
                     active.retired = true;
                     if let Some(result) = &mut self.result {
                         result.voice_lifetimes[active.lifetime].end_frame = Some(frame as u32);
                     }
-                    self.retained_lfo[active.slot] = active.voice.retained_lfo();
                     finished.push(active.slot);
                 }
             }
@@ -569,13 +586,12 @@ impl<'a> Kernel<'a> {
         let mut ordered: Vec<_> = self
             .studio_order
             .iter()
-            .map(|&slot| {
-                let active = self
+            .filter_map(|&slot| {
+                let index = self
                     .voices
                     .iter()
-                    .find(|v| v.slot == slot && !v.retired)
-                    .unwrap();
-                (slot, active.voice.priority())
+                    .position(|v| v.slot == slot && v.voice.studio_active())?;
+                Some((index, self.voices[index].voice.priority()))
             })
             .collect();
         crate::voice_order::completion_order(&mut ordered);
@@ -583,23 +599,20 @@ impl<'a> Kernel<'a> {
         for active in &mut self.voices {
             active.voice.mix_block(&mut block)?;
         }
-        for (slot, _) in ordered {
-            let active = self
-                .voices
-                .iter()
-                .find(|v| v.slot == slot && !v.retired)
-                .unwrap();
+        for (index, _) in ordered {
+            let active = &self.voices[index];
             if !active.voice.source_active() {
-                self.studio_order.retain(|&s| s != slot);
-                if active.voice.waits_for_sample_end() {
-                    self.callbacks.push(slot);
+                self.studio_order.retain(|&s| s != active.slot);
+                if !active.retired && active.voice.waits_for_sample_end() {
+                    self.callbacks.push(active.slot);
                 }
             }
         }
-        self.voices.retain(|active| !active.retired);
+        self.voices
+            .retain(|active| !active.retired || active.voice.source_active());
         let length = ((self.frame - 1) % 160 + 1) as usize;
-        // Source handles end with their macros. The shared studio owns
-        // reverb tails; silent padding must not retain voice priority.
+        // Macro slots are already free; drain only real DSP samples before
+        // ending the output. Reverb tails belong to the shared studio.
         self.ended = !self.looping && self.events.peek().is_none() && self.voices.is_empty();
         self.block = block;
         Ok(Some(&self.block[..length]))

@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Start toggles the party statistics display; Status switches between statistics and equipment traits, changes character, opens titles and returns to the main menu.",
-  "registration": "Use the observed school-grounds save and session clock. Initial native menu input at update 40 allows checkpoint setup; subsequent inputs use source poll/2. Compare complete native-resolution menu images and independently observed display-page state. VI 1360 and 1560 are recorded presentations; the preceding round-number VIs fall in source loading gaps.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/paired-synopsis-party-v2.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "statistics-keyboard.json",
-    "sha256": "5efb9ba5174691e8667baa4c52b6aa61d79b91c47fe95edee61d20350710010b"
+    "sha256": "d9a5b9f7fdfdb9b7ad2f6a3c2043c839c816b449a4948a1802e761094b40a664"
   },
   "dolphin": {
     "state": {

@@ -10,9 +10,9 @@ mod embedded;
 #[cfg(test)]
 pub(crate) use embedded::cook_tables;
 pub(crate) use embedded::{
-    Catalogues, cooking_ui, ex_skills, figurine_catalogue, inventory_ui, monster_catalogue,
-    options_ui, rename_ui, save_menu, shop_ui, status_ui, strategy_ui, synopsis, technique_ui,
-    title_catalogue, ui_style, world_map,
+    Catalogues, cooking_ui, crafting, ex_skills, figurine_catalogue, inventory_ui,
+    monster_catalogue, options_ui, rename_ui, save_menu, shop_ui, status_ui, strategy_ui, synopsis,
+    technique_ui, title_catalogue, ui_style, world_map,
 };
 mod exclusions;
 mod field;
@@ -1197,7 +1197,10 @@ pub(crate) fn cook_script(bytes: &[u8], name: &str, output: &Path) -> Result<boo
     let Some(script) = decode_script(bytes)? else {
         return Ok(false);
     };
-    write_atomic(&output.join(name).join("script.ssb"), script.bytes)?;
+    write_atomic(
+        &output.join(name).join("script.ssb"),
+        &crate::field_script::prepare(script.bytes),
+    )?;
     write_atomic(
         &output.join(name).join("messages.json"),
         &serde_json::to_vec(&script.messages)?,

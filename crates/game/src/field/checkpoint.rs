@@ -19,6 +19,15 @@ pub struct FieldCheckpoint {
 }
 impl FieldSession {
     pub fn checkpoint(&self) -> Result<FieldCheckpoint> {
+        let checkpoint = self.player_menu_checkpoint()?;
+        ensure!(
+            checkpoint.camera.is_some(),
+            "quicksave requires the ordinary player-follow camera"
+        );
+        Ok(checkpoint)
+    }
+
+    pub(super) fn player_menu_checkpoint(&self) -> Result<FieldCheckpoint> {
         ensure!(
             self.authored_entry.is_none(),
             "quicksave unavailable before an authored entry event"
@@ -28,10 +37,14 @@ impl FieldSession {
             "quicksave unavailable during skit playback"
         );
         ensure!(
-            self.menu.is_none() && self.shop.is_none() && self.events.world.menu_request.is_none(),
+            !self.menu_is_open() && self.events.world.menu_request.is_none(),
             "quicksave unavailable while a menu is open"
         );
         let world = &self.events.world;
+        ensure!(
+            !world.menu_blocked(),
+            "quicksave unavailable while a field effect owns the menu"
+        );
         ensure!(
             world.field_transition.is_none() && world.world_transition.is_none(),
             "quicksave unavailable during a field transition"
@@ -64,8 +77,8 @@ impl FieldSession {
         self.menu_checkpoint()
     }
 
-    /// Menus can edit party progress while a script owns the field. Only
-    /// checkpoint() applies the additional restrictions for a restartable save.
+    /// Script-opened menus can edit party progress while an event owns the field.
+    /// The player menu and quicksave apply their additional restrictions above.
     pub(super) fn menu_checkpoint(&self) -> Result<FieldCheckpoint> {
         let world = &self.events.world;
         let actor = world
@@ -83,14 +96,14 @@ impl FieldSession {
             map_id: self.map_id,
             position: actor.position,
             heading: actor.heading.rem_euclid(360.),
-            camera: Some(
-                world
-                    .field_camera
-                    .as_ref()
-                    .context("field camera is missing")?
-                    .settings(world.controlled_actor)
-                    .map_err(anyhow::Error::msg)?,
-            ),
+            // Fixed event cameras do not prevent party management. Only the
+            // restartable checkpoint requires a restorable follow camera.
+            camera: world
+                .field_camera
+                .as_ref()
+                .context("field camera is missing")?
+                .settings(world.controlled_actor)
+                .ok(),
             progress: self.events.save_progress()?,
             played_ticks: Some(self.play_time.total()),
         })
@@ -126,7 +139,9 @@ impl FieldCheckpoint {
         );
         let leader = i32::from(self.progress.party.field_leader);
         Ok(FieldEntry {
-            treasure_event: None,
+            effect_palette: Default::default(),
+            services: None,
+            attachments: Default::default(),
             allow_incomplete_scripts: self.allow_incomplete_scripts,
             kind: super::EntryKind::Restore,
             play_time: crate::clock::PlayTime::resume(self.played_ticks()),
@@ -136,6 +151,7 @@ impl FieldCheckpoint {
             skits: None,
             text: Default::default(),
             available_fields,
+            available_movies: Default::default(),
             position: self.position,
             heading: self.heading,
             idle_animation: None,

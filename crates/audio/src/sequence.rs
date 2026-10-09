@@ -17,7 +17,7 @@ pub type BusFrame = [[i32; 2]; 3];
 enum ClockStart {
     /// The first score after audio-driver initialization (the title).
     Cold,
-    /// Field scores start while the audio driver is already running.
+    /// Both clocks start at the score tempo.
     Running,
 }
 
@@ -67,6 +67,7 @@ struct Active<'a> {
     clock: usize,
     slot: usize,
     lease: Option<shared::Lease>,
+    /// The macro no longer owns its allocation, but may retain a DSP sample.
     retired: bool,
     lifetime: usize,
 }

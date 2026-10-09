@@ -89,6 +89,7 @@ class Watcher:
         self.connection.settimeout(0.1)
         self.log = output.open("x")
         self.rows = 0
+        self.latest = {}
         self.error = None
         self.stopping = threading.Event()
         self.thread = threading.Thread(target=self.read, name="oracle-memory-watch")
@@ -121,6 +122,7 @@ class Watcher:
                 self.log.write(json.dumps({"vi_sample": self.rows, "changes": changes,
                                            **values}) + "\n")
                 self.log.flush()
+                self.latest = dict(values)
                 self.rows += 1
         except Exception as error:
             self.error = str(error)

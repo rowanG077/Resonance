@@ -9,7 +9,15 @@ pub enum ResourceKind {
     Overlay,
 }
 #[derive(Default)]
+pub struct MemoryCircleText {
+    pub tutorial: Vec<resonance_content::font::TextSpan>,
+    pub unlock: Vec<resonance_content::font::TextSpan>,
+    pub no_gem: Vec<resonance_content::font::TextSpan>,
+}
+#[derive(Default)]
 pub struct ResourceLibrary {
+    pub memory_circle_text: MemoryCircleText,
+    pub station_script: Option<std::sync::Arc<symphonia_script::Program>>,
     pub blink: Option<resonance_content::effect::BlinkCycle>,
     pub menu_data: Option<std::sync::Arc<resonance_content::menu_data::MenuData>>,
     pub skits: Option<std::sync::Arc<resonance_content::skit::SkitCatalog>>,
@@ -93,6 +101,66 @@ impl ResourceLibrary {
         }
     }
 
+    pub fn attachment_point(
+        &self,
+        actor: &crate::Actor,
+        node: usize,
+        tick: u32,
+    ) -> Result<[f32; 3], String> {
+        let model = self.model(actor.resource).ok_or("actor model is missing")?;
+        let name = model.names.get(node).ok_or("bone index is missing")?;
+        let matrix = self
+            .bone_matrix(actor, name, tick)
+            .map_err(|e| format!("{e:#}"))?;
+        let point = matrix[3][..3].try_into().unwrap();
+        Ok(actor.world_point(point))
+    }
+
+    pub(crate) fn bone_matrix(
+        &self,
+        actor: &crate::Actor,
+        name: &str,
+        tick: u32,
+    ) -> anyhow::Result<resonance_content::animation::Matrix> {
+        use anyhow::Context;
+        let model = self
+            .model(actor.resource)
+            .context("attachment model is missing")?;
+        if let Some(animation) = &actor.animation {
+            let clip = self
+                .animation(animation)
+                .context("attachment clip is missing")?;
+            let pose = self
+                .attachment_pose(actor)
+                .context("attachment pose is not prepared")?;
+            pose.sample_matrix(
+                name,
+                animation.sample(
+                    tick,
+                    model.attachment_pose_delay,
+                    clip.duration_ticks as f32,
+                ),
+            )
+        } else {
+            let skeleton = model
+                .attachments
+                .skeleton
+                .as_ref()
+                .context("attachment rest pose is not prepared")?;
+            let bone = skeleton.bone(name).context("attachment bone is missing")?;
+            Ok(skeleton.bind_pose()?.global[usize::from(bone)])
+        }
+    }
+
+    pub fn attachment_pose(&self, actor: &crate::Actor) -> Option<&AttachmentPose> {
+        let animation = actor.animation.as_ref()?;
+        self.model(actor.resource)?
+            .attachments
+            .clips
+            .get(&(animation.source, animation.resource, animation.slot))
+            .or_else(|| self.animation(animation)?.attachments.as_ref())
+    }
+
     pub fn animation(&self, animation: &crate::Animation) -> Option<&AnimationClip> {
         self.clips(animation.resource, animation.source)?
             .get(&animation.slot)
@@ -100,12 +168,21 @@ impl ResourceLibrary {
 }
 #[derive(Default)]
 pub struct ModelResource {
+    pub collision: std::sync::Arc<resonance_content::field::ModelCollision>,
     pub has_eyes: bool,
+    pub toon_lighting: bool,
     /// Attachment queries observe the scene's last evaluated model pose.
     pub attachment_pose_delay: u32,
     pub names: Vec<String>,
     pub hidden_nodes: BTreeSet<u16>,
     pub clips: BTreeMap<u16, AnimationClip>,
+    /// Pose bindings belong to the receiving skeleton, including external motion banks.
+    pub attachments: ModelAttachments,
+}
+#[derive(Clone, Default)]
+pub struct ModelAttachments {
+    pub skeleton: Option<std::sync::Arc<resonance_content::animation::Skeleton>>,
+    pub clips: BTreeMap<(crate::animation::AnimationSource, u32, u16), AttachmentPose>,
 }
 pub struct AnimationClip {
     pub duration_ticks: u32,
@@ -133,6 +210,7 @@ impl AnimationClip {
         }
     }
 }
+#[derive(Clone)]
 pub struct AttachmentPose {
     skeleton: std::sync::Arc<resonance_content::animation::Skeleton>,
     motion: std::sync::Arc<resonance_content::animation::Motion>,
@@ -148,6 +226,29 @@ impl AttachmentPose {
     }
 
     pub fn sample(&self, name: &str, tick: f32) -> anyhow::Result<[f32; 3]> {
+        self.sample_offset(name, tick, [0.; 3])
+    }
+
+    pub fn sample_offset(
+        &self,
+        name: &str,
+        tick: f32,
+        offset: [f32; 3],
+    ) -> anyhow::Result<[f32; 3]> {
+        let point =
+            resonance_content::animation::transform_point(self.sample_matrix(name, tick)?, offset);
+        anyhow::ensure!(
+            point.iter().all(|v| v.is_finite()),
+            "invalid attachment position"
+        );
+        Ok(point)
+    }
+
+    pub fn sample_matrix(
+        &self,
+        name: &str,
+        tick: f32,
+    ) -> anyhow::Result<resonance_content::animation::Matrix> {
         anyhow::ensure!(tick.is_finite() && tick >= 0., "invalid attachment time");
         let bone = self
             .skeleton
@@ -156,7 +257,6 @@ impl AttachmentPose {
         let frame = (tick * resonance_content::animation::FRAME_HZ
             / resonance_content::ANIMATION_HZ)
             .min(self.motion.duration_frames);
-        self.skeleton
-            .sample_point(&self.motion, frame, bone, [0.; 3])
+        self.skeleton.sample_matrix(&self.motion, frame, bone)
     }
 }

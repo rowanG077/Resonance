@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "U. Attack: learned technique lists, shared shortcut assignment/removal, bounded party navigation and reopening.",
-  "registration": "Controlled unison-fixture-v2 changes live Dolphin story progress to 1403000 without rerunning field entry. Native initializes the matched story-2500 checkpoint normally, then applies the same threshold at update 40 after the main menu owns input. This tests menu behavior, not later-story field events or availability services. Native menu opens at update 40; subsequent input and image ticks use source poll/2. All displayed frames are after the controlled change, with matching presentation clocks and persistent technique shortcuts. VI 790 has no video presentation; both captures use the next timestamped VI, 791.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/unison-fixture-v2/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "unison-keyboard.json",
-    "sha256": "f4ee8d4e320cb074225696884cae85d53a1746d8ad7c49526ff60ffa52d9ee4c"
+    "sha256": "81ae559f77c524b1a910a26ca016c2dc725c76e3d9b1bb4f7e87725229d3b7f7"
   },
   "dolphin": {
     "state": {

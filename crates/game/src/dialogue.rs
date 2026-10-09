@@ -175,6 +175,15 @@ impl DialoguePlayer {
             && self.operation.is_pending()
             && (self.visible < self.current().glyphs.len() || !self.voice_finished())
     }
+    /// Testing advances pages without waiting for spoken audio.
+    pub fn skip_step(&mut self) -> Result<Vec<VoiceAction>> {
+        self.voice_remaining = 0;
+        if let Some(token) = &self.voice_completion {
+            token.store(true, Ordering::Release);
+        }
+        self.step(true, true)
+    }
+
     /// A press advances a revealed page; holding accept accelerates its text.
     pub fn step(&mut self, advance: bool, accelerate: bool) -> Result<Vec<VoiceAction>> {
         if self.closed {

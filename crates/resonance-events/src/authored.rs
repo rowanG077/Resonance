@@ -4,13 +4,23 @@ use crate::{
     dialogue::{ResolvedMessage, TextToken},
     operation::{OperationScope, Wait},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use symphonia_script::{
     Program,
     authored::{MessagePart, NativeDeclaration, TextReferenceKind, Type},
 };
 use symphonia_script_vm::{Host, NativeBindings, NativeResult};
+mod actors;
 mod exploration;
+mod memory;
+
+const fn variant(
+    name: &'static str,
+    tag: i32,
+    payload: &'static [Type],
+) -> symphonia_script::authored::NativeVariant {
+    symphonia_script::authored::NativeVariant { name, tag, payload }
+}
 
 const RETAINED_TASK_LIMIT: usize = 256;
 
@@ -21,17 +31,20 @@ struct Child {
 
 /// Ownership/results only: execution remains in EventRuntime's existing slot loop.
 #[derive(Default)]
-pub(crate) struct Tasks(BTreeMap<i32, Child>);
+pub(crate) struct Tasks {
+    children: BTreeMap<i32, Child>,
+    released: BTreeSet<i32>,
+}
 
 impl Tasks {
     fn register(&mut self, parent: i32, handle: i32) -> Result<(), String> {
-        if self.0.len() >= RETAINED_TASK_LIMIT {
+        if self.children.len() >= RETAINED_TASK_LIMIT {
             return Err("too many unjoined child tasks".into());
         }
-        if self.0.contains_key(&handle) {
+        if self.children.contains_key(&handle) {
             return Err("duplicate child task handle".into());
         }
-        self.0.insert(
+        self.children.insert(
             handle,
             Child {
                 parent,
@@ -42,7 +55,7 @@ impl Tasks {
     }
     pub fn join(&mut self, parent: i32, handle: i32) -> Result<Option<Vec<i32>>, String> {
         let child = self
-            .0
+            .children
             .get(&handle)
             .ok_or("child task handle is stale or already joined")?;
         if child.parent != parent {
@@ -51,93 +64,60 @@ impl Tasks {
         if child.result.is_none() {
             return Ok(None);
         }
-        Ok(self.0.remove(&handle).unwrap().result)
+        Ok(self.children.remove(&handle).unwrap().result)
     }
     pub fn children(&self, parent: i32) -> Vec<i32> {
-        self.0
+        self.children
             .iter()
             .filter_map(|(&handle, child)| (child.parent == parent).then_some(handle))
             .collect()
     }
     pub fn finish(&mut self, handle: i32, result: Vec<i32>) {
-        if let Some(child) = self.0.get_mut(&handle) {
+        self.released.remove(&handle);
+        if let Some(child) = self.children.get_mut(&handle) {
             child.result = Some(result);
         }
     }
     pub fn root(&self, mut handle: i32) -> i32 {
-        while let Some(child) = self.0.get(&handle) {
+        while let Some(child) = self.children.get(&handle) {
             handle = child.parent;
         }
         handle
     }
     pub fn contains(&self, handle: i32) -> bool {
-        self.0.contains_key(&handle)
+        self.children.contains_key(&handle)
     }
     pub fn remove(&mut self, handle: i32) {
-        self.0.remove(&handle);
+        self.released.remove(&handle);
+        self.children.remove(&handle);
+    }
+    pub fn release_control(&mut self, handle: i32) {
+        self.released.insert(self.root(handle));
+    }
+    pub fn control_released(&self, handle: i32) -> bool {
+        self.released.contains(&self.root(handle))
     }
     pub fn clear(&mut self) {
-        self.0.clear();
+        self.children.clear();
+        self.released.clear();
     }
 }
 
 pub(crate) struct Spawn {
     pub handle: i32,
-    pub entry: u32,
-    pub arguments: Vec<i32>,
+    pub target: SpawnTarget,
 }
-
-#[repr(u8)]
-enum FieldCall {
-    WaitTicks,
-    NextUpdate,
-    Flag,
-    SetFlag,
-    Notice,
-    CharacterText,
-    ItemText,
-}
-
-impl FieldCall {
-    const fn declaration(self) -> NativeDeclaration {
-        let (name, parameters, result, suspends): (_, &[Type], _, _) = match self {
-            Self::WaitTicks => ("game::field::wait_ticks", &[Type::Ticks], None, true),
-            Self::NextUpdate => ("game::field::next_update", &[], None, true),
-            Self::Flag => ("game::story::flag", &[Type::I32], Some(Type::Bool), false),
-            Self::SetFlag => (
-                "game::story::set_flag",
-                &[Type::I32, Type::Bool],
-                None,
-                false,
-            ),
-            Self::Notice => ("game::field::notice", &[Type::Message], None, true),
-            Self::CharacterText => (
-                "game::text::character",
-                &[Type::I32],
-                Some(Type::TextReference {
-                    name: "game::text::Character",
-                    kind: TextReferenceKind::Character,
-                }),
-                false,
-            ),
-            Self::ItemText => (
-                "game::text::item",
-                &[Type::I32],
-                Some(Type::TextReference {
-                    name: "game::text::Item",
-                    kind: TextReferenceKind::Item,
-                }),
-                false,
-            ),
-        };
-        NativeDeclaration {
-            name,
-            opcode: self as u8,
-            parameters,
-            result,
-            suspends,
-        }
-    }
+pub(crate) enum SpawnTarget {
+    Task {
+        entry: u32,
+        arguments: Vec<i32>,
+    },
+    Callback {
+        entry: u32,
+        key: u32,
+        event_actor: i16,
+        completion: crate::Operation,
+    },
 }
 
 pub fn native_declarations() -> Vec<NativeDeclaration> {
@@ -148,6 +128,7 @@ pub(crate) struct FieldHost<'a> {
     pub world: &'a mut GameWorld,
     pub resources: &'a ResourceLibrary,
     pub program: &'a Program,
+    pub scenario: &'a Program,
     pub wait: &'a mut Option<Wait>,
     pub operations: &'a mut OperationScope,
     pub handle: i32,
@@ -165,65 +146,112 @@ impl Host for FieldHost<'_> {
         self.world.script_state.insert(name.into(), value);
         Ok(())
     }
-    const AUTHORED_NATIVES: NativeBindings<Self> = exploration::register(
-        NativeBindings::<Self>::new()
-            .register_typed(FieldCall::WaitTicks.declaration(), |host, args, _| {
-                host.wait_ticks(args[0] as u32)
-            })
-            .register_typed(FieldCall::NextUpdate.declaration(), |host, _, _| {
+    const AUTHORED_NATIVES: NativeBindings<Self> = {
+        let bindings = NativeBindings::<Self>::new()
+            .function(
+                "game::field::release_control",
+                &[],
+                None,
+                false,
+                |host, _, _| {
+                    host.tasks.release_control(host.handle);
+                    Ok(NativeResult::Continue(None))
+                },
+            )
+            .function(
+                "game::field::wait_ticks",
+                &[Type::Ticks],
+                None,
+                true,
+                |host, args, _| host.wait_ticks(args[0] as u32),
+            )
+            .function("game::field::next_update", &[], None, true, |host, _, _| {
                 host.wait_ticks(1)
             })
-            .register_typed(FieldCall::Flag.declaration(), |host, args, _| {
-                Ok(NativeResult::Continue(Some(i32::from(
-                    host.world.event_flags.contains(&flag(args[0])?),
-                ))))
-            })
-            .register_typed(FieldCall::SetFlag.declaration(), |host, args, _| {
-                let flag = flag(args[0])?;
-                if args[1] != 0 {
-                    host.world.event_flags.insert(flag);
-                } else {
-                    host.world.event_flags.remove(&flag);
-                }
-                Ok(NativeResult::Continue(None))
-            })
-            .register_typed(FieldCall::Notice.declaration(), |host, args, _| {
-                host.notice(args, 0)
-            })
-            .register_typed(FieldCall::CharacterText.declaration(), |host, args, _| {
-                let id = if args[0] == crate::CONTROLLED_ACTOR {
-                    host.world.controlled_actor
-                } else {
-                    args[0]
-                };
-                host.text_reference(TextReferenceKind::Character, id)?;
-                Ok(NativeResult::Continue(Some(id)))
-            })
-            .register_typed(FieldCall::ItemText.declaration(), |host, args, _| {
-                host.text_reference(TextReferenceKind::Item, args[0])?;
-                Ok(NativeResult::Continue(Some(args[0])))
-            }),
-    );
+            .function(
+                "game::story::flag",
+                &[Type::I32],
+                Some(Type::Bool),
+                false,
+                |host, args, _| {
+                    Ok(NativeResult::Continue(Some(i32::from(
+                        host.world.event_flags.contains(&flag(args[0])?),
+                    ))))
+                },
+            )
+            .function(
+                "game::story::set_flag",
+                &[Type::I32, Type::Bool],
+                None,
+                false,
+                |host, args, _| {
+                    let flag = flag(args[0])?;
+                    if args[1] != 0 {
+                        host.world.event_flags.insert(flag);
+                    } else {
+                        host.world.event_flags.remove(&flag);
+                    }
+                    Ok(NativeResult::Continue(None))
+                },
+            )
+            .function(
+                "game::field::notice",
+                &[Type::Message],
+                None,
+                true,
+                |host, args, _| host.notice(args, 0),
+            )
+            .function(
+                "game::text::character",
+                &[Type::I32],
+                Some(Type::TextReference {
+                    name: "game::text::Character",
+                    kind: TextReferenceKind::Character,
+                }),
+                false,
+                |host, args, _| {
+                    let id = if args[0] == crate::CONTROLLED_ACTOR {
+                        host.world.controlled_actor
+                    } else {
+                        args[0]
+                    };
+                    host.text_reference(TextReferenceKind::Character, id)?;
+                    Ok(NativeResult::Continue(Some(id)))
+                },
+            )
+            .function(
+                "game::text::item",
+                &[Type::I32],
+                Some(Type::TextReference {
+                    name: "game::text::Item",
+                    kind: TextReferenceKind::Item,
+                }),
+                false,
+                |host, args, _| {
+                    host.text_reference(TextReferenceKind::Item, args[0])?;
+                    Ok(NativeResult::Continue(Some(args[0])))
+                },
+            );
+        let bindings = exploration::register(bindings);
+        let bindings = actors::register(bindings);
+        memory::register(bindings)
+    };
 
     fn spawn(&mut self, function: u16, arguments: &[i32]) -> Result<i32, String> {
-        if self.free_slots == 0 {
-            return Err("event pool exhausted (32 instances)".into());
-        }
         let function = self
             .program
             .authored()
             .and_then(|module| module.functions.get(usize::from(function)))
             .filter(|function| function.is_task)
             .ok_or("spawn target is not a task")?;
-        let handle = *self.next_handle;
-        let next = handle.checked_add(1).ok_or("event handle overflow")?;
-        self.tasks.register(self.handle, handle)?;
-        *self.next_handle = next;
-        self.free_slots -= 1;
+        let entry = function.entry;
+        let handle = self.reserve_child()?;
         self.spawns.push(Spawn {
             handle,
-            entry: function.entry,
-            arguments: arguments.to_vec(),
+            target: SpawnTarget::Task {
+                entry,
+                arguments: arguments.to_vec(),
+            },
         });
         Ok(handle)
     }
@@ -234,6 +262,47 @@ impl Host for FieldHost<'_> {
 }
 
 impl FieldHost<'_> {
+    fn reserve_slot(&mut self) -> Result<i32, String> {
+        if self.free_slots == 0 {
+            return Err("event pool exhausted (32 instances)".into());
+        }
+        let handle = *self.next_handle;
+        let next = handle.checked_add(1).ok_or("event handle overflow")?;
+        *self.next_handle = next;
+        self.free_slots -= 1;
+        Ok(handle)
+    }
+
+    fn reserve_child(&mut self) -> Result<i32, String> {
+        let handle = self.reserve_slot()?;
+        self.tasks.register(self.handle, handle)?;
+        Ok(handle)
+    }
+
+    fn call_event(
+        &mut self,
+        kind: u32,
+        key: u32,
+        event_actor: i16,
+    ) -> Result<NativeResult, String> {
+        let Some(entry) = self.scenario.event(kind, key) else {
+            return Ok(NativeResult::Continue(None));
+        };
+        let completion = self.operations.begin()?;
+        let handle = self.reserve_child()?;
+        self.spawns.push(Spawn {
+            handle,
+            target: SpawnTarget::Callback {
+                entry,
+                key,
+                event_actor,
+                completion: completion.clone(),
+            },
+        });
+        *self.wait = Some(Wait::Complete(completion));
+        Ok(NativeResult::Suspend)
+    }
+
     fn notice(&mut self, arguments: &[i32], flags: u16) -> Result<NativeResult, String> {
         let text = self.message(arguments)?;
         let operation = self.world.show_notice(

@@ -133,6 +133,7 @@ fn record(
             boot_frame: None,
             skip_intro: true,
             skip_battles: false,
+            allow_incomplete_scripts: false,
             record_playthrough: Some(output.into()),
             record_title_ticks: 1000,
         },
@@ -598,9 +599,11 @@ fn record(
             for emote in world.emotes.values() {
                 if world.tick.saturating_sub(emote.start_tick) >= 24 {
                     match emote.kind {
-                        12 => details.push("lloyd-sleep"),
-                        1 => details.push("raine-emote-buckets"),
-                        14 => details.push("genis-emote"),
+                        resonance_events::emote::Kind::Sleep => details.push("lloyd-sleep"),
+                        resonance_events::emote::Kind::Distress => {
+                            details.push("raine-emote-buckets")
+                        }
+                        resonance_events::emote::Kind::Surprise => details.push("genis-emote"),
                         _ => {}
                     }
                 }

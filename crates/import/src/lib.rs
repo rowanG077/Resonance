@@ -23,6 +23,7 @@ mod field_lighting;
 mod field_overlay;
 mod field_preload;
 mod field_resources;
+mod field_script;
 mod field_shadow;
 mod figurines;
 mod font;

@@ -14,6 +14,8 @@ use resonance_game::menu::{
 mod collection;
 #[path = "field_ui_menu/cooking.rs"]
 mod cooking;
+#[path = "field_ui_menu/crafting.rs"]
+mod crafting;
 #[path = "field_ui_menu/customize.rs"]
 mod customize;
 #[path = "field_ui_menu/equipment.rs"]
@@ -179,9 +181,16 @@ impl MenuArtwork {
             FieldAction::Talk => "talk",
             FieldAction::Shop => "shop",
             FieldAction::Examine => "examine",
+            FieldAction::Open => "open",
+            FieldAction::Climb => "climb",
+            FieldAction::Descend => "descend",
+            FieldAction::Jump => "jump",
             FieldAction::Rest => "rest",
             FieldAction::Leave => "go_out",
+            FieldAction::Move => "move",
+            FieldAction::Grab => "grab",
             FieldAction::Save => "save",
+            FieldAction::Warp => "warp",
         }]
     }
 
@@ -326,6 +335,13 @@ impl MenuArtwork {
             ),
             Source::World(session, _) => (session.menu.as_ref(), None),
         };
+        let crafting = match source {
+            Source::Field(session) => session
+                .crafting
+                .as_ref()
+                .zip(session.events.world.party.as_ref()),
+            _ => None,
+        };
         let notice = if let Source::World(session, message) = source {
             let acknowledgement = matches!(
                 session.prompt(),
@@ -351,6 +367,7 @@ impl MenuArtwork {
             preferences: menu
                 .and_then(Menu::preferences)
                 .or_else(|| shop.map(|(_, party)| &party.settings.preferences))
+                .or_else(|| crafting.map(|(_, party)| &party.settings.preferences))
                 .or_else(|| match source {
                     Source::World(session, _) => session
                         .events
@@ -364,7 +381,11 @@ impl MenuArtwork {
             tick: presentation_tick,
             plane: 0,
             opacity: menu.map_or_else(
-                || shop.map_or(255, |(s, _)| 255 - s.fade),
+                || {
+                    shop.map(|(s, _)| 255 - s.fade)
+                        .or_else(|| crafting.map(|(c, _)| 255 - c.fade))
+                        .unwrap_or(255)
+                },
                 |m| 255 - m.background_fade(),
             ),
             offset: [0.; 2],
@@ -599,6 +620,18 @@ impl MenuArtwork {
                 anchor,
                 cursor,
                 255 - shop.fade,
+                presentation_tick,
+                &mut self.trail,
+            );
+        } else if let Some((crafting, party)) = crafting {
+            draw.shade(draw.screen);
+            draw.plane = 1;
+            let anchor = draw.crafting(crafting, party, cursor)?;
+            draw.plane = 4;
+            draw.cursor_trail(
+                anchor,
+                cursor,
+                255 - crafting.fade,
                 presentation_tick,
                 &mut self.trail,
             );

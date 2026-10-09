@@ -56,6 +56,8 @@ pub(super) fn discover<'a>(
             }
         }
         let mut party = BTreeSet::new();
+        let wings = crate::field_resources::resolve_path(&files, &catalogue.colette_wings)?;
+        party.insert(source_hash(sources, disc, &files, &wings)?);
         for id in 1..=catalogue.party_bodies.len() as u8 {
             for name in [
                 catalogue.party(crate::resource::PartyResource::Body, id, 0)?,

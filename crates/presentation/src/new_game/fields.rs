@@ -33,7 +33,9 @@ pub(crate) struct FieldPackage {
     pub audio: Arc<super::super::field_audio::Assets>,
     pub files: Arc<Files>,
     authored: Option<resonance_game::authored::FieldEvent>,
-    treasure: Arc<resonance_game::authored::PreparedEvent>,
+    services: Arc<resonance_game::authored::FieldServices>,
+    attachments: resonance_game::field::attachments::Attachments,
+    movies: BTreeSet<u32>,
 }
 impl FieldPackage {
     pub fn load(root: &Path, files: Arc<Files>, map: u32, cache: &mut Cache) -> Result<Self> {
@@ -60,7 +62,23 @@ impl FieldPackage {
         let audio = cache
             .audio
             .load(root, manifest.inputs.audio.first().unwrap(), &files)?;
-        let (authored, treasure) = Self::prepare_scripts(map, &files, cache)?;
+        let (authored, services) = Self::prepare_scripts(map, &files, cache)?;
+        let attachments =
+            resonance_game::field::attachments::prepare(&assets, |path| files.read(path))?;
+        let movies = manifest
+            .inputs
+            .movies
+            .iter()
+            .map(|path| {
+                let id = path
+                    .strip_prefix("movies/")
+                    .and_then(|name| name.strip_suffix(".json"))
+                    .and_then(|id| id.parse().ok())
+                    .with_context(|| format!("invalid field movie binding {path}"))?;
+                files.json::<MovieAsset>(path)?.validate()?;
+                Ok(id)
+            })
+            .collect::<Result<_>>()?;
         Ok(Self {
             script: files.read(&assets.script.path)?,
             messages: files.read(&assets.messages)?,
@@ -68,7 +86,9 @@ impl FieldPackage {
             audio,
             files,
             authored,
-            treasure,
+            services,
+            attachments,
+            movies,
         })
     }
 
@@ -88,7 +108,7 @@ impl FieldPackage {
     /// Revisit shared cooked bytes while refreshing only editable source inputs.
     pub fn refresh_scripts(&self, cache: &mut Cache) -> Result<Self> {
         let mut package = self.clone();
-        (package.authored, package.treasure) =
+        (package.authored, package.services) =
             Self::prepare_scripts(self.assets.map_id, &self.files, cache)?;
         Ok(package)
     }
@@ -99,17 +119,12 @@ impl FieldPackage {
         cache: &mut Cache,
     ) -> Result<(
         Option<resonance_game::authored::FieldEvent>,
-        Arc<resonance_game::authored::PreparedEvent>,
+        Arc<resonance_game::authored::FieldServices>,
     )> {
         let sources = files.script_sources()?;
-        let treasure = Arc::new(resonance_game::authored::PreparedEvent::prepare(
+        let services = Arc::new(resonance_game::authored::FieldServices::prepare(
             &mut cache.service_scripts,
             &sources,
-            resonance_game::authored::Entry {
-                module: "field::treasure",
-                task: "open",
-                arguments: &[0],
-            },
             &mut ScriptResources { files, font: None },
         )?);
         let authored = cache
@@ -120,7 +135,7 @@ impl FieldPackage {
             })
             .transpose()?
             .flatten();
-        Ok((authored, treasure))
+        Ok((authored, services))
     }
 
     pub fn queue_entry(&self, field: &mut FieldSession, kind: resonance_game::field::EntryKind) {
@@ -131,20 +146,72 @@ impl FieldPackage {
         );
     }
 
+    pub fn restore(
+        &self,
+        checkpoint: &FieldCheckpoint,
+        data: Arc<resonance_content::session::SessionData>,
+        skits: Arc<resonance_content::skit::SkitCatalog>,
+        available_fields: BTreeSet<u32>,
+    ) -> Result<FieldSession> {
+        let mut entry = checkpoint
+            .clone()
+            .entry(&self.assets, data, available_fields)?;
+        entry.skits = Some(skits);
+        let mut field = self.enter(entry)?;
+        initialize_checkpoint(&mut field, checkpoint)?;
+        self.queue_entry(&mut field, resonance_game::field::EntryKind::Restore);
+        Ok(field)
+    }
+
+    pub fn transition(&self, previous: &FieldSession) -> Result<FieldSession> {
+        let request = previous
+            .events
+            .world
+            .field_transition
+            .as_ref()
+            .context("field transition is missing")?;
+        ensure!(
+            self.assets.map_id == request.map,
+            "prepared field differs from the requested destination"
+        );
+        let resources = previous.events.resources();
+        let mut field = self.enter(FieldEntry {
+            allow_incomplete_scripts: previous.allow_incomplete_scripts,
+            play_time: previous.play_time,
+            persistent: previous.events.persistent_state()?,
+            data: resources.session_data.clone(),
+            skits: resources.skits.clone(),
+            available_fields: resources.fields.clone(),
+            position: request.position,
+            heading: request.heading,
+            camera: request.camera.clone(),
+            ..Default::default()
+        })?;
+        field.continue_ambient(previous);
+        self.queue_entry(&mut field, resonance_game::field::EntryKind::Arrival);
+        Ok(field)
+    }
+
     pub fn enter(&self, mut entry: FieldEntry) -> Result<FieldSession> {
         let menu: resonance_content::menu_data::MenuData =
             self.files.json("game/menu-data.json")?;
         menu.validate()?;
+        let effects: resonance_content::effect::FieldEffects =
+            self.files.json(&self.assets.effects)?;
+        effects.validate()?;
+        entry.effect_palette = resonance_events::effect::Palette(effects.palette);
         entry.menu_data = Some(Arc::new(menu));
         entry.text = Arc::new(self.files.json("game/text.json")?);
-        entry.treasure_event = Some(self.treasure.clone());
+        entry.services = Some(self.services.clone());
+        entry.attachments = self.attachments.clone();
+        entry.available_movies = self.movies.clone();
         let mut field = FieldSession::enter(
             &self.script,
             serde_json::from_slice(&self.messages)?,
             &self.assets,
             entry,
         )?;
-        field.voice_durations = self.audio.voice_durations();
+        field.events.world.voice_durations = self.audio.voice_durations();
         field.prepare_skits(&self.files)?;
         Ok(field)
     }

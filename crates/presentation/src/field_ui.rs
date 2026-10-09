@@ -1,6 +1,8 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
 #[path = "field_ui_coverage.rs"]
 mod coverage;
+#[path = "field_ui_damage.rs"]
+mod damage;
 #[path = "field_ui_failure.rs"]
 mod failure;
 pub(super) use failure::update as transition_failure;
@@ -101,6 +103,7 @@ impl Material2d for Surface {
 #[derive(Resource)]
 pub(super) struct Artwork {
     pub(super) resolution: super::Resolution,
+    pub(super) attached_positions: BTreeMap<i32, Vec3>,
     pub font: BitmapFont,
     spec: DialogueArt,
     images: Vec<Handle<Image>>,
@@ -113,6 +116,7 @@ pub(super) struct Artwork {
     overlays: overlay::Artwork,
     menu: menu::MenuArtwork,
     prompt_layers: Vec<Layer>,
+    damage_layer: Option<Layer>,
     skits: skit::Artwork,
 }
 struct Layer {
@@ -245,6 +249,7 @@ impl Artwork {
             .into_values()
             .chain(self.menu.layers.drain(..))
             .chain(self.prompt_layers.drain(..))
+            .chain(self.damage_layer.take())
             .chain(self.skits.layers.drain(..))
             .chain(self.skits.warm.drain(..))
         {
@@ -254,6 +259,7 @@ impl Artwork {
             world.despawn(layer.entity);
         }
         self.head_heights.clear();
+        self.attached_positions.clear();
         self.choice_trail = Default::default();
     }
     pub fn load(
@@ -342,6 +348,7 @@ impl Artwork {
         Ok(Self {
             skits,
             resolution: Default::default(),
+            attached_positions: BTreeMap::new(),
             font,
             spec,
             images,
@@ -354,6 +361,7 @@ impl Artwork {
             overlays: overlay::Artwork::load(overlays, read, server, materials, image_assets)?,
             menu,
             prompt_layers: Vec::new(),
+            damage_layer: None,
         })
     }
     pub fn ready(&self, images: &Assets<Image>) -> bool {
@@ -372,6 +380,7 @@ impl Artwork {
         self.menu.prepare(commands, meshes);
         self.skits.prepare(commands, meshes);
         self.prepare_prompt(commands, meshes, materials);
+        self.prepare_damage(commands, meshes);
         self.overlays.prepare(commands, meshes);
         for slot in 0..DIALOGUE_SLOTS {
             for (index, texture) in layer::TEXTURES.into_iter().enumerate() {
@@ -437,6 +446,7 @@ impl Artwork {
             .chain(&self.overlays.warm)
             .chain(&self.menu.layers)
             .chain(&self.prompt_layers)
+            .chain(self.damage_layer.iter())
             .chain(&self.skits.layers)
             .chain(&self.skits.warm)
             .map(|layer| (&layer.mesh, &layer.material))
@@ -459,6 +469,7 @@ impl Artwork {
                         request,
                         p,
                         &session.events.world,
+                        &self.attached_positions,
                         height.unwrap_or(170.),
                         self.resolution,
                     )
@@ -494,6 +505,7 @@ impl Artwork {
         images: &mut Assets<Image>,
     ) -> Result<()> {
         self.render_prompt(session, commands, meshes)?;
+        self.render_damage(session, commands, meshes)?;
         self.skits.render(
             session.active_skit.as_ref(),
             &self.font,
@@ -570,6 +582,7 @@ impl Artwork {
                 request,
                 player,
                 camera_world,
+                &self.attached_positions,
                 self.head_heights
                     .get(&request.operation.id())
                     .copied()
@@ -985,6 +998,7 @@ fn layout(
     request: &Dialogue,
     player: &DialoguePlayer,
     camera_world: &resonance_events::GameWorld,
+    attached_positions: &BTreeMap<i32, Vec3>,
     head_height: f32,
     resolution: super::Resolution,
 ) -> Result<([f32; 4], Option<[f32; 2]>)> {
@@ -1025,20 +1039,24 @@ fn layout(
             .field_camera
             .as_ref()
             .map_or([320., 240.], |camera| {
-                let transform = Transform::from_translation(Vec3::from_array(camera.position))
-                    .looking_at(Vec3::from_array(camera.target), Vec3::Z);
+                let transform = super::field_view::camera_transform(camera);
                 project_dialogue_point(&transform, camera.fov_degrees(), point, resolution)
             })
     };
-    let actor = request
-        .speaker_actor
-        .and_then(|id| camera_world.actors.get(&id).map(|a| (id, a)));
+    let actor = request.speaker_actor.and_then(|id| {
+        camera_world.actors.get(&id).map(|actor| {
+            attached_positions
+                .get(&id)
+                .copied()
+                .unwrap_or_else(|| Vec3::from_array(actor.position))
+        })
+    });
     let mut pointer = actor
         .filter(|_| {
             request.flags & flags::POINTER != 0
                 || matches!(request.anchor, DialogueAnchor::Actor(_))
         })
-        .map(|(_, actor)| project(Vec3::from_array(actor.position) + Vec3::Z * 80.));
+        .map(|position| project(position + Vec3::Z * 80.));
     // Center integer pixel dimensions without introducing half-pixel offsets.
     // Truncating only after subtraction shifts odd-sized boxes by one pixel.
     let half_width = (width / 2.).trunc();
@@ -1059,9 +1077,9 @@ fn layout(
         }
         DialogueAnchor::Actor(_) => {
             let above = box_above_speaker(request.flags, pointer);
-            let [x, y] = actor.map_or([320., 240.], |(_, actor)| {
+            let [x, y] = actor.map_or([320., 240.], |position| {
                 project(
-                    Vec3::from_array(actor.position)
+                    position
                         + Vec3::Z
                             * if above {
                                 head_height + f32::from(request.height_offset)

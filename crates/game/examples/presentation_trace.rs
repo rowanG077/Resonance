@@ -1,5 +1,6 @@
 //! Silent visual-request inventory using ordinary dialogue reveal/advance.
 use anyhow::{Result, ensure};
+use resonance_events::input::{Button, Buttons};
 use resonance_game::field::replay::InputReplay;
 use resonance_game::field::{FieldCheckpoint, FieldEntry, FieldInput, FieldSession};
 use std::{
@@ -163,8 +164,8 @@ fn main() -> Result<()> {
             [0., 0.]
         };
         session.step(FieldInput {
-            interact: interact && !choosing,
             direction,
+            pressed_buttons: Buttons::default().with(Button::Accept, interact && !choosing),
             ..Default::default()
         })?;
         let w = &mut session.events.world;
@@ -277,7 +278,7 @@ fn main() -> Result<()> {
         if w.input_enabled {
             println!(
                 "tick {tick}: player control; render settings {:?}",
-                w.render_settings
+                w.texture_bindings
             );
             if !exit
                 || exit_started

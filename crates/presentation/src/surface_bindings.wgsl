@@ -1,13 +1,20 @@
 #define_import_path resonance::surface_bindings
+#ifdef CLAMP_COLOR
+#ifndef VERTEX_ALPHA
+#import resonance::effect_color::sample_bytes
+#endif
+#endif
 
 struct SurfaceUniform {
     uv_offsets: vec4<f32>,
     uv_scales: vec4<f32>,
     tint: vec4<f32>,
+    ambient_color: vec4<f32>,
     field_light: vec4<f32>,
     shade_colors: array<vec4<f32>, 2>,
     fog_color: vec4<f32>,
-    fog_range: vec4<f32>,
+    fog_range: vec4<f32>, // XYZ: material start/end/exponent; W: use field view fog.
+    alpha_cutoff: f32,
 };
 
 #ifdef BINDLESS
@@ -42,11 +49,35 @@ fn surface_data(slot: u32) -> SurfaceUniform {
 #endif
 }
 fn sample_primary(slot: u32, uv: vec2<f32>) -> vec4<f32> {
+#ifdef CLAMP_COLOR
+#ifndef VERTEX_ALPHA
 #ifdef BINDLESS
-    return textureSample(bindless_textures_2d[indices[slot].color], bindless_samplers_filtering[indices[slot].color_sampler], uv);
+    return sample_bytes(bindless_textures_2d[indices[slot].color], uv) / 255.;
 #else
-    return textureSample(color_texture, color_sampler, uv);
+    return sample_bytes(color_texture, uv) / 255.;
 #endif
+#endif
+#endif
+    var coords = uv;
+#ifdef CLAMP_COLOR
+    // Effect textures use a 1/128-texel grid and whole color bytes.
+    // Keep the material's own filtering and wrap modes.
+#ifdef BINDLESS
+    let grid = vec2<f32>(textureDimensions(bindless_textures_2d[indices[slot].color])) * 128.;
+#else
+    let grid = vec2<f32>(textureDimensions(color_texture)) * 128.;
+#endif
+    coords = trunc(coords * grid) / grid;
+#endif
+#ifdef BINDLESS
+    var color = textureSample(bindless_textures_2d[indices[slot].color], bindless_samplers_filtering[indices[slot].color_sampler], coords);
+#else
+    var color = textureSample(color_texture, color_sampler, coords);
+#endif
+#ifdef CLAMP_COLOR
+    color = floor(color * 255.) / 255.;
+#endif
+    return color;
 }
 fn sample_secondary(slot: u32, uv: vec2<f32>) -> vec4<f32> {
 #ifdef BINDLESS

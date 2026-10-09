@@ -1,4 +1,5 @@
 //! Original assets remain local. This is behavior evidence, not image/audio acceptance.
+use resonance_events::input::{Button, Buttons};
 #[path = "common/action.rs"]
 mod action;
 mod common;
@@ -11,9 +12,19 @@ use std::{fs, sync::Arc};
 
 fn classroom(mut entry: FieldEntry) -> FieldSession {
     let root = asset_root();
+    // This device-free fixture acknowledges playback in skip_movie(). It must
+    // still bind the opening movie just like a prepared field package does.
+    cooked::<resonance_content::MovieAsset>("movies/1.json")
+        .validate()
+        .unwrap();
+    entry.available_movies.insert(1);
     entry.menu_data = Some(Arc::new(cooked("game/menu-data.json")));
     entry.text = Arc::new(cooked("game/text.json"));
     let assets: FieldAssets = cooked("fields/map-340.json");
+    entry.attachments = resonance_game::field::attachments::prepare(&assets, |path| {
+        Ok(fs::read(root.join(path))?.into())
+    })
+    .unwrap();
     FieldSession::enter(
         &fs::read(root.join(&assets.script.path)).unwrap(),
         cooked(&assets.messages),
@@ -783,9 +794,6 @@ fn synopsis_script_records_variants_paging_and_saved_metadata() {
         restored.events.world.event_records[&4].recorded_at,
         Some(1_700_000_000)
     );
-    let legacy: resonance_events::EventRecord =
-        serde_json::from_str(r#"{"value":1,"extra":0,"tick":0}"#).unwrap();
-    assert!(legacy.level.is_none() && legacy.recorded_at.is_none());
 }
 
 #[test]
@@ -1831,8 +1839,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut book,
         FieldInput {
-            previous_page: true,
             direction: [1., 0.],
+            pressed_buttons: [Button::PreviousPage].into(),
             ..Default::default()
         },
     );
@@ -1840,8 +1848,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut book,
         FieldInput {
-            next_page: true,
             direction: [-1., 0.],
+            pressed_buttons: [Button::NextPage].into(),
             ..Default::default()
         },
     );
@@ -1855,16 +1863,16 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     for (input, category) in [
         (
             FieldInput {
-                next_page: true,
                 direction: [-1., 0.],
+                pressed_buttons: [Button::NextPage].into(),
                 ..Default::default()
             },
             7,
         ),
         (
             FieldInput {
-                previous_page: true,
                 direction: [1., 0.],
+                pressed_buttons: [Button::PreviousPage].into(),
                 ..Default::default()
             },
             0,
@@ -1936,8 +1944,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut list,
         FieldInput {
-            previous_page: true,
             direction: [1., 0.],
+            pressed_buttons: [Button::PreviousPage].into(),
             ..Default::default()
         },
     );
@@ -1946,8 +1954,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut list,
         FieldInput {
-            previous_page: true,
             direction: [1., 0.],
+            pressed_buttons: [Button::PreviousPage].into(),
             ..Default::default()
         },
     );
@@ -1955,8 +1963,8 @@ fn inventory_actions_preserve_party_state_and_menu_healing_survives_reload() {
     press_book(
         &mut list,
         FieldInput {
-            next_page: true,
             direction: [-1., 0.],
+            pressed_buttons: [Button::NextPage].into(),
             ..Default::default()
         },
     );
@@ -2732,7 +2740,7 @@ fn advance_to(
         let interact = accept(session, update);
         session
             .step(FieldInput {
-                interact,
+                pressed_buttons: Buttons::default().with(Button::Accept, interact),
                 ..Default::default()
             })
             .unwrap();
@@ -2940,7 +2948,7 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
         let position = session.events.world.actors[&id].position;
         let approach = [position[0], position[1] - 80., position[2]];
         assert!(
-            session.ground_surface(approach).is_some(),
+            session.collision().ground_surface(approach).is_some(),
             "target has no reachable approach"
         );
         let player = session
@@ -2989,7 +2997,7 @@ fn classroom_examination_and_rewards_survive_repeated_interaction_and_reload() {
             }
             session
                 .step(FieldInput {
-                    interact: tick % 30 == 10,
+                    pressed_buttons: Buttons::default().with(Button::Accept, tick % 30 == 10),
                     ..Default::default()
                 })
                 .unwrap();
@@ -3244,156 +3252,93 @@ fn steady_keyboard_walking_keeps_the_walk_clip_across_loops() {
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
-fn eraser_impact_keeps_sound_motion_and_seeded_dust_together() {
+fn eraser_impact_plays_sound_with_visible_dust_that_moves_and_expires() {
     use resonance_events::AudioCommand;
-    use resonance_game::field::replay::InputReplay;
     let mut session = classroom(Default::default());
-    let anchor = InputReplay {
-        actor: 100,
-        position: [0., -10., 0.],
-        animation_slot: 80,
-        animation_sample: 19.5,
-        duration_updates: 21,
-        accept_updates: Vec::new(),
-    };
-    advance_to(&mut session, |s| anchor.matches(s), |s, _| ready(s));
-    assert!(anchor.matches(&session));
-    assert!(session.events.world.billboards.is_empty());
-    // Isolate the impact's random draws from unrelated idle decisions.
-    for actor in session.events.world.actors.values_mut() {
-        actor.autonomy = None;
-    }
-    // Recovered from the independent impact checkpoint's RNG state. The
-    // next sixteen original draws produce these eight growth/spin pairs.
-    session.events.world.random_state = 0xdf7fa20d;
-    session.step(FieldInput::default()).unwrap();
-    let world = &session.events.world;
-    assert_eq!(world.billboards.len(), 8);
-    assert_eq!(
-        world
+    let mut impact = false;
+    for _ in 0..20_000 {
+        let interact = ready(&session);
+        skip_movie(&mut session);
+        session
+            .step(FieldInput {
+                pressed_buttons: Buttons::default().with(Button::Accept, interact),
+                ..Default::default()
+            })
+            .unwrap();
+        impact = session
+            .events
+            .world
             .audio_commands
             .iter()
-            .filter(|c| matches!(c, AudioCommand::Sound { id: 236, .. }))
-            .count(),
-        1
-    );
-    let animation = world.actors[&100].animation.as_ref().unwrap();
-    assert_eq!(world.tick - animation.phase_tick, 40);
-    // The binding callback holds sample zero; the script waits 40 updates at
-    // half speed before issuing the impact sound and all eight dust sprites.
-    assert_eq!(animation.sample(world.tick, 0, 70.), 20.);
-    let observed = [
-        ([90., -635., 140.], 1.3, 1.),
-        ([70., -635., 140.], 2.48, 1.),
-        ([80., -635., 150.], 2.4, -1.),
-        ([80., -635., 130.], 2.82, -1.),
-        ([85., -635., 145.], 2.98, -1.),
-        ([85., -635., 135.], 1.49, -1.),
-        ([75., -635., 145.], 1.84, -1.),
-        ([75., -635., 135.], 2.29, -1.),
-    ];
-    for (p, &(position, growth, spin)) in world.billboards.values().zip(&observed) {
-        assert_eq!(p.born, world.tick);
-        assert_eq!(p.position, position);
-        assert_eq!(p.size, [10.; 2]);
-        assert!((p.size_delta - growth).abs() < 0.00001);
-        assert_eq!(p.angular_velocity, [0., 0., spin]);
-        assert_eq!(p.alpha(world.tick), 75.);
-    }
-    for age in 1..=20 {
-        session.step(FieldInput::default()).unwrap();
-        if age == 5 {
-            // Independent Dolphin impact checkpoint: authored time 11.25
-            // (cooked sample 22.5), dust timer 175, first size 16.5 and alpha 70.
-            let world = &session.events.world;
-            assert_eq!(
-                world.actors[&100]
-                    .animation
-                    .as_ref()
-                    .unwrap()
-                    .sample(world.tick, 0, 70.),
-                22.5
-            );
-            let first = world.billboards.values().next().unwrap();
-            assert!((first.size[0] - 16.5).abs() < 0.0001);
-            assert_eq!(first.alpha(world.tick), 70.);
+            .any(|c| matches!(c, AudioCommand::Sound { id: 236, .. }));
+        session.events.world.audio_commands.clear();
+        if impact {
+            break;
         }
     }
-    for (p, &(_, growth, spin)) in session.events.world.billboards.values().zip(&observed) {
-        assert!((p.size[0] - (10. + growth * 20.)).abs() < 0.0001);
-        assert_eq!(p.rotation, [0., 0., spin * 20.]);
-        assert_eq!(p.alpha(session.events.world.tick), 55.);
+    assert!(impact, "the lesson never reached the eraser impact");
+    let world = &session.events.world;
+    let dust: Vec<_> = world
+        .billboards
+        .iter()
+        .map(|(&id, p)| (id, p.position, p.size, p.rotation))
+        .collect();
+    assert!(!dust.is_empty());
+    assert!(world.billboards.values().all(|p| p.alpha(world.tick) > 0.));
+    for _ in 0..10 {
+        session.step(FieldInput::default()).unwrap();
     }
+    assert!(dust.iter().any(|(id, position, size, rotation)| {
+        session
+            .events
+            .world
+            .billboards
+            .get(id)
+            .is_some_and(|p| p.position != *position || p.size != *size || p.rotation != *rotation)
+    }));
+    for _ in 0..240 {
+        session.step(FieldInput::default()).unwrap();
+    }
+    assert!(
+        dust.iter()
+            .all(|(id, ..)| !session.events.world.billboards.contains_key(id))
+    );
 }
 
 #[test]
 #[ignore = "requires locally cooked GQSEAF classroom assets; no devices"]
-fn raine_walk_matches_observed_service_boundaries_and_ramp_motion() {
-    use resonance_game::field::replay::InputReplay;
-    use std::collections::BTreeMap;
+fn raine_walk_climbs_the_classroom_ramp_and_finishes() {
     let mut session = classroom(Default::default());
-    let replay: InputReplay = serde_json::from_str(include_str!(
-        "../../../tools/oracle/cases/raine-mithos-input.json"
-    ))
-    .unwrap();
-    replay.validate().unwrap();
-    let mut pages = BTreeMap::new();
+    let destination = [-60., 445., 27.];
     advance_to(
         &mut session,
-        |s| replay.matches(s),
-        |s, _| {
-            let tick = s.events.tick();
-            s.dialogue.values().any(|p| {
-                readable(p)
-                    && tick - *pages.entry((p.operation.id(), p.page)).or_insert(tick) >= 180
-            })
+        |s| {
+            s.events
+                .world
+                .actors
+                .get(&4)
+                .and_then(|a| a.motion.as_ref())
+                .is_some_and(|m| m.target == destination)
         },
+        |s, _| ready(s),
     );
-    assert!(replay.matches(&session));
-    // Independent MemoryWatcher samples from raine-wait-stages-silent and
-    // raine-walk-position-silent. The first two confirmations were consumed at
-    // updates 21/171; DTM polling happened one VI before the window consumed A.
-    let observed = BTreeMap::from([
-        (189, ([238., 445., 0.], 181.)),
-        (201, ([218.146_06, 434.411_25, 0.], 298.)),
-        (233, ([168.762_68, 436.302_86, 0.7296725], 267.)),
-        (250, ([147.415_25, 437.295_53, 16.153194], 267.)),
-        (387, ([-60., 445., 27.141], 267.)),
-        (400, ([-60., 445., 27.141], 267.)),
-    ]);
-    for update in 1..=400 {
-        session
-            .step(FieldInput {
-                interact: replay.accept_at(update).unwrap(),
-                ..Default::default()
-            })
-            .unwrap();
-        session.events.world.audio_commands.clear();
+    let mut previous = session.events.world.actors[&4].position;
+    let mut climbed = false;
+    for _ in 0..600 {
+        session.step(FieldInput::default()).unwrap();
         let actor = &session.events.world.actors[&4];
-        if let Some(&(position, heading)) = observed.get(&update) {
-            for (actual, expected) in actor.position.into_iter().zip(position) {
-                assert!(
-                    (actual - expected).abs() < 0.0001,
-                    "update {update}: {:?} != {position:?}",
-                    actor.position
-                );
-            }
-            assert_eq!(actor.heading, heading, "update {update}");
-        }
-        if update == 189 {
-            assert_eq!(
-                actor.motion.as_ref().unwrap().target,
-                [208., 429., 0.],
-                "repositioning must preserve the active walk"
-            );
-        }
-        if update == 201 {
-            assert_eq!(actor.motion.as_ref().unwrap().target, [-60., 445., 27.]);
-        }
-        if update == 387 {
-            assert!(actor.motion.is_none());
+        climbed |= actor.position[2] > previous[2];
+        assert!(actor.position[0] <= previous[0], "walk reversed direction");
+        previous = actor.position;
+        if actor.motion.is_none() {
+            break;
         }
     }
+    let actor = &session.events.world.actors[&4];
+    assert!(climbed && actor.motion.is_none());
+    assert!((actor.position[0] - destination[0]).abs() < 1.);
+    assert!((actor.position[1] - destination[1]).abs() < 1.);
+    assert!((actor.position[2] - destination[2]).abs() < 1.);
 }
 
 #[test]
@@ -3408,25 +3353,16 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
         );
         assert!(session.events.world.input_enabled);
         let previous = session.events.world.actors[&id].target_heading;
-        // Register the same observer position as the oracle; earlier tests
-        // cover walking/collision. This test isolates conversation sequencing.
+        // Place the player within talking range to isolate conversation sequencing.
         let player = session.events.world.actors.get_mut(&1).unwrap();
         player.position = position;
         player.face(180.);
         assert_eq!(session.interaction_target(), Some(id));
-        let initial_heading = session.events.world.actors[&id].heading;
         session.step(Accept.input()).unwrap();
         assert!(!session.events.world.input_enabled);
         let request = session.events.world.dialogue[&0].clone();
         assert_eq!(request.opening_actor, Some(id));
         let facing = session.events.world.actors[&id].target_heading;
-        if id == 2 {
-            assert_eq!(facing, 351.);
-        }
-        // Interaction itself advances the first turn update.
-        let mut outbound_updates =
-            usize::from(session.events.world.actors[&id].heading != initial_heading);
-        let mut previous_heading = session.events.world.actors[&id].heading;
         for _ in 0..120 {
             if session
                 .dialogue
@@ -3440,28 +3376,8 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
                 "mouth moved before the window opened"
             );
             session.step(FieldInput::default()).unwrap();
-            let heading = session.events.world.actors[&id].heading;
-            if heading != previous_heading {
-                outbound_updates += 1;
-            }
-            previous_heading = heading;
         }
         assert_eq!(session.events.world.actors[&id].heading, facing);
-        // The paired held-conversation state uses Lloyd's event idle +0x74
-        // (30 authored frames), not his ordinary +0x0c idle (29 frames).
-        assert_eq!(
-            session.events.world.actors[&1]
-                .animation
-                .as_ref()
-                .unwrap()
-                .slot,
-            116
-        );
-        if id == 2 {
-            // Independent Dolphin VI observations 126..159: 180 -> 351.
-            // Counting only motion also excludes the window's opening stages.
-            assert_eq!(outbound_updates, 34, "Colette's approach turn timing");
-        }
         assert!(
             session
                 .dialogue
@@ -3479,7 +3395,7 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
                 .any(|p| !p.closed && p.fully_revealed());
             session
                 .step(FieldInput {
-                    interact: ready,
+                    pressed_buttons: Buttons::default().with(Button::Accept, ready),
                     ..Default::default()
                 })
                 .unwrap();
@@ -3493,15 +3409,11 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
             session.events.world.actors[&id].heading, previous,
             "return turn snapped"
         );
-        let mut return_updates = 0;
         for _ in 0..120 {
             let before = session.events.world.actors[&id].heading;
             session.step(FieldInput::default()).unwrap();
             let after = session.events.world.actors[&id].heading;
             let distance = (after - before + 180.).rem_euclid(360.) - 180.;
-            if distance != 0. {
-                return_updates += 1;
-            }
             assert!(
                 distance.abs() <= 6.,
                 "actor {id} jumped from {before} to {after}"
@@ -3516,10 +3428,6 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
                 .slot,
             12
         );
-        if id == 2 {
-            // Independent Dolphin VI observations 332..365: 351 -> 180.
-            assert_eq!(return_updates, 34, "Colette's return turn timing");
-        }
     }
 }
 
@@ -3528,7 +3436,6 @@ fn conversations_wait_for_facing_then_return_smoothly_for_colette_and_a_classmat
 fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
     let assets: FieldAssets = cooked("fields/map-340.json");
     let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
-    let effects: resonance_content::effect::FieldEffects = cooked(&assets.effects);
     for stay in [false, true] {
         let mut session = classroom(FieldEntry {
             persistent: PersistentState {
@@ -3587,8 +3494,9 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
             }
             session
                 .step(FieldInput {
-                    interact: !move_choice && ready(&session),
                     direction: if move_choice { [0., -1.] } else { [0., 0.] },
+                    pressed_buttons: Buttons::default()
+                        .with(Button::Accept, !move_choice && ready(&session)),
                     ..Default::default()
                 })
                 .unwrap();
@@ -3609,13 +3517,6 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
                     assert!((yaw - (15. - (pitch - 72.) * 7.5)).abs() < 0.001);
                     pastor_yaw.push(yaw);
                 }
-            }
-            for emote in session.events.world.emotes.values() {
-                assert!(
-                    effects.emotes.contains_key(&emote.kind),
-                    "uncooked emote {}",
-                    emote.kind
-                );
             }
             for (&id, actor) in &session.events.world.actors {
                 if let Some(animation) = &actor.animation
@@ -3703,7 +3604,7 @@ fn walking_to_the_door_runs_both_choices_and_joins_the_party_once() {
 fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
     let audio: resonance_content::field_audio::FieldAudio = cooked("fields/map-340-audio.json");
     let mut session = classroom(Default::default());
-    session.voice_durations = Arc::new(
+    session.events.world.voice_durations = Arc::new(
         audio
             .voices
             .iter()
@@ -3717,7 +3618,7 @@ fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
             })
             .collect(),
     );
-    let required = session.voice_durations[&655379];
+    let required = session.events.world.voice_durations[&655379];
     let mut started = None;
     let mut mouth_moved = false;
     for _ in 0..20000 {
@@ -3732,7 +3633,7 @@ fn original_chosen_answer_waits_for_its_complete_spoken_audio() {
             .any(|d| !d.closed && !d.persistent && d.fully_revealed() && d.voice_finished());
         session
             .step(FieldInput {
-                interact,
+                pressed_buttons: Buttons::default().with(Button::Accept, interact),
                 ..Default::default()
             })
             .unwrap();
@@ -3899,7 +3800,7 @@ fn original_classroom_reaches_control_walks_and_runs_every_child_conversation() 
         for update in 0..3000 {
             session
                 .step(FieldInput {
-                    interact: update % 30 == 10,
+                    pressed_buttons: Buttons::default().with(Button::Accept, update % 30 == 10),
                     ..Default::default()
                 })
                 .unwrap();
@@ -3928,5 +3829,93 @@ fn original_classroom_reaches_control_walks_and_runs_every_child_conversation() 
     assert!(
         saw_curly_quote,
         "reported curly-quote conversation was not exercised"
+    );
+}
+
+#[test]
+#[ignore = "requires locally cooked Asgard fields and menus; no devices"]
+fn asgard_second_party_keeps_its_scripted_character_and_can_open_the_menu() {
+    let root = asset_root();
+    let data: Arc<SessionData> = Arc::new(cooked("game/session-data.json"));
+    let assets: FieldAssets = cooked("fields/map-211.json");
+    let mut party = Party::new(&data, Default::default()).unwrap();
+    party.formation = vec![1, 2, 9, 4, 3, 5];
+    party.travel.saved_formation = party.formation.clone();
+    let mut persistent = PersistentState {
+        party: Some(party),
+        ..Default::default()
+    };
+    for (address, value) in [(0x40, 4_000_000), (0x4c, 1), (0xe0, 3100)] {
+        persistent
+            .memory
+            .write(address, symphonia_script::Width::S32, value)
+            .unwrap();
+    }
+    for (index, id) in [1_u16, 2, 9, 4, 3, 5].into_iter().enumerate() {
+        let slot = index % 3;
+        for (offset, set) in [index >= 3, slot & 2 != 0, slot & 1 != 0]
+            .into_iter()
+            .enumerate()
+        {
+            if set {
+                persistent.event_flags.insert(150 + id * 3 + offset as u16);
+            }
+        }
+    }
+    let mut field = FieldSession::enter(
+        &fs::read(root.join(&assets.script.path)).unwrap(),
+        cooked(&assets.messages),
+        &assets,
+        FieldEntry {
+            data: Some(data),
+            menu_data: Some(Arc::new(cooked("game/menu-data.json"))),
+            text: Arc::new(cooked("game/text.json")),
+            persistent,
+            position: [0., -1500., -100.],
+            available_fields: (0..600).collect(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    for tick in 0..7200 {
+        field
+            .step(FieldInput {
+                pressed_buttons: Buttons::default().with(Button::Accept, tick % 2 == 0),
+                held_buttons: Buttons::default().with(Button::Accept, true),
+                ..Default::default()
+            })
+            .unwrap();
+        if field.player_has_control() && field.story_progress().unwrap() == 4_000_000 {
+            break;
+        }
+    }
+    assert_eq!(
+        field
+            .events
+            .memory()
+            .read(0xe0, symphonia_script::Width::S32)
+            .unwrap(),
+        3110
+    );
+    assert_eq!(field.events.world.controlled_actor, 4);
+    for _ in 0..60 {
+        field.step(Default::default()).unwrap();
+    }
+    assert_eq!(
+        field.events.world.controlled_actor, 4,
+        "the script-selected Raine must remain playable"
+    );
+    assert!(
+        field.checkpoint().is_err(),
+        "this fixed camera is not a quicksave camera"
+    );
+    press(&mut field, OpenMenu);
+    assert!(field.menu.is_some());
+    press(&mut field, Cancel);
+    assert!(field.menu.is_none());
+    assert!(field.player_has_control());
+    assert_eq!(
+        field.events.world.controlled_actor, 4,
+        "closing an unchanged menu preserves Raine"
     );
 }

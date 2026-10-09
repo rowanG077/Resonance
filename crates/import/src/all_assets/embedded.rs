@@ -1,7 +1,7 @@
 //! Decode embedded artwork and data without publishing native executable bytes.
 mod cabinets;
 pub(crate) mod cooking_ui;
-mod crafting;
+pub(crate) mod crafting;
 pub(crate) mod defeat_ui;
 pub(crate) mod ex_skills;
 pub(crate) mod figurine_catalogue;
@@ -185,6 +185,7 @@ pub(crate) fn cook_tables(
         "status-ui" => &menu.status,
         "strategy-ui" => &menu.strategy,
         "cooking-ui" => &menu.cooking,
+        "crafting" => &menu.crafting,
         "options-ui" => &menu.options,
         "ex-skills" => &menu.ex_skills,
         "rename-ui" => &menu.rename,
@@ -203,7 +204,6 @@ pub(crate) fn cook_tables(
         ("overworld-landmarks", super::overworld_landmarks::cook),
         ("sound-test", sound_test::cook),
         ("grade-shop", grade_shop::cook),
-        ("crafting", crafting::cook),
         ("record-screen", record_screen::cook),
         ("credits-resources", super::credits::cook_resources),
     ];
@@ -648,32 +648,15 @@ fn item_pictures(
     Ok(paths)
 }
 
-fn save_artwork_layout(executable: &[u8]) -> Result<Vec<(u32, tpl::TplTexture)>> {
-    // The save writer copies a 96x32 banner and one leader-selected 32x32 icon.
-    // CARDStat format 2 stores RGB5A3 directly, without a palette.
-    let immediate = |address, opcode| -> Result<u32> {
-        let instruction = word(dol::slice(executable, address, 4)?, 0)?;
-        ensure!(instruction >> 16 == opcode, "unexpected save artwork copy");
-        Ok(instruction & 0xffff)
-    };
-    let state = 0x80221cf8;
-    let banner = state + immediate(0x800b3e90, 0x389f)?;
-    let banner_size = immediate(0x800b3e94, 0x38a0)?;
-    let icons = state + immediate(0x800b3ea0, 0x389f)?;
-    let icon_size = immediate(0x800b3ea8, 0x38a0)?;
-    ensure!(
-        icon_size == 32 * 32 * 2 && banner_size == 96 * 32 * 2,
-        "invalid save artwork dimensions"
-    );
-    let icon_bytes = banner.checked_sub(icons).context("save artwork order")?;
-    ensure!(icon_bytes % icon_size == 0, "partial save icon");
-    let icon_count = icon_bytes / icon_size;
-    ensure!((1..=32).contains(&icon_count), "invalid save icon count");
-    Ok((0..=icon_count)
+fn save_artwork_layout() -> Vec<(u32, tpl::TplTexture)> {
+    const ICONS: u32 = 0x80221dbc;
+    const ICON_BYTES: u32 = 32 * 32 * 2;
+    const ICON_COUNT: u32 = 9;
+    (0..=ICON_COUNT)
         .map(|index| {
-            let is_banner = index == icon_count;
+            let is_banner = index == ICON_COUNT;
             (
-                icons + index * icon_size,
+                ICONS + index * ICON_BYTES,
                 tpl::TplTexture {
                     width: if is_banner { 96 } else { 32 },
                     height: 32,
@@ -688,7 +671,7 @@ fn save_artwork_layout(executable: &[u8]) -> Result<Vec<(u32, tpl::TplTexture)>>
                 },
             )
         })
-        .collect())
+        .collect()
 }
 
 fn save_artwork(
@@ -698,7 +681,7 @@ fn save_artwork(
 ) -> Result<Vec<String>> {
     let mut paths = Vec::new();
     let mut images = Vec::new();
-    let layout = save_artwork_layout(executable)?;
+    let layout = save_artwork_layout();
     for (index, (address, descriptor)) in layout.iter().enumerate() {
         let name = if index + 1 == layout.len() {
             "embedded/save-artwork/banner".into()
@@ -745,7 +728,7 @@ fn original_save_artwork_preserves_icons_and_complete_banner_layout() -> Result<
     let mut first = None;
     for disc in [1, 2] {
         let executable = fs::read(local.join(format!("disc{disc}/sys/main.dol")))?;
-        let images = save_artwork_layout(&executable)?;
+        let images = save_artwork_layout();
         assert_eq!(images.len(), 10);
         let mut source_bytes = Vec::new();
         for (index, (address, descriptor)) in images.iter().enumerate() {

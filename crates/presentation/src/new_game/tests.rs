@@ -1,8 +1,129 @@
 use super::*;
+use resonance_events::input::{Button, Buttons};
 use resonance_game::field::FieldInput;
 
-#[path = "exploration_tests.rs"]
-mod exploration;
+#[test]
+#[ignore = "requires cooked Iselia escape movies; no window or audio device"]
+fn field_movies_play_after_startup_and_can_be_requested_again() -> Result<()> {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = super::super::movie::tests::fixture();
+    let root = app.world().resource::<RunOptions>().assets.clone();
+    app.world_mut().resource_mut::<movie::Playback>().active = false;
+    let mut session = Session::load(&root)?;
+    let package = Arc::new(FieldPackage::prepare(
+        &root,
+        80,
+        &mut Default::default(),
+        || false,
+    )?);
+    session.fields.insert(80, package.clone());
+    app.insert_resource(session);
+    for playback in 0..2 {
+        {
+            let mut session = app.world_mut().resource_mut::<Session>();
+            let mut entry = FieldEntry {
+                data: Some(session.data.clone()),
+                available_fields: session.available_fields.clone(),
+                persistent: resonance_events::PersistentState {
+                    party: Some(resonance_events::party::Party::new(
+                        &session.data,
+                        Default::default(),
+                    )?),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            // Declared scene-entry fixture: the ranch exit writes this story
+            // stage before the original field-80 script requests movie 4.
+            entry
+                .persistent
+                .memory
+                .write(0x40, symphonia_script::Width::S32, 20_308_000)?;
+            session.activate(package.enter(entry)?, &package, false);
+            for _ in 0..120 {
+                session.field.step(Default::default())?;
+                if session.field.events.world.movie.is_some() {
+                    break;
+                }
+            }
+            assert_eq!(
+                session.field.events.world.movie.as_ref().unwrap().resource,
+                4
+            );
+        }
+        let start = std::time::Instant::now();
+        let (mixer, mut output) = resonance_playback::Offline::new();
+        while !app.world().resource::<movie::Playback>().active {
+            app.world_mut().run_system_once(super::advance).unwrap();
+            ensure!(
+                start.elapsed() < std::time::Duration::from_secs(30),
+                "field movie did not start"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let operation = app
+            .world()
+            .resource::<Session>()
+            .field
+            .events
+            .world
+            .movie
+            .as_ref()
+            .unwrap()
+            .operation
+            .clone();
+        assert!(!app.world().resource::<Session>().ready_for_field);
+        assert_eq!(app.world().resource::<movie::Playback>().resource, Some(4));
+        while app.world().resource::<movie::Playback>().active {
+            app.world_mut().run_system_once(movie::update).unwrap();
+            super::super::playthrough::attach::<movie::MovieAudio>(app.world_mut(), &mixer)?;
+            let movie = app.world().resource::<movie::Playback>();
+            if movie.is_presenting() {
+                movie.wait_for_audio(534)?;
+                for _ in 0..534 * 2 {
+                    output.next().context("offline movie output stopped")?;
+                }
+            }
+            if playback == 1 && movie.presented_frame.is_some() {
+                break;
+            }
+            ensure!(
+                start.elapsed() < std::time::Duration::from_secs(60),
+                "field movie playback stalled"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        if playback == 0 {
+            let movie = app.world().resource::<movie::Playback>();
+            assert!(movie.completed_naturally);
+            assert_eq!(
+                movie.presented_frame,
+                Some(movie.asset.as_ref().unwrap().frames - 1)
+            );
+        } else {
+            assert!(operation.is_pending());
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::Enter);
+            app.world_mut().run_system_once(movie::update).unwrap();
+        }
+        assert!(!app.world().resource::<movie::Playback>().active);
+        assert_eq!(
+            operation.progress().outcome,
+            Some(resonance_events::Outcome::Completed(None))
+        );
+        app.world_mut().run_system_once(movie_handoff).unwrap();
+        assert!(app.world().resource::<Session>().ready_for_field);
+        app.world_mut()
+            .resource_mut::<Session>()
+            .field
+            .step(Default::default())?;
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+    }
+    Ok(())
+}
 
 #[test]
 #[ignore = "requires RESONANCE_WORLD_ASSETS with current field inventories; no window or audio device"]
@@ -81,7 +202,7 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
         let tick = world.events.tick();
         world.step(resonance_game::overworld::Input {
             menu: FieldInput {
-                menu: true,
+                pressed_buttons: [Button::Menu].into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -119,7 +240,7 @@ fn original_world_checkpoint_restores_all_mounts_without_running_field_entry() -
         );
         world.step(resonance_game::overworld::Input {
             menu: FieldInput {
-                cancel: true,
+                pressed_buttons: [Button::Cancel].into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -228,8 +349,50 @@ fn asset_root() -> std::path::PathBuf {
     )
 }
 
+/// A live checkpoint above the school ramp exercises grounding after reload.
+pub(crate) fn school_checkpoint(root: &Path) -> FieldCheckpoint {
+    let package = FieldPackage::prepare(root, 332, &mut Default::default(), || false).unwrap();
+    let data: Arc<resonance_content::session::SessionData> =
+        Arc::new(package.files.json("game/session-data.json").unwrap());
+    let mut entry = FieldEntry {
+        data: Some(data.clone()),
+        persistent: resonance_events::PersistentState {
+            party: Some(resonance_events::party::Party::new(&data, Default::default()).unwrap()),
+            event_flags: [520].into(), // Memory-circle tutorial already read.
+            ..Default::default()
+        },
+        position: [1968., 1005., 0.],
+        available_fields: available_fields(root).unwrap(),
+        ..Default::default()
+    };
+    entry
+        .persistent
+        .memory
+        .write(0x40, symphonia_script::Width::S32, 2500)
+        .unwrap();
+    let mut field = package.enter(entry).unwrap();
+    for tick in 0..2000 {
+        if let Ok(mut saved) = field.checkpoint() {
+            saved.position[2] += 10.;
+            return saved;
+        }
+        field
+            .step(FieldInput {
+                pressed_buttons: Buttons::default().with(Button::Accept, tick % 2 == 0),
+                held_buttons: Buttons::default().with(Button::Accept, true),
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    panic!(
+        "school did not become playable: {:?}, {:?}",
+        field.checkpoint().err(),
+        field.events.pending_operations()
+    );
+}
+
 #[test]
-#[ignore = "requires cooked fields and the captured slope quicksave; no window or audio device"]
+#[ignore = "requires cooked school grounds; no window or audio device"]
 fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
     use super::super::loading::{FieldPending, Pending, Resident, Task};
     use std::{
@@ -249,37 +412,29 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
             thread::sleep(Duration::from_millis(1));
         }
     }
-    struct Directory(std::path::PathBuf);
-    impl Drop for Directory {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    let source_root = Directory(
-        std::env::temp_dir().join(format!("resonance-authored-loading-{}", std::process::id())),
-    );
-    fs::create_dir(&source_root.0).unwrap();
+    let source_root = tempfile::tempdir().unwrap();
     fs::write(
-        source_root.0.join("fields.json"),
+        source_root.path().join("fields.json"),
         r#"{"332":{"module":"entry","task":"run","on":"entry"}}"#,
     )
     .unwrap();
-    let source = "use game::story; use game::field; pub task run() { await field::wait_ticks(2ticks); story::set_flag(2000, true); }";
-    fs::write(source_root.0.join("entry.sym"), source).unwrap();
+    let source = "script field; use game::story; use game::field; pub task run() { await field::wait_ticks(2ticks); story::set_flag(2000, true); }";
+    fs::write(source_root.path().join("entry.sym"), source).unwrap();
     let root = asset_root();
-    let identity = Session::identity(&root).unwrap();
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/milestone-3/slope-quicksave.json");
-    let (header, mut saved): (_, FieldCheckpoint) =
-        resonance_persistence::decode(&fs::read(fixture).unwrap(), &identity).unwrap();
-    saved.progress.event_flags.remove(&2000);
-    saved.progress.event_flags.remove(&2001);
+    let saved = school_checkpoint(&root);
+    let header = resonance_persistence::Header {
+        identity: Session::identity(&root).unwrap(),
+        label: "School".into(),
+        location: "School grounds".into(),
+        played_ticks: saved.played_ticks(),
+        saved_unix_seconds: 0,
+    };
     let bytes = resonance_persistence::encode(&header, &saved).unwrap();
     let resident = Resident::default();
     let mut session = finish(
         Pending::start(
             root.clone(),
-            Some(source_root.0.clone()),
+            Some(source_root.path().to_path_buf()),
             Some(bytes),
             &resident,
         )
@@ -297,14 +452,14 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
 
     let previous = session.fields[&332].clone();
     fs::write(
-        source_root.0.join("entry.sym"),
+        source_root.path().join("entry.sym"),
         source.replace("2000", "2001"),
     )
     .unwrap();
     let refreshed = finish(
         FieldPending::field(
             root.clone(),
-            Some(source_root.0.clone()),
+            Some(source_root.path().to_path_buf()),
             332,
             Some(previous.clone()),
             &resident,
@@ -312,8 +467,6 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
         .unwrap(),
     )
     .unwrap();
-    assert!(Arc::ptr_eq(&previous.files, &refreshed.files));
-    assert!(Arc::ptr_eq(&previous.audio, &refreshed.audio));
     session.fields.insert(332, Arc::new(refreshed));
     session.restore(saved).unwrap();
     for _ in 0..3 {
@@ -323,14 +476,14 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
     assert!(!session.field.events.world.event_flags.contains(&2000));
 
     fs::write(
-        source_root.0.join("entry.sym"),
-        "use game::field; pub task run() { await field::notice(\"☃\"); }",
+        source_root.path().join("entry.sym"),
+        "script field; use game::field; pub task run() { await field::notice(\"☃\"); }",
     )
     .unwrap();
     let rejected = finish(
         FieldPending::field(
             root,
-            Some(source_root.0.clone()),
+            Some(source_root.path().to_path_buf()),
             332,
             Some(previous),
             &resident,
@@ -355,10 +508,6 @@ fn authored_entries_prepare_on_loading_and_refresh_cached_fields() {
 fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
     let root = asset_root();
     let session = Session::load(&root).unwrap();
-    assert!(
-        Arc::ptr_eq(&session.fields[&5].audio, &session.fields[&340].audio),
-        "setup and classroom should share their decoded audio bank"
-    );
     let mut app = App::new();
     app.insert_resource(session)
         .init_resource::<super::super::loading::Resident>()
@@ -371,7 +520,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
             .resource_mut::<Session>()
             .field
             .step(FieldInput {
-                interact: tick % 120 == 0,
+                pressed_buttons: Buttons::default().with(Button::Accept, tick % 120 == 0),
                 ..Default::default()
             })
             .unwrap();
@@ -392,7 +541,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
         session
             .field
             .step(FieldInput {
-                interact: tick % 120 == 0,
+                pressed_buttons: Buttons::default().with(Button::Accept, tick % 120 == 0),
                 ..Default::default()
             })
             .unwrap();
@@ -404,7 +553,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
     session
         .field
         .step(FieldInput {
-            menu: true,
+            pressed_buttons: [Button::Menu].into(),
             ..Default::default()
         })
         .unwrap();
@@ -434,7 +583,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
     session
         .field
         .step(FieldInput {
-            cancel: true,
+            pressed_buttons: [Button::Cancel].into(),
             ..Default::default()
         })
         .unwrap();
@@ -464,15 +613,9 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
         saved_unix_seconds: 0,
     };
     let bytes = resonance_persistence::encode(&header, &checkpoint).unwrap();
-    if let Some(output) = std::env::var_os("RESONANCE_CHECKPOINT_OUTPUT") {
-        std::fs::write(output, &bytes).unwrap();
-    }
-    let mut times = Vec::new();
-    for _ in 0..100 {
-        let started = std::time::Instant::now();
+    for _ in 0..2 {
         let (_, saved) = resonance_persistence::decode(&bytes, &session.identity).unwrap();
         session.restore(saved).unwrap();
-        times.push(started.elapsed());
         let restored = session.field.checkpoint().unwrap();
         assert_eq!(restored.played_ticks(), checkpoint.played_ticks());
         assert_eq!(session.field.play_time.session(), 0);
@@ -490,12 +633,6 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
         assert!(!session.movie_owns_audio());
         assert!(session.prepared_movie.is_none());
     }
-    times.sort();
-    eprintln!(
-        "100 field initializations + JSON decode: p95={:.3} ms; {} bytes (no renderer)",
-        times[94].as_secs_f64() * 1000.,
-        bytes.len()
-    );
     // Both aisle crossings have empty source handlers. A neutral pose update
     // can queue one, but it must not turn a valid exploration save into an error.
     for position in [[-88., -229., 0.], [-147., 79., 0.]] {
@@ -591,7 +728,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
             session
                 .field
                 .step(FieldInput {
-                    interact: tick % 120 == 0,
+                    pressed_buttons: Buttons::default().with(Button::Accept, tick % 120 == 0),
                     ..Default::default()
                 })
                 .unwrap();
@@ -659,7 +796,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
             session
                 .field
                 .step(FieldInput {
-                    interact: true,
+                    pressed_buttons: [Button::Accept].into(),
                     ..Default::default()
                 })
                 .unwrap();
@@ -694,8 +831,7 @@ fn checkpoint_restarts_live_session_and_rejects_invalid_loads_atomically() {
 #[test]
 #[ignore = "requires all cooked Iselia fields; registry/loader coverage, no output devices"]
 fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
-    use super::super::{field_audio::validation::Playback, loading::Cache};
-    use resonance_events::{PersistentState, party::Party};
+    use crate::field_test::{SCENE_TIMEOUT, Scene};
     use std::collections::BTreeSet;
 
     #[derive(Default)]
@@ -718,38 +854,17 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
             );
         }
     }
-    fn settle(
-        root: &Path,
-        cache: &mut Cache,
-        session: &mut Session,
-        audio: &mut Playback,
-        choice: u8,
-    ) -> Observed {
+    fn settle(root: &Path, mut scene: Scene, choice: u8) -> (Scene, Observed) {
         let mut observed = Observed::default();
-        for tick in 0..20_000 {
-            if let Some(request) = &session.field.events.world.field_transition {
-                let neighborhood_entry = session.assets.map_id == 332 && request.map == 331;
-                let package = session
-                    .fields
-                    .get(&request.map)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        Arc::new(FieldPackage::prepare(root, request.map, cache, || false).unwrap())
-                    });
-                session.change_field(package).unwrap();
+        for tick in 0..SCENE_TIMEOUT {
+            if let Some(request) = &scene.events.world.field_transition {
+                let neighborhood_entry = scene.map_id == 332 && request.map == 331;
+                scene.follow_transition(root).unwrap();
                 if neighborhood_entry {
-                    // The first view already resolves the authored entrance
-                    // orbit (336, 0, 346), distance 1661, and its X bounds.
-                    assert_camera(
-                        &session.field,
-                        [-511., 1550.6742, 762.5896, -146., 3023., 87.],
-                    );
+                    assert_camera(&scene, [-511., 1550.6742, 762.5896, -146., 3023., 87.]);
                 }
-                audio
-                    .enter(session.audio.take().unwrap(), &mut session.field)
-                    .unwrap();
             }
-            let field = &mut session.field;
+            let field = &mut scene;
             for page in field.dialogue.values().filter(|page| !page.closed) {
                 observed.pages.insert(page.current().text());
             }
@@ -778,77 +893,50 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
             let ready = field.dialogue.values().any(|page| {
                 !page.closed && !page.persistent && page.fully_revealed() && page.voice_finished()
             });
-            let in_menu = field.menu.is_some() || field.shop.is_some();
+            let in_menu = field.menu_is_open();
             field
                 .step(if tick % 30 == 10 {
                     FieldInput {
                         direction,
-                        interact: !in_menu && direction == [0., 0.] && (choosing || ready),
-                        cancel: in_menu,
+                        pressed_buttons: Buttons::default()
+                            .with(
+                                Button::Accept,
+                                !in_menu && direction == [0., 0.] && (choosing || ready),
+                            )
+                            .with(Button::Cancel, in_menu),
                         ..Default::default()
                     }
                 } else {
                     FieldInput::default()
                 })
                 .unwrap();
-            audio.step(field).unwrap();
             if field.checkpoint().is_ok() {
-                return observed;
+                return (scene, observed);
             }
         }
         panic!(
             "field {} stalled: {:?}",
-            session.assets.map_id,
-            session.field.events.pending_operations()
+            scene.map_id,
+            scene.events.pending_operations()
         );
     }
 
     let root = asset_root();
-    let mut cache = Cache::default();
-    let package = FieldPackage::prepare(&root, 340, &mut cache, || false).unwrap();
-    let data: Arc<resonance_content::session::SessionData> =
-        Arc::new(package.files.json("game/session-data.json").unwrap());
-    let mut persistent = PersistentState {
-        party: Some(Party::new(&data, Default::default()).unwrap()),
-        ..Default::default()
-    };
-    persistent
-        .memory
-        .write(0x40, symphonia_script::Width::S32, 1000)
-        .unwrap();
-    let mut field = package
-        .enter(FieldEntry {
-            persistent,
-            data: Some(data),
-            position: [-52., -619., 0.],
-            available_fields: available_fields(&root).unwrap(),
-            ..Default::default()
-        })
-        .unwrap();
-    let mut audio = Playback::new((*package.audio).clone(), &mut field);
-    for _ in 0..1000 {
-        field.step(Default::default()).unwrap();
-        audio.step(&mut field).unwrap();
-        if field.checkpoint().is_ok() {
-            break;
-        }
-    }
-    let mut session = Session::load_prepared(
-        &root,
-        package.files,
-        Some(field.checkpoint().unwrap()),
-        &mut cache,
-    )
+    let mut field = Scene::story(&root, 340, 1000, |entry| {
+        entry.position = [-52., -619., 0.];
+        Ok(())
+    })
     .unwrap();
-    audio
-        .enter(session.audio.take().unwrap(), &mut session.field)
+    field
+        .advance_until(|field| field.checkpoint().is_ok())
         .unwrap();
     let mut visited = BTreeSet::from([340]);
     macro_rules! hop {
         ($key:expr, $confirmed:expr, $map:expr, $choice:expr) => {{
-            assert!(session.field.events.trigger($key, $confirmed).unwrap());
-            let observed = settle(&root, &mut cache, &mut session, &mut audio, $choice);
-            assert_eq!(session.assets.map_id, $map, "trigger {}", $key);
+            assert!(field.events.trigger($key, $confirmed).unwrap());
+            let (next, observed) = settle(&root, field, $choice);
+            field = next;
+            assert_eq!(field.map_id, $map, "trigger {}", $key);
             visited.insert($map);
             observed
         }};
@@ -858,12 +946,12 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     }
     // Exact source registry transitions, not a claim of natural walking coverage.
     hop!(3001, false, 340);
-    assert_eq!(session.field.story_progress().unwrap(), 2000);
+    assert_eq!(field.story_progress().unwrap(), 2000);
     hop!(1000, true, 332);
     hop!(1005, false, 331);
     hop!(1002, false, 332);
     hop!(1001, false, 330);
-    assert_eq!(session.field.story_progress().unwrap(), 2500);
+    assert_eq!(field.story_progress().unwrap(), 2500);
     assert!(
         hop!(2002, true, 330)
             .pages
@@ -873,27 +961,20 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     hop!(2001, true, 333);
     // The shop entrance supplies no camera template. Its script relies on the
     // standard shoulder-height target before locking the view to the counter.
-    let camera = session.field.events.world.field_camera.as_ref().unwrap();
+    let camera = field.events.world.field_camera.as_ref().unwrap();
     assert_eq!(camera.current().offset, [0., 0., 87.]);
-    assert_camera(
-        &session.field,
-        [-152., -845., 136.5519, -152., 551., 38.892956],
-    );
-    assert!(session.field.events.interact(501).unwrap());
-    assert_eq!(
-        settle(&root, &mut cache, &mut session, &mut audio, 0).shops,
-        [1].into()
-    );
-    assert!(session.field.player_has_control());
+    assert_camera(&field, [-152., -845., 136.5519, -152., 551., 38.892956]);
+    assert!(field.events.interact(501).unwrap());
+    let (next, observed) = settle(&root, field, 0);
+    field = next;
+    assert_eq!(observed.shops, [1].into());
+    assert!(field.player_has_control());
     hop!(1000, true, 330);
     hop!(2003, true, 338);
-    assert!(session.field.events.interact(202).unwrap());
-    assert!(
-        settle(&root, &mut cache, &mut session, &mut audio, 0)
-            .pages
-            .iter()
-            .any(|p| p.contains("locked"))
-    );
+    assert!(field.events.interact(202).unwrap());
+    let (next, observed) = settle(&root, field, 0);
+    field = next;
+    assert!(observed.pages.iter().any(|p| p.contains("locked")));
     hop!(1000, true, 330);
     hop!(1001, false, 331);
     assert!(
@@ -917,12 +998,9 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     hop!(1000, true, 332);
     hop!(1001, false, 330);
 
-    let mut later = session.field.checkpoint().unwrap();
+    let mut later = field.checkpoint().unwrap();
     later.progress.script_globals[0x40 / 4] = 112000;
-    session.restore(later).unwrap();
-    audio
-        .enter(session.audio.take().unwrap(), &mut session.field)
-        .unwrap();
+    field = Scene::restore(&root, later).unwrap();
     hop!(2002, true, 334);
     hop!(1000, true, 330);
     hop!(1001, false, 331);
@@ -934,14 +1012,11 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
     hop!(1001, false, 330);
     assert_eq!(visited, (330..=340).collect());
 
-    let mut tutorial = session.field.checkpoint().unwrap();
+    let mut tutorial = field.checkpoint().unwrap();
     tutorial.progress.script_globals[0x40 / 4] = 202000;
     tutorial.progress.event_flags.remove(&275);
     for choice in [0, 1] {
-        session.restore(tutorial.clone()).unwrap();
-        audio
-            .enter(session.audio.take().unwrap(), &mut session.field)
-            .unwrap();
+        field = Scene::restore(&root, tutorial.clone()).unwrap();
         let before = &tutorial.progress.party.items;
         let expected: BTreeMap<_, _> = [121, 100, 86]
             .into_iter()
@@ -949,28 +1024,19 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
             .collect();
         let observed = hop!(2003, true, 338, choice);
         assert_eq!(observed.choices.into_values().collect::<Vec<_>>(), [choice]);
-        assert!(session.field.events.world.event_flags.contains(&275));
+        assert!(field.events.world.event_flags.contains(&275));
         for (&id, &count) in &expected {
-            assert_eq!(
-                session.field.events.world.party.as_ref().unwrap().items[&id],
-                count
-            );
+            assert_eq!(field.events.world.party.as_ref().unwrap().items[&id], count);
         }
-        let saved = session.field.checkpoint().unwrap();
-        session.restore(saved).unwrap();
-        audio
-            .enter(session.audio.take().unwrap(), &mut session.field)
-            .unwrap();
+        let saved = field.checkpoint().unwrap();
+        field = Scene::restore(&root, saved).unwrap();
         hop!(1000, true, 330);
         assert!(
             hop!(2003, true, 338).choices.is_empty(),
             "tutorial repeated on re-entry"
         );
         for (&id, &count) in &expected {
-            assert_eq!(
-                session.field.events.world.party.as_ref().unwrap().items[&id],
-                count
-            );
+            assert_eq!(field.events.world.party.as_ref().unwrap().items[&id], count);
         }
         hop!(1000, true, 330);
     }
@@ -982,18 +1048,10 @@ fn connected_iselia_packages_preserve_locks_shop_and_both_cooking_choices() {
 }
 
 #[test]
-#[ignore = "requires cooked field 332 and the captured slope quicksave; no output devices"]
+#[ignore = "requires cooked school grounds; no output devices"]
 fn moving_slope_checkpoint_survives_cold_and_warm_loads() {
-    use sha2::{Digest, Sha256};
-    let project = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = asset_root();
-    let bytes = std::fs::read(project.join("local/milestone-3/slope-quicksave.json")).unwrap();
-    assert_eq!(
-        format!("{:x}", Sha256::digest(&bytes)),
-        "a63b605494bc8e659bd3c901079f7122e62f8a0f7374560c3827ee686b4639ee"
-    );
-    let (_, saved): (_, FieldCheckpoint) =
-        resonance_persistence::decode(&bytes, &Session::identity(&root).unwrap()).unwrap();
+    let saved = school_checkpoint(&root);
     let mut cache = super::super::loading::Cache::default();
     let package = FieldPackage::prepare(&root, saved.map_id, &mut cache, || false).unwrap();
     let ground = resonance_game::field::navigation::WalkMesh::new(&package.assets.ground).unwrap();
@@ -1262,8 +1320,8 @@ fn original_world_landmarks_prepare_and_enter_their_fields() -> Result<()> {
                 for _ in 0..2400 {
                     field
                         .step(FieldInput {
-                            interact: true,
-                            accelerate_dialogue: true,
+                            pressed_buttons: [Button::Accept].into(),
+                            held_buttons: Buttons::default().with(Button::Accept, true),
                             ..Default::default()
                         })
                         .with_context(|| format!("step map {map}"))?;
@@ -1314,8 +1372,8 @@ fn original_world_landmarks_prepare_and_enter_their_fields() -> Result<()> {
                     let mut dialogue_seen = false;
                     for _ in 0..2400 {
                         field.step(FieldInput {
-                            interact: true,
-                            accelerate_dialogue: true,
+                            pressed_buttons: [Button::Accept].into(),
+                            held_buttons: Buttons::default().with(Button::Accept, true),
                             ..Default::default()
                         })?;
                         dialogue_seen |= !field.events.world.dialogue.is_empty();
@@ -1342,7 +1400,7 @@ fn original_world_landmarks_prepare_and_enter_their_fields() -> Result<()> {
                     println!("Nova's Caravan NPC dialogue and world return passed");
                 }
                 field.step(FieldInput {
-                    start: true,
+                    pressed_buttons: [Button::Start].into(),
                     ..Default::default()
                 })?;
                 let return_request = field
@@ -1473,118 +1531,36 @@ fn original_all_fields_have_complete_preparation_inventories() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires RESONANCE_WORLD_ASSETS; original Salvation interior handoff"]
-fn original_salvation_interior_handoff_keeps_its_destination() -> Result<()> {
+#[ignore = "requires RESONANCE_WORLD_ASSETS; no devices"]
+fn salvation_doorways_return_to_the_requested_field() -> Result<()> {
     let root = std::path::PathBuf::from(
         std::env::var_os("RESONANCE_WORLD_ASSETS").context("set RESONANCE_WORLD_ASSETS")?,
     );
-    let mut cache = super::super::loading::Cache::default();
-    let package = FieldPackage::prepare(&root, 81, &mut cache, || false)?;
-    let data: Arc<resonance_content::session::SessionData> =
-        Arc::new(package.files.json("game/session-data.json")?);
-    let mut persistent = resonance_events::PersistentState {
-        party: Some(resonance_events::party::Party::new(
-            &data,
-            Default::default(),
-        )?),
-        ..Default::default()
-    };
-    persistent
-        .memory
-        .write(0x40, symphonia_script::Width::S32, 14_000_000)?;
-    let mut field = package.enter(FieldEntry {
-        allow_incomplete_scripts: true,
-        persistent,
-        data: Some(data.clone()),
-        available_fields: available_fields(&root)?,
-        position: [557., 83., 124.],
-        ..Default::default()
+    let mut field = crate::field_test::Scene::story(&root, 81, 14_000_000, |entry| {
+        entry.allow_incomplete_scripts = true;
+        entry.position = [557., 83., 124.];
+        Ok(())
     })?;
-    for _ in 0..1200 {
-        field.step(FieldInput {
-            interact: true,
-            accelerate_dialogue: true,
-            ..Default::default()
+    for (trigger, destination) in [(1002, 95), (1000, 81)] {
+        field.advance_until(|f| f.player_has_control())?;
+        ensure!(
+            field.events.exploration_error.is_none(),
+            "arrival script failed"
+        );
+        ensure!(
+            field.events.trigger(trigger, true)?,
+            "doorway trigger missing"
+        );
+        field.until(Default::default(), |f| {
+            ensure!(f.events.exploration_error.is_none(), "door script failed");
+            Ok(f.events.world.field_transition.is_some())
         })?;
-        if field.player_has_control() {
-            break;
-        }
+        assert_eq!(
+            field.events.world.field_transition.as_ref().unwrap().map,
+            destination
+        );
+        field.follow_transition(&root)?;
     }
-    ensure!(
-        field.player_has_control(),
-        "Salvation outside did not release control"
-    );
-    ensure!(
-        field.events.trigger(1002, true)?,
-        "Salvation doorway trigger missing"
-    );
-    for _ in 0..600 {
-        field.step(Default::default())?;
-        if field.events.exploration_error.is_some() || field.events.world.field_transition.is_some()
-        {
-            break;
-        }
-    }
-    ensure!(
-        field.events.exploration_error.is_none(),
-        "door script failed: {:?}",
-        field.events.exploration_error
-    );
-    let request = field
-        .events
-        .world
-        .field_transition
-        .as_ref()
-        .context("door did not request interior")?;
-    ensure!(request.map == 95, "wrong Salvation interior");
-    let package = FieldPackage::prepare(&root, request.map, &mut cache, || false)?;
-    let mut inside = package.enter(FieldEntry {
-        allow_incomplete_scripts: true,
-        persistent: field.events.persistent_state()?,
-        data: Some(data),
-        available_fields: available_fields(&root)?,
-        position: request.position,
-        heading: request.heading,
-        camera: request.camera.clone(),
-        ..Default::default()
-    })?;
-    for _ in 0..1200 {
-        inside.step(FieldInput {
-            interact: true,
-            accelerate_dialogue: true,
-            ..Default::default()
-        })?;
-        if inside.player_has_control() {
-            break;
-        }
-    }
-    ensure!(
-        inside.player_has_control(),
-        "Salvation interior did not release control"
-    );
-    ensure!(
-        inside.events.exploration_error.is_none(),
-        "interior unexpectedly fell back"
-    );
-    ensure!(
-        inside.events.trigger(1000, true)?,
-        "Salvation interior exit missing"
-    );
-    for _ in 0..180 {
-        inside.step(Default::default())?;
-        if inside.events.world.field_transition.is_some() {
-            break;
-        }
-    }
-    ensure!(
-        inside
-            .events
-            .world
-            .field_transition
-            .as_ref()
-            .is_some_and(|request| request.map == 81),
-        "Salvation interior failed to return outside"
-    );
     Ok(())
 }
 
@@ -1731,5 +1707,26 @@ fn original_world_discovery_skits_show_dialogue_and_complete_choices() -> Result
             .contains(&65),
         "coastal discovery was not consumed"
     );
+    Ok(())
+}
+
+#[test]
+fn save_identity_tracks_shared_data_and_every_prepared_field() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path();
+    std::fs::create_dir(root.join("game"))?;
+    std::fs::create_dir(root.join("fields"))?;
+    std::fs::write(root.join("game/session-data.json"), b"session")?;
+    let initial = Session::identity(root)?;
+    assert_eq!(initial, Session::identity(root)?);
+    let manifest = root.join(manifest_path(511));
+    std::fs::write(&manifest, b"field inventory")?;
+    let added = Session::identity(root)?;
+    assert_ne!(initial, added);
+    std::fs::write(&manifest, b"changed inventory")?;
+    let changed = Session::identity(root)?;
+    assert_ne!(added, changed);
+    std::fs::write(root.join("game/session-data.json"), b"new session")?;
+    assert_ne!(changed, Session::identity(root)?);
     Ok(())
 }

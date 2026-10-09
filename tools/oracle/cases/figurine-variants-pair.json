@@ -2,7 +2,7 @@
   "version": 1,
   "revision": 0,
   "description": "Figure Collection variants: shared texture frames, costume models, Katz numeric animation tracks, the final catalogue row and its lower boundary.",
-  "registration": "Uses the same nineteen-figurine ownership fixture as figurine-pair.json. Native menu opens at update 40; later inputs use source poll/2. First-preview controller samples come from figurine-variants-source-v1/memory.jsonl and register once per selected model. Later samples advance normally. VIs 1300 and 1420 have no video presentation: both engines use the first subsequent presented VI (1301 and 1421), chosen from video timestamps before comparing images.",
+  "registration": "Compare checkpoint inputs and named captures. Animation, random state, and loading timing evolve independently in each engine.",
   "disc_sha256": "e9328d7b825269d1d834c3c53fa71cef6b8e4b973b516113d5a53f32bff1bce3",
   "native_save": {
     "path": "../../../local/findings-menu/figurine-fixture-v1/native.json",
@@ -10,7 +10,7 @@
   },
   "native_replay": {
     "path": "figurine-variants-keyboard.json",
-    "sha256": "ea06d27af76eb59b2800cc6b9211cf30400392de27f3e998f0252cd8184d36ff"
+    "sha256": "c64be631aca7704fb7c750d0385eb590c34a1bfdd99e129ae32e65cfe01e6d3d"
   },
   "dolphin": {
     "state": {
@@ -218,4 +218,3 @@
   ],
   "audio": []
 }
-
