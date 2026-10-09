@@ -1,5 +1,5 @@
 //! Translate scenario constructors and properties into the live effect settings.
-use super::{Emitter, Kind, PHASE_PROPERTY, stream};
+use super::{Emitter, Kind, PHASE_PROPERTY, ProjectileColor, stream};
 use crate::effect::{BILLBOARD_LIMIT, BillboardEffect, Fade, SpriteOrientation};
 
 macro_rules! setting {
@@ -38,7 +38,7 @@ impl Emitter {
                 size: 0.,
                 smoke: a[5] != 0,
             },
-            9 | 17 | 24 | 36 | 41 | 44 | 54 | 75 => Kind::Stream(stream::Stream::new(a[5])),
+            9 | 17 | 24 | 36 | 41 | 44 | 54 | 62 | 75 => Kind::Stream(stream::Stream::new(a[5])),
             12 => Kind::Glow {
                 angle: 0.,
                 palette: 0,
@@ -113,17 +113,36 @@ impl Emitter {
                 offset: 0.,
                 interval: 1,
             },
+            53 => Kind::Flash,
+            56 => Kind::LinearTrail {
+                sprite: BillboardEffect {
+                    size_delta: -0.75,
+                    fade: Fade::Linear(0.),
+                    ..super::particle([0.; 3], 0, 0, 61)
+                },
+                remaining: 1,
+                target: [0.; 3],
+                velocity: None,
+            },
             60 => Kind::Cardinal {
                 angle: 0.,
                 count: 0,
             },
-            61 | 66 => Kind::Projectile {
-                completed_phase: if a[5] == 61 { 2 } else { 3 },
+            10 | 37 | 61 | 66 => Kind::Projectile {
+                completed_phase: match a[5] {
+                    37 => None,
+                    66 => Some(3),
+                    _ => Some(2),
+                },
+                color: match a[5] {
+                    10 => ProjectileColor::Violet,
+                    37 => ProjectileColor::Selected(0),
+                    _ => ProjectileColor::Changing { fade: 0. },
+                },
                 path: None,
                 launch: [0.; 3],
                 curvature: 0,
                 size: 0.,
-                fade: 0.,
                 target: [0.; 3],
                 texture: if a[5] == 66 { impact_texture } else { None },
             },
@@ -226,9 +245,9 @@ impl Emitter {
                     match &mut self.kind {
                         Kind::Travel { flight, .. } => *flight = None,
                         Kind::Projectile { path, .. } => *path = None,
-                        Kind::Charge { velocity, .. } | Kind::Fireball { velocity, .. } => {
-                            *velocity = None
-                        }
+                        Kind::Charge { velocity, .. }
+                        | Kind::Fireball { velocity, .. }
+                        | Kind::LinearTrail { velocity, .. } => *velocity = None,
                         Kind::Mote(mote) => mote.path = None,
                         Kind::Stream(stream::Stream::Smoke { emitted, .. }) => *emitted = 0,
                         _ => {}
@@ -245,6 +264,20 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
+            Kind::Flash => Ok(0),
+            Kind::LinearTrail {
+                sprite,
+                remaining,
+                target,
+                ..
+            } => match slot {
+                0 => color(sprite, value, palette_index),
+                1 => diameter(sprite, value),
+                2 => setting!(*remaining, value, nonnegative),
+                3 => linear_fade(sprite, value, 1.),
+                4..=6 => setting!(target[slot - 4], value),
+                _ => Ok(0),
+            },
             Kind::Burst(burst) => match slot {
                 3 => setting!(burst.radius, value),
                 4 => setting!(burst.spread, value, positive),
@@ -504,16 +537,28 @@ impl Emitter {
                 _ => Ok(0),
             },
             Kind::Projectile {
+                color,
                 curvature,
                 size,
-                fade,
                 target,
                 launch,
                 ..
             } => match slot {
                 0 => setting!(*curvature, value),
+                1 if matches!(color, ProjectileColor::Selected(_)) => {
+                    let ProjectileColor::Selected(color) = color else {
+                        unreachable!()
+                    };
+                    setting!(*color, value, palette_index)
+                }
                 1 => setting!(*size, value, nonnegative),
-                3 => scaled(fade, value, 16.),
+                2 if matches!(color, ProjectileColor::Selected(_)) => {
+                    setting!(*size, value, nonnegative)
+                }
+                3 => match color {
+                    ProjectileColor::Changing { fade } => scaled(fade, value, 16.),
+                    _ => Ok(0),
+                },
                 4..=6 => setting!(target[slot - 4], value),
                 7..=9 => setting!(launch[slot - 7], value),
                 _ => Ok(0),
@@ -562,6 +607,16 @@ impl stream::Stream {
     fn property(&mut self, slot: usize, value: Option<i32>) -> Result<i32, String> {
         use stream::Stream::*;
         match self {
+            Embers {
+                radius,
+                size,
+                variation,
+            } => match slot {
+                0 => setting!(*radius, value, nonnegative),
+                1 => setting!(*size, value),
+                2 => setting!(*variation, value, nonnegative),
+                _ => Ok(0),
+            },
             Splash {
                 sprite,
                 interval,
