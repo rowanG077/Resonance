@@ -544,7 +544,7 @@ fn twin_glow_stops_its_satellites_without_losing_its_core() {
 }
 
 #[test]
-fn converging_shafts_and_spirals_follow_their_emitter_center() {
+fn shafts_converge_on_the_emitter_and_spirals_rise_around_the_scene_focus() {
     let center = [150., 200., 50.];
     for kind in [20, 21] {
         let mut input = emitter(kind, 0, &[]);
@@ -557,9 +557,14 @@ fn converging_shafts_and_spirals_follow_their_emitter_center() {
         let velocity = particle.velocity;
         steps(&mut events, 10);
         let particle = &events.world.billboards[&id];
+        let focus = if kind == 21 {
+            [130., 335., center[2]]
+        } else {
+            center
+        };
         let distance = |p: [f32; 3]| {
             p.into_iter()
-                .zip(center)
+                .zip(focus)
                 .map(|(p, c)| (p - c).powi(2))
                 .sum::<f32>()
                 .sqrt()
@@ -611,7 +616,11 @@ fn plane_lights_and_rising_circles_use_their_shared_artwork_and_expire() {
 #[test]
 fn lightning_and_colored_flames_obey_their_spawn_bounds_and_cleanup() {
     use resonance_content::effect::sprite::{GLOW_SPRITE, LIGHTNING_BOLT_SPRITE};
-    for (kind, parameters) in [(25, [60, 57, 64, 30, 0]), (39, [57, 60, 1000, 0, 0])] {
+    for (kind, parameters) in [
+        (25, [60, 57, 64, 30, 0, 0, 0, 0, 0, 0]),
+        (25, [60, 57, 64, 30, 0, 0, 0, 0, 0, 1]),
+        (39, [57, 60, 1000, 0, 0, 0, 0, 0, 0, 0]),
+    ] {
         let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 0, &parameters))]);
         let remove = script(&[(Call::DespawnActor, &[500])]);
         let mut events = interactive_effect(&setup, &remove);
@@ -632,6 +641,8 @@ fn lightning_and_colored_flames_obey_their_spawn_bounds_and_cleanup() {
         }
         assert!(events.trigger(42, true).unwrap());
         events.step().unwrap();
+        steps(&mut events, 3);
+        assert_eq!(events.world.billboards.is_empty(), parameters[9] == 1);
         steps(&mut events, 80);
         assert!(events.world.billboards.is_empty());
     }
@@ -743,7 +754,10 @@ fn model_trail_reaches_its_target_then_its_copies_expire() {
         enemy_resources(),
         controlled_world(),
     );
-    steps(&mut events, 4);
+    events.step().unwrap();
+    let first = events.world.model_particles.values().next().unwrap();
+    assert_eq!(first.born, events.world.tick);
+    steps(&mut events, 3);
     assert!(!events.world.actors[&500].visible);
     assert_eq!(
         events

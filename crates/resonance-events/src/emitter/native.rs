@@ -872,10 +872,12 @@ impl stream::Stream {
                 size,
                 palette: color,
                 tint,
+                cleanup,
             } => match slot {
                 0 => setting!(*size, value, nonnegative),
                 1 => setting!(*color, value, palette_index),
                 2..=4 => setting!(tint[slot - 2], value),
+                9 => flag(cleanup, value),
                 _ => Ok(0),
             },
             Embers {
