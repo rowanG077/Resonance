@@ -224,6 +224,11 @@ separate `effect-ring-*.json` stage profiles because their scenery or controller
 input differs. Profiles pin source checkpoints, their movie prefix and native
 scene inputs; existing cooked assets are used without cooking.
 
+The catalogue includes all 70 implemented emitters, including the new trails,
+star orbits, cylinders, light sheets and bursts. They use the same named input
+domains for individual comparisons, random compositions and shrinking. Sprite
+coverage also includes flames, sparkles, lightning and cooking clouds.
+
 Required private effect inputs live in `local/oracle-fixtures/effects/`: one
 savestate and companion `.s01.dtm` per starting field, plus the native scene
 templates. Preserve this directory when deleting capture reports. To prepare a
