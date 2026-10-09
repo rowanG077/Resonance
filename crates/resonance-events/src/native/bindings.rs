@@ -30,6 +30,9 @@ impl Host for NativeHost<'_> {
         DespawnActor(1) -> () = field;
         DespawnActorAfterMovement(1) -> () = dispatch;
         SetActorHeading(2) -> () = field;
+        GetActorHeading(1) -> i32 = dispatch;
+        IsActorMoving(1) -> i32 = dispatch;
+        SetSceneryAnimationRate(3) -> () = field;
         FaceActorAfterMovement(2) -> () = dispatch;
         TransformActorNode(6) -> () = dispatch;
         ConfigureActorBoneRotation(6) -> () = field;

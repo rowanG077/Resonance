@@ -236,25 +236,32 @@ impl NativeHost<'_> {
                     actor.scenery_animations.insert(a[1] as i8, animation);
                 }
             }
-            NativeCall::ClearSceneryAnimation | NativeCall::SeekSceneryAnimation => {
+            NativeCall::ClearSceneryAnimation
+            | NativeCall::SeekSceneryAnimation
+            | NativeCall::SetSceneryAnimationRate => {
                 let id = match a[0] {
-                    2 => SECOND_SCENERY,
-                    3 => THIRD_SCENERY,
+                    2 | SECOND_SCENERY => SECOND_SCENERY,
+                    3 | THIRD_SCENERY => THIRD_SCENERY,
+                    4 | 0xF422C => 0xF422C,
                     _ => MAIN_SCENERY,
                 };
                 require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
                 if let Some(actor) = self.world.actors.get_mut(&id) {
-                    if op == NativeCall::SeekSceneryAnimation {
+                    if op != NativeCall::ClearSceneryAnimation {
                         let animation = if a[1] == -1 {
                             actor.animation.as_mut()
                         } else {
                             actor.scenery_animations.get_mut(&(a[1] as i8))
                         };
                         if let Some(animation) = animation {
-                            animation.seek(
-                                (a[2] as f32 * 2.).min(animation.duration_ticks as f32),
-                                self.world.tick,
-                            );
+                            if op == NativeCall::SetSceneryAnimationRate {
+                                animation.set_script_rate(a[2] as f32 / 100., self.world.tick);
+                            } else {
+                                animation.seek(
+                                    (a[2] as f32 * 2.).min(animation.duration_ticks as f32),
+                                    self.world.tick,
+                                );
+                            }
                         }
                     } else if a[1] == -1 {
                         actor.animation = None;

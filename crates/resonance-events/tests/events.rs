@@ -4094,6 +4094,30 @@ fn numbered_world_cinematics_keep_the_following_scene_and_retire_the_caller() {
 }
 
 #[test]
+fn actor_queries_follow_the_controlled_actor_through_a_scripted_move() {
+    let mut world = controlled_world();
+    world.controlled_actor = 2;
+    let mut actor = Actor::new(2, [0.; 3]);
+    actor.face(270.);
+    world.insert_actor(2, actor);
+    let setup = script(&[(Call::GetActorHeading, &[999999])]);
+    let movement = script(&[
+        (Call::MoveActor, &[999999, 30, 0, 0, 3]),
+        (Call::IsActorMoving, &[999999]),
+        (Call::YieldCommand, &[4, 999999]),
+        (Call::IsActorMoving, &[999999]),
+    ]);
+    let mut events = runtime(program(&setup, &movement), Default::default(), world);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 270);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    steps(&mut events, 30);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert_eq!(events.world.actors[&2].position, [30., 0., 0.]);
+}
+
+#[test]
 fn scenery_motion_layers_pause_and_clear_independently() {
     let code = script(&[
         (Call::ResolveScriptResource, &[123]),
@@ -4106,6 +4130,8 @@ fn scenery_motion_layers_pause_and_clear_independently() {
             &[999996, 0, -65536, 0, 100, 8],
         ),
         (Call::SeekSceneryAnimation, &[1, -1, 5]),
+        (Call::SetSceneryAnimationRate, &[1, -1, 250]),
+        (Call::SetSceneryAnimationRate, &[1, 0, 200]),
     ]);
     let mut world = GameWorld::default();
     world.actors.insert(999996, Actor::new(1, [0.; 3]));
@@ -4123,6 +4149,7 @@ fn scenery_motion_layers_pause_and_clear_independently() {
     let actor = &events.world.actors[&999996];
     let paused = actor.animation.as_ref().unwrap();
     assert_eq!(paused.sample(events.tick(), 0, 20.), 10.);
+    assert_eq!(paused.script_rate(), 2.5);
     assert_eq!(
         actor.scenery_animations[&0].sample(events.tick(), 0, 20.),
         20.
