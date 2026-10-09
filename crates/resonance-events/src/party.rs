@@ -168,6 +168,19 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn percentage_recovery_and_damage_preserve_conditions_and_clamp_vitals() {
+        let mut party = Party::new(&data(), Default::default()).unwrap();
+        party.members[0].hp = 60;
+        party.members[0].tp = 7;
+        party.members[0].conditions = 0x20;
+        party.adjust_vitals_percent([50, -50]);
+        assert_eq!((party.members[0].hp, party.members[0].tp), (100, 0));
+        party.adjust_vitals_percent([-100, 100]);
+        assert_eq!((party.members[0].hp, party.members[0].tp), (1, 20));
+        assert_eq!(party.members[0].conditions, 0x20);
+    }
+
+    #[test]
     fn field_damage_leaves_one_hp_without_reviving_or_spending_tp() {
         let mut party = Party::new(&data(), Default::default()).unwrap();
         party.members[0].hp = 1;
@@ -630,10 +643,21 @@ impl Party {
 
     /// Field hazards spare one HP and never revive knocked-out members.
     pub fn damage_hp_percent(&mut self, percent: u16) {
+        self.adjust_vitals_percent([-(percent.min(100) as i16), 0]);
+    }
+
+    /// Signed percentages of maximum HP and TP; conditions are unchanged.
+    pub fn adjust_vitals_percent(&mut self, percent: [i16; 2]) {
         for member in &mut self.members {
-            if member.hp != 0 {
-                let damage = u32::from(member.maximum_vitals()[0]) * u32::from(percent) / 100;
-                member.hp = u32::from(member.hp).saturating_sub(damage).max(1) as u16;
+            let maximum = member.maximum_vitals();
+            for (index, current) in [&mut member.hp, &mut member.tp].into_iter().enumerate() {
+                if index == 0 && *current == 0 && percent[0] < 0 {
+                    continue;
+                }
+                let delta = i32::from(maximum[index]) * i32::from(percent[index]) / 100;
+                let minimum = i32::from(index == 0 && percent[0] < 0);
+                *current =
+                    (i32::from(*current) + delta).clamp(minimum, i32::from(maximum[index])) as u16;
             }
         }
     }
