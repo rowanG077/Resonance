@@ -310,6 +310,7 @@ mod tests {
                 orientation: resonance_events::effect::SpriteOrientation::World,
                 angular_velocity: [0.; 3],
                 rotation: [0.; 3],
+                rotation_order: Default::default(),
                 position: [0.; 3],
                 velocity: [0.; 3],
                 speed: 0.,

@@ -199,6 +199,7 @@ impl SavePoints {
                         orientation: resonance_events::effect::SpriteOrientation::World,
                         angular_velocity: [0.; 3],
                         rotation: [0.; 3],
+                        rotation_order: Default::default(),
                         position: [position[0], position[1], position[2] + 10.],
                         velocity: [0.; 3],
                         speed: 0.,

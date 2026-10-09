@@ -17,7 +17,10 @@ pub(super) fn read(executable: &[u8], kind: u16) -> Result<SpriteRecipe<Atlas>> 
         10 => (0x0d0, true),
         11 => (0x0dc, true),
         12 => (0x0e8, true),
+        13 => (0x0f4, true),
         14 => (0x100, true),
+        18 => (0x118, true),
+        21 => (0x14c, true),
         22 => (0x158, true),
         23 => (0x164, true),
         25 => (0x170, false),
@@ -29,6 +32,9 @@ pub(super) fn read(executable: &[u8], kind: u16) -> Result<SpriteRecipe<Atlas>> 
         54 => (0x064, false),
         68 => (0x214, true),
         69 => (0x244, true),
+        70 => (0x1ac, true),
+        74 => (0x28c, true),
+        80 => (0x298, true),
         _ => bail!("unsupported field sprite {kind}"),
     };
     const ATLAS_SEQUENCES: u32 = 0x8020_A414;

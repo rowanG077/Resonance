@@ -188,7 +188,7 @@ pub(super) fn sync(
         let request = Request::ModelParticle(part.handle, part.index);
         orient_model_roots(
             entity,
-            effect_rotation(particle.orientation, [0.; 3], camera),
+            effect_rotation(particle.orientation, [0.; 3], Default::default(), camera),
             &children,
             &mut nodes,
         );
@@ -219,7 +219,12 @@ pub(super) fn sync(
         }
         transform.translation = Vec3::from_array(particle.position);
         transform.scale = Vec3::from_array(particle.scale);
-        transform.rotation = effect_rotation(SpriteOrientation::World, particle.rotation, camera);
+        transform.rotation = effect_rotation(
+            SpriteOrientation::World,
+            particle.rotation,
+            Default::default(),
+            camera,
+        );
         let brightness = world.brightness();
         let tint = Vec4::new(
             brightness,
