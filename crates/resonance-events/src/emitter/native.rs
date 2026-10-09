@@ -38,7 +38,7 @@ impl Emitter {
                 size: 0.,
                 smoke: a[5] != 0,
             },
-            9 | 17 | 24 | 36 | 44 | 54 | 75 => Kind::Stream(stream::Stream::new(a[5])),
+            9 | 17 | 24 | 36 | 41 | 44 | 54 | 75 => Kind::Stream(stream::Stream::new(a[5])),
             12 => Kind::Glow {
                 angle: 0.,
                 palette: 0,
@@ -117,14 +117,15 @@ impl Emitter {
                 angle: 0.,
                 count: 0,
             },
-            66 => Kind::Projectile {
+            61 | 66 => Kind::Projectile {
+                completed_phase: if a[5] == 61 { 2 } else { 3 },
                 path: None,
                 launch: [0.; 3],
                 curvature: 0,
                 size: 0.,
                 fade: 0.,
                 target: [0.; 3],
-                texture: impact_texture,
+                texture: if a[5] == 66 { impact_texture } else { None },
             },
             kind => return Err(format!("unsupported emitter {kind}")),
         };
@@ -653,6 +654,25 @@ impl stream::Stream {
                 6 => setting!(*variation, value, nonnegative),
                 7 => setting!(sprite.rgba[3], value, alpha),
                 9 => linear_fade(sprite, value, 1.),
+                _ => Ok(0),
+            },
+            RisingSmoke {
+                remaining,
+                sprite,
+                radius,
+                height_step,
+                size_variation,
+                alpha_variation,
+                ..
+            } => match slot {
+                0 => setting!(*remaining, value, nonnegative),
+                1 => lifetime(sprite, value),
+                2..=3 => setting!(radius[slot - 2], value, nonnegative),
+                4 => setting!(*height_step, value),
+                5 => diameter(sprite, value),
+                6 => setting!(*size_variation, value, nonnegative),
+                7 => setting!(sprite.rgba[3], value, alpha),
+                8 => setting!(*alpha_variation, value, nonnegative),
                 _ => Ok(0),
             },
             Rain => Ok(0),

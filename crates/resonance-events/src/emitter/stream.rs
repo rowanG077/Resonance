@@ -33,6 +33,15 @@ pub(crate) enum Stream {
         target: [f32; 3],
     },
     Rain,
+    RisingSmoke {
+        emitted: u32,
+        remaining: u32,
+        sprite: BillboardEffect,
+        radius: [u32; 2],
+        height_step: f32,
+        size_variation: u32,
+        alpha_variation: u32,
+    },
     Smoke {
         emitted: u32,
         sprite: BillboardEffect,
@@ -81,6 +90,19 @@ impl Stream {
                 }
             }
             17 => Self::Rain,
+            41 => {
+                sprite.recipe = crate::effect::GLOW_SPRITE;
+                sprite.palette = Some(33);
+                Self::RisingSmoke {
+                    emitted: 0,
+                    remaining: 0,
+                    sprite,
+                    radius: [0; 2],
+                    height_step: 0.,
+                    size_variation: 0,
+                    alpha_variation: 0,
+                }
+            }
             24 => {
                 sprite.recipe = crate::effect::SMOKE_SPRITE;
                 sprite.palette = Some(33);
@@ -241,6 +263,31 @@ impl Stream {
                 p.size = [width as f32, height as f32];
                 p.rgba[3] = alpha as u8;
                 out.push(p);
+            }
+            Self::RisingSmoke {
+                emitted,
+                remaining,
+                sprite,
+                radius,
+                height_step,
+                size_variation,
+                alpha_variation,
+            } if *remaining > 0 => {
+                let mut p = start(sprite);
+                for (axis, &radius) in radius.iter().enumerate() {
+                    if radius != 0 {
+                        p.position[axis] +=
+                            radius as f32 - spread(rng, radius.saturating_mul(2)) as f32;
+                    }
+                }
+                p.position[2] += *emitted as f32 * *height_step;
+                p.size_delta = 1. + (random(rng) % 2) as f32;
+                p.rgba[3] = p.rgba[3].wrapping_add(spread(rng, *alpha_variation) as u8);
+                p.size = [p.size[0] + spread(rng, *size_variation) as f32; 2];
+                p.velocity[2] = speed;
+                out.push(p);
+                *emitted += 1;
+                *remaining -= 1;
             }
             Self::Smoke {
                 emitted,
