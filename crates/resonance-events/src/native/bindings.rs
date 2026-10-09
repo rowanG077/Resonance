@@ -125,6 +125,7 @@ impl Host for NativeHost<'_> {
         SetFieldCountdown(1) -> () = party;
         GetFieldCountdown(0) -> i32 = party;
         ShowChoice(5) -> i32 = dispatch;
+        ShowNumberInput(5) -> i32 = dispatch;
         OpenMenu(1) -> i32 = request_menu;
         SetEventBit(1) -> () = field;
         ClearEventBit(1) -> () = field;

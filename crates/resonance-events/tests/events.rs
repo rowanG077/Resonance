@@ -3162,11 +3162,18 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
             ..Default::default()
         };
         let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
-        assert_eq!(events.world.choices[&1].selected_line, 3 - page_start);
+        assert_eq!(
+            events.world.choices[&1]
+                .selection
+                .lines()
+                .unwrap()
+                .selected_line,
+            3 - page_start
+        );
         steps(&mut events, 4);
         assert!(events.world.texture_bindings.is_empty());
         let choice = events.world.choices.get_mut(&1).unwrap();
-        choice.selected_line = 4 - page_start;
+        choice.selection.lines_mut().unwrap().selected_line = 4 - page_start;
         let callback = choice.clone();
         choice.finish(reason).unwrap();
         events.step().unwrap();

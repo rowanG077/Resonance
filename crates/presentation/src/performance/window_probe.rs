@@ -226,7 +226,11 @@ fn drive(
         if tick >= 360
             && let Some(choice) = field.events.world.choices.get(&1)
         {
-            if choice.selected_line == 0 {
+            if choice
+                .selection
+                .lines()
+                .is_some_and(|lines| lines.selected_line == 0)
+            {
                 input.press(KeyCode::ArrowDown);
             } else if tick >= 390 && tick.is_multiple_of(30) {
                 input.press(KeyCode::Enter);

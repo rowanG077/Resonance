@@ -1059,14 +1059,16 @@
     },
     {
       "opcode": 113,
-      "name": "native_71",
+      "name": "show_number_input",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4"
-      ]
+        "slot",
+        "initial",
+        "minimum",
+        "maximum",
+        "wrap_digits"
+      ],
+      "returns_value": true,
+      "yields": true
     },
     {
       "opcode": 114,

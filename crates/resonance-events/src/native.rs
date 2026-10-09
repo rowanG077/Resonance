@@ -82,6 +82,23 @@ fn sprite_property(
     Some(previous)
 }
 impl NativeHost<'_> {
+    fn wait_for_choice(
+        &mut self,
+        slot: u8,
+        choice: crate::dialogue::Choice,
+    ) -> Result<NativeResult, String> {
+        *self.wait = Some(Wait::Choice {
+            result: choice.operation.clone(),
+            window: Box::new(Wait::Service {
+                condition: Box::new(Wait::Complete(self.world.dialogue[&slot].operation.clone())),
+                ready_at: None,
+            }),
+        });
+        if let Some(old) = self.world.choices.insert(slot, choice) {
+            old.operation.cancel();
+        }
+        Ok(NativeResult::Suspend)
+    }
     fn yield_update(&mut self) -> Result<NativeResult, String> {
         *self.wait = Some(Wait::Tick(
             self.world
@@ -935,9 +952,11 @@ impl NativeHost<'_> {
                 )?;
                 let choice = crate::dialogue::Choice {
                     operation: self.world.operations.begin()?,
-                    first_line: (first - page_start) as u8,
-                    last_line: (last - page_start) as u8,
-                    selected_line: (initial - page_start) as u8,
+                    selection: crate::dialogue::Selection::Lines(crate::dialogue::LineSelection {
+                        first_line: (first - page_start) as u8,
+                        last_line: (last - page_start) as u8,
+                        selected_line: (initial - page_start) as u8,
+                    }),
                     cancel_allowed: a[4] & choice_flags::DISABLE_CANCEL == 0,
                     confirmation: if a[4] & choice_flags::SHOULDER_CONFIRM != 0 {
                         ChoiceConfirmation::AcceptOrShoulder
@@ -946,17 +965,56 @@ impl NativeHost<'_> {
                     },
                     timeout_ticks: (a[3] > 0).then_some(a[3] as u16),
                 };
-                *self.wait = Some(Wait::Choice {
-                    result: choice.operation.clone(),
-                    window: Box::new(Wait::Service {
-                        condition: Box::new(Wait::Complete(dialogue.operation.clone())),
-                        ready_at: None,
+                return self.wait_for_choice(slot, choice);
+            }
+            NativeCall::ShowNumberInput => {
+                use crate::dialogue::{
+                    Choice, ChoiceConfirmation, NumberSelection, Selection, TextToken,
+                };
+                require(
+                    (0..i32::from(DIALOGUE_SLOTS)).contains(&a[0]),
+                    "invalid number input slot",
+                )?;
+                let slot = a[0] as u8;
+                let dialogue = self
+                    .world
+                    .dialogue
+                    .get(&slot)
+                    .ok_or("number input dialogue is missing")?;
+                require(
+                    dialogue.operation.is_pending() && !dialogue.persistent(),
+                    "number input needs an open dialogue",
+                )?;
+                let digits = dialogue
+                    .body
+                    .tokens
+                    .iter()
+                    .rev()
+                    .find_map(|token| match token {
+                        TextToken::Control { opcode: 8, value } => Some(*value),
+                        _ => None,
+                    })
+                    .ok_or("number input dialogue has no digit field")?;
+                require((1..=10).contains(&digits), "invalid number input width")?;
+                require(
+                    a[2] >= 0 && a[2] <= a[3] && i64::from(a[3]) < 10_i64.pow(digits as u32),
+                    "invalid number input bounds",
+                )?;
+                let choice = Choice {
+                    operation: self.world.operations.begin()?,
+                    selection: Selection::Number(NumberSelection {
+                        value: a[1].clamp(a[2], a[3]),
+                        minimum: a[2],
+                        maximum: a[3],
+                        digits: digits as u8,
+                        place: 0,
+                        wrap_digits: a[4] != 0,
                     }),
-                });
-                if let Some(old) = self.world.choices.insert(slot, choice) {
-                    old.operation.cancel();
-                }
-                return Ok(NativeResult::Suspend);
+                    cancel_allowed: true,
+                    confirmation: ChoiceConfirmation::Accept,
+                    timeout_ticks: None,
+                };
+                return self.wait_for_choice(slot, choice);
             }
             NativeCall::SetTransitionMode => {
                 require(

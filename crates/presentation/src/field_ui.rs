@@ -662,11 +662,12 @@ impl Artwork {
                 frame_coverage.with_solid(&batches[layer::BEVEL], &self.spec, opening.is_some())?;
             let [left, top, _, _] = rect;
             if let Some(choice) = world.choices.get(&slot)
+                && let Some(lines) = choice.selection.lines()
+                && player.page + 1 == player.pages.len()
                 && player.fully_revealed()
                 && (player.accepts_input() || !choice.operation.is_pending())
             {
-                let y =
-                    super::choice_cursor::drawing_y(top + f32::from(choice.selected_line) * 25.);
+                let y = super::choice_cursor::drawing_y(top + f32::from(lines.selected_line) * 25.);
                 let overlay = super::choice_cursor::overlay_rect;
                 let mut style = self.spec.selection.clone();
                 style.mode = window;
@@ -732,6 +733,19 @@ impl Artwork {
                     self.font.glyphs.get(&glyph.character).with_context(|| {
                         format!("uncooked dialogue glyph {:?}", glyph.character)
                     })?;
+                if let Some(choice) = world.choices.get(&slot)
+                    && let resonance_events::dialogue::Selection::Number(number) = &choice.selection
+                    && let Some(range) = &player.current().number
+                    && index + 1 + usize::from(number.place) == range.end
+                    && player.fully_revealed()
+                    && (player.accepts_input() || !choice.operation.is_pending())
+                {
+                    highlight.quad(
+                        [x, y, x + body_advance(spec.advance), y + 25.],
+                        [0.5; 4],
+                        [0.5, 0.625, 1., 0.5],
+                    );
+                }
                 batches[layer::FONT].quad(
                     [x, y, x + 21., y + 25.],
                     glyph_uv(spec.rect),
@@ -765,10 +779,11 @@ impl Artwork {
                 && player.accepts_input()
                 && player.fully_revealed()
                 && request.flags & flags::FRAMELESS == 0
-                && !world
-                    .choices
-                    .get(&slot)
-                    .is_some_and(|c| c.operation.is_pending())
+                && (player.page + 1 < player.pages.len()
+                    || !world
+                        .choices
+                        .get(&slot)
+                        .is_some_and(|c| c.operation.is_pending()))
             {
                 // The continue marker’s pulse follows scene age, not window age.
                 let bottom = frame_top(top, rect[3] - top) + (rect[3] - top).max(48.);
