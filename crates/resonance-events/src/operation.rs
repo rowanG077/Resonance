@@ -133,6 +133,7 @@ pub(crate) enum Wait {
     ActorAnimation(i32),
     ActorAnimationFrame(i32, i32),
     Complete(Operation),
+    Result(Operation),
     Choice {
         result: Operation,
         window: Box<Wait>,
@@ -151,6 +152,7 @@ impl Wait {
                 window.track(scope)
             }
             Self::Complete(op)
+            | Self::Result(op)
             | Self::Battle(op)
             | Self::Menu(op)
             | Self::Ready(op)
@@ -245,7 +247,9 @@ impl Wait {
                     .get(id)
                     .is_none_or(|a| (a.target_heading - a.heading).abs() < 0.01));
             }
-            Self::Tick(wake) | Self::ControlHandoff(wake) => return Ok(world.tick >= *wake),
+            Self::Tick(wake) | Self::ControlHandoff(wake) => {
+                return Ok(world.tick >= *wake);
+            }
             Self::Camera { after } => {
                 return Ok(world.tick > *after
                     && world
@@ -263,6 +267,7 @@ impl Wait {
             }
             Self::Choice { result, .. } => result,
             Self::Complete(op)
+            | Self::Result(op)
             | Self::Battle(op)
             | Self::Menu(op)
             | Self::Ready(op)
@@ -276,7 +281,11 @@ impl Wait {
                 _ => Ok(true),
             },
             None => Ok(match self {
-                Self::Complete(_) | Self::Choice { .. } | Self::Menu(_) | Self::Battle(_) => false,
+                Self::Complete(_)
+                | Self::Result(_)
+                | Self::Choice { .. }
+                | Self::Menu(_)
+                | Self::Battle(_) => false,
                 Self::Ready(_) => progress.ready,
                 Self::Position(_, target) => progress.ready && progress.position >= *target,
                 _ => unreachable!("non-operation waits returned above"),

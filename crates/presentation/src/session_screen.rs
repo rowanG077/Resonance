@@ -28,6 +28,7 @@ pub(crate) fn install(app: &mut App) {
 }
 
 pub(crate) fn update(world: &mut World) {
+    super::credits::retire_cancelled(world);
     let Some(target) = world
         .get_resource::<new_game::Session>()
         .and_then(|session| session.events().world.screen_request.as_ref())
@@ -35,7 +36,7 @@ pub(crate) fn update(world: &mut World) {
     else {
         return;
     };
-    if target == Target::GameOver
+    if target != Target::Title
         && !(if world.resource::<new_game::Session>().overworld.is_some() {
             crate::overworld::ready(world)
         } else {
@@ -47,6 +48,7 @@ pub(crate) fn update(world: &mut World) {
     let result = match target {
         Target::Title => return_to_title(world, false),
         Target::GameOver => show_game_over(world),
+        Target::Credits => super::credits::start(world),
     };
     if let Err(error) = result {
         error!("Session screen failed: {error:#}");
@@ -88,6 +90,7 @@ fn retire_session(world: &mut World) {
 }
 
 pub(crate) fn retire(world: &mut World) {
+    super::credits::retire(world);
     if let Some(game_over) = world.remove_resource::<GameOver>() {
         for entity in game_over.entities {
             world.despawn(entity);

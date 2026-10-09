@@ -1,6 +1,8 @@
 //! Bitmap dialogue composition from cooked images and high-level text state.
 #[path = "field_ui_coverage.rs"]
 mod coverage;
+#[path = "credits.rs"]
+pub(crate) mod credits;
 #[path = "field_ui_damage.rs"]
 mod damage;
 #[path = "field_ui_failure.rs"]
@@ -120,6 +122,7 @@ pub(super) struct Artwork {
     prompt_layers: Vec<Layer>,
     damage_layer: Option<Layer>,
     skits: skit::Artwork,
+    credits: Option<credits::Artwork>,
 }
 struct Layer {
     entity: Entity,
@@ -254,6 +257,11 @@ impl Artwork {
             .chain(self.damage_layer.take())
             .chain(self.skits.layers.drain(..))
             .chain(self.skits.warm.drain(..))
+            .chain(
+                self.credits
+                    .iter_mut()
+                    .flat_map(|credits| credits.layers.drain(..)),
+            )
         {
             world.despawn(layer.entity);
         }
@@ -290,8 +298,19 @@ impl Artwork {
         let subtitles: resonance_content::font::MovieSubtitles =
             serde_json::from_slice(&read("ui/story-subtitles.json")?)?;
         subtitles.validate()?;
-        let mut art = Self::load_shared(read, &field.overlays, server, materials, image_assets)?;
+        let mut art = Self::load_shared(&read, &field.overlays, server, materials, image_assets)?;
         art.subtitles = Some(subtitles);
+        if let Some(files) =
+            files.filter(|files| files.bytes.contains_key(resonance_content::credits::PATH))
+        {
+            art.credits = Some(credits::Artwork::load(
+                files,
+                &art.font,
+                &art.surfaces[9],
+                server,
+                materials,
+            )?);
+        }
         Ok(art)
     }
     fn load_shared(
@@ -349,6 +368,7 @@ impl Artwork {
         let skits = skit::Artwork::load(&read, server, materials, &surfaces[9], image_assets)?;
         Ok(Self {
             skits,
+            credits: None,
             resolution: Default::default(),
             attached_positions: BTreeMap::new(),
             font,
@@ -371,6 +391,10 @@ impl Artwork {
             && self.overlays.ready(images)
             && self.menu.ready(images)
             && self.skits.ready(images)
+            && self
+                .credits
+                .as_ref()
+                .is_none_or(|credits| credits.ready(images))
     }
     /// Allocate every supported dialogue slot/layer before its first request.
     pub(super) fn prepare(
@@ -381,6 +405,9 @@ impl Artwork {
     ) {
         self.menu.prepare(commands, meshes);
         self.skits.prepare(commands, meshes);
+        if let Some(credits) = &mut self.credits {
+            credits.prepare(commands, meshes);
+        }
         self.prepare_prompt(commands, meshes, materials);
         self.prepare_damage(commands, meshes);
         self.overlays.prepare(commands, meshes);
@@ -451,6 +478,7 @@ impl Artwork {
             .chain(self.damage_layer.iter())
             .chain(&self.skits.layers)
             .chain(&self.skits.warm)
+            .chain(self.credits.iter().flat_map(|credits| &credits.layers))
             .map(|layer| (&layer.mesh, &layer.material))
     }
     pub fn diagnostic_layouts(&self, session: &FieldSession) -> Vec<serde_json::Value> {
@@ -506,6 +534,9 @@ impl Artwork {
         materials: &mut Assets<Surface>,
         images: &mut Assets<Image>,
     ) -> Result<()> {
+        if let Some(credits) = &mut self.credits {
+            credits.render(session.events.world.screen_request.as_ref(), commands);
+        }
         self.render_prompt(session, commands, meshes)?;
         self.render_damage(session, commands, meshes)?;
         self.skits.render(

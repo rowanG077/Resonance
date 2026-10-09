@@ -41,13 +41,16 @@ pub(super) const PCM_SPEC: hound::WavSpec = hound::WavSpec {
     bits_per_sample: 16,
     sample_format: hound::SampleFormat::Int,
 };
-struct Clip {
+pub(super) struct Clip {
     pcm: Vec<i16>,
     rate: u32,
     channels: usize,
 }
 impl Clip {
-    fn decode(bytes: Vec<u8>, voice: &resonance_content::field_audio::Voice) -> Result<Self> {
+    pub(super) fn decode(
+        bytes: Vec<u8>,
+        voice: &resonance_content::field_audio::Voice,
+    ) -> Result<Self> {
         let mut wave = hound::WavReader::new(Cursor::new(bytes))?;
         let spec = wave.spec();
         ensure!(
@@ -56,14 +59,14 @@ impl Clip {
                 && spec.bits_per_sample == 16
                 && spec.sample_format == hound::SampleFormat::Int
                 && wave.duration() == voice.frames,
-            "spoken line format differs from metadata"
+            "PCM clip format differs from metadata"
         );
         let pcm = wave
             .samples::<i16>()
             .collect::<std::result::Result<Vec<_>, _>>()?;
         ensure!(
             pcm.len() == voice.frames as usize * usize::from(voice.channels),
-            "truncated spoken line"
+            "truncated PCM clip"
         );
         Ok(Self {
             pcm,
@@ -72,7 +75,12 @@ impl Clip {
         })
     }
 
-    fn sample(&self, position: u64, denominator: u32, pan: [f32; 2]) -> Option<[f32; 2]> {
+    pub(super) fn sample(
+        &self,
+        position: u64,
+        denominator: u32,
+        pan: [f32; 2],
+    ) -> Option<[f32; 2]> {
         let index = (position / u64::from(denominator)) as usize;
         let count = self.pcm.len() / self.channels;
         if index >= count {

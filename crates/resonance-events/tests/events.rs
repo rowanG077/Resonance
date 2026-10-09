@@ -2765,6 +2765,56 @@ fn terminal_session_screens_suspend_the_scene_until_its_owner_retires_it() {
 }
 
 #[test]
+#[ignore = "requires cooked party definitions; no devices"]
+fn credits_wait_for_playback_then_resume_without_changing_menu_results() {
+    let code = script(&[
+        (Call::ConfigureSession, &[18, 0]),
+        (Call::SetEventBit, &[2000]),
+    ]);
+    let data = Arc::new(cooked("session-data.json"));
+    let mut world = GameWorld::default();
+    world.party = Some(party::Party::new(&data, Default::default()).unwrap());
+    let mut memory = symphonia_script_vm::Memory::default();
+    memory.write(0x24, Width::S32, 17).unwrap();
+    memory.write(0x28, Width::S32, 23).unwrap();
+    let mut events = EventRuntime::with_state(
+        program(&code, &[0x20ff]),
+        Arc::new(ResourceLibrary {
+            session_data: Some(data),
+            ..Default::default()
+        }),
+        world,
+        memory,
+    )
+    .unwrap();
+    let request = events.world.screen_request.clone().unwrap();
+    assert_eq!(
+        request.target,
+        resonance_events::session_screen::Target::Credits
+    );
+    steps(&mut events, 4);
+    assert!(!events.world.event_flags.contains(&2000));
+    assert!(matches!(
+        events.world.audio_commands.as_slice(),
+        [AudioCommand::Music(MusicCommand::Stop)]
+    ));
+    events
+        .world
+        .screen_request
+        .take()
+        .unwrap()
+        .operation
+        .complete(Some(0))
+        .unwrap();
+    events.step().unwrap();
+    assert!(events.world.event_flags.contains(&2000));
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert_eq!(events.world.audio_commands.len(), 1);
+    assert_eq!(events.memory().read(0x24, Width::S32).unwrap(), 17);
+    assert_eq!(events.memory().read(0x28, Width::S32).unwrap(), 23);
+}
+
+#[test]
 fn missing_cooked_destination_is_owned_by_the_scene_loader() {
     let code = script(&[
         (Call::PreloadField, &[340]),

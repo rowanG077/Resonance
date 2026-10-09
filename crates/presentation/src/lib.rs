@@ -55,7 +55,7 @@ mod field_probe;
 mod field_refraction;
 mod field_rumble;
 mod field_ui;
-use field_ui::session_screen;
+use field_ui::{credits, session_screen};
 mod field_view;
 mod glow;
 mod materials;
@@ -468,6 +468,7 @@ fn build_app_with_display(
     );
     dungeons::install(&mut app, capture_only);
     session_screen::install(&mut app);
+    credits::install(&mut app);
     testing::install(&mut app);
     if !capture_only {
         audio_output::install(&mut app, silent)?;

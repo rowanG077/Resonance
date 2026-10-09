@@ -1056,7 +1056,13 @@ impl EventRuntime {
                 if matches!(wait, Wait::ControlHandoff(_)) {
                     self.world.input_enabled = true;
                 }
-                let result = if let Wait::Menu(operation) = wait {
+                let result = if let Wait::Result(operation) = wait {
+                    let Some(crate::Outcome::Completed(value)) = operation.progress().outcome
+                    else {
+                        anyhow::bail!("service completed without a result");
+                    };
+                    value
+                } else if let Wait::Menu(operation) = wait {
                     ensure!(
                         operation.progress().outcome == Some(crate::Outcome::Completed(Some(0))),
                         "menu completed without its zero result"
