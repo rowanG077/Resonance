@@ -27,6 +27,7 @@ enum FieldSystemCommand {
     SetCollectorsBookComplete = 9,
     SetMonsterBookComplete = 10,
     SetFigurineBookComplete = 11,
+    LastBattleDuration = 12,
     FieldLeader = 13,
     SetFieldLeader = 14,
     SuppressTransitionFade = 15,
@@ -53,6 +54,7 @@ impl TryFrom<i32> for FieldSystemCommand {
             9 => Ok(Self::SetCollectorsBookComplete),
             10 => Ok(Self::SetMonsterBookComplete),
             11 => Ok(Self::SetFigurineBookComplete),
+            12 => Ok(Self::LastBattleDuration),
             13 => Ok(Self::FieldLeader),
             14 => Ok(Self::SetFieldLeader),
             15 => Ok(Self::SuppressTransitionFade),
@@ -379,6 +381,16 @@ impl NativeHost<'_> {
                         )));
                     }
                     FieldSystemCommand::PlayTime => value = Some(self.world.played_ticks as i32),
+                    FieldSystemCommand::LastBattleDuration => {
+                        value = Some(
+                            self.world
+                                .party
+                                .as_ref()
+                                .ok_or("party is not initialized")?
+                                .battles
+                                .last_duration_ticks as i32,
+                        );
+                    }
                     FieldSystemCommand::SetSkitPrompts => {
                         let party = self
                             .world

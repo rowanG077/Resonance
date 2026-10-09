@@ -2,6 +2,8 @@
 //! prepares and runs the encounter, then resumes the original caller once.
 use crate::Operation;
 
+const MAX_DURATION_TICKS: u32 = 100 * 60 * 60 - 1;
+
 /// Script-selected restrictions and percentage adjustments for the next encounter.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Rules {
@@ -18,6 +20,8 @@ pub struct Rules {
 pub struct History {
     pub total: u16,
     pub participation: [u16; 9],
+    #[serde(default)]
+    pub last_duration_ticks: u32,
 }
 
 impl History {
@@ -31,13 +35,17 @@ impl History {
 
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
-            self.total <= 9999 && self.participation.iter().all(|&n| n <= 9999),
+            self.total <= 9999
+                && self.participation.iter().all(|&n| n <= 9999)
+                && self.last_duration_ticks <= MAX_DURATION_TICKS,
             "invalid battle history"
         );
         Ok(())
     }
 
-    fn record(&mut self, formation: &[u8]) {
+    /// Record active combat time, excluding entry, menus and results presentation.
+    pub fn record(&mut self, formation: &[u8], active_ticks: u32) {
+        self.last_duration_ticks = active_ticks.min(MAX_DURATION_TICKS);
         self.total = self.total.saturating_add(1).min(9999);
         for &member in formation.iter().take(4) {
             let count = &mut self.participation[usize::from(member - 1)];
@@ -53,8 +61,8 @@ mod tests {
     #[test]
     fn battle_history_counts_active_participants_and_survives_saves() {
         let mut history = History::default();
-        history.record(&[1, 2, 3, 4, 9]);
-        history.record(&[9, 1]);
+        history.record(&[1, 2, 3, 4, 9], 600);
+        history.record(&[9, 1], 1200);
         assert_eq!(history.count(0).unwrap(), 2);
         assert_eq!(history.participation, [2, 1, 1, 1, 0, 0, 0, 0, 1]);
         assert!(history.count(-1).is_err());
@@ -62,11 +70,13 @@ mod tests {
         let mut restored: History =
             serde_json::from_slice(&serde_json::to_vec(&history).unwrap()).unwrap();
         assert_eq!(restored.participation, history.participation);
+        assert_eq!(restored.last_duration_ticks, 1200);
         for _ in 0..10_000 {
-            restored.record(&[1]);
+            restored.record(&[1], 500_000);
         }
         assert_eq!(restored.total, 9999);
         assert_eq!(restored.count(1).unwrap(), 9999);
+        assert_eq!(restored.last_duration_ticks, 359_999);
         restored.validate().unwrap();
     }
 }
@@ -198,7 +208,7 @@ impl crate::GameWorld {
             });
         }
         if let Some(party) = &mut self.party {
-            party.battles.record(&party.formation);
+            party.battles.record(&party.formation, 0);
         }
         // Restore after the resumed caller has applied its battle-transition
         // fade, so that fade cannot leave the retained field track muted.
