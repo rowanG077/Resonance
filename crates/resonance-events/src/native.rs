@@ -401,6 +401,9 @@ impl NativeHost<'_> {
                 const SHADE_BLUE: i32 = 59;
                 const DISABLE_SECONDARY_MOTION: i32 = 40;
                 const TOON_LIGHTING: i32 = 38;
+                const PAUSE_OFFSCREEN: i32 = 67;
+                const ENEMY_SCRIPT_FLAG: i32 = 60;
+                const DISABLE_REPULSION: i32 = 61;
                 // Ordinary property writes return the previous value.
                 let id = if a[0] == crate::CONTROLLED_ACTOR {
                     self.world.controlled_actor
@@ -468,7 +471,7 @@ impl NativeHost<'_> {
                     return Ok(NativeResult::Continue(Some(previous)));
                 }
                 require(
-                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=23 | 26..=27 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53..=54 | 56 | 66 | CONDITIONS | 101 | 102 | 104 | 112)
+                    matches!(a[1], 1..=4 | MOVEMENT_SPEED | 7..=23 | 26..=27 | 30..=32 | 34..=37 | TOON_LIGHTING | 39 | DISABLE_SECONDARY_MOTION | 41..=48 | 50..=51 | 53..=54 | 56 | ENEMY_SCRIPT_FLAG | DISABLE_REPULSION | 66 | PAUSE_OFFSCREEN | CONDITIONS | 101 | 102 | 104 | 112)
                         && (a[1] != 112 || op == NativeCall::GetActorProperty),
                     "actor property shim is not implemented",
                 )?;
@@ -642,6 +645,16 @@ impl NativeHost<'_> {
                         .enemy
                         .as_ref()
                         .map_or(0, |enemy| i32::from(enemy.pause_ticks)),
+                    PAUSE_OFFSCREEN => i32::from(
+                        actor
+                            .enemy
+                            .as_ref()
+                            .is_some_and(|enemy| enemy.pause_outside_view),
+                    ),
+                    ENEMY_SCRIPT_FLAG => {
+                        i32::from(actor.enemy.as_ref().is_some_and(|enemy| enemy.script_flag))
+                    }
+                    DISABLE_REPULSION => i32::from(actor.overlap_repulsion_disabled),
                     56 => actor
                         .enemy
                         .as_ref()
@@ -766,6 +779,17 @@ impl NativeHost<'_> {
                                 enemy.pause_ticks = a[2] as i16;
                             }
                         }
+                        PAUSE_OFFSCREEN => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                enemy.pause_outside_view = a[2] & 1 != 0;
+                            }
+                        }
+                        ENEMY_SCRIPT_FLAG => {
+                            if let Some(enemy) = &mut actor.enemy {
+                                enemy.script_flag = a[2] & 1 != 0;
+                            }
+                        }
+                        DISABLE_REPULSION => actor.overlap_repulsion_disabled = a[2] & 1 != 0,
                         56 => {
                             if let Some(enemy) = &mut actor.enemy {
                                 require(

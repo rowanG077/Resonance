@@ -793,12 +793,29 @@ impl EventRuntime {
                 .transpose()?;
             let actor = self.world.actors.get_mut(id).unwrap();
             let previous = actor.position;
-            let ambient = actor.step_autonomy(
-                self.world.input_enabled,
-                conversation_active,
-                player_position,
-                &mut || crate::world::random(&mut self.world.random_state),
-            );
+            let ambient = if actor.motion.is_none()
+                && actor
+                    .enemy
+                    .as_ref()
+                    .is_some_and(|enemy| enemy.pause_outside_view)
+                && self
+                    .world
+                    .field_camera
+                    .as_ref()
+                    .is_some_and(|camera| !camera.enemy_active(actor.position))
+            {
+                crate::autonomy::AmbientMotion {
+                    paused: true,
+                    ..Default::default()
+                }
+            } else {
+                actor.step_autonomy(
+                    self.world.input_enabled,
+                    conversation_active,
+                    player_position,
+                    &mut || crate::world::random(&mut self.world.random_state),
+                )
+            };
             let turn = actor.turn_direction();
             let movement_speed = actor
                 .motion

@@ -1966,6 +1966,8 @@ impl NativeHost<'_> {
             alerted: false,
             event_parameters: [a[1] as i16, a[2] as i16],
             pause_ticks: 0,
+            pause_outside_view: false,
+            script_flag: false,
             reaction: crate::effect::StunEffect::None,
         });
         if let Some(model) = self.resources.model(resource) {
