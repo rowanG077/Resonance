@@ -1,4 +1,5 @@
 //! Scene effects share particle births, analytic paths and bounded stage timing.
+mod burst;
 mod column;
 mod contract;
 mod fire;
@@ -29,6 +30,7 @@ pub(crate) struct Emitter {
 
 #[derive(Debug, Clone)]
 enum Kind {
+    Burst(burst::Burst),
     Gathering {
         delay: u32,
         state: gathering::Gathering,
@@ -160,6 +162,7 @@ impl Emitter {
         let phase = &mut self.phase;
         let tick = self.age;
         match &mut self.kind {
+            Kind::Burst(burst) => burst.emit(center, born, phase, random, out),
             Kind::Mote(mote) => return mote.emit(actor, born, random, out),
             Kind::Gathering { state, .. } => {
                 state.emit(center, born, clock, random, out);
