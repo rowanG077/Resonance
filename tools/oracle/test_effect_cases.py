@@ -45,13 +45,16 @@ class GeneratedEffects(unittest.TestCase):
         self.assertEqual(after, {name: before[name] for name in after})
 
     def test_model_ring_and_station_compositions_keep_every_actor_and_emitter_independent(self):
+        variants = set()
         for family in ('tower', 'rings', 'stations'):
             bases = list(cases(CAMERA, family))
             for case in random_cases(CAMERA, bases, 500, 20261006):
                 commands = list(scenario_commands(case))
                 self.assert_lifetimes(commands)
+                variants.update(args[5] for op, args in commands if op == 0xbf)
                 if family == 'stations':
                     self.assertTrue(any(op == 0x5c for op, _ in commands))
+        self.assertTrue({40, 47, 50, 66, 70} <= variants)
 
     def test_visibility_tracks_palette_and_emission_changes(self):
         bases = {c['name']: c for c in cases(CAMERA)}
@@ -81,6 +84,8 @@ class GeneratedEffects(unittest.TestCase):
             self.assertEqual(commands, list(scenario_commands(json.loads(json.dumps(case)))))
             fixture_program([0, 90020, 32, 33, 34, 10000, 10001], SCENE_SETUP + commands)
             handles = [args[0] for op, args in commands if op == 0xbf]
+            self.assertFalse(set(handles) & {args[0] for op, args in commands if op == 0xb2},
+                             'face controls overwrite emitter parameters')
             reused_handles += len(handles) - len(set(handles))
             self.assert_lifetimes(commands)
             moving_sprites += sum(op in (0xd0, 0xd3) and any(args[5:8])
@@ -113,15 +118,19 @@ class GeneratedEffects(unittest.TestCase):
         # Required inputs are explicit, independent of the generator's catalogue.
         self.assertTrue({('emote', n) for n in range(20)} <= variants)
         self.assertTrue({('sprite', n) for n in (0, 1, 2, 4, 5, 6, 7, 8, 10, 14, 23, 25,
-                                                27, 28, 40, 41, 42, 43, 49, 52, 53, 54, 69)} <= variants)
+                                                27, 28, 40, 41, 42, 43, 49, 52, 53, 54, 69,
+                                                11, 12, 13, 18, 21, 22, 70, 74, 80, 501, 502, 503, 504, 505)} <= variants)
         self.assertTrue({105, 106, 107, 108} <= palettes)
         self.assertEqual(seal_phases, {1, 3})
         self.assertEqual(gathering_phases, {0, 1, 2})
+        mote = next(c for c in bases if c['name'] == 'emitter-18')
+        mote_phases.update(values['phase'] for case in random_cases(CAMERA, [mote], 20, 17)
+                           for e in case['effects'] if e['kind'] == 'emitter' and e['variant'] == 18
+                           for _, values in e['changes'] if 'phase' in values)
         self.assertIn(0, mote_phases, 'generated motes must exercise restart')
         self.assertTrue({('model', n) for n in range(3)} <= variants)
-        self.assertTrue({('emitter', n) for n in (0, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22,
-                                                 23, 24, 26, 27, 28, 30, 31, 33, 34, 36, 38,
-                                                 46, 48, 49, 51, 54, 55, 60, 63, 75)} <= variants)
+        emitters = set(range(5)) | set(range(9, 35)) | set(range(36, 69)) | set(range(70, 76))
+        self.assertTrue({('emitter', n) for n in emitters - {40, 47, 50, 66, 70}} <= variants)
         self.assertTrue(pairs, 'generated cases must combine emitters')
         self.assertTrue(reused_handles, 'generated cases must recreate removed emitters')
         self.assertTrue(moving_sprites, 'generated cases must exercise moving sprites')
@@ -177,7 +186,7 @@ class GeneratedEffects(unittest.TestCase):
 
     def test_projectile_speed_varies_and_primary_models_can_be_shrunk_without_overlays(self):
         bases = {c['name']: c for c in cases(CAMERA, 'tower')}
-        for name in ('emitter-47', 'renegade-shot'):
+        for name in ('emitter-40', 'emitter-47', 'emitter-70', 'renegade-shot'):
             commands = list(scenario_commands(bases[name]))
             binding = next(i for i, (op, _) in enumerate(commands) if op == 0xd2)
             birth = next(i for i, (op, _) in enumerate(commands) if op == 0xbf)

@@ -5,7 +5,7 @@
   },
   "native_sequence": {
     "path": "local/oracle-fixtures/effects/ring-bubble.json",
-    "sha256": "1c223944780280f010a277a9b505c037ac16a05564d738b9cd3a13849b3f214e"
+    "sha256": "040f9494146cd763ceaf2af96ca3c067883d5a376a8f30fd02546f6d30cd63d7"
   },
   "family": "rings",
   "inputs": [
