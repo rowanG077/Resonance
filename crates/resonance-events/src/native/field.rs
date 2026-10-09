@@ -32,6 +32,7 @@ enum FieldSystemCommand {
     SuppressTransitionFade = 15,
     BattleCount = 17,
     SetDoorInteractionRadius = 19,
+    SetSkitPrompts = 21,
 }
 
 impl TryFrom<i32> for FieldSystemCommand {
@@ -55,6 +56,7 @@ impl TryFrom<i32> for FieldSystemCommand {
             15 => Ok(Self::SuppressTransitionFade),
             17 => Ok(Self::BattleCount),
             19 => Ok(Self::SetDoorInteractionRadius),
+            21 => Ok(Self::SetSkitPrompts),
             _ => Err("field system command is not implemented"),
         }
     }
@@ -367,6 +369,15 @@ impl NativeHost<'_> {
             NativeCall::Unknown92 => {
                 match FieldSystemCommand::try_from(a[0])? {
                     FieldSystemCommand::PlayTime => value = Some(self.world.played_ticks as i32),
+                    FieldSystemCommand::SetSkitPrompts => {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        value = Some(-i32::from(!party.travel.skit_prompts_disabled));
+                        party.travel.skit_prompts_disabled = a[1] & 1 == 0;
+                    }
                     FieldSystemCommand::UndiscoveredMonsters => {
                         let party = self
                             .world
@@ -615,6 +626,9 @@ impl NativeHost<'_> {
             }
             NativeCall::ReturnFieldControl => {
                 self.world.mapped_input_disabled = false;
+                if let Some(party) = &mut self.world.party {
+                    party.travel.skit_prompts_disabled = a[0] & 1 != 0;
+                }
                 // Fade in the scene before returning field input.
                 let from = self
                     .world

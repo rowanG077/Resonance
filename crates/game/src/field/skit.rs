@@ -29,8 +29,7 @@ pub(crate) struct Skits {
 }
 impl Skits {
     pub fn reset(&mut self) {
-        self.control_ticks = 0;
-        self.selected = None;
+        *self = Self::new(self.data.clone());
     }
 
     pub fn new(data: Option<Arc<SkitCatalog>>) -> Self {
@@ -79,6 +78,14 @@ impl Skits {
     pub fn step(&mut self, events: &EventRuntime, map: u32, free_control: bool) -> Result<()> {
         self.visible = false;
         let world = &events.world;
+        if world
+            .party
+            .as_ref()
+            .is_some_and(|party| party.travel.skit_prompts_disabled)
+        {
+            self.reset();
+            return Ok(());
+        }
         if !free_control
             || !world.input_enabled
             || world.field_transition.is_some()

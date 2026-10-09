@@ -569,6 +569,52 @@ fn collection_services_track_discovery_and_preserve_awarded_completion() {
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
+fn skit_prompt_control_survives_save_and_follows_control_handoff() {
+    let disable = script(&[(Call::Unknown92, &[21, 0])]);
+    let mut events = party_runtime(&disable, &[0x20ff]);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), -1);
+    events = reload(&events, &[0x20ff], &[0x20ff]);
+    assert!(
+        events
+            .world
+            .party
+            .as_ref()
+            .unwrap()
+            .travel
+            .skit_prompts_disabled
+    );
+    let enable = script(&[(Call::Unknown92, &[21, 1])]);
+    events = reload(&events, &enable, &[0x20ff]);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert!(
+        !events
+            .world
+            .party
+            .as_ref()
+            .unwrap()
+            .travel
+            .skit_prompts_disabled
+    );
+    for mode in [1, 0] {
+        let handoff = script(&[(Call::ReturnFieldControl, &[mode])]);
+        events = reload(&events, &handoff, &[0x20ff]);
+        steps(&mut events, 11);
+        assert!(events.player_has_control());
+        assert_eq!(
+            events
+                .world
+                .party
+                .as_ref()
+                .unwrap()
+                .travel
+                .skit_prompts_disabled,
+            mode == 1
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
 fn field_countdown_runs_during_pause_and_reentry_preserves_countdown_and_conditions() {
     const CONDITIONS: i32 = 100;
     const STATUS: i32 = 0x8000_0080u32 as i32;
