@@ -1273,7 +1273,9 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::CreateParticle => {
-                let Some(kind) = self.resources.particles.get(&a[0]) else {
+                let rising = a[0] == 26;
+                let recipe_id = if rising { 25 } else { a[0] };
+                let Some(kind) = self.resources.particles.get(&recipe_id) else {
                     return self.field(op, a, memory);
                 };
                 require(
@@ -1290,11 +1292,12 @@ impl NativeHost<'_> {
                         .get(a[11] as usize)
                         .ok_or("particle color is not cooked")?;
                     rgba[3] = a[9] as u8;
-                    let flutter = Flutter::pending(recipe);
+                    let flutter = Flutter::pending(recipe, rising);
                     let lifetime = a[1] as u32 + 1;
                     return Ok(NativeResult::Continue(Some(self.world.emit_billboard(
                         BillboardEffect {
-                            recipe: a[0].try_into().map_err(|_| "invalid leaf recipe")?,
+                            recipe: recipe_id.try_into().map_err(|_| "invalid leaf recipe")?,
+                            blend: rising.then_some(crate::effect::Blend::Additive),
                             born: self.world.tick + 1,
                             lifetime,
                             position: [a[2] as f32, a[3] as f32, a[4] as f32],

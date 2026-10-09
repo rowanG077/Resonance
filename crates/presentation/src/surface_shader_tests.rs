@@ -78,10 +78,6 @@ fn surface_shaders_validate_for_field_and_effect_materials() -> anyhow::Result<(
                     ("MAX_CASCADES_PER_LIGHT", MAX_CASCADES_PER_LIGHT as u32),
                     ("MAX_RECT_LIGHTS", MAX_RECT_LIGHTS as u32),
                     ("AVAILABLE_STORAGE_BUFFER_BINDINGS", 8),
-                    (
-                        "REFRACTION_LIMIT",
-                        resonance_content::effect::REFRACTION_LIMIT as u32,
-                    ),
                 ]
                 .map(|(name, value)| ShaderDefVal::UInt(name.into(), value))
                 .into();

@@ -15,7 +15,7 @@ use bevy::{
         },
         render_asset::RenderAssets,
         render_resource::{
-            binding_types::{sampler, texture_2d, uniform_buffer},
+            binding_types::{sampler, storage_buffer_read_only, texture_2d, uniform_buffer},
             *,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
@@ -23,7 +23,6 @@ use bevy::{
         view::{ViewDepthTexture, ViewTarget},
     },
 };
-use resonance_content::effect::REFRACTION_LIMIT;
 use std::{
     collections::HashMap,
     sync::{
@@ -53,8 +52,9 @@ struct Settings {
     uv: [Vec4; 2],
     parameters: Vec4,
     screen_copy: Vec4,
-    pulses: [Pulse; REFRACTION_LIMIT],
 }
+#[derive(Component, Clone, ExtractComponent)]
+struct Pulses(Vec<Pulse>);
 #[derive(Component, Clone, ExtractComponent)]
 struct Atlas([Handle<Image>; 2]);
 
@@ -66,6 +66,7 @@ pub(super) fn install(app: &mut App) {
     app.insert_resource(ready.clone())
         .add_plugins((
             ExtractComponentPlugin::<Atlas>::default(),
+            ExtractComponentPlugin::<Pulses>::default(),
             ExtractComponentPlugin::<Settings>::default(),
             UniformComponentPlugin::<Settings>::default(),
         ))
@@ -98,7 +99,9 @@ fn sync(
 ) {
     let Some(art) = art else {
         for (entity, _) in &views {
-            commands.entity(entity).remove::<(Settings, Atlas)>();
+            commands
+                .entity(entity)
+                .remove::<(Settings, Atlas, Pulses)>();
         }
         return;
     };
@@ -130,32 +133,35 @@ fn sync(
     effects.sort_unstable_by_key(|effect| effect.draw_order);
     for (entity, projection) in &views {
         settings.clip_from_world = projection.get_clip_from_view() * view_from_world;
-        for (pulse, effect) in settings.pulses.iter_mut().zip(&effects) {
-            *pulse = Pulse::default();
-            let size = (effect.size / 2.).trunc() * 2.;
-            if size <= 0. {
-                continue;
-            }
-            let rotation = effect_rotation(effect.orientation, effect.rotation, camera.rotation);
-            *pulse = Pulse {
-                center: settings.clip_from_world * Vec3::from_array(effect.position).extend(1.),
-                right: settings.clip_from_world * (rotation * Vec3::X * size).extend(0.),
-                up: settings.clip_from_world * (rotation * Vec3::Y * size).extend(0.),
-                opacity: Vec4::new(
-                    effect.alpha(world.tick) / 255.,
-                    effect.image as u8 as f32,
-                    0.,
-                    0.,
-                ),
-                tint: Vec4::from_array(
-                    art.palette(effect.palette)
-                        .map(|v| f32::from(v) * 4. / 255.),
-                ),
-            };
-        }
+        let pulses = effects
+            .iter()
+            .map(|effect| {
+                let size = (effect.size / 2.).trunc() * 2.;
+                if size <= 0. {
+                    return Pulse::default();
+                }
+                let rotation =
+                    effect_rotation(effect.orientation, effect.rotation, camera.rotation);
+                Pulse {
+                    center: settings.clip_from_world * Vec3::from_array(effect.position).extend(1.),
+                    right: settings.clip_from_world * (rotation * Vec3::X * size).extend(0.),
+                    up: settings.clip_from_world * (rotation * Vec3::Y * size).extend(0.),
+                    opacity: Vec4::new(
+                        effect.alpha(world.tick) / 255.,
+                        effect.image as u8 as f32,
+                        0.,
+                        0.,
+                    ),
+                    tint: Vec4::from_array(
+                        art.palette(effect.palette)
+                            .map(|v| f32::from(v) * 4. / 255.),
+                    ),
+                }
+            })
+            .collect();
         commands
             .entity(entity)
-            .insert((settings.clone(), Atlas(textures.clone())));
+            .insert((settings.clone(), Atlas(textures.clone()), Pulses(pulses)));
     }
     let loaded =
         ready.get() && textures.iter().all(|texture| images.contains(texture)) && !views.is_empty();
@@ -194,20 +200,16 @@ fn prepare(
                 uniform_buffer::<Settings>(true),
                 texture_2d(TextureSampleType::Depth),
                 texture_2d(TextureSampleType::Float { filterable: true }),
+                storage_buffer_read_only::<Vec<Pulse>>(false),
             ),
         ),
     );
     let shader = server.load("embedded://resonance_presentation/field_refraction.wgsl");
-    let definitions = vec![bevy::shader::ShaderDefVal::UInt(
-        "REFRACTION_LIMIT".into(),
-        REFRACTION_LIMIT as u32,
-    )];
     let [id, ripple] = [
         (fullscreen.to_vertex_state(), "fragment", None),
         (
             VertexState {
                 shader: shader.clone(),
-                shader_defs: definitions.clone(),
                 entry_point: Some("quad_vertex".into()),
                 ..default()
             },
@@ -222,7 +224,7 @@ fn prepare(
             vertex,
             fragment: Some(FragmentState {
                 shader: shader.clone(),
-                shader_defs: definitions.clone(),
+                shader_defs: Vec::new(),
                 entry_point: Some(entry_point.into()),
                 targets: vec![Some(ColorTargetState {
                     format: TextureFormat::Bgra8Unorm,
@@ -252,7 +254,7 @@ fn prepare(
 
 #[derive(Default)]
 struct Bindings {
-    identity: Option<([TextureViewId; 2], BufferId, TextureViewId)>,
+    identity: Option<([TextureViewId; 2], BufferId, TextureViewId, BufferId)>,
     views: HashMap<TextureViewId, BindGroup>,
 }
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -262,6 +264,7 @@ fn render(
         &ViewDepthTexture,
         &Settings,
         &Atlas,
+        &Pulses,
         &DynamicUniformIndex<Settings>,
         &super::field_capture::Meshes,
     )>,
@@ -274,9 +277,10 @@ fn render(
     mut bindings: Local<Bindings>,
     queue: Res<RenderQueue>,
     mut mesh_buffer: Local<Option<RawBufferVec<f32>>>,
+    mut pulse_buffer: Local<StorageBuffer<Vec<Pulse>>>,
     mut context: RenderContext,
 ) {
-    let (target, depth, settings, atlas, index, meshes) = view.into_inner();
+    let (target, depth, settings, atlas, pulses, index, meshes) = view.into_inner();
     if !dissolve.ready(&cache) {
         return;
     }
@@ -295,10 +299,16 @@ fn render(
     let Some(buffer) = uniforms.uniforms().buffer() else {
         return;
     };
+    pulse_buffer.get_mut().clone_from(&pulses.0);
+    if pulse_buffer.get().is_empty() {
+        pulse_buffer.get_mut().push(Pulse::default());
+    }
+    pulse_buffer.write_buffer(context.render_device(), &queue);
     let identity = (
         [atlas.texture_view.id(), air.texture_view.id()],
         buffer.id(),
         depth.view().id(),
+        pulse_buffer.buffer().unwrap().id(),
     );
     if bindings.identity != Some(identity) {
         bindings.identity = Some(identity);
@@ -328,6 +338,7 @@ fn render(
                     uniforms.uniforms().binding().unwrap(),
                     depth.view(),
                     &air.texture_view,
+                    pulse_buffer.binding().unwrap(),
                 )),
             )
         });
