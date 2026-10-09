@@ -313,8 +313,50 @@ fn scripted_enemy_reaction_returns_the_previous_mode_and_reads_its_current_value
 }
 
 #[test]
-fn patrol_properties_update_enemy_movement() {
-    for (property, value, previous, stored) in [(23, 3, 2, 3), (26, 3, 1, 3), (27, 1, 2, 1)] {
+fn offscreen_enemy_activity_pauses_but_scripted_movement_can_finish() {
+    let setup = script(&[
+        (
+            Call::SpawnEnemyActor,
+            &[90, 0, 0, 5000, 1000, 0, 0, 2, 4, 42, 1, 3, 0, 0, 600, 0],
+        ),
+        (Call::SetActorProperty, &[90, 67, 3]),
+    ]);
+    let move_actor = script(&[
+        (Call::MoveActor, &[90, 5010, 1000, 0, 2]),
+        (Call::GetActorProperty, &[90, 67]),
+    ]);
+    let mut camera = camera::CameraRig::default();
+    camera.current_mut().target = [0., 1000., 0.];
+    camera.target = camera.current().target;
+    let mut world = controlled_world();
+    world.field_camera = Some(camera);
+    let mut events = runtime(program(&setup, &move_actor), enemy_resources(), world);
+    let actor = events.world.actors.get_mut(&90).unwrap();
+    actor.path.count = 1;
+    actor.path.points[0] = [5100., 1000., 0.];
+    steps(&mut events, 10);
+    assert_eq!(events.world.actors[&90].position, [5000., 1000., 0.]);
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 7);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+    assert_eq!(events.world.actors[&90].position, [5010., 1000., 0.]);
+    let actor = events.world.actors.get_mut(&90).unwrap();
+    actor.position = [0., 1000., 0.];
+    actor.path.points[0] = [100., 1000., 0.];
+    steps(&mut events, 5);
+    assert!(events.world.actors[&90].position[0] > 0.);
+}
+
+#[test]
+fn enemy_properties_update_patrol_and_preserve_script_flags() {
+    for (property, value, previous, stored) in [
+        (23, 3, 2, 3),
+        (26, 3, 1, 3),
+        (27, 1, 2, 1),
+        (60, 3, 0, 1),
+        (60, 2, 0, 0),
+        (61, 3, 0, 1),
+    ] {
         let main = script(&[
             (
                 Call::SpawnEnemyActor,
@@ -338,6 +380,7 @@ fn patrol_properties_update_enemy_movement() {
                 actor.path.points[0] = [100., 0., 0.];
             }
             27 => assert_ne!(actor.enemy.as_ref().unwrap().random_turns, 0),
+            60 | 61 => (),
             _ => unreachable!(),
         }
         events.world.input_enabled = true;

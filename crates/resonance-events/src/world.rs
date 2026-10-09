@@ -91,6 +91,8 @@ pub struct Actor {
     /// Surface flags published by field navigation before the scripts run.
     pub ground_attributes: u32,
     pub collidable: bool,
+    /// Script readback; axis-separated contacts already settle without repulsion.
+    pub overlap_repulsion_disabled: bool,
     /// Native contact shape; disabling walking collision does not remove it.
     pub contact: ActorContact,
     /// Touching the player invokes registry (0, -2), enabled by property 20.
@@ -141,6 +143,9 @@ pub struct Enemy {
     pub event_parameters: [i16; 2],
     /// Shared contact/ring/script timer (property 54); negatives pause indefinitely.
     pub pause_ticks: i16,
+    pub pause_outside_view: bool,
+    /// A script-controlled marker, independent of movement and reaction state.
+    pub script_flag: bool,
     pub reaction: crate::effect::StunEffect,
 }
 impl Enemy {
@@ -329,6 +334,7 @@ impl Actor {
             grounded: true,
             ground_attributes: 0,
             collidable: true,
+            overlap_repulsion_disabled: false,
             contact: ActorContact::Cylinder,
             contact_event: false,
             model_collision: None,

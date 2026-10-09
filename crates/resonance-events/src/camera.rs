@@ -392,6 +392,37 @@ impl CameraRig {
     /// Padded authored framing keeps nearby actors animating as they enter view.
     /// This uses game coordinates, independent of output resolution.
     pub(crate) fn animates(&self, position: [f32; 3]) -> bool {
+        let Some([x, y, z]) = self.project(position) else {
+            return true;
+        };
+        if !(0.2..=1.).contains(&z) {
+            return false;
+        }
+        let extra_width = self.horizontal_padding();
+        if z > 0.85 {
+            (-64. - extra_width..=704. + extra_width).contains(&x) && (-32. ..=640.).contains(&y)
+        } else {
+            (-640. - extra_width..=1280. + extra_width).contains(&x)
+                && (-640. ..=1280.).contains(&y)
+        }
+    }
+
+    pub(crate) fn enemy_active(&self, position: [f32; 3]) -> bool {
+        let Some([x, y, _]) = self.project(position) else {
+            return true;
+        };
+        let margin = resonance_content::WIDTH as f32;
+        let extra_width = self.horizontal_padding();
+        (-margin - extra_width..=2. * margin + extra_width).contains(&x)
+            && (-margin..=2. * margin).contains(&y)
+    }
+
+    fn horizontal_padding(&self) -> f32 {
+        use resonance_content::{HEIGHT, WIDTH};
+        (HEIGHT as f32 * self.view_aspect_ratio - WIDTH as f32).max(0.) * 0.5
+    }
+
+    fn project(&self, position: [f32; 3]) -> Option<[f32; 3]> {
         use resonance_content::{HEIGHT, SCENE_HEIGHT, WIDTH};
         const NEAR: f32 = 100.;
         const FAR: f32 = 40000.;
@@ -400,7 +431,7 @@ impl CameraRig {
         let length = dot(direction, direction).sqrt();
         let horizontal = direction[0].hypot(direction[1]);
         if length == 0. || horizontal == 0. {
-            return true;
+            return None;
         }
         let forward = direction.map(|v| v / length);
         let right = [direction[1] / horizontal, -direction[0] / horizontal, 0.];
@@ -412,19 +443,10 @@ impl CameraRig {
         let offset = std::array::from_fn(|i| position[i] - self.position[i]);
         let depth = dot(offset, forward);
         let z = FAR / (FAR - NEAR) * (1. - NEAR / depth);
-        if !(0.2..=1.).contains(&z) {
-            return false;
-        }
         let scale = 1. / (self.fov_degrees().to_radians() * 0.5).tan() / depth;
         let x = WIDTH as f32 * 0.5 + dot(offset, right) * scale * HEIGHT as f32 * 0.5;
         let y = SCENE_HEIGHT as f32 * 0.5 * (1. - dot(offset, up) * scale);
-        let extra_width = (HEIGHT as f32 * self.view_aspect_ratio - WIDTH as f32).max(0.) * 0.5;
-        if z > 0.85 {
-            (-64. - extra_width..=704. + extra_width).contains(&x) && (-32. ..=640.).contains(&y)
-        } else {
-            (-640. - extra_width..=1280. + extra_width).contains(&x)
-                && (-640. ..=1280.).contains(&y)
-        }
+        Some([x, y, z])
     }
     pub fn start_path(&mut self) {
         self.motion = Some(MotionCamera {

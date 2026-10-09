@@ -97,6 +97,8 @@ fn enemy(position: [f32; 3]) -> Actor {
         alerted: false,
         event_parameters: [0; 2],
         pause_ticks: 0,
+        pause_outside_view: false,
+        script_flag: false,
         reaction: crate::effect::StunEffect::None,
     });
     actor
