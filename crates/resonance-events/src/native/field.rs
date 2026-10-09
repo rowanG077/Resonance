@@ -715,13 +715,14 @@ impl NativeHost<'_> {
                     ELECTRIC_ARC_SPRITE, ELECTRIC_SPARK_SPRITE, Fade, Flutter, GLOW_SPRITE,
                     ORB_SPRITE, RING_SPRITE, RefractionImage, RefractionPulse, SEAL_SPARK_SPRITE,
                     SEAL_STAR_SPRITE, SPINNING_STAR_SPRITE, STAR_SPRITE, STATION_GLOW_SPRITE,
-                    SpriteOrientation, WORLD_GLOW_SPRITE,
+                    SpriteOrientation, TRAIL_GLOW_SPRITE, WORLD_GLOW_SPRITE,
                 };
                 use resonance_content::effect::{
                     SMOKE_UPDATES,
                     sprite::{DEBRIS_SPRITES, SMOKE_SPRITE, STREAK_SPRITE},
                 };
                 const IMPACT_GLOW: u16 = 2;
+                const AIR_REFRACTION: u16 = 9;
                 const CAMERA_RIPPLE: u16 = 27;
                 const WORLD_RIPPLE: u16 = 28;
                 const BOUND_SPRITES: std::ops::Range<u16> = 32..40;
@@ -735,7 +736,10 @@ impl NativeHost<'_> {
                 require(
                     (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32).contains(&palette)
                         && (!directed
-                            || matches!(kind, WORLD_GLOW_SPRITE | SPINNING_STAR_SPRITE)
+                            || matches!(
+                                kind,
+                                WORLD_GLOW_SPRITE | SPINNING_STAR_SPRITE | AIR_REFRACTION
+                            )
                             || parameter == 0),
                     "invalid effect palette or parameter",
                 )?;
@@ -805,7 +809,7 @@ impl NativeHost<'_> {
                             });
                         }
                     }
-                    STREAK_SPRITE if directed => particle.size[1] /= 6.,
+                    STREAK_SPRITE => particle.size[1] /= 6.,
                     SEAL_SPARK_SPRITE if directed => {}
                     STATION_GLOW_SPRITE if !directed => {}
                     CAMERA_DISC_SPRITE | CAMERA_RING => particle.recipe = WORLD_GLOW_SPRITE,
@@ -827,7 +831,7 @@ impl NativeHost<'_> {
                         };
                         // Choose the motion on its first update, after all births
                         // in this script update have consumed their own randomness.
-                        let flutter = Flutter::pending(recipe);
+                        let flutter = Flutter::pending(recipe, false);
                         particle.recipe = SEAL_STAR_SPRITE;
                         particle.orientation = SpriteOrientation::World;
                         particle.rotation = [0.; 3];
@@ -838,19 +842,31 @@ impl NativeHost<'_> {
                         particle.recipe = SEAL_STAR_SPRITE;
                         particle.uv = Some([192., 0., 254., 62.].map(|v| v / 256.));
                     }
-                    CAMERA_RIPPLE | WORLD_RIPPLE => {
-                        require(parameter == 0, "invalid refraction parameter")?;
+                    AIR_REFRACTION | CAMERA_RIPPLE | WORLD_RIPPLE => {
                         let handle = self.world.emit_refraction(RefractionPulse {
                             draw_order: 0,
                             operation: None,
                             owner: None,
-                            image: RefractionImage::Ripple,
+                            image: if kind == AIR_REFRACTION {
+                                RefractionImage::Air
+                            } else {
+                                RefractionImage::Ripple
+                            },
                             palette: palette as u8,
                             orientation: if kind == WORLD_RIPPLE {
                                 SpriteOrientation::World
                             } else {
                                 SpriteOrientation::Camera
                             },
+                            angular_velocity: [
+                                0.,
+                                0.,
+                                if kind == AIR_REFRACTION {
+                                    parameter as f32
+                                } else {
+                                    0.
+                                },
+                            ],
                             rotation: [0.; 3],
                             position: particle.position,
                             velocity: particle.velocity,
@@ -863,7 +879,10 @@ impl NativeHost<'_> {
                         })?;
                         return Ok(NativeResult::Continue(Some(handle)));
                     }
-                    ORB_SPRITE | ELECTRIC_SPARK_SPRITE | ELECTRIC_ARC_SPRITE => {}
+                    ORB_SPRITE
+                    | ELECTRIC_SPARK_SPRITE
+                    | ELECTRIC_ARC_SPRITE
+                    | TRAIL_GLOW_SPRITE => {}
                     _ if DEBRIS_SPRITES.contains(&kind) => {}
                     _ => return Err("effect recipe is not implemented".into()),
                 }

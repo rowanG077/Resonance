@@ -86,6 +86,7 @@ pub struct RefractionPulse {
     pub palette: u8,
     pub orientation: SpriteOrientation,
     pub rotation: [f32; 3],
+    pub angular_velocity: [f32; 3],
     pub position: [f32; 3],
     pub velocity: [f32; 3],
     pub born: u32,
@@ -108,6 +109,9 @@ impl RefractionPulse {
                 *position += velocity;
             }
             self.size += self.growth;
+            for (rotation, velocity) in self.rotation.iter_mut().zip(self.angular_velocity) {
+                *rotation += velocity;
+            }
         }
         self.alive(tick)
     }
@@ -270,9 +274,6 @@ impl crate::GameWorld {
         Ok(handle)
     }
     pub fn emit_refraction(&mut self, mut effect: RefractionPulse) -> Result<i32, String> {
-        if self.refractions.len() >= resonance_content::effect::REFRACTION_LIMIT {
-            return Err("refraction effect limit exceeded".into());
-        }
         effect.draw_order = self.effect_draw_order(|_| effect.born)?;
         let handle = self.allocate_effect()?;
         self.refractions.insert(handle, effect);
@@ -320,10 +321,11 @@ pub(crate) struct Flutter {
 }
 
 impl Flutter {
-    pub(crate) fn pending(recipe: &resonance_content::effect::FlutterRecipe) -> Self {
+    pub(crate) fn pending(recipe: &resonance_content::effect::FlutterRecipe, rising: bool) -> Self {
+        let direction = if rising { -1. } else { 1. };
         Self {
-            fall_speed: recipe.fall_speed,
-            initial_variation: Some(recipe.fall_variation),
+            fall_speed: recipe.fall_speed * direction,
+            initial_variation: Some(recipe.fall_variation * direction),
             spin: recipe.spin,
             heading: 0.,
             turn_after: 0,

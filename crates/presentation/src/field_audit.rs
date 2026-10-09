@@ -308,6 +308,7 @@ mod tests {
                 image: resonance_events::effect::RefractionImage::Ripple,
                 palette: resonance_events::effect::NEUTRAL_PALETTE,
                 orientation: resonance_events::effect::SpriteOrientation::World,
+                angular_velocity: [0.; 3],
                 rotation: [0.; 3],
                 position: [0.; 3],
                 velocity: [0.; 3],
