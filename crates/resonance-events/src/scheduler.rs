@@ -847,7 +847,11 @@ impl EventRuntime {
                     !camera.animates(attached_position.unwrap_or(actor.position))
                 });
             if let Some(animation) = &mut actor.animation {
-                animation.set_paused(ambient.paused || actor.animation_culled, self.world.tick);
+                // Offscreen scripted clips must still advance so their events can finish.
+                animation.set_paused(
+                    ambient.paused || actor.animation_culled && !actor.scripted_animation,
+                    self.world.tick,
+                );
             }
         }
         self.world.update_collision_attachments(&self.resources)?;
