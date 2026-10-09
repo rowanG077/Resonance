@@ -1324,9 +1324,9 @@
     },
     {
       "opcode": 139,
-      "name": "native_8b",
+      "name": "add_grade",
       "arguments": [
-        "arg0"
+        "amount"
       ],
       "returns_value": true
     },

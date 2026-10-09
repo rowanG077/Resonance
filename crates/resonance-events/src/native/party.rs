@@ -33,6 +33,11 @@ impl NativeHost<'_> {
             Ok(id as usize - 1)
         };
         match op {
+            NativeCall::AddGrade => {
+                party.grade_hundredths = (i64::from(party.grade_hundredths) + i64::from(a[0]) * 100)
+                    .clamp(0, 99_999_999) as u32;
+                value = Some(party.grade_hundredths as i32);
+            }
             NativeCall::ConfigureExGem => {
                 let index = member()?;
                 let slot = usize::try_from(a[1])

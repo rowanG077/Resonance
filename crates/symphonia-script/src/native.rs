@@ -154,7 +154,7 @@ native_calls! {
     ForgetRecipe = 0x88,
     SnapshotParty = 0x89,
     Unknown8A = 0x8a,
-    Unknown8B = 0x8b,
+    AddGrade = 0x8b,
     Unknown8C = 0x8c,
     SetCharacterName = 0x8d,
     GetScenarioTimerValue = 0x8e,
