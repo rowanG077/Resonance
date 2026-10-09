@@ -130,9 +130,9 @@
     },
     {
       "opcode": 19,
-      "name": "native_13",
+      "name": "get_actor_heading",
       "arguments": [
-        "arg0"
+        "actor_id"
       ],
       "returns_value": true
     },
@@ -147,9 +147,9 @@
     },
     {
       "opcode": 21,
-      "name": "native_15",
+      "name": "is_actor_moving",
       "arguments": [
-        "arg0"
+        "actor_id"
       ],
       "returns_value": true
     },
@@ -648,12 +648,13 @@
     },
     {
       "opcode": 69,
-      "name": "native_45",
+      "name": "set_scenery_animation_rate",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
-      ]
+        "layer",
+        "channel",
+        "rate"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 70,

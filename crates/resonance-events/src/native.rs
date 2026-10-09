@@ -323,6 +323,15 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::GetEventActor => value = Some(i32::from(self.event_actor)),
+            NativeCall::GetActorHeading | NativeCall::IsActorMoving => {
+                value = Some(self.world.actors.get(&a[0]).map_or(0, |actor| {
+                    if op == NativeCall::GetActorHeading {
+                        actor.heading as i16 as i32
+                    } else {
+                        i32::from(actor.motion.is_some())
+                    }
+                }));
+            }
             NativeCall::DespawnActorAfterMovement => {
                 let actor = if a[0] == crate::CONTROLLED_ACTOR {
                     self.world.controlled_actor
@@ -1363,6 +1372,8 @@ impl NativeHost<'_> {
             && matches!(
                 call,
                 NativeCall::SetActorHeading
+                    | NativeCall::GetActorHeading
+                    | NativeCall::IsActorMoving
                     | NativeCall::ActorExists
                     | NativeCall::SelectActor
                     | NativeCall::MoveActor
