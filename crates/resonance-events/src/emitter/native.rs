@@ -38,7 +38,7 @@ impl Emitter {
                 size: 0.,
                 smoke: a[5] != 0,
             },
-            9 | 17 | 24 | 25 | 36 | 39 | 41 | 44 | 54 | 62 | 75 => {
+            9 | 17 | 24 | 25 | 36 | 39 | 41 | 44 | 54 | 57 | 62 | 64 | 75 => {
                 Kind::Stream(stream::Stream::new(a[5]))
             }
             12 => Kind::Glow {
@@ -664,6 +664,51 @@ impl stream::Stream {
     fn property(&mut self, slot: usize, value: Option<i32>) -> Result<i32, String> {
         use stream::Stream::*;
         match self {
+            PlanarLights {
+                sprite,
+                radius,
+                variation,
+                interval,
+                spin,
+            } => match slot {
+                0 => setting!(*radius, value, nonnegative),
+                1 => lifetime(sprite, value),
+                2 => diameter(sprite, value),
+                3 => setting!(*variation, value, nonnegative),
+                4 => setting!(sprite.rgba[3], value, alpha),
+                5 => {
+                    let old = if let Fade::Linear(fade) = sprite.fade {
+                        fade as i32
+                    } else {
+                        0
+                    };
+                    if let Some(v) = value {
+                        sprite.fade = if v == 0 {
+                            Fade::tail(sprite.lifetime)
+                        } else {
+                            Fade::Linear(v.wrapping_mul(16) as i16 as f32 / 16.)
+                        };
+                    }
+                    Ok(old)
+                }
+                6 => setting!(*interval, value, positive),
+                7 => setting!(*spin, value),
+                _ => Ok(0),
+            },
+            RisingCircle {
+                radius,
+                size,
+                variation,
+                interval,
+                interval_variation,
+            } => match slot {
+                0 => setting!(*radius, value),
+                1 => setting!(*size, value),
+                2 => setting!(*variation, value, nonnegative),
+                3 => setting!(*interval, value, nonnegative),
+                4 => setting!(*interval_variation, value, nonnegative),
+                _ => Ok(0),
+            },
             Lightning { sprite, radius } => match slot {
                 0 => color(sprite, value, palette_index),
                 1 => lifetime(sprite, value),

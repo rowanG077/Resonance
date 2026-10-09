@@ -27,6 +27,7 @@ pub(super) fn read(executable: &[u8], kind: u16) -> Result<SpriteRecipe<Atlas>> 
         27 => (0x364, false),
         41 => (0x0b8, true),
         42 => (0x1dc, true),
+        44 => (0x220, true),
         52 => (0x04c, false),
         53 => (0x058, false),
         54 => (0x064, false),
@@ -34,6 +35,10 @@ pub(super) fn read(executable: &[u8], kind: u16) -> Result<SpriteRecipe<Atlas>> 
         69 => (0x244, true),
         70 => (0x1ac, true),
         74 => (0x28c, true),
+        75 => (0x250, true),
+        76 => (0x25c, true),
+        77 => (0x268, true),
+        78 => (0x274, true),
         80 => (0x298, true),
         _ => bail!("unsupported field sprite {kind}"),
     };
