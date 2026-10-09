@@ -33,6 +33,20 @@ pub(crate) enum Stream {
         target: [f32; 3],
     },
     Rain,
+    PlanarLights {
+        sprite: BillboardEffect,
+        radius: u32,
+        variation: u32,
+        interval: u32,
+        spin: f32,
+    },
+    RisingCircle {
+        radius: f32,
+        size: f32,
+        variation: u32,
+        interval: u32,
+        interval_variation: u32,
+    },
     Lightning {
         sprite: BillboardEffect,
         radius: u32,
@@ -104,6 +118,23 @@ impl Stream {
                 }
             }
             17 => Self::Rain,
+            57 => {
+                sprite.orientation = SpriteOrientation::World;
+                Self::PlanarLights {
+                    sprite,
+                    radius: 0,
+                    variation: 0,
+                    interval: 1,
+                    spin: 0.,
+                }
+            }
+            64 => Self::RisingCircle {
+                radius: 0.,
+                size: 0.,
+                variation: 0,
+                interval: 1,
+                interval_variation: 0,
+            },
             39 => {
                 sprite.recipe = crate::effect::LIGHTNING_BOLT_SPRITE;
                 Self::Lightning { sprite, radius: 0 }
@@ -170,6 +201,56 @@ impl Stream {
             p
         };
         match self {
+            Self::PlanarLights {
+                sprite,
+                radius,
+                variation,
+                interval,
+                spin,
+            } if clock.is_multiple_of(*interval) => {
+                let mut p = start(sprite);
+                let images = crate::effect::PLANE_LIGHT_SPRITES;
+                p.recipe = images[random(rng) as usize % images.len()];
+                p.palette = Some(77 + (random(rng) % 3) as u16);
+                p.size = [p.size[0] + spread(rng, *variation) as f32; 2];
+                p.rotation[2] = (random(rng) % 360) as f32;
+                p.angular_velocity[2] = if random(rng).is_multiple_of(2) {
+                    -*spin
+                } else {
+                    *spin
+                };
+                let (sin, cos) = ((random(rng) % 360) as f32).to_radians().sin_cos();
+                let distance = spread(rng, *radius) as f32;
+                p.position[0] += cos * distance;
+                p.position[1] += sin * distance;
+                out.push(p);
+            }
+            Self::RisingCircle {
+                radius,
+                size,
+                variation,
+                interval,
+                interval_variation,
+            } => {
+                let interval = (*interval + spread(rng, *interval_variation)).max(1);
+                if !clock.is_multiple_of(interval) {
+                    return;
+                }
+                let mut p = particle(center, born, super::palette(108, rng), 76);
+                p.recipe = crate::effect::RISING_LIGHT_SPRITE;
+                p.size = [*size + spread(rng, *variation) as f32; 2];
+                p.rgba[3] = 150;
+                p.velocity[2] = actor.movement_speed();
+                p.angular_velocity[2] = if random(rng).is_multiple_of(2) {
+                    -2.
+                } else {
+                    2.
+                };
+                let (sin, cos) = ((random(rng) % 360) as f32).to_radians().sin_cos();
+                p.position[0] += cos * *radius;
+                p.position[1] += sin * *radius;
+                out.push(p);
+            }
             Self::Lightning { sprite, radius } if clock.is_multiple_of(5) => {
                 let mut p = start(sprite);
                 p.size = [(96 + random(rng) % 32) as f32, 1024.];

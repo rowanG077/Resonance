@@ -178,6 +178,37 @@ fn radial_flash_expands_once_and_its_sparks_travel_outward() {
 }
 
 #[test]
+fn plane_lights_and_rising_circles_use_their_shared_artwork_and_expire() {
+    use resonance_content::effect::sprite::{PLANE_LIGHT_SPRITES, RISING_LIGHT_SPRITE};
+    for (kind, parameters) in [
+        (57, [100, 30, 25, 25, 255, 0, 1, 2]),
+        (64, [50, 20, 10, 2, 3, 0, 0, 0]),
+    ] {
+        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 50, &parameters))]);
+        let remove = script(&[(Call::DespawnActor, &[500])]);
+        let mut events = interactive_effect(&setup, &remove);
+        steps(&mut events, 20);
+        assert!(!events.world.billboards.is_empty());
+        for p in events.world.billboards.values() {
+            if kind == 57 {
+                assert!(PLANE_LIGHT_SPRITES.contains(&p.recipe));
+                assert!(matches!(p.orientation, effect::SpriteOrientation::World));
+                assert!(p.position[0].hypot(p.position[1]) < 100.);
+                assert!((25. ..50.).contains(&p.size[0]));
+            } else {
+                assert_eq!(p.recipe, RISING_LIGHT_SPRITE);
+                assert!((p.position[0].hypot(p.position[1]) - 50.).abs() < 0.001);
+                assert_eq!(p.velocity, [0., 0., 50.]);
+            }
+        }
+        assert!(events.trigger(42, true).unwrap());
+        events.step().unwrap();
+        steps(&mut events, 80);
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
 fn lightning_and_colored_flames_obey_their_spawn_bounds_and_cleanup() {
     use resonance_content::effect::sprite::{GLOW_SPRITE, LIGHTNING_BOLT_SPRITE};
     for (kind, parameters) in [(25, [60, 57, 64, 30, 0]), (39, [57, 60, 1000, 0, 0])] {

@@ -24,15 +24,17 @@ pub mod sprite {
     pub const STREAK_SPRITE: u16 = 23;
     pub const RING_SPRITE: u16 = 41;
     pub const ELECTRIC_SPARK_SPRITE: u16 = 42;
+    pub const RISING_LIGHT_SPRITE: u16 = 44;
     pub const DEBRIS_SPRITES: [u16; 3] = [52, 53, 54];
     pub const SEAL_STAR_SPRITE: u16 = 68;
     pub const SEAL_SPARK_SPRITE: u16 = 69;
     pub const SQUARE_GLOW_SPRITE: u16 = 70;
     pub const LIGHTNING_BOLT_SPRITE: u16 = 74;
+    pub const PLANE_LIGHT_SPRITES: [u16; 4] = [75, 76, 77, 78];
     pub const FLAME_PLUME_SPRITE: u16 = 80;
     pub const COOKING_CLOUDS: std::ops::RangeInclusive<u16> = 501..=505;
 
-    pub const ALL: [u16; 26] = [
+    pub const ALL: [u16; 31] = [
         GLOW_SPRITE,
         SMOKE_SPRITE,
         STATION_GLOW_SPRITE,
@@ -51,6 +53,7 @@ pub mod sprite {
         STREAK_SPRITE,
         RING_SPRITE,
         ELECTRIC_SPARK_SPRITE,
+        RISING_LIGHT_SPRITE,
         DEBRIS_SPRITES[0],
         DEBRIS_SPRITES[1],
         DEBRIS_SPRITES[2],
@@ -58,6 +61,10 @@ pub mod sprite {
         SEAL_SPARK_SPRITE,
         SQUARE_GLOW_SPRITE,
         LIGHTNING_BOLT_SPRITE,
+        PLANE_LIGHT_SPRITES[0],
+        PLANE_LIGHT_SPRITES[1],
+        PLANE_LIGHT_SPRITES[2],
+        PLANE_LIGHT_SPRITES[3],
         FLAME_PLUME_SPRITE,
     ];
 }
