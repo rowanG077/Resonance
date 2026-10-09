@@ -254,6 +254,15 @@ impl NativeHost<'_> {
                     dialogue.operation.complete(None)?;
                 }
             }
+            NativeCall::GetDialogueStatus => {
+                value = Some(
+                    u8::try_from(a[0])
+                        .ok()
+                        .and_then(|slot| self.world.dialogue.get(&slot))
+                        .filter(|dialogue| dialogue.operation.is_pending())
+                        .map_or(0, |dialogue| dialogue.status as i32),
+                );
+            }
             NativeCall::ConfigureDialogue => {
                 require(
                     (0..i32::from(DIALOGUE_SLOTS)).contains(&a[0]),
@@ -313,6 +322,7 @@ impl NativeHost<'_> {
                 };
                 let dialogue = Dialogue {
                     operation: self.world.operations.begin()?,
+                    status: crate::dialogue::DialogueStatus::Waiting,
                     speaker,
                     body,
                     anchor,

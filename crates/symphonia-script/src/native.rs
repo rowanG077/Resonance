@@ -29,7 +29,7 @@ native_calls! {
     CloseDialogue = 0x0a,
     ExpandMessage = 0x0b,
     ConfigureDialogue = 0x0c,
-    Unknown0D = 0x0d,
+    GetDialogueStatus = 0x0d,
     CreateSavePoint = 0x0e,
     StartEnemyBattle = 0x0f,
     SpawnActor = 0x10,

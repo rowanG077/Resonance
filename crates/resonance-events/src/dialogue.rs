@@ -103,6 +103,7 @@ impl crate::GameWorld {
             slot,
             Dialogue {
                 operation: operation.clone(),
+                status: DialogueStatus::Waiting,
                 speaker: ResolvedMessage { tokens: Vec::new() },
                 body,
                 anchor: DialogueAnchor::Screen([0., 0.]),
@@ -206,6 +207,7 @@ pub enum DialogueAnchor {
 #[derive(Debug, Clone)]
 pub struct Dialogue {
     pub operation: Operation,
+    pub status: DialogueStatus,
     pub speaker: ResolvedMessage,
     pub body: ResolvedMessage,
     pub anchor: DialogueAnchor,
@@ -218,6 +220,19 @@ pub struct Dialogue {
     pub dimensions: Option<[u16; 2]>,
     /// Added to the speaker's head attachment for an automatically sized box.
     pub height_offset: i16,
+}
+
+/// Window progress exposed to scripts independently of page completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum DialogueStatus {
+    Closed = 0,
+    Waiting = 1,
+    Opening = 2,
+    Revealing = 3,
+    PageReady = 4,
+    Finished = 5,
+    Closing = 6,
 }
 
 impl Dialogue {

@@ -59,9 +59,9 @@
     },
     {
       "opcode": 13,
-      "name": "native_0d",
+      "name": "get_dialogue_status",
       "arguments": [
-        "arg0"
+        "slot"
       ],
       "returns_value": true
     },

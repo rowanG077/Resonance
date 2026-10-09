@@ -15,6 +15,7 @@ macro_rules! bindings {
 impl Host for NativeHost<'_> {
     const NATIVES: NativeBindings<Self> = bindings! {
         CloseDialogue(1) -> () = dispatch;
+        GetDialogueStatus(1) -> i32 = dispatch;
         ConfigureDialogue(8) -> () = dispatch;
         SetDialogueSlotFlag(3) -> () = dispatch;
         CreateSavePoint(4) -> () = field;

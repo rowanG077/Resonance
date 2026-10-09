@@ -1142,6 +1142,9 @@ impl FieldSession {
                 }
             }
         }
+        for (slot, player) in &self.dialogue {
+            self.events.world.dialogue.get_mut(slot).unwrap().status = player.status();
+        }
         Ok(choice_slot.is_some()
             || self
                 .dialogue
@@ -2490,6 +2493,48 @@ mod tests {
                 );
                 assert_eq!(session.events.world.input_enabled, allowed);
             }
+        }
+    }
+
+    #[test]
+    fn scripts_observe_dialogue_readiness_and_closure() {
+        let mut code = vec![4, 0, 0, 0];
+        native(
+            &mut code,
+            NativeCall::ConfigureDialogue,
+            &[1, 0, -2, 7, 0, 0, 0, 0],
+        );
+        for _ in 0..100 {
+            native(&mut code, NativeCall::GetDialogueStatus, &[1]);
+            code.extend([0x3000, 0x1200, 0x100, 0x1200, 0x20, 0x3010, 0x3000]);
+            native(&mut code, NativeCall::YieldCommand, &[0, 1]);
+        }
+        code.push(0x20ff);
+        let mut session = session(runtime(
+            code,
+            ResourceLibrary {
+                messages: vec![Message {
+                    tokens: vec![Token::Text {
+                        text: "A\u{c}B".into(),
+                    }],
+                }],
+                ..Default::default()
+            },
+        ));
+        for expected in [4, 5, 0] {
+            for _ in 0..30 {
+                session.step(FieldInput::default()).unwrap();
+            }
+            assert_eq!(
+                session.events.memory().read(0x100, Width::S32).unwrap(),
+                expected
+            );
+            session
+                .step(FieldInput {
+                    pressed_buttons: [Button::Accept].into(),
+                    ..Default::default()
+                })
+                .unwrap();
         }
     }
 

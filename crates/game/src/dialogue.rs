@@ -2,7 +2,7 @@
 use anyhow::{Result, ensure};
 use resonance_events::{
     Operation,
-    dialogue::{Dialogue, ResolvedMessage, TextToken, flags},
+    dialogue::{Dialogue, DialogueStatus, ResolvedMessage, TextToken, flags},
 };
 use std::{
     collections::BTreeMap,
@@ -96,6 +96,19 @@ pub struct DialoguePlayer {
     instant_glyphs: bool,
 }
 impl DialoguePlayer {
+    pub fn status(&self) -> DialogueStatus {
+        if !self.operation.is_pending() {
+            return DialogueStatus::Closed;
+        }
+        match self.phase {
+            WindowPhase::Opening(_) => DialogueStatus::Opening,
+            WindowPhase::Text if !self.fully_revealed() => DialogueStatus::Revealing,
+            WindowPhase::Text if self.page + 1 < self.pages.len() => DialogueStatus::PageReady,
+            WindowPhase::Text => DialogueStatus::Finished,
+            WindowPhase::Closing(_) => DialogueStatus::Closing,
+            WindowPhase::Closed => DialogueStatus::Closed,
+        }
+    }
     /// Scripts can release a persistent notice after its text has appeared.
     pub fn sync_flags(&mut self, dialogue: &Dialogue) {
         self.persistent = dialogue.persistent();
@@ -346,6 +359,7 @@ pub fn step_requests(
                 VoiceAction::Stop => resonance_events::AudioCommand::StopVoice,
             });
         }
+        world.dialogue.get_mut(&slot).unwrap().status = player.status();
     }
     Ok(())
 }
@@ -462,6 +476,7 @@ mod tests {
         .unwrap();
         let dialogue = Dialogue {
             operation: events.world.movie.as_ref().unwrap().operation.clone(),
+            status: DialogueStatus::Waiting,
             speaker: ResolvedMessage { tokens: vec![] },
             body: ResolvedMessage {
                 tokens: vec![
