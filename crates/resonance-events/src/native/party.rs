@@ -383,21 +383,28 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::HealParty => {
-                const FULL_RECOVERY: i32 = 0;
-                const DAMAGE_TENTH: i32 = 14;
-                const DAMAGE_TWENTIETH: i32 = 15;
+                const PERCENT: [i16; 5] = [100, 50, 10, 5, 1];
                 match a[0] {
-                    FULL_RECOVERY => party.heal(|| crate::world::random(random)),
+                    0 => party.heal(|| crate::world::random(random)),
                     23 => party.revive_incapacitated(),
-                    DAMAGE_TENTH | DAMAGE_TWENTIETH => {
-                        let percent = if a[0] == DAMAGE_TENTH { 10 } else { 5 };
-                        let leader = &party.members[usize::from(party.field_leader - 1)];
-                        let amount =
-                            u32::from(leader.maximum_vitals()[0]) * u32::from(percent) / 100;
-                        self.world
-                            .damage_numbers
-                            .push(amount as u16, self.world.tick);
-                        party.damage_hp_percent(percent);
+                    mode @ 2..=22 => {
+                        let change = match mode {
+                            2..=6 => [PERCENT[(mode - 2) as usize], 0],
+                            7..=11 => [0, PERCENT[(mode - 7) as usize]],
+                            12..=16 => [-PERCENT[(mode - 12) as usize], 0],
+                            17..=21 => [0, -PERCENT[(mode - 17) as usize]],
+                            _ => [-20, 0],
+                        };
+                        if change[0] < 0 {
+                            let leader = &party.members[usize::from(party.field_leader - 1)];
+                            let amount = u32::from(leader.maximum_vitals()[0])
+                                * u32::from(change[0].unsigned_abs())
+                                / 100;
+                            self.world
+                                .damage_numbers
+                                .push(amount as u16, self.world.tick);
+                        }
+                        party.adjust_vitals_percent(change);
                     }
                     _ => return Err("unsupported party recovery mode".into()),
                 }
