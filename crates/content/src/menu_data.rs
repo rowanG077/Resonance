@@ -56,6 +56,7 @@ impl Item {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MenuData {
+    pub grade_shop: crate::grade::Shop,
     pub version: u32,
     pub items: Vec<Item>,
     pub titles: Vec<Vec<Title>>,
@@ -187,6 +188,7 @@ pub enum Costume {
 impl MenuData {
     pub const VERSION: u32 = 26;
     pub fn validate(&self) -> Result<()> {
+        self.grade_shop.validate()?;
         self.rename.validate()?;
         self.item_group_prompt.validate()?;
         self.item_bottle_count.validate()?;

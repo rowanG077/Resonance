@@ -8,6 +8,7 @@ pub use crafting::CraftError;
 mod ex_skills;
 pub use bestiary::MonsterKnowledge;
 mod items;
+pub mod new_game_plus;
 mod stats;
 mod strategy;
 mod techniques;
@@ -312,6 +313,8 @@ impl Default for Settings {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Party {
+    #[serde(default)]
+    pub new_game_plus: new_game_plus::State,
     /// Completed playthroughs, queried by original field scripts.
     #[serde(default)]
     pub game_clears: u8,
@@ -503,6 +506,7 @@ impl Party {
     pub fn new(data: &SessionData, settings: Settings) -> anyhow::Result<Self> {
         data.validate()?;
         Ok(Self {
+            new_game_plus: Default::default(),
             game_clears: 0,
             cooking: Cooking::default(),
             encounter_modifier: None,

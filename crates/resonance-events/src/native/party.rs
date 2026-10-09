@@ -446,6 +446,17 @@ impl NativeHost<'_> {
                 party.raise_level(data, index, level, growth, || crate::world::random(random))?;
             }
             NativeCall::ConfigureSession => {
+                if a[0] == 10 {
+                    let shop = &self
+                        .resources
+                        .menu_data
+                        .as_ref()
+                        .ok_or("Grade Shop is not cooked")?
+                        .grade_shop;
+                    return Ok(NativeResult::Continue(Some(i32::from(
+                        party.record_clear(shop).map_err(|e| e.to_string())?,
+                    ))));
+                }
                 const GAME_CLEARS: i32 = 11;
                 const MENU_DISABLED: i32 = 15;
                 if a[0] == GAME_CLEARS {
