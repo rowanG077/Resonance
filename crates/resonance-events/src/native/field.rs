@@ -825,17 +825,16 @@ impl NativeHost<'_> {
             }
             NativeCall::CreateEffectObject | NativeCall::CreateParticle => {
                 use crate::effect::{
-                    BillboardController, BillboardEffect, Blend, CAMERA_DISC_SPRITE,
-                    ELECTRIC_ARC_SPRITE, ELECTRIC_SPARK_SPRITE, Fade, Flutter, GLOW_SPRITE,
-                    ORB_SPRITE, RING_SPRITE, RefractionImage, RefractionPulse, SEAL_SPARK_SPRITE,
-                    SEAL_STAR_SPRITE, SPINNING_STAR_SPRITE, STAR_SPRITE, STATION_GLOW_SPRITE,
-                    SpriteOrientation, TRAIL_GLOW_SPRITE, WORLD_GLOW_SPRITE,
+                    BillboardController, BillboardEffect, Blend, CAMERA_DISC_SPRITE, Fade, Flutter,
+                    GLOW_SPRITE, ORB_SPRITE, RING_SPRITE, RefractionImage, RefractionPulse,
+                    SEAL_STAR_SPRITE, SPINNING_STAR_SPRITE, STAR_SPRITE, SpriteOrientation,
+                    TRAIL_GLOW_SPRITE, WORLD_GLOW_SPRITE,
                 };
                 use resonance_content::effect::{
                     SMOKE_UPDATES,
                     sprite::{
-                        DEBRIS_SPRITES, FLAME_SPRITE, SMOKE_SPRITE, STATION_HALO_SPRITE,
-                        STREAK_SPRITE,
+                        BURST_SPRITE, ELECTRIC_ARC_SPRITE, FLAME_SPRITE, SMOKE_SPRITE,
+                        SPARKLE_CLUSTER_SPRITE, STATION_HALO_SPRITE, STREAK_SPRITE,
                     },
                 };
                 const IMPACT_GLOW: u16 = 2;
@@ -855,7 +854,16 @@ impl NativeHost<'_> {
                         && (!directed
                             || matches!(
                                 kind,
-                                WORLD_GLOW_SPRITE | SPINNING_STAR_SPRITE | AIR_REFRACTION
+                                WORLD_GLOW_SPRITE
+                                    | SPINNING_STAR_SPRITE
+                                    | AIR_REFRACTION
+                                    | FLAME_SPRITE
+                                    | TRAIL_GLOW_SPRITE
+                                    | BURST_SPRITE
+                                    | ELECTRIC_ARC_SPRITE
+                                    | SPARKLE_CLUSTER_SPRITE
+                                    | STATION_HALO_SPRITE
+                                    | STREAK_SPRITE
                             )
                             || parameter == 0),
                     "invalid effect palette or parameter",
@@ -903,6 +911,10 @@ impl NativeHost<'_> {
                         particle.rotation[2] = (self.world.effect_tick & 127) as f32;
                         particle.angular_velocity[2] = spin;
                     }
+                    _ if resonance_content::effect::sprite::COOKING_CLOUDS.contains(&kind) => {
+                        particle.recipe = GLOW_SPRITE;
+                        particle.uv = Some([0., 0.25, 0.25, 0.5]);
+                    }
                     _ if directed && BOUND_SPRITES.contains(&kind) => {
                         particle.recipe = ORB_SPRITE;
                         let slot = (kind - BOUND_SPRITES.start) as u8;
@@ -923,9 +935,18 @@ impl NativeHost<'_> {
                             });
                         }
                     }
-                    STREAK_SPRITE => particle.size[1] /= 6.,
-                    SEAL_SPARK_SPRITE if directed => {}
-                    STATION_GLOW_SPRITE | STATION_HALO_SPRITE | FLAME_SPRITE => {}
+                    STREAK_SPRITE => {
+                        particle.size[1] /= 6.;
+                        particle.angular_velocity[2] = parameter as f32;
+                    }
+                    FLAME_SPRITE
+                    | TRAIL_GLOW_SPRITE
+                    | BURST_SPRITE
+                    | ELECTRIC_ARC_SPRITE
+                    | SPARKLE_CLUSTER_SPRITE
+                    | STATION_HALO_SPRITE => {
+                        particle.angular_velocity[2] = parameter as f32;
+                    }
                     CAMERA_DISC_SPRITE | CAMERA_RING => particle.recipe = WORLD_GLOW_SPRITE,
                     WORLD_GLOW_SPRITE => {
                         particle.orientation = SpriteOrientation::World;
@@ -982,6 +1003,7 @@ impl NativeHost<'_> {
                                 },
                             ],
                             rotation: [0.; 3],
+                            rotation_order: particle.rotation_order,
                             position: particle.position,
                             velocity: particle.velocity,
                             speed: particle.speed,
@@ -995,11 +1017,7 @@ impl NativeHost<'_> {
                         })?;
                         return Ok(NativeResult::Continue(Some(handle)));
                     }
-                    ORB_SPRITE
-                    | ELECTRIC_SPARK_SPRITE
-                    | ELECTRIC_ARC_SPRITE
-                    | TRAIL_GLOW_SPRITE => {}
-                    _ if DEBRIS_SPRITES.contains(&kind) => {}
+                    _ if resonance_content::effect::sprite::ALL.contains(&kind) => {}
                     _ => return Err("effect recipe is not implemented".into()),
                 }
                 value = Some(self.world.emit_billboard(particle)?);

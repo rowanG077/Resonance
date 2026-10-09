@@ -19,7 +19,7 @@ use resonance_content::{
     effect::{FieldEffects, RefractionRecipe, VerticalAnchor},
     field::FieldAssets,
 };
-use resonance_events::effect::{Blend, SpriteOrientation};
+use resonance_events::effect::{Blend, RotationOrder, SpriteOrientation};
 use std::{collections::BTreeMap, fs, path::Path};
 
 const EMOTES: usize = 0;
@@ -277,10 +277,19 @@ impl Quad {
 pub(super) fn effect_rotation(
     orientation: SpriteOrientation,
     angles: [f32; 3],
+    order: RotationOrder,
     camera: Quat,
 ) -> Quat {
     let [x, y, z] = angles.map(f32::to_radians);
-    let rotation = Quat::from_euler(EulerRot::ZYX, z, y, x);
+    let (order, [a, b, c]) = match order {
+        RotationOrder::Zyx => (EulerRot::ZYX, [z, y, x]),
+        RotationOrder::Zxy => (EulerRot::ZXY, [z, x, y]),
+        RotationOrder::Xyz => (EulerRot::XYZ, [x, y, z]),
+        RotationOrder::Xzy => (EulerRot::XZY, [x, z, y]),
+        RotationOrder::Yxz => (EulerRot::YXZ, [y, x, z]),
+        RotationOrder::Yzx => (EulerRot::YZX, [y, z, x]),
+    };
+    let rotation = Quat::from_euler(order, a, b, c);
     match orientation {
         SpriteOrientation::Camera => camera * rotation,
         SpriteOrientation::World => rotation,
@@ -354,7 +363,12 @@ pub(super) fn render(
         let Some(recipe) = art.spec.sprites.get(&effect.recipe) else {
             continue;
         };
-        let rotation = effect_rotation(effect.orientation, effect.rotation, camera.rotation);
+        let rotation = effect_rotation(
+            effect.orientation,
+            effect.rotation,
+            effect.rotation_order,
+            camera.rotation,
+        );
         let rgba = effect.rgba;
         let rgb = rgba.map(|v| f32::from(v) * 4. / 255. * brightness);
         let mut mode = effect.blend.unwrap_or(if recipe.additive {
@@ -523,6 +537,26 @@ fn anchor_position(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rotation_order_changes_the_bolt_axis_before_camera_orientation() {
+        let axis = |order, orientation, camera| {
+            effect_rotation(orientation, [90.; 3], order, camera) * Vec3::Y
+        };
+        assert!(
+            axis(RotationOrder::Zyx, SpriteOrientation::World, Quat::IDENTITY)
+                .abs_diff_eq(Vec3::Y, 0.0001)
+        );
+        assert!(
+            axis(RotationOrder::Yxz, SpriteOrientation::World, Quat::IDENTITY)
+                .abs_diff_eq(Vec3::Z, 0.0001)
+        );
+        let camera = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+        assert!(
+            axis(RotationOrder::Yxz, SpriteOrientation::Camera, camera)
+                .abs_diff_eq(Vec3::NEG_Y, 0.0001)
+        );
+    }
 
     #[test]
     fn anchors_use_model_order_or_logical_position_but_never_hide_transform_errors() {

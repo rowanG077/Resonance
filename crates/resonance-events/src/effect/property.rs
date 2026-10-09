@@ -1,5 +1,5 @@
 //! Script changes become visible after the next particle update.
-use super::{BillboardEffect, Blend, Fade, SpriteOrientation};
+use super::{BillboardEffect, Blend, Fade, RotationOrder, SpriteOrientation};
 use resonance_content::effect::VerticalAnchor;
 
 #[derive(Debug, Clone)]
@@ -19,6 +19,7 @@ pub(crate) enum Property {
     Speed(f32),
     NormalizeVelocity(bool),
     Rotation(usize, f32),
+    RotationOrder(RotationOrder),
     Orientation(SpriteOrientation),
     Blend(Option<Blend>),
     ProportionalFade,
@@ -58,6 +59,15 @@ impl Property {
                 _ => return Err("unsupported particle quad layout".into()),
             }),
             148 => Self::Fog(value & 1 != 0),
+            149 => Self::RotationOrder(match value {
+                0 => RotationOrder::Zyx,
+                1 => RotationOrder::Zxy,
+                2 => RotationOrder::Xyz,
+                4 => RotationOrder::Xzy,
+                8 => RotationOrder::Yxz,
+                16 => RotationOrder::Yzx,
+                _ => return Err("invalid particle rotation order".into()),
+            }),
             _ => return Err(format!("unsupported effect property {property}: {value}")),
         })
     }
@@ -82,6 +92,7 @@ impl Property {
             Self::Speed(value) => effect.speed = value,
             Self::NormalizeVelocity(value) => effect.normalize_velocity = value,
             Self::Rotation(axis, value) => effect.rotation[axis] = value,
+            Self::RotationOrder(value) => effect.rotation_order = value,
             Self::Orientation(value) => effect.orientation = value,
             Self::Blend(value) => effect.blend = value,
             Self::ProportionalFade => {
@@ -111,6 +122,7 @@ impl crate::GameWorld {
                     | Property::Velocity(_, _)
                     | Property::Speed(_)
                     | Property::NormalizeVelocity(_)
+                    | Property::RotationOrder(_)
             ) {
                 return Err("refraction property is not implemented".into());
             }
@@ -146,6 +158,7 @@ impl crate::GameWorld {
                         Property::Speed(value) => effect.speed = value,
                         Property::NormalizeVelocity(value) => effect.normalize_velocity = value,
                         Property::Rotation(axis, value) => effect.rotation[axis] = value,
+                        Property::RotationOrder(value) => effect.rotation_order = value,
                         Property::Spin(axis, value) => effect.angular_velocity[axis] = value,
                         _ => unreachable!("validated refraction property"),
                     }

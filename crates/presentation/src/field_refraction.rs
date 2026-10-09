@@ -140,8 +140,12 @@ fn sync(
                 if size <= 0. {
                     return Pulse::default();
                 }
-                let rotation =
-                    effect_rotation(effect.orientation, effect.rotation, camera.rotation);
+                let rotation = effect_rotation(
+                    effect.orientation,
+                    effect.rotation,
+                    effect.rotation_order,
+                    camera.rotation,
+                );
                 Pulse {
                     center: settings.clip_from_world * Vec3::from_array(effect.position).extend(1.),
                     right: settings.clip_from_world * (rotation * Vec3::X * size).extend(0.),

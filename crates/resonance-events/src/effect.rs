@@ -86,6 +86,7 @@ pub struct RefractionPulse {
     pub palette: u8,
     pub orientation: SpriteOrientation,
     pub rotation: [f32; 3],
+    pub rotation_order: RotationOrder,
     pub angular_velocity: [f32; 3],
     pub position: [f32; 3],
     pub velocity: [f32; 3],
@@ -552,6 +553,7 @@ pub struct BillboardEffect {
     pub(crate) controller: Option<BillboardController>,
     pub gravity: f32,
     pub rotation: [f32; 3],
+    pub rotation_order: RotationOrder,
     pub angular_velocity: [f32; 3],
     pub size: [f32; 2],
     pub size_delta: f32,
@@ -572,6 +574,17 @@ pub enum OwnerTail {
 pub enum SpriteOrientation {
     Camera,
     World,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum RotationOrder {
+    #[default]
+    Zyx,
+    Zxy,
+    Xyz,
+    Xzy,
+    Yxz,
+    Yzx,
 }
 
 #[derive(Debug, Clone)]
@@ -679,6 +692,7 @@ impl Default for BillboardEffect {
             controller: None,
             gravity: 0.,
             rotation: [0.; 3],
+            rotation_order: RotationOrder::default(),
             angular_velocity: [0.; 3],
             size: [0.; 2],
             size_delta: 0.,

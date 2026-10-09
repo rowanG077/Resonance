@@ -1361,7 +1361,9 @@ fn bound_particles_move_grow_fade_and_expire() {
 #[test]
 fn sprite_constructors_share_animation_and_preserve_their_motion_units() {
     use resonance_content::effect::sprite::{
-        FLAME_SPRITE, GLOW_SPRITE, SMOKE_SPRITE, STATION_GLOW_SPRITE, STATION_HALO_SPRITE,
+        BURST_SPRITE, COOKING_CLOUDS, FLAME_PLUME_SPRITE, FLAME_SPRITE, GLOW_SPRITE,
+        LIGHTNING_BOLT_SPRITE, SMOKE_SPRITE, SPARKLE_CLUSTER_SPRITE, SQUARE_GLOW_SPRITE,
+        STATION_GLOW_SPRITE, STATION_HALO_SPRITE, SWIRL_SPRITE,
     };
     for kind in [
         GLOW_SPRITE,
@@ -1369,7 +1371,16 @@ fn sprite_constructors_share_animation_and_preserve_their_motion_units() {
         STATION_GLOW_SPRITE,
         FLAME_SPRITE,
         STATION_HALO_SPRITE,
-    ] {
+        BURST_SPRITE,
+        SWIRL_SPRITE,
+        SPARKLE_CLUSTER_SPRITE,
+        SQUARE_GLOW_SPRITE,
+        LIGHTNING_BOLT_SPRITE,
+        FLAME_PLUME_SPRITE,
+    ]
+    .into_iter()
+    .chain(COOKING_CLOUDS)
+    {
         let setup = script(&[
             (
                 Call::CreateParticle,
@@ -1403,7 +1414,14 @@ fn sprite_constructors_share_animation_and_preserve_their_motion_units() {
         steps(&mut events, 6);
         let a = &events.world.billboards[&1];
         let b = &events.world.billboards[&2];
-        assert_eq!(a.recipe, kind);
+        assert_eq!(
+            a.recipe,
+            if COOKING_CLOUDS.contains(&kind) {
+                GLOW_SPRITE
+            } else {
+                kind
+            }
+        );
         assert_eq!(a.position, [15., 20., 0.]);
         assert_eq!(a.position, b.position);
         assert_eq!(a.rotation, b.rotation);
