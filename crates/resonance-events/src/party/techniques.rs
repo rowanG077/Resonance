@@ -85,24 +85,27 @@ impl Party {
             return Ok(false);
         }
         for id in tech.alternatives {
-            target.techniques.remove(&id);
-            target.disabled_techniques.remove(&id);
-            for slot in &mut target.shortcuts {
-                if *slot == id {
-                    *slot = 0;
-                }
+            self.remove_technique(member, id);
+        }
+        Ok(true)
+    }
+
+    pub(crate) fn remove_technique(&mut self, member: usize, id: u16) {
+        let target = &mut self.members[member];
+        target.techniques.remove(&id);
+        target.disabled_techniques.remove(&id);
+        for slot in &mut target.shortcuts {
+            if *slot == id {
+                *slot = 0;
             }
         }
         for character in &mut self.members {
             for slot in &mut character.assist_shortcuts {
-                if slot.is_some_and(|s| {
-                    s.character == member && tech.alternatives.contains(&s.technique)
-                }) {
+                if slot.is_some_and(|s| s.character == member && s.technique == id) {
                     *slot = None;
                 }
             }
         }
-        Ok(true)
     }
 
     /// A rejected field spell leaves both TP and its targets unchanged.

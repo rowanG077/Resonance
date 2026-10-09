@@ -398,10 +398,10 @@
     },
     {
       "opcode": 47,
-      "name": "native_2f",
+      "name": "has_technique",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "technique_id"
       ],
       "returns_value": true
     },
@@ -1284,18 +1284,20 @@
     },
     {
       "opcode": 134,
-      "name": "native_86",
+      "name": "forget_technique",
       "arguments": [
-        "arg0",
-        "arg1"
-      ]
+        "character_id",
+        "technique_id"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 135,
-      "name": "native_87",
+      "name": "forget_title",
       "arguments": [
-        "arg0"
-      ]
+        "packed_title"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 136,
@@ -1315,10 +1317,10 @@
     },
     {
       "opcode": 138,
-      "name": "native_8a",
+      "name": "configure_figurine",
       "arguments": [
-        "arg0",
-        "arg1"
+        "operation",
+        "figurine_id"
       ],
       "returns_value": true
     },
@@ -1332,10 +1334,10 @@
     },
     {
       "opcode": 140,
-      "name": "native_8c",
+      "name": "set_equipped_title",
       "arguments": [
-        "arg0",
-        "arg1"
+        "character_id",
+        "title_id"
       ],
       "returns_value": true
     },
@@ -2206,8 +2208,9 @@
     },
     {
       "opcode": 216,
-      "name": "native_d8",
-      "arguments": []
+      "name": "reset_field_ticks",
+      "arguments": [],
+      "returns_value": false
     },
     {
       "opcode": 217,
@@ -2305,12 +2308,13 @@
     },
     {
       "opcode": 227,
-      "name": "native_e3",
-      "arguments": []
+      "name": "reset_scenario_ticks",
+      "arguments": [],
+      "returns_value": false
     },
     {
       "opcode": 228,
-      "name": "native_e4",
+      "name": "get_scenario_ticks",
       "arguments": [],
       "returns_value": true
     },
@@ -2339,11 +2343,11 @@
     },
     {
       "opcode": 232,
-      "name": "native_e8",
+      "name": "recipe_proficiency",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
+        "character_id",
+        "recipe_id",
+        "amount"
       ],
       "returns_value": true
     },

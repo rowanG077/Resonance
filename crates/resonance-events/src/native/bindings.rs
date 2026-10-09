@@ -128,6 +128,15 @@ impl Host for NativeHost<'_> {
         TestEventBit(1) -> i32 = field;
         AddGald(1) -> i32 = party;
         AddGrade(1) -> i32 = party;
+        HasTechnique(2) -> i32 = party;
+        ForgetTechnique(2) -> () = party;
+        ForgetTitle(1) -> () = party;
+        ConfigureFigurine(2) -> i32 = party;
+        SetEquippedTitle(2) -> i32 = party;
+        ResetFieldTicks(0) -> () = party;
+        ResetScenarioTicks(0) -> () = party;
+        GetScenarioTicks(0) -> i32 = party;
+        RecipeProficiency(3) -> i32 = party;
         IsDebugSession(0) -> i32 = dispatch;
         ConfigureSession(2) -> i32 = party;
         ConfigureSorcerersRing(2) -> i32 = party;

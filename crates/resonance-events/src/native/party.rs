@@ -33,6 +33,63 @@ impl NativeHost<'_> {
             Ok(id as usize - 1)
         };
         match op {
+            NativeCall::ConfigureFigurine => {
+                let id = u16::try_from(a[1]).map_err(|_| "invalid figurine")?;
+                require(
+                    usize::from(id) < resonance_content::figurine::FIGURINE_COUNT,
+                    "unknown figurine",
+                )?;
+                value = Some(i32::from(party.figurines.contains(&id)));
+                match a[0] {
+                    0 => {
+                        party.figurines.insert(id);
+                    }
+                    1 => {
+                        party.figurines.remove(&id);
+                    }
+                    2 => {}
+                    _ => return Err("unknown figurine operation".into()),
+                }
+            }
+            NativeCall::RecipeProficiency => {
+                const MASTERED: u8 = 8;
+                const POINTS_PER_RANK: u8 = 3;
+                let skill = party.members[member()?]
+                    .cooking
+                    .get_mut(a[1] as usize)
+                    .ok_or("unknown recipe")?;
+                if a[2] > 0 {
+                    *skill = (i64::from(*skill) + i64::from(a[2]) * i64::from(POINTS_PER_RANK))
+                        .min(i64::from(MASTERED)) as u8;
+                }
+                value = Some(i32::from(if *skill == MASTERED {
+                    3
+                } else {
+                    *skill / POINTS_PER_RANK
+                }));
+            }
+            NativeCall::SetEquippedTitle => {
+                let index = member()?;
+                let owner = (index as u16) << 8;
+                value = Some(i32::from(owner | u16::from(party.members[index].title)));
+                if a[1] >= 0 {
+                    let packed = u16::try_from(a[1]).map_err(|_| "invalid title")?;
+                    require(
+                        packed & 0xff00 == owner
+                            && self.resources.text.titles.contains_key(&packed),
+                        "unknown title for this member",
+                    )?;
+                    party.members[index].title = packed as u8;
+                }
+            }
+            NativeCall::ForgetTitle => {
+                let packed = a[0] as u16;
+                let member = party
+                    .members
+                    .get_mut(usize::from(packed >> 8))
+                    .ok_or("unknown party member")?;
+                member.titles.remove(&(packed as u8));
+            }
             NativeCall::AddGrade => {
                 party.grade_hundredths = (i64::from(party.grade_hundredths) + i64::from(a[0]) * 100)
                     .clamp(0, 99_999_999) as u32;
@@ -122,6 +179,9 @@ impl NativeHost<'_> {
             NativeCall::SetRingTimer => party.travel.ring_timer = a[0] as u32,
             NativeCall::GetRingTimer => value = Some(party.travel.ring_timer as i32),
             NativeCall::GetFieldTicks => value = Some(party.travel.field_ticks as i32),
+            NativeCall::ResetFieldTicks => party.travel.field_ticks = 0,
+            NativeCall::ResetScenarioTicks => party.travel.scenario_ticks = 0,
+            NativeCall::GetScenarioTicks => value = Some(party.travel.scenario_ticks as i32),
             NativeCall::SetFieldCountdown => party.travel.field_countdown = a[0] as u32,
             NativeCall::GetFieldCountdown => value = Some(party.travel.field_countdown as i32),
             NativeCall::RankCharacterAffinity => {
@@ -168,7 +228,8 @@ impl NativeHost<'_> {
                 });
             }
             NativeCall::GetTitle if a[1] == 0 => {
-                value = Some(i32::from(party.members[member()?].title));
+                let index = member()?;
+                value = Some(((index as i32) << 8) | i32::from(party.members[index].title));
             }
             NativeCall::LearnTitle | NativeCall::GetTitle => {
                 let packed = if op == NativeCall::GetTitle {
@@ -271,14 +332,22 @@ impl NativeHost<'_> {
                 member()?,
                 usize::try_from(a[1]).map_err(|_| "invalid equipment slot")?,
             )?,
-            NativeCall::LearnTechnique => {
+            NativeCall::LearnTechnique | NativeCall::HasTechnique | NativeCall::ForgetTechnique => {
                 let id = u16::try_from(a[1]).map_err(|_| "invalid technique")?;
                 let index = member()?;
                 require(
                     data.characters[index].allowed_techniques.contains(&id),
                     "technique is not available to this member",
                 )?;
-                party.members[index].techniques.insert(id);
+                match op {
+                    NativeCall::LearnTechnique => {
+                        party.members[index].techniques.insert(id);
+                    }
+                    NativeCall::HasTechnique => {
+                        value = Some(i32::from(party.members[index].techniques.contains(&id)))
+                    }
+                    _ => party.remove_technique(index, id),
+                }
             }
             NativeCall::HealParty => {
                 const FULL_RECOVERY: i32 = 0;
