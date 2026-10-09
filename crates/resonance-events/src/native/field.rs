@@ -833,7 +833,10 @@ impl NativeHost<'_> {
                 };
                 use resonance_content::effect::{
                     SMOKE_UPDATES,
-                    sprite::{DEBRIS_SPRITES, SMOKE_SPRITE, STREAK_SPRITE},
+                    sprite::{
+                        DEBRIS_SPRITES, FLAME_SPRITE, SMOKE_SPRITE, STATION_HALO_SPRITE,
+                        STREAK_SPRITE,
+                    },
                 };
                 const IMPACT_GLOW: u16 = 2;
                 const AIR_REFRACTION: u16 = 9;
@@ -870,12 +873,9 @@ impl NativeHost<'_> {
                     born: self.world.tick + 1,
                     lifetime,
                     position: [a[2] as f32, a[3] as f32, a[4] as f32],
-                    velocity: if directed {
-                        let speed = (a[8] / 100) as f32;
-                        crate::effect::emission::normalized(velocity).map(|v| v * speed)
-                    } else {
-                        velocity
-                    },
+                    velocity,
+                    speed: if directed { (a[8] / 100) as f32 } else { 0. },
+                    normalize_velocity: directed,
                     size: [size as f32; 2],
                     rgba: [64, 64, 64, alpha as u8],
                     fade: if fade == 0 {
@@ -891,14 +891,14 @@ impl NativeHost<'_> {
                     3.
                 };
                 match kind {
-                    GLOW_SPRITE if directed => particle.angular_velocity[2] = spin,
+                    GLOW_SPRITE => particle.angular_velocity[2] = spin,
                     IMPACT_GLOW if directed => {
                         particle.recipe = GLOW_SPRITE;
                         particle.blend = Some(Blend::Additive);
                         particle.rgba[..3].copy_from_slice(&[255, 10, 10]);
                         particle.angular_velocity[2] = spin;
                     }
-                    SMOKE_SPRITE if directed => {
+                    SMOKE_SPRITE => {
                         particle.lifetime = lifetime.min(SMOKE_UPDATES);
                         particle.rotation[2] = (self.world.effect_tick & 127) as f32;
                         particle.angular_velocity[2] = spin;
@@ -925,7 +925,7 @@ impl NativeHost<'_> {
                     }
                     STREAK_SPRITE => particle.size[1] /= 6.,
                     SEAL_SPARK_SPRITE if directed => {}
-                    STATION_GLOW_SPRITE if !directed => {}
+                    STATION_GLOW_SPRITE | STATION_HALO_SPRITE | FLAME_SPRITE => {}
                     CAMERA_DISC_SPRITE | CAMERA_RING => particle.recipe = WORLD_GLOW_SPRITE,
                     WORLD_GLOW_SPRITE => {
                         particle.orientation = SpriteOrientation::World;
@@ -984,6 +984,8 @@ impl NativeHost<'_> {
                             rotation: [0.; 3],
                             position: particle.position,
                             velocity: particle.velocity,
+                            speed: particle.speed,
+                            normalize_velocity: particle.normalize_velocity,
                             born: particle.born,
                             lifetime,
                             size: size as f32,

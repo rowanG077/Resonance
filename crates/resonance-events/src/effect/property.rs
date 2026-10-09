@@ -11,10 +11,13 @@ pub(crate) enum Change {
 #[derive(Debug, Clone)]
 pub(crate) enum Property {
     Position(usize, f32),
+    Velocity(usize, f32),
     Size(usize, f32),
     Color(usize, u8),
     Spin(usize, f32),
     Growth(f32),
+    Speed(f32),
+    NormalizeVelocity(bool),
     Rotation(usize, f32),
     Orientation(SpriteOrientation),
     Blend(Option<Blend>),
@@ -30,8 +33,12 @@ impl Property {
             120..=122 => Self::Position((property - 120) as usize, value as f32),
             123..=124 => Self::Size((property - 123) as usize, value as f32),
             125..=128 => Self::Color((property - 125) as usize, value as u8),
+            129..=131 => Self::Velocity((property - 129) as usize, scaled),
             132..=134 => Self::Spin((property - 132) as usize, scaled),
             135 => Self::Growth(scaled),
+            136 => Self::Speed(scaled),
+            137 => Self::NormalizeVelocity(value & 1 != 0),
+            138..=140 => Self::Velocity((property - 138) as usize, value as f32),
             141..=143 => Self::Rotation((property - 141) as usize, scaled),
             144 => Self::Orientation(if value & 1 == 0 {
                 SpriteOrientation::World
@@ -58,6 +65,7 @@ impl Property {
     fn apply(self, effect: &mut BillboardEffect, tick: u32) {
         match self {
             Self::Position(axis, value) => effect.position[axis] = value,
+            Self::Velocity(axis, value) => effect.velocity[axis] = value,
             Self::Size(axis, value) => effect.size[axis] = value,
             Self::Color(3, value) if matches!(effect.fade, Fade::Linear(delta) if delta != 0.) => {
                 effect.alpha_override = Some((effect.born.max(tick + 1), value));
@@ -71,6 +79,8 @@ impl Property {
             Self::Color(channel, value) => effect.rgba[channel] = value,
             Self::Spin(axis, value) => effect.angular_velocity[axis] = value,
             Self::Growth(value) => effect.size_delta = value,
+            Self::Speed(value) => effect.speed = value,
+            Self::NormalizeVelocity(value) => effect.normalize_velocity = value,
             Self::Rotation(axis, value) => effect.rotation[axis] = value,
             Self::Orientation(value) => effect.orientation = value,
             Self::Blend(value) => effect.blend = value,
@@ -95,7 +105,12 @@ impl crate::GameWorld {
         let born = if let Some(effect) = self.refractions.get(&handle) {
             if !matches!(
                 change,
-                Property::Growth(_) | Property::Rotation(_, _) | Property::Spin(_, _)
+                Property::Growth(_)
+                    | Property::Rotation(_, _)
+                    | Property::Spin(_, _)
+                    | Property::Velocity(_, _)
+                    | Property::Speed(_)
+                    | Property::NormalizeVelocity(_)
             ) {
                 return Err("refraction property is not implemented".into());
             }
@@ -127,6 +142,9 @@ impl crate::GameWorld {
                 } else if let Some(effect) = self.refractions.get_mut(&handle) {
                     match change {
                         Property::Growth(value) => effect.growth = value,
+                        Property::Velocity(axis, value) => effect.velocity[axis] = value,
+                        Property::Speed(value) => effect.speed = value,
+                        Property::NormalizeVelocity(value) => effect.normalize_velocity = value,
                         Property::Rotation(axis, value) => effect.rotation[axis] = value,
                         Property::Spin(axis, value) => effect.angular_velocity[axis] = value,
                         _ => unreachable!("validated refraction property"),
