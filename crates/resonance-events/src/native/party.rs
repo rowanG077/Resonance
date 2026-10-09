@@ -106,13 +106,16 @@ impl NativeHost<'_> {
                     value = Some(i32::from(member.costume));
                     if a[1] != -1 {
                         require((0..5).contains(&a[1]), "unknown character costume")?;
-                        // Lloyd and Colette share meshes for costumes 0 and 3.
-                        // Other costume meshes are not available yet.
                         require(
-                            a[1] == 0 || (id <= 2 && a[1] == 3),
+                            self.resources
+                                .model(resonance_content::appearance::costume_resource(
+                                    id as u32, a[1] as u8,
+                                ))
+                                .is_some(),
                             "character costume body is not cooked",
                         )?;
                         member.costume = a[1] as u8;
+                        self.world.update_costumes(self.resources);
                     }
                 }
             }

@@ -140,7 +140,9 @@ impl crate::GameWorld {
         {
             return Ok(());
         }
-        let count = resources.model(actor.resource).map_or(0, |m| m.names.len());
+        let count = resources
+            .model(actor.model_resource())
+            .map_or(0, |m| m.names.len());
         if count == 0 {
             return Ok(());
         }

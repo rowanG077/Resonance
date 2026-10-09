@@ -561,7 +561,7 @@ impl NativeHost<'_> {
                     TOON_LIGHTING => actor.toon_lighting.map(i32::from).unwrap_or_else(|| {
                         i32::from(
                             self.resources
-                                .model(actor.resource)
+                                .model(actor.model_resource())
                                 .is_some_and(|model| model.toon_lighting),
                         )
                     }),
@@ -626,7 +626,7 @@ impl NativeHost<'_> {
                             actor.model_collision = if a[2] & 1 != 0 {
                                 Some(
                                     self.resources
-                                        .model(actor.resource)
+                                        .model(actor.model_resource())
                                         .ok_or("collision model is missing")?
                                         .collision
                                         .clone(),
@@ -1099,7 +1099,17 @@ impl NativeHost<'_> {
                 if key != a[0] {
                     self.world.duplicate_actors.insert(key, a[0]);
                 }
-                let model = self.resources.model(resource);
+                let costume = self
+                    .world
+                    .party
+                    .as_ref()
+                    .and_then(|party| party.members.get(resource.wrapping_sub(1) as usize))
+                    .map_or(0, |member| member.costume);
+                let model = self
+                    .resources
+                    .model(resonance_content::appearance::costume_resource(
+                        resource, costume,
+                    ));
                 let animation = model
                     .and_then(|model| model.clips.get(&slot::IDLE))
                     .map(|clip| {
@@ -1117,6 +1127,7 @@ impl NativeHost<'_> {
                         visible: !locator,
                         interaction_anchor: locator,
                         appearance: crate::Appearance {
+                            costume,
                             hidden_nodes: model.map(|m| m.hidden_nodes.clone()).unwrap_or_default(),
                             ..Default::default()
                         },
@@ -1160,7 +1171,7 @@ impl NativeHost<'_> {
                     )?;
                     let model = self
                         .resources
-                        .model(actor.resource)
+                        .model(actor.model_resource())
                         .ok_or("node model missing")?;
                     let Some(name) = usize::try_from(a[2]).ok().and_then(|i| model.names.get(i))
                     else {

@@ -948,7 +948,7 @@ impl NativeHost<'_> {
                     self.world
                         .actors
                         .get(&a[0])
-                        .and_then(|actor| self.resources.model(actor.resource))
+                        .and_then(|actor| self.resources.model(actor.model_resource()))
                         .and_then(|model| {
                             let name = NAMES.get(usize::try_from(a[1]).ok()?)?;
                             model.names.iter().position(|n| n == name)
@@ -973,7 +973,7 @@ impl NativeHost<'_> {
                     require(a[6] >= 0, "negative bone adjustment duration")?;
                     let bone = self
                         .resources
-                        .model(actor.resource)
+                        .model(actor.model_resource())
                         .and_then(|m| m.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("bone adjustment target is not cooked")?
                         .clone();
@@ -1118,7 +1118,7 @@ impl NativeHost<'_> {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
                     let names = &self
                         .resources
-                        .model(actor.resource)
+                        .model(actor.model_resource())
                         .ok_or("actor model missing")?
                         .names;
                     if ["Bone_kubi", "Bone_atama"]
@@ -1147,7 +1147,7 @@ impl NativeHost<'_> {
                     let index = u16::try_from(a[1]).map_err(|_| "invalid node index")?;
                     require(
                         self.resources
-                            .model(actor.resource)
+                            .model(actor.model_resource())
                             .is_some_and(|m| (index as usize) < m.names.len()),
                         "node is not cooked",
                     )?;
