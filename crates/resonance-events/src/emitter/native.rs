@@ -23,6 +23,7 @@ impl Emitter {
         }
         let impact_texture = assets.textures[0];
         let kind = match a[5] {
+            67 => Kind::ChargedRay(Default::default()),
             70 => Kind::Cylinder(super::planes::Cylinder {
                 palette: 0,
                 textures: [
@@ -331,6 +332,17 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
+            Kind::ChargedRay(ray) => match slot {
+                0 => setting!(ray.palette, value, palette_group),
+                1 => setting!(ray.size, value),
+                2 => setting!(ray.variation, value, at_least_one),
+                3 => setting!(ray.interval, value, at_least_one),
+                4..=6 => setting!(ray.direction[slot - 4], value),
+                7 => setting!(ray.radius, value),
+                8 => setting!(ray.radius_variation, value, at_least_one),
+                9 => scaled(&mut ray.growth, value, 100.),
+                _ => Ok(0),
+            },
             Kind::Cylinder(cylinder) => match slot {
                 0 => setting!(cylinder.palette, value, palette_index),
                 _ => Ok(0),

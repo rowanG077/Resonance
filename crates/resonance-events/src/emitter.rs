@@ -88,6 +88,7 @@ enum Kind {
     RadialSpray {
         palette: u16,
     },
+    ChargedRay(rays::ChargedRay),
     Explosion(rays::Explosion),
     TwinGlow {
         size: i32,
@@ -220,6 +221,9 @@ impl Emitter {
         let phase = &mut self.phase;
         let tick = self.age;
         match &mut self.kind {
+            Kind::ChargedRay(ray) => {
+                ray.emit(phase, (owner, center), born, clock, speed, random, out)?;
+            }
             Kind::Cylinder(cylinder) => {
                 crate::world::random(random);
                 cylinder.emit(phase, center, born, clock, random, out);
