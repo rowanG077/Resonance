@@ -399,14 +399,40 @@ fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values(
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
-fn colette_costume_change_returns_previous_value_and_survives_save() {
-    let setup = script(&[(Call::SetCharacterCostume, &[2, 3])]);
-    let events = party_runtime(&setup, &[0x20ff]);
+fn costume_change_selects_a_body_and_survives_save() {
+    let data = Arc::new(cooked("session-data.json"));
+    let body = resonance_content::appearance::costume_resource(4, 2);
+    let setup = script(&[(Call::SetCharacterCostume, &[4, 2])]);
+    let mut world = GameWorld::default();
+    world.party = Some(party::Party::new(&data, Default::default()).unwrap());
+    world.actors.insert(4, Actor::new(4, [0.; 3]));
+    let events = runtime(
+        program(&setup, &[0x20ff]),
+        ResourceLibrary {
+            session_data: Some(data),
+            models: [
+                (4, model([12], 20)),
+                (
+                    body,
+                    ModelResource {
+                        hidden_nodes: [38].into(),
+                        ..model([12], 20)
+                    },
+                ),
+            ]
+            .into(),
+            ..Default::default()
+        },
+        world,
+    );
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
-    let query = script(&[(Call::SetCharacterCostume, &[2, -1])]);
+    assert_eq!(events.world.actors[&4].resource, 4);
+    assert_eq!(events.world.actors[&4].model_resource(), body);
+    assert_eq!(events.world.actors[&4].appearance.hidden_nodes, [38].into());
+    let query = script(&[(Call::SetCharacterCostume, &[4, -1])]);
     let restored = reload(&events, &query, &[0x20ff]);
-    assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 3);
-    assert_eq!(restored.world.party.as_ref().unwrap().members[1].costume, 3);
+    assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 2);
+    assert_eq!(restored.world.party.as_ref().unwrap().members[3].costume, 2);
 }
 
 #[test]

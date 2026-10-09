@@ -1266,7 +1266,7 @@ impl EventRuntime {
                 break;
             }
         }
-        self.world.update_costumes();
+        self.world.update_costumes(&self.resources);
         Ok(())
     }
 }

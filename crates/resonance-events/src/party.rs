@@ -391,11 +391,7 @@ impl Party {
         );
         ensure!(
             self.members.len() == data.characters.len()
-                && self
-                    .members
-                    .iter()
-                    .enumerate()
-                    .all(|(i, m)| m.costume == 0 || (i < 2 && m.costume == 3))
+                && self.members.iter().all(|m| m.costume < 5)
                 && (1..=8).contains(&self.formation.len())
                 && self.formation.contains(&self.field_leader)
                 && self

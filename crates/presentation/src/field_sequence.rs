@@ -482,7 +482,7 @@ fn capture(
         || !refraction.get()
         || roots.iter().any(|(_, p)| !p.prepared)
         || session.0.events.world.actors.iter().any(|(id, actor)| {
-            art.models.contains_key(&actor.resource) && !art.instances.contains_key(id)
+            art.models.contains_key(&actor.model_resource()) && !art.instances.contains_key(id)
         })
     {
         recording.rendered = false;
