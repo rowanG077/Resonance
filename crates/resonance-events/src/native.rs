@@ -407,6 +407,18 @@ impl NativeHost<'_> {
                 } else {
                     a[0]
                 };
+                // Reserved properties accept writes without changing actor state.
+                if matches!(a[1], 0 | 6) {
+                    return Ok(NativeResult::Continue(Some(0)));
+                }
+                if a[1] == 52 {
+                    let surface = self
+                        .world
+                        .actors
+                        .get(&id)
+                        .map_or(0, |a| a.ground_attributes);
+                    return Ok(NativeResult::Continue(Some(surface as i32)));
+                }
                 if a[1] == 49 {
                     // Both native property commands only read this detection bit.
                     let alert = self
@@ -607,7 +619,10 @@ impl NativeHost<'_> {
                         .as_ref()
                         .map_or(0, |enemy| i32::from(enemy.random_turns)),
                     30..=32 => actor.scale_percent[(a[1] - 30) as usize],
-                    34 => actor.autonomy.as_ref().map_or(0, |ai| ai.behavior as i32),
+                    34 => actor
+                        .autonomy
+                        .as_ref()
+                        .map_or(0, |ai| i32::from(ai.behavior.code())),
                     35 | 36 => actor.tilt[(a[1] - 35) as usize],
                     37 => actor.heading as i32,
                     TOON_LIGHTING => actor.toon_lighting.map(i32::from).unwrap_or_else(|| {
@@ -726,8 +741,7 @@ impl NativeHost<'_> {
                         }
                         20 => actor.contact_event = a[2] & 1 != 0,
                         34 => {
-                            let behavior = crate::Behavior::try_from(i32::from(a[2] as u8))
-                                .map_err(|e| e.to_string())?;
+                            let behavior = crate::Behavior::from(a[2] as u8);
                             actor
                                 .autonomy
                                 .get_or_insert_with(|| {
@@ -1203,10 +1217,6 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::CreateSceneActor | NativeCall::SpawnInteractionActor => {
-                require(
-                    a[6..] == [0, 0],
-                    "scene actor movement mode is not implemented",
-                )?;
                 let locator = self.resources.locators.contains(&a[5]);
                 let interaction = op == NativeCall::SpawnInteractionActor;
                 let resource = if locator {
@@ -1258,6 +1268,11 @@ impl NativeHost<'_> {
                         },
                         interaction_label: if locator { 0 } else { 2 },
                         ring_contact_disabled: locator && !interaction,
+                        autonomy: Some(crate::Autonomy::new(
+                            crate::Behavior::from(a[6] as u8),
+                            a[7] as f32,
+                            [a[1] as f32, a[2] as f32, a[3] as f32],
+                        )),
                         animation,
                         ..Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32])
                     },

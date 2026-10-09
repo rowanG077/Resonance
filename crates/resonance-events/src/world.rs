@@ -88,6 +88,8 @@ pub struct Actor {
     /// Last actor update's view test; animation and secondary motion share it.
     pub animation_culled: bool,
     pub grounded: bool,
+    /// Surface flags published by field navigation before the scripts run.
+    pub ground_attributes: u32,
     pub collidable: bool,
     /// Native contact shape; disabling walking collision does not remove it.
     pub contact: ActorContact,
@@ -325,6 +327,7 @@ impl Actor {
             culling_flags: [None; 2],
             animation_culled: false,
             grounded: true,
+            ground_attributes: 0,
             collidable: true,
             contact: ActorContact::Cylinder,
             contact_event: false,
