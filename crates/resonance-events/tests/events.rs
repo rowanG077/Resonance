@@ -4111,6 +4111,23 @@ fn clear_field_handoff_releases_input_without_a_delayed_second_handoff() {
 }
 
 #[test]
+fn frame_feedback_can_be_enabled_and_restored_by_scripts() {
+    let setup = script(&[(Call::Unknown92, &[18, 2])]);
+    let restore = script(&[(Call::Unknown92, &[18, 0])]);
+    let mut events = runtime(
+        program(&setup, &restore),
+        Default::default(),
+        controlled_world(),
+    );
+    assert_eq!(events.world.frame_feedback, 2);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.world.frame_feedback, 0);
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
+}
+
+#[test]
 fn door_exit_owns_control_and_finishes_its_pose_sound_and_hinge_before_handoff() {
     use resonance_content::field::{Door, FIELD_SERVICE_MOTION_RESOURCE_BASE};
     use resonance_events::animation::slot;

@@ -30,7 +30,9 @@ enum FieldSystemCommand {
     FieldLeader = 13,
     SetFieldLeader = 14,
     SuppressTransitionFade = 15,
+    SelectExitDoor = 16,
     BattleCount = 17,
+    FrameFeedback = 18,
     SetDoorInteractionRadius = 19,
     SetSkitPrompts = 21,
 }
@@ -54,7 +56,9 @@ impl TryFrom<i32> for FieldSystemCommand {
             13 => Ok(Self::FieldLeader),
             14 => Ok(Self::SetFieldLeader),
             15 => Ok(Self::SuppressTransitionFade),
+            16 => Ok(Self::SelectExitDoor),
             17 => Ok(Self::BattleCount),
+            18 => Ok(Self::FrameFeedback),
             19 => Ok(Self::SetDoorInteractionRadius),
             21 => Ok(Self::SetSkitPrompts),
             _ => Err("field system command is not implemented"),
@@ -368,6 +372,12 @@ impl NativeHost<'_> {
             }
             NativeCall::Unknown92 => {
                 match FieldSystemCommand::try_from(a[0])? {
+                    FieldSystemCommand::FrameFeedback => {
+                        value = Some(i32::from(std::mem::replace(
+                            &mut self.world.frame_feedback,
+                            a[1] as u8,
+                        )));
+                    }
                     FieldSystemCommand::PlayTime => value = Some(self.world.played_ticks as i32),
                     FieldSystemCommand::SetSkitPrompts => {
                         let party = self
@@ -514,6 +524,30 @@ impl NativeHost<'_> {
                         require(a[1] >= 0, "negative door interaction range")?;
                         value = Some(self.world.door_interaction_radius.unwrap_or(250.) as i32);
                         self.world.door_interaction_radius = Some(a[1] as f32);
+                    }
+                    FieldSystemCommand::SelectExitDoor => {
+                        let name = self
+                            .program
+                            .string(a[1] as u16)
+                            .ok_or("door name is missing")?;
+                        let model = self
+                            .world
+                            .actors
+                            .get(&MAIN_SCENERY)
+                            .and_then(|actor| self.resources.model(actor.model_resource()))
+                            .ok_or("door scenery is missing")?;
+                        let bone = model
+                            .names
+                            .iter()
+                            .position(|n| n.as_bytes() == name)
+                            .ok_or("named door is missing")?
+                            as u16;
+                        require(
+                            self.resources.doors.iter().any(|door| door.bone == bone),
+                            "named door is not cooked",
+                        )?;
+                        self.world.exit_door = Some(bone);
+                        value = Some(0);
                     }
                     FieldSystemCommand::BattleCount => {
                         let party = self

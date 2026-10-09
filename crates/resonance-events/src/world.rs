@@ -574,6 +574,8 @@ pub struct GameWorld {
     pub camera: Option<CameraTrack>,
     pub fade: Option<Fade>,
     pub scene_dissolve: Option<SceneDissolve>,
+    /// Nonzero blends the previous rendered field into each new frame.
+    pub frame_feedback: u8,
     pub next_transition_white: Option<bool>,
     pub overlays: BTreeMap<i32, Overlay>,
     pub effect_settings: BTreeMap<(i32, i32), [i32; 3]>,
@@ -619,6 +621,8 @@ pub struct GameWorld {
     pub treasure_models: [Option<u32>; 2],
     /// Search distance for automatic scenery-door interactions; absent uses 250.
     pub door_interaction_radius: Option<f32>,
+    /// Explicit scenery door for scripted exits, independent of proximity.
+    pub exit_door: Option<u16>,
     pub audio_commands: Vec<AudioCommand>,
     pub rumble: Option<crate::rumble::Rumble>,
     pub(crate) ambient_voices: [Option<crate::ambient::Voice>; 2],
