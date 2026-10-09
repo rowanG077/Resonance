@@ -83,6 +83,7 @@ impl Playback {
         memory.copy_from(parent.memory(), 0..0x2000)?;
         let mut world = resonance_events::GameWorld::default();
         world.current_field = parent.world.current_field;
+        world.played_ticks = parent.world.played_ticks;
         world.skit = Some(Default::default());
         world.party = parent.world.party.clone();
         world.event_flags = parent.world.event_flags.clone();
@@ -120,6 +121,7 @@ impl Playback {
         if self.finished {
             return Ok(true);
         }
+        self.events.world.played_ticks = parent.world.played_ticks;
         self.events.step()?;
         let choice_slot = self
             .events

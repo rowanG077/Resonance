@@ -16,9 +16,17 @@ const THIRD_SCENERY: i32 = 999_998;
 #[derive(Clone, Copy)]
 #[repr(i32)]
 enum FieldSystemCommand {
+    PlayTime = 1,
+    UndiscoveredMonsters = 2,
     CheckCollectorsBook = 3,
+    CheckMonsterBook = 4,
+    CheckFigurineBook = 5,
     CollectorsBookComplete = 6,
+    MonsterBookComplete = 7,
+    FigurineBookComplete = 8,
     SetCollectorsBookComplete = 9,
+    SetMonsterBookComplete = 10,
+    SetFigurineBookComplete = 11,
     FieldLeader = 13,
     SetFieldLeader = 14,
     SuppressTransitionFade = 15,
@@ -31,9 +39,17 @@ impl TryFrom<i32> for FieldSystemCommand {
 
     fn try_from(id: i32) -> Result<Self, Self::Error> {
         match id {
+            1 => Ok(Self::PlayTime),
+            2 => Ok(Self::UndiscoveredMonsters),
             3 => Ok(Self::CheckCollectorsBook),
+            4 => Ok(Self::CheckMonsterBook),
+            5 => Ok(Self::CheckFigurineBook),
             6 => Ok(Self::CollectorsBookComplete),
+            7 => Ok(Self::MonsterBookComplete),
+            8 => Ok(Self::FigurineBookComplete),
             9 => Ok(Self::SetCollectorsBookComplete),
+            10 => Ok(Self::SetMonsterBookComplete),
+            11 => Ok(Self::SetFigurineBookComplete),
             13 => Ok(Self::FieldLeader),
             14 => Ok(Self::SetFieldLeader),
             15 => Ok(Self::SuppressTransitionFade),
@@ -350,6 +366,32 @@ impl NativeHost<'_> {
             }
             NativeCall::Unknown92 => {
                 match FieldSystemCommand::try_from(a[0])? {
+                    FieldSystemCommand::PlayTime => value = Some(self.world.played_ticks as i32),
+                    FieldSystemCommand::UndiscoveredMonsters => {
+                        let party = self
+                            .world
+                            .party
+                            .as_ref()
+                            .ok_or("party is not initialized")?;
+                        let menu = self
+                            .resources
+                            .menu_data
+                            .as_ref()
+                            .ok_or("monster catalogue is missing")?;
+                        value = Some(
+                            menu.monsters
+                                .records
+                                .iter()
+                                .filter(|monster| {
+                                    monster.unseen_count_group == a[1] as u8
+                                        && party
+                                            .monsters
+                                            .get(&monster.id)
+                                            .is_none_or(|knowledge| knowledge.script_flags() == 0)
+                                })
+                                .count() as i32,
+                        );
+                    }
                     command @ (FieldSystemCommand::CheckCollectorsBook
                     | FieldSystemCommand::CollectorsBookComplete
                     | FieldSystemCommand::SetCollectorsBookComplete) => {
@@ -379,6 +421,57 @@ impl NativeHost<'_> {
                                 value = Some(i32::from(party.collectors_book_complete))
                             }
                             _ => party.collectors_book_complete = a[1] & 1 != 0,
+                        }
+                    }
+                    command @ (FieldSystemCommand::CheckMonsterBook
+                    | FieldSystemCommand::CheckFigurineBook) => {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        let (complete, flag) = match command {
+                            FieldSystemCommand::CheckMonsterBook => (
+                                (0..resonance_content::monster::MONSTER_COUNT as u8).all(|id| {
+                                    party
+                                        .monsters
+                                        .get(&id)
+                                        .is_some_and(|knowledge| knowledge.script_flags() != 0)
+                                }),
+                                &mut party.monster_book_complete,
+                            ),
+                            _ => (
+                                (0..resonance_content::figurine::FIGURINE_COUNT as u16)
+                                    .all(|id| party.figurines.contains(&id)),
+                                &mut party.figurine_book_complete,
+                            ),
+                        };
+                        *flag |= complete;
+                        value = Some(i32::from(complete));
+                    }
+                    command @ (FieldSystemCommand::MonsterBookComplete
+                    | FieldSystemCommand::FigurineBookComplete
+                    | FieldSystemCommand::SetMonsterBookComplete
+                    | FieldSystemCommand::SetFigurineBookComplete) => {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        let flag = match command {
+                            FieldSystemCommand::MonsterBookComplete
+                            | FieldSystemCommand::SetMonsterBookComplete => {
+                                &mut party.monster_book_complete
+                            }
+                            _ => &mut party.figurine_book_complete,
+                        };
+                        value = Some(i32::from(*flag));
+                        if matches!(
+                            command,
+                            FieldSystemCommand::SetMonsterBookComplete
+                                | FieldSystemCommand::SetFigurineBookComplete
+                        ) {
+                            *flag = a[1] & 1 != 0;
                         }
                     }
                     FieldSystemCommand::FieldLeader => {

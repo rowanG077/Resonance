@@ -486,6 +486,89 @@ fn script_collection_and_character_changes_survive_save_without_stale_shortcuts(
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
+fn collection_services_track_discovery_and_preserve_awarded_completion() {
+    let data = Arc::new(cooked("session-data.json"));
+    let menu: resonance_content::menu_data::MenuData = cooked("menu-data.json");
+    let skits: resonance_content::skit::SkitCatalog = cooked("skits.json");
+    skits.validate().unwrap();
+    let group = i32::from(menu.monsters.records[29].unseen_count_group);
+    let mut party = party::Party::new(&data, Default::default()).unwrap();
+    party.monsters = menu
+        .monsters
+        .records
+        .iter()
+        .filter(|m| m.id != 29)
+        .map(|m| (m.id, party::MonsterKnowledge::default()))
+        .collect();
+    party.figurines = (0..resonance_content::figurine::FIGURINE_COUNT as u16)
+        .filter(|&id| id != 50)
+        .collect();
+    let calls: &[(Call, &[i32], i32)] = &[
+        (Call::Unknown92, &[2, group], 1),
+        (Call::ConfigureMonsterKnowledge, &[29, 63], 0),
+        (Call::Unknown92, &[2, group], 0),
+        (Call::Unknown92, &[4, 0], 1),
+        (Call::ConfigureMonsterKnowledge, &[29, 0], 63),
+        (Call::Unknown92, &[4, 0], 0),
+        (Call::Unknown92, &[7, 0], 1),
+        (Call::ConfigureMonsterKnowledge, &[29, 2], 0),
+        (Call::ConfigureMonsterKnowledge, &[29, -1], 2),
+        (Call::Unknown92, &[2, group], 0),
+        (Call::ConfigureFigurine, &[0, 50], 0),
+        (Call::Unknown92, &[5, 0], 1),
+        (Call::Unknown92, &[8, 0], 1),
+        (Call::Unknown92, &[1, 0], 9876),
+        (Call::GetReplaySkit, &[-1], skits.preview_order.len() as i32),
+        (Call::GetReplaySkit, &[0], i32::from(skits.preview_order[0])),
+        (Call::GetReplaySkit, &[skits.preview_order.len() as i32], -1),
+        (Call::GetReplaySkit, &[-2], -1),
+    ];
+    let mut code = Vec::new();
+    for (i, (call, args, _)) in calls.iter().enumerate() {
+        native(&mut code, *call, args);
+        code.extend([
+            0x3000,
+            0x1200,
+            0x100 + i as u16 * 4,
+            0x1200,
+            0x20,
+            0x3010,
+            0x3000,
+        ]);
+    }
+    code.push(0x20ff);
+    let mut world = GameWorld::default();
+    world.party = Some(party);
+    world.played_ticks = 9876;
+    let events = runtime(
+        program(&code, &[0x20ff]),
+        ResourceLibrary {
+            session_data: Some(data),
+            menu_data: Some(Arc::new(menu)),
+            skits: Some(Arc::new(skits)),
+            ..Default::default()
+        },
+        world,
+    );
+    for (i, (call, args, expected)) in calls.iter().enumerate() {
+        assert_eq!(
+            events
+                .memory()
+                .read(0x100 + i as u16 * 4, Width::S32)
+                .unwrap(),
+            *expected,
+            "{call:?} {args:?}"
+        );
+    }
+    let restored = reload(&events, &[0x20ff], &[0x20ff]);
+    let party = restored.world.party.as_ref().unwrap();
+    assert!(party.monster_book_complete && party.figurine_book_complete);
+    assert!(!party.monsters[&29].seen);
+    assert!(party.monsters[&29].scanned);
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
 fn field_countdown_runs_during_pause_and_reentry_preserves_countdown_and_conditions() {
     const CONDITIONS: i32 = 100;
     const STATUS: i32 = 0x8000_0080u32 as i32;

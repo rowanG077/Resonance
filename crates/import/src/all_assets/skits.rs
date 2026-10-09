@@ -76,7 +76,7 @@ pub(crate) struct Catalog {
     pub(crate) portrait_archive: String,
     pub(crate) portraits: Vec<Portrait>,
     pub(crate) portrait_recipes: Vec<Recipe>,
-    preview_order: Vec<u16>,
+    pub(crate) preview_order: Vec<u16>,
 }
 
 impl Catalog {

@@ -33,6 +33,26 @@ impl NativeHost<'_> {
             Ok(id as usize - 1)
         };
         match op {
+            NativeCall::ConfigureMonsterKnowledge => {
+                let id = u8::try_from(a[0])
+                    .ok()
+                    .filter(|&id| usize::from(id) < resonance_content::monster::MONSTER_COUNT)
+                    .ok_or("unknown monster")?;
+                require((-1..64).contains(&a[1]), "invalid monster knowledge flags")?;
+                let previous = party
+                    .monsters
+                    .get(&id)
+                    .map_or(0, |knowledge| knowledge.script_flags());
+                value = Some(i32::from(previous));
+                if a[1] != -1 {
+                    let flags = if a[1] == 0 { 0 } else { previous | a[1] as u8 };
+                    party
+                        .monsters
+                        .entry(id)
+                        .or_default()
+                        .set_script_flags(flags);
+                }
+            }
             NativeCall::ConfigureFigurine => {
                 let id = u16::try_from(a[1]).map_err(|_| "invalid figurine")?;
                 require(

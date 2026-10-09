@@ -110,6 +110,7 @@ impl Host for NativeHost<'_> {
         SetSkitSubtitle(3) -> () = skit;
         PlaySkit(3) -> () = request_skit;
         PreviewSkit(1) -> () = request_skit;
+        GetReplaySkit(1) -> i32 = dispatch;
         ReturnFieldControl(1) -> () = field;
         DisableMappedInput(0) -> () = field;
         IsMappedInputDisabled(0) -> i32 = field;
@@ -138,6 +139,7 @@ impl Host for NativeHost<'_> {
         ForgetTechnique(2) -> () = party;
         ForgetTitle(1) -> () = party;
         ConfigureFigurine(2) -> i32 = party;
+        ConfigureMonsterKnowledge(2) -> i32 = party;
         SetEquippedTitle(2) -> i32 = party;
         ResetFieldTicks(0) -> () = party;
         ResetScenarioTicks(0) -> () = party;

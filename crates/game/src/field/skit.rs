@@ -223,6 +223,7 @@ mod tests {
     #[test]
     fn opening_a_prompt_consumes_only_the_transient_notice() {
         let catalog = Arc::new(SkitCatalog {
+            preview_order: Vec::new(),
             version: 2,
             skits: vec![resonance_content::skit::SkitDefinition {
                 id: 600,

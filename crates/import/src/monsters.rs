@@ -100,6 +100,7 @@ pub(crate) fn prepare(
             id,
             name: catalogue.required_text(row.name)?.into(),
             location: catalogue.location(row.location)?.into(),
+            unseen_count_group: row.unseen_count_group,
             category: ui
                 .text(
                     *ui.inventory

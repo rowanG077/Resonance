@@ -65,6 +65,8 @@ pub struct Monster {
     pub name: String,
     pub location: String,
     pub category: String,
+    /// Region/service grouping used by Monster List discovery requests.
+    pub unseen_count_group: u8,
     pub statistics: Vec<MonsterStats>,
     pub drops: [Option<u16>; 2],
     pub steal: Option<u16>,

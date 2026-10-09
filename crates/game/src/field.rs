@@ -396,6 +396,7 @@ impl FieldSession {
     }
     fn step_inner(&mut self, input: FieldInput) -> Result<()> {
         self.play_time.advance();
+        self.events.world.played_ticks = self.play_time.total();
         self.effect_clock.advance();
         if self.field_control_available()
             && let Some(event) = self.authored_entry.take()
@@ -1363,6 +1364,7 @@ fn start_with_entry(
         bind_clips(&mut resources, resource, &model.clips)?;
     }
     let (mut world, memory) = entry.persistent.into_world();
+    world.played_ticks = entry.play_time.total();
     world.effect_palette = entry.effect_palette;
     world.current_field = Some(assets.map_id);
     world.ring_scenery = resonance_content::field::RingScenery::for_field(assets.map_id);
