@@ -19,6 +19,7 @@ pub(crate) enum Stream {
         filled: bool,
     },
     Stars {
+        filled: bool,
         sprite: BillboardEffect,
         interval: u32,
         radius: f32,
@@ -62,7 +63,8 @@ impl Stream {
                     filled: kind == 75,
                 }
             }
-            54 => Self::Stars {
+            44 | 54 => Self::Stars {
+                filled: kind == 44,
                 sprite,
                 interval: 1,
                 radius: 0.,
@@ -152,6 +154,7 @@ impl Stream {
                 }
             }
             Self::Stars {
+                filled,
                 sprite,
                 interval,
                 radius,
@@ -160,19 +163,33 @@ impl Stream {
             } if clock.is_multiple_of(*interval) => {
                 let mut p = start(sprite);
                 let image = random(rng) % 3;
-                p.recipe = [
-                    crate::effect::ORB_SPRITE,
-                    crate::effect::SEAL_SPARK_SPRITE,
-                    crate::effect::SEAL_STAR_SPRITE,
-                ][image as usize];
+                p.recipe = if *filled {
+                    [
+                        crate::effect::ORB_SPRITE,
+                        crate::effect::TRAIL_GLOW_SPRITE,
+                        crate::effect::SEAL_SPARK_SPRITE,
+                    ]
+                } else {
+                    [
+                        crate::effect::ORB_SPRITE,
+                        crate::effect::SEAL_SPARK_SPRITE,
+                        crate::effect::SEAL_STAR_SPRITE,
+                    ]
+                }[image as usize];
                 p.size = [p.size[0] + spread(rng, *variation) as f32; 2];
                 p.velocity[2] = speed + spread(rng, *speed_variation) as f32 / 100.;
-                if image != 0 {
-                    p.angular_velocity[2] = spin(rng, 2.);
+                if *filled || image != 0 {
+                    p.angular_velocity[2] = spin(rng, if *filled { 5. } else { 2. });
                 }
                 let (sin, cos) = (random(rng) as f32 % 360.).to_radians().sin_cos();
-                p.position[0] += sin * *radius;
-                p.position[1] -= cos * *radius;
+                for (axis, direction) in [sin, -cos, 0.].into_iter().enumerate() {
+                    let distance = if *filled {
+                        spread(rng, *radius as u32) as f32
+                    } else {
+                        *radius
+                    };
+                    p.position[axis] += direction * distance;
+                }
                 out.push(p);
             }
             Self::TargetedStars {

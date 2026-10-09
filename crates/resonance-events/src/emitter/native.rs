@@ -38,7 +38,7 @@ impl Emitter {
                 size: 0.,
                 smoke: a[5] != 0,
             },
-            9 | 17 | 24 | 36 | 54 | 75 => Kind::Stream(stream::Stream::new(a[5])),
+            9 | 17 | 24 | 36 | 44 | 54 | 75 => Kind::Stream(stream::Stream::new(a[5])),
             12 => Kind::Glow {
                 angle: 0.,
                 palette: 0,
@@ -584,6 +584,7 @@ impl stream::Stream {
                 _ => Ok(0),
             },
             Stars {
+                filled,
                 sprite,
                 interval,
                 radius,
@@ -594,6 +595,23 @@ impl stream::Stream {
                 1 => setting!(*radius, value, nonnegative),
                 2 => diameter(sprite, value),
                 3 => setting!(*variation, value, nonnegative),
+                4 if *filled => lifetime(sprite, value),
+                5 if *filled => setting!(*speed_variation, value, nonnegative),
+                6 if *filled => setting!(sprite.rgba[3], value, alpha),
+                7 if *filled => {
+                    let old = match sprite.fade {
+                        Fade::Linear(delta) => delta as i32,
+                        _ => 0,
+                    };
+                    if let Some(value) = value {
+                        sprite.fade = if value == 0 {
+                            Fade::tail(sprite.lifetime)
+                        } else {
+                            Fade::Linear(value as i16 as f32)
+                        };
+                    }
+                    Ok(old)
+                }
                 5 => {
                     let previous = setting!(*speed_variation, value, nonnegative)?;
                     sprite.rgba[3] = (*speed_variation).min(255) as u8;
