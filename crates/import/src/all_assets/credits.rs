@@ -1,5 +1,6 @@
-//! Credits text and layout controls, consumed by the original credits renderer.
+//! Decode credits text controls and bind their shared artwork and music.
 use anyhow::{Context, Result, ensure};
+use resonance_content::credits::{Credits, Manifest, Operation, Scroll, Style};
 use serde::Serialize;
 use std::path::Path;
 
@@ -40,13 +41,68 @@ pub(crate) fn cook_resources(file: &Path, executable: &[u8], output: &Path) -> R
     )
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct Credits {
-    version: u8,
-    canvas: [u16; 2],
-    style: Style,
-    scroll: Scroll,
-    operations: Vec<Operation>,
+/// Bind already converted publications; this never cooks textures or audio.
+pub(crate) fn prepare(
+    output: &Path,
+    executable: &[u8],
+    sources: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    let manifest = bind(output, executable, sources)?;
+    crate::write_atomic(
+        &output.join(resonance_content::credits::PATH),
+        &serde_json::to_vec(&manifest)?,
+    )
+}
+
+fn bind(
+    output: &Path,
+    executable: &[u8],
+    sources: &std::collections::BTreeMap<String, String>,
+) -> Result<Manifest> {
+    let resources = Resources::read(executable)?;
+    let hash = |name: &str| -> Result<&str> {
+        let mut matches = sources
+            .iter()
+            .filter(|(path, _)| {
+                path.split_once('/')
+                    .is_some_and(|(_, path)| path.eq_ignore_ascii_case(name))
+            })
+            .map(|(_, hash)| hash.as_str());
+        let first = matches
+            .next()
+            .with_context(|| format!("missing credits source {name}"))?;
+        ensure!(
+            matches.all(|hash| hash == first),
+            "conflicting credits source {name}"
+        );
+        Ok(first)
+    };
+    let read = |path: String| std::fs::read(output.join(path));
+    let program = serde_json::from_slice(&read(format!(
+        "assets/{}/credits.json",
+        hash(&resources.text)?
+    ))?)?;
+    let textures: crate::texture::Catalogue = serde_json::from_slice(&read(format!(
+        "assets/{}/textures.json",
+        hash(&resources.pictures)?
+    ))?)?;
+    let pictures = textures
+        .textures
+        .into_iter()
+        .map(|texture| texture.context("missing credits texture")?.image(0))
+        .collect::<Result<_>>()?;
+    let music = serde_json::from_slice(&read(format!(
+        "audio/streams/{}.json",
+        hash(&resources.music)?
+    ))?)?;
+    let manifest = Manifest {
+        program,
+        pictures,
+        music,
+        final_hold_ticks: 180,
+    };
+    manifest.validate()?;
+    Ok(manifest)
 }
 
 /// Undeclared text needs a layout command to distinguish it from ordinary text.
@@ -63,49 +119,6 @@ pub(crate) fn detect(bytes: &[u8]) -> Option<Credits> {
             )
         })
         .then_some(credits)
-}
-
-#[derive(Debug, Serialize)]
-struct Style {
-    glyph_size: [u16; 2],
-    color: [u8; 4],
-    line_height: u16,
-    tab_width: u16,
-}
-
-#[derive(Debug, Serialize)]
-struct Scroll {
-    height_pixels: i32,
-    /// Speed is height_pixels / speed_divisor_ticks pixels per update.
-    speed_divisor_ticks: u32,
-    /// Scrolling stops once its offset reaches height_pixels - stop_margin_pixels.
-    stop_margin_pixels: u16,
-}
-
-#[derive(Debug, PartialEq, Serialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-enum Operation {
-    Text {
-        text: String,
-    },
-    /// Center the remaining line using the original font's glyph advances.
-    CenterLine,
-    Newline,
-    Tab,
-    /// Reset X and advance Y; the command's terminating newline is consumed.
-    VerticalSpace {
-        pixels: i32,
-    },
-    /// Draw at the current cursor without advancing it.
-    Picture {
-        index: u8,
-    },
-    /// The original reports these controls but performs no layout operation.
-    IgnoredControl {
-        code: u8,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        argument: Option<u8>,
-    },
 }
 
 pub(crate) fn decode(bytes: &[u8]) -> Result<Credits> {
@@ -283,6 +296,43 @@ fn flush_text(text: &mut Vec<u8>, operations: &mut Vec<Operation>) -> Result<()>
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    #[ignore = "requires extracted discs and cooked credits; verifies metadata without recooking"]
+    fn credits_bindings_resolve_text_pictures_and_music_on_both_discs() -> Result<()> {
+        let local = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local");
+        let output = std::env::var_os("RESONANCE_TEST_ASSETS")
+            .map_or_else(|| local.join("all-assets"), std::path::PathBuf::from);
+        for disc in [1, 2] {
+            let extracted = local.join(format!("extracted/disc{disc}"));
+            let executable = fs::read(extracted.join("sys/main.dol"))?;
+            let resources = Resources::read(&executable)?;
+            let sources = [resources.text, resources.pictures, resources.music]
+                .into_iter()
+                .map(|path| {
+                    Ok((
+                        format!("disc{disc}/{path}"),
+                        crate::media::hash_file(&extracted.join("files").join(path))?,
+                    ))
+                })
+                .collect::<Result<_>>()?;
+            let credits = bind(&output, &executable, &sources)?;
+            for picture in &credits.pictures {
+                ensure!(
+                    output.join(&picture.path).is_file(),
+                    "credits picture is not published"
+                );
+            }
+            assert_eq!(
+                crate::media::hash_file(&output.join(&credits.music.asset.path))?,
+                credits.music.asset.sha256
+            );
+            let published: serde_json::Value =
+                serde_json::from_slice(&fs::read(output.join(resonance_content::credits::PATH))?)?;
+            assert_eq!(published, serde_json::to_value(credits)?);
+        }
+        Ok(())
+    }
 
     #[test]
     fn credits_controls_follow_decimal_prefix_and_separate_height_rules() -> Result<()> {
