@@ -90,6 +90,9 @@ enum Kind {
     },
     ChargedRay(rays::ChargedRay),
     Explosion(rays::Explosion),
+    Awakening {
+        size: f32,
+    },
     TwinGlow {
         size: i32,
         satellite_size: i32,
@@ -221,6 +224,9 @@ impl Emitter {
         let phase = &mut self.phase;
         let tick = self.age;
         match &mut self.kind {
+            Kind::Awakening { size } => {
+                rays::awakening(phase, size, center, born, clock, random, out);
+            }
             Kind::ChargedRay(ray) => {
                 ray.emit(phase, (owner, center), born, clock, speed, random, out)?;
             }

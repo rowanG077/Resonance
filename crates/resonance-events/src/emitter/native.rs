@@ -23,6 +23,7 @@ impl Emitter {
         }
         let impact_texture = assets.textures[0];
         let kind = match a[5] {
+            4 => Kind::Awakening { size: 0. },
             67 => Kind::ChargedRay(Default::default()),
             70 => Kind::Cylinder(super::planes::Cylinder {
                 palette: 0,
@@ -226,6 +227,12 @@ impl Emitter {
     pub fn property(&mut self, property: i32, value: Option<i32>) -> Result<i32, String> {
         if property == PHASE_PROPERTY {
             let previous = match &mut self.kind {
+                Kind::Awakening { size } => {
+                    if value == Some(1) {
+                        *size = 0.;
+                    }
+                    setting!(self.phase, value, |v| bounded(v, 0, 4))
+                }
                 Kind::Mote(mote) => {
                     let previous = i32::from(mote.script_phase);
                     if let Some(value) = value {
@@ -332,6 +339,10 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
+            Kind::Awakening { size } => match slot {
+                0 => setting!(*size, value, nonnegative),
+                _ => Ok(0),
+            },
             Kind::ChargedRay(ray) => match slot {
                 0 => setting!(ray.palette, value, palette_group),
                 1 => setting!(ray.size, value),

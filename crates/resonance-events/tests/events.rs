@@ -260,6 +260,32 @@ fn charged_light_gathers_then_travels_and_reports_completion() {
 }
 
 #[test]
+fn staged_glow_charges_once_and_can_restart_after_settling() {
+    let setup = script(&[(Call::CreateEffectEmitter, &emitter(4, 0, &[]))]);
+    let charge = script(&[
+        (Call::SetActorProperty, &[500, 33, 1]),
+        (Call::YieldCommand, &[0, 20]),
+        (Call::GetActorProperty, &[500, 33]),
+    ]);
+    let mut events = interactive_effect(&setup, &charge);
+    for _ in 0..2 {
+        assert!(events.trigger(42, true).unwrap());
+        steps(&mut events, 25);
+        assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
+        assert!(
+            events
+                .world
+                .billboards
+                .values()
+                .any(|p| p.size == [700.; 2])
+        );
+        assert!(events.world.billboards.values().any(|p| p.velocity[2] < 0.));
+        steps(&mut events, 130);
+        assert!(events.world.billboards.values().all(|p| p.size[0] <= 100.));
+    }
+}
+
+#[test]
 fn charging_ray_gathers_then_sends_growing_lights_along_its_path() {
     use resonance_content::effect::sprite::ELECTRIC_ARC_SPRITE;
     let setup = script(&[(
