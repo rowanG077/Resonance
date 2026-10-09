@@ -4014,6 +4014,7 @@ fn scenery_motion_layers_pause_and_clear_independently() {
             Call::ConfigureSceneryAnimation,
             &[999996, 0, -65536, 0, 100, 8],
         ),
+        (Call::SeekSceneryAnimation, &[1, -1, 5]),
     ]);
     let mut world = GameWorld::default();
     world.actors.insert(999996, Actor::new(1, [0.; 3]));
@@ -4030,7 +4031,7 @@ fn scenery_motion_layers_pause_and_clear_independently() {
     steps(&mut events, 30);
     let actor = &events.world.actors[&999996];
     let paused = actor.animation.as_ref().unwrap();
-    assert_eq!(paused.sample(events.tick(), 0, 20.), 6.);
+    assert_eq!(paused.sample(events.tick(), 0, 20.), 10.);
     assert_eq!(
         actor.scenery_animations[&0].sample(events.tick(), 0, 20.),
         20.
