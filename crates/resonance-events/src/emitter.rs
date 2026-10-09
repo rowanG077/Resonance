@@ -90,6 +90,7 @@ enum Kind {
     },
     ChargedRay(rays::ChargedRay),
     Explosion(rays::Explosion),
+    SoftBurst(rays::SoftBurst),
     Awakening {
         size: f32,
     },
@@ -224,6 +225,13 @@ impl Emitter {
         let phase = &mut self.phase;
         let tick = self.age;
         match &mut self.kind {
+            Kind::SoftBurst(burst) => {
+                crate::world::random(random);
+                if *phase == 0 {
+                    burst.emit(center, born, camera, speed, random, out);
+                    *phase = 1;
+                }
+            }
             Kind::Awakening { size } => {
                 rays::awakening(phase, size, center, born, clock, random, out);
             }

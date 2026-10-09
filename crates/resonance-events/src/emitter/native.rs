@@ -23,6 +23,7 @@ impl Emitter {
         }
         let impact_texture = assets.textures[0];
         let kind = match a[5] {
+            74 => Kind::SoftBurst(Default::default()),
             4 => Kind::Awakening { size: 0. },
             67 => Kind::ChargedRay(Default::default()),
             70 => Kind::Cylinder(super::planes::Cylinder {
@@ -339,6 +340,16 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
+            Kind::SoftBurst(burst) => match slot {
+                0 => setting!(burst.count, value, count),
+                1 => duration(&mut burst.lifetime, value),
+                2 => setting!(burst.lifetime_variation, value, at_least_one),
+                3 => setting!(burst.size, value),
+                4 => setting!(burst.size_variation, value, at_least_one),
+                5 => setting!(burst.speed_variation, value, at_least_one),
+                6 => setting!(burst.growth_variation, value, at_least_one),
+                _ => Ok(0),
+            },
             Kind::Awakening { size } => match slot {
                 0 => setting!(*size, value, nonnegative),
                 _ => Ok(0),

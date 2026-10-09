@@ -260,6 +260,37 @@ fn charged_light_gathers_then_travels_and_reports_completion() {
 }
 
 #[test]
+fn soft_burst_mixes_lights_and_smoke_then_expires() {
+    use resonance_events::effect::Blend;
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(74, 200, &[100, 35, 10, 75, 25, 300, 500]),
+    )]);
+    let mut events = interactive_effect(&setup, &[0x20ff]);
+    events.step().unwrap();
+    assert_eq!(events.world.billboards.len(), 100);
+    for blend in [Blend::Alpha, Blend::Additive] {
+        assert!(
+            events
+                .world
+                .billboards
+                .values()
+                .any(|p| p.blend == Some(blend))
+        );
+    }
+    steps(&mut events, 10);
+    assert!(
+        events
+            .world
+            .billboards
+            .values()
+            .all(|p| p.position != [0.; 3] && p.size[0] >= 75.)
+    );
+    steps(&mut events, 40);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
 fn staged_glow_charges_once_and_can_restart_after_settling() {
     let setup = script(&[(Call::CreateEffectEmitter, &emitter(4, 0, &[]))]);
     let charge = script(&[
