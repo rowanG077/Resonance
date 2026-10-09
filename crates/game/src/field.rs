@@ -706,6 +706,7 @@ impl FieldSession {
              id,
              actor,
              previous| {
+                actor.ground_attributes = 0;
                 let (scripted_control, event_paused) = (*scripted_control, *event_paused);
                 if let Some((player, target, heading)) = *player_destination
                     && id == player
@@ -773,6 +774,9 @@ impl FieldSession {
                             previous
                         }
                     });
+                    actor.ground_attributes = walkmesh
+                        .surface(actor.position, 0.01)
+                        .map_or(0, |surface| surface.attributes);
                 }
                 resolved.insert(id, actor.position);
             },
@@ -1689,6 +1693,37 @@ mod tests {
             player_fall: Default::default(),
             light_regions: None,
         }
+    }
+
+    #[test]
+    fn scripts_read_the_current_ground_surface_and_clear_it_in_air() {
+        let mut code = vec![4, 0, 0, 0];
+        for _ in 0..3 {
+            native(&mut code, NativeCall::YieldCommand, &[0, 1]);
+            native(&mut code, NativeCall::GetActorProperty, &[100, 52]);
+        }
+        code.push(0x20ff);
+        let mut field = session(runtime(code, Default::default()));
+        field.walkmesh = navigation::WalkMesh::new(&[resonance_content::field::CollisionGroup {
+            surface: 0x96,
+            vertices: vec![[0., 0., 0.], [10., 0., 0.], [0., 10., 0.]],
+            triangles: vec![[0, 1, 2]],
+        }])
+        .unwrap();
+        field
+            .events
+            .world
+            .insert_actor(100, Actor::new(1, [2., 2., 10.]));
+        field.step(FieldInput::default()).unwrap();
+        assert_eq!(field.events.memory().read(0x20, Width::S32).unwrap(), 0x96);
+        field.events.world.actors.get_mut(&100).unwrap().grounded = false;
+        field.step(FieldInput::default()).unwrap();
+        assert_eq!(field.events.memory().read(0x20, Width::S32).unwrap(), 0);
+        let actor = field.events.world.actors.get_mut(&100).unwrap();
+        actor.grounded = true;
+        actor.position = [100., 100., 0.];
+        field.step(FieldInput::default()).unwrap();
+        assert_eq!(field.events.memory().read(0x20, Width::S32).unwrap(), 0);
     }
 
     #[test]

@@ -1,21 +1,21 @@
 //! Ambient actor decisions. Scripted destinations take priority over wandering.
 use crate::Actor;
-use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[repr(u8)]
 pub enum Behavior {
-    Stationary = 0,
-    Wander = 1,
-    WanderNearHome = 2,
-    FollowPath = 3,
-    RandomPath = 11,
-    WatchPlayer = 4,
-    ApproachPlayer = 5,
-    Player = 10,
-    ChasePlayer = 12,
+    Stationary,
+    Wander,
+    WanderNearHome,
+    FollowPath,
+    RandomPath,
+    WatchPlayer,
+    ApproachPlayer,
+    Player,
+    ChasePlayer,
+    /// An unassigned movement selector leaves movement entirely to scripts.
+    ScriptOnly(u8),
 }
 impl Behavior {
     pub(crate) fn enemy(mode: u8) -> Self {
@@ -28,11 +28,24 @@ impl Behavior {
             _ => Self::Wander,
         }
     }
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Stationary => 0,
+            Self::Wander => 1,
+            Self::WanderNearHome => 2,
+            Self::FollowPath => 3,
+            Self::WatchPlayer => 4,
+            Self::ApproachPlayer => 5,
+            Self::Player => 10,
+            Self::RandomPath => 11,
+            Self::ChasePlayer => 12,
+            Self::ScriptOnly(code) => code,
+        }
+    }
 }
-impl TryFrom<i32> for Behavior {
-    type Error = anyhow::Error;
-    fn try_from(value: i32) -> Result<Self> {
-        Ok(match value {
+impl From<u8> for Behavior {
+    fn from(value: u8) -> Self {
+        match value {
             0 => Self::Stationary,
             1 => Self::Wander,
             2 => Self::WanderNearHome,
@@ -42,8 +55,8 @@ impl TryFrom<i32> for Behavior {
             5 => Self::ApproachPlayer,
             10 => Self::Player,
             12 => Self::ChasePlayer,
-            _ => bail!("actor movement behavior {value} is not implemented"),
-        })
+            _ => Self::ScriptOnly(value),
+        }
     }
 }
 
@@ -135,6 +148,9 @@ impl Actor {
         let Some(ai) = &mut self.autonomy else {
             return intent;
         };
+        if matches!(ai.behavior, Behavior::ScriptOnly(_)) {
+            return intent;
+        }
         if let Some(enemy) = &mut self.enemy {
             if enemy.pause_ticks != 0 && self.motion.is_none() {
                 if free_control && enemy.pause_ticks > 0 {

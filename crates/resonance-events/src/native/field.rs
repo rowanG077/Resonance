@@ -1352,7 +1352,7 @@ impl NativeHost<'_> {
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
                 if self.world.field_camera.is_some() {
-                    let behavior = crate::Behavior::try_from(a[6]).map_err(|e| e.to_string())?;
+                    let behavior = crate::Behavior::from(a[6] as u8);
                     require(a[7] >= 0, "negative ambient movement speed")?;
                     require(
                         locator
@@ -1361,6 +1361,7 @@ impl NativeHost<'_> {
                                 crate::Behavior::Stationary
                                     | crate::Behavior::WatchPlayer
                                     | crate::Behavior::Player
+                                    | crate::Behavior::ScriptOnly(_)
                             )
                             || self.resources.model(resource).is_some_and(|m| {
                                 m.clips.contains_key(&crate::animation::slot::WALK)

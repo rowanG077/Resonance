@@ -629,7 +629,7 @@ fn movement_behavior_changes_resume_chasing_and_grab_queries_follow_live_blocks(
     const GRABBED_BLOCK: i32 = 53;
     let setup = script(&[(
         Call::SetActorProperty,
-        &[FRAGMENT, BEHAVIOR, Behavior::ChasePlayer as i32],
+        &[FRAGMENT, BEHAVIOR, i32::from(Behavior::ChasePlayer.code())],
     )]);
     // This property always reads the controlled player's block, regardless of target.
     let query = script(&[(Call::GetActorProperty, &[FRAGMENT, GRABBED_BLOCK])]);
@@ -1499,6 +1499,42 @@ fn field_system_leader_commands_read_and_change_the_party_selection() {
         assert_eq!(events.world.party.as_ref().unwrap().field_leader, leader);
         assert_eq!(events.world.controlled_actor, 1000);
         world = events.world;
+    }
+}
+
+#[test]
+fn inactive_ambient_modes_still_accept_scripted_movement() {
+    for (spawn, behavior, speed) in [
+        (Call::SpawnActor, 13, 8),
+        (Call::SpawnActor, 300, 0),
+        (Call::CreateSceneActor, 90, 0),
+        (Call::CreateSceneActor, 0, 1),
+        (Call::SpawnInteractionActor, 90, 0),
+    ] {
+        let mut world = controlled_world();
+        world.field_camera = Some(Default::default());
+        let setup = script(&[
+            (spawn, &[500, 0, 0, 0, 0, 1, behavior, speed]),
+            (Call::SetActorProperty, &[500, 0, 300]),
+            (Call::SetActorProperty, &[500, 6, 1]),
+            (Call::GetActorProperty, &[500, 34]),
+        ]);
+        let movement = script(&[(Call::MoveActor, &[500, 12, 0, 0, 3])]);
+        let mut events = runtime(
+            program_record(&setup, &movement, 0, 500),
+            enemy_resources(),
+            world,
+        );
+        steps(&mut events, 5);
+        assert_eq!(events.world.actors[&500].position, [0.; 3]);
+        assert_eq!(events.world.actors[&500].movement_speed(), speed as f32);
+        assert_eq!(
+            events.memory().read(0x20, Width::S32).unwrap(),
+            i32::from(behavior as u8)
+        );
+        assert!(events.interact(500).unwrap());
+        steps(&mut events, 5);
+        assert_eq!(events.world.actors[&500].position, [12., 0., 0.]);
     }
 }
 
