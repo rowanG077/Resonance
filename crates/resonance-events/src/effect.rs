@@ -603,6 +603,7 @@ pub(crate) enum BillboardController {
     },
     Accelerate {
         multiplier: f32,
+        delta: [f32; 3],
     },
     Flutter(Flutter),
     TextureStrip {
@@ -911,8 +912,10 @@ impl crate::GameWorld {
                         *distance = offset;
                     }
                 }
-                Some(BillboardController::Accelerate { multiplier }) => {
-                    effect.velocity.iter_mut().for_each(|v| *v *= *multiplier);
+                Some(BillboardController::Accelerate { multiplier, delta }) => {
+                    for (velocity, delta) in effect.velocity.iter_mut().zip(delta) {
+                        *velocity = *velocity * *multiplier + *delta;
+                    }
                 }
                 Some(BillboardController::Scatter { .. } | BillboardController::Drift { .. })
                 | None => {}

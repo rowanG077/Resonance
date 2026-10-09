@@ -38,7 +38,7 @@ impl Emitter {
                 size: 0.,
                 smoke: a[5] != 0,
             },
-            9 | 17 | 24 | 25 | 36 | 39 | 41 | 44 | 54 | 57 | 62 | 64 | 75 => {
+            9 | 17 | 20 | 21 | 24 | 25 | 36 | 39 | 41 | 44 | 54 | 57 | 62 | 64 | 75 => {
                 Kind::Stream(stream::Stream::new(a[5]))
             }
             12 => Kind::Glow {
@@ -848,7 +848,7 @@ impl stream::Stream {
                 8 => setting!(*alpha_variation, value, nonnegative),
                 _ => Ok(0),
             },
-            Rain => Ok(0),
+            Rain | ConvergingShafts | Spiral => Ok(0),
         }
     }
 }

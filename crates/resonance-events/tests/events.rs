@@ -178,6 +178,40 @@ fn radial_flash_expands_once_and_its_sparks_travel_outward() {
 }
 
 #[test]
+fn converging_shafts_and_spirals_follow_their_emitter_center() {
+    let center = [150., 200., 50.];
+    for kind in [20, 21] {
+        let mut input = emitter(kind, 0, &[]);
+        input[1..4].copy_from_slice(&center.map(|v| v as i32));
+        let setup = script(&[(Call::CreateEffectEmitter, &input)]);
+        let mut events = interactive_effect(&setup, &[0x20ff]);
+        steps(&mut events, 10);
+        let (&id, particle) = events.world.billboards.iter().next().unwrap();
+        let before = particle.position;
+        let velocity = particle.velocity;
+        steps(&mut events, 10);
+        let particle = &events.world.billboards[&id];
+        let distance = |p: [f32; 3]| {
+            p.into_iter()
+                .zip(center)
+                .map(|(p, c)| (p - c).powi(2))
+                .sum::<f32>()
+                .sqrt()
+        };
+        if kind == 20 {
+            assert!(distance(particle.position) < distance(before));
+            assert!(
+                particle.velocity.iter().map(|v| v * v).sum::<f32>()
+                    > velocity.iter().map(|v| v * v).sum::<f32>()
+            );
+        } else {
+            assert_eq!(particle.position[2] - before[2], 50.);
+            assert!(distance(particle.position) > distance(before));
+        }
+    }
+}
+
+#[test]
 fn plane_lights_and_rising_circles_use_their_shared_artwork_and_expire() {
     use resonance_content::effect::sprite::{PLANE_LIGHT_SPRITES, RISING_LIGHT_SPRITE};
     for (kind, parameters) in [
