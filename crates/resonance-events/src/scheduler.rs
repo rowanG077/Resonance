@@ -748,24 +748,16 @@ impl EventRuntime {
             camera.shake.step(&mut self.world.random_state);
             if let Some(playback) = &self.world.camera
                 && let Some(track) = self.resources.camera_tracks.get(&playback.resource)
+                && let Some((position, target)) = playback.sample(self.world.tick, track)
             {
-                let time = (self.world.tick.saturating_sub(playback.start_tick) as f32 * 0.5)
-                    .min(track.last().unwrap().time);
-                let right = track
-                    .partition_point(|key| key.time < time)
-                    .min(track.len() - 1);
-                let a = &track[right.saturating_sub(1)];
-                let b = &track[right];
-                let fraction = if a.time == b.time {
-                    0.
-                } else {
-                    (time - a.time) / (b.time - a.time)
-                };
-                camera.position = std::array::from_fn(|i| {
-                    a.position[i] + (b.position[i] - a.position[i]) * fraction
-                });
-                camera.target =
-                    std::array::from_fn(|i| a.target[i] + (b.target[i] - a.target[i]) * fraction);
+                camera.position = position;
+                camera.target = self
+                    .world
+                    .actors
+                    .get(&playback.target_actor)
+                    .map_or(target, |actor| {
+                        std::array::from_fn(|i| actor.position[i] + playback.target_offset[i])
+                    });
             }
         }
         self.world.update_collision_attachments(&self.resources)?;

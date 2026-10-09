@@ -176,6 +176,8 @@ impl Host for NativeHost<'_> {
         ResetCameraBounds(0) -> () = field;
         StopCameraTrack(0) -> () = dispatch;
         PlayCameraTrack(3) -> () = dispatch;
+        MapCameraTrackPosition(8) -> () = dispatch;
+        ConfigureCameraTrack(2) -> i32 = dispatch;
         MeasureActorGeometry(3) -> i32 = field;
         WaitActorAnimationFrame(2) -> () = dispatch;
         IsActorAnimationFinished(1) -> i32 = dispatch;

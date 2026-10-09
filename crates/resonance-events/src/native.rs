@@ -1084,12 +1084,39 @@ impl NativeHost<'_> {
                 actor.scripted_animation = true;
             }
             NativeCall::PlayCameraTrack => {
-                require(a[1..] == [0, 0], "camera playback mode is not implemented")?;
                 let resource = self.resolve(a[0], ResourceKind::Camera)?;
-                self.world.camera = Some(CameraTrack {
-                    resource,
-                    start_tick: self.world.tick,
-                });
+                let mut playback = CameraTrack::new(resource, self.world.tick);
+                playback.playing = a[1] == 0;
+                playback.repeat = a[2] == 1;
+                self.world.camera = Some(playback);
+            }
+            NativeCall::ConfigureCameraTrack | NativeCall::MapCameraTrackPosition => {
+                let playback = self
+                    .world
+                    .camera
+                    .as_mut()
+                    .ok_or("camera track is not active")?;
+                let duration = self
+                    .resources
+                    .camera_tracks
+                    .get(&playback.resource)
+                    .and_then(|keys| keys.last())
+                    .ok_or("camera track is not cooked")?
+                    .time;
+                if op == NativeCall::MapCameraTrackPosition {
+                    require(a[2] != a[3], "camera mapping range is empty")?;
+                    let fraction =
+                        ((a[1] as f64 - a[2] as f64) / (a[3] as f64 - a[2] as f64)).clamp(0., 1.);
+                    playback.retime(self.world.tick, duration);
+                    playback.seek(duration * fraction as f32, self.world.tick);
+                } else {
+                    let argument = if a[0] == 11 && a[1] == crate::CONTROLLED_ACTOR {
+                        self.world.controlled_actor
+                    } else {
+                        a[1]
+                    };
+                    value = Some(playback.configure(a[0], argument, self.world.tick, duration)?);
+                }
             }
             NativeCall::CreateSceneActor | NativeCall::SpawnInteractionActor => {
                 require(

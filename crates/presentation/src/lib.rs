@@ -738,23 +738,12 @@ fn field_camera(
     };
     let track = &scene.cameras[camera.resource as usize];
     // The title camera samples two updates behind the title counter.
-    let time = (events.0.tick() - camera.start_tick).saturating_sub(2) as f32 * 0.5;
-    let time = time.min(track.last().unwrap().time);
-    let right = track
-        .partition_point(|k| k.time < time)
-        .min(track.len() - 1);
-    let left = right.saturating_sub(1);
-    let a = &track[left];
-    let b = &track[right];
-    let fraction = if a.time == b.time {
-        0.
-    } else {
-        (time - a.time) / (b.time - a.time)
+    let Some((position, target)) = camera.sample(events.0.tick().saturating_sub(2), track) else {
+        return;
     };
-    let position = Vec3::from_array(a.position).lerp(Vec3::from_array(b.position), fraction);
-    let target = Vec3::from_array(a.target).lerp(Vec3::from_array(b.target), fraction);
     for mut camera in &mut cameras {
-        *camera = Transform::from_translation(position).looking_at(target, Vec3::Z);
+        *camera = Transform::from_translation(Vec3::from_array(position))
+            .looking_at(Vec3::from_array(target), Vec3::Z);
     }
 }
 

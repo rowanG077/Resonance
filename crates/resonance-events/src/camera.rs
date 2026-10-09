@@ -2,6 +2,7 @@
 use crate::Actor;
 use std::collections::BTreeMap;
 pub mod motion;
+mod playback;
 mod shake;
 use motion::{FovTween, MotionCamera, Tween};
 pub use shake::Shake;
