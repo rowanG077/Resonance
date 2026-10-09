@@ -62,6 +62,12 @@ enum Kind {
         target: [f32; 3],
         velocity: Option<[f32; 3]>,
     },
+    ChargedTrail {
+        size: f32,
+        fade: f32,
+        target: [f32; 3],
+        flight: Option<Flight>,
+    },
     Ray {
         palette: u16,
         size: f32,
@@ -351,6 +357,56 @@ impl Emitter {
                         velocity[1].atan2(velocity[0]).to_degrees(),
                     ));
                     *phase = if *remaining <= 0 { 2 } else { 1 };
+                }
+            }
+            Kind::ChargedTrail {
+                size,
+                fade,
+                target,
+                flight,
+            } => {
+                crate::world::random(random);
+                if *phase == 0 {
+                    let mut glow = particle(center, born, palette(108, random), 87);
+                    glow.size = [(10 + crate::world::random(random) % 10) as f32; 2];
+                    glow.angular_velocity[2] = if crate::world::random(random).is_multiple_of(2) {
+                        -3.
+                    } else {
+                        3.
+                    };
+                    glow.blend = Some(crate::effect::Blend::Subtractive);
+                    let mut direction = [1.; 3];
+                    for axis in [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]] {
+                        direction =
+                            rotated(direction, axis, (crate::world::random(random) % 360) as f32);
+                    }
+                    glow.position = std::array::from_fn(|i| center[i] + direction[i] * 100.);
+                    glow.velocity = normalized(direction).map(|v| -v * 2.);
+                    out.push(glow);
+                } else if *phase < 3 {
+                    if speed <= 0. {
+                        return Err("charged trail needs positive flight speed".into());
+                    }
+                    let flight = flight.get_or_insert_with(|| {
+                        let delta = std::array::from_fn(|i| target[i] - center[i]);
+                        Flight {
+                            velocity: normalized(delta).map(|v| v * speed),
+                            remaining: (delta.iter().map(|v| v * v).sum::<f32>().sqrt() / speed)
+                                as u32,
+                            heading: 0.,
+                        }
+                    });
+                    let mut glow = particle(center, born, palette(108, random), 61);
+                    glow.size = [*size; 2];
+                    glow.fade = Fade::Linear(*fade);
+                    glow.size_delta = -10.;
+                    glow.blend = Some(crate::effect::Blend::Subtractive);
+                    out.push(glow);
+                    *phase = if flight.remaining == 0 { 3 } else { 2 };
+                    if flight.remaining > 0 {
+                        actor.position = std::array::from_fn(|i| center[i] + flight.velocity[i]);
+                        flight.remaining -= 1;
+                    }
                 }
             }
             Kind::Mote(mote) => return mote.emit(actor, born, random, out),

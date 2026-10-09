@@ -138,6 +138,12 @@ impl Emitter {
                 target: [0.; 3],
                 velocity: None,
             },
+            58 => Kind::ChargedTrail {
+                size: 0.,
+                fade: 0.,
+                target: [0.; 3],
+                flight: None,
+            },
             52 | 53 => Kind::Flash {
                 sparks: a[5] == 52,
                 lifetime: 11,
@@ -276,7 +282,9 @@ impl Emitter {
                 self.age = 0;
                 if value == 0 {
                     match &mut self.kind {
-                        Kind::Travel { flight, .. } => *flight = None,
+                        Kind::Travel { flight, .. } | Kind::ChargedTrail { flight, .. } => {
+                            *flight = None
+                        }
                         Kind::Projectile { path, .. } => *path = None,
                         Kind::Charge { velocity, .. }
                         | Kind::Fireball { velocity, .. }
@@ -335,6 +343,22 @@ impl Emitter {
             } => match slot {
                 1 => setting!(*remaining, value, nonnegative),
                 4..=6 => displacement(target, velocity.as_mut(), slot - 4, value),
+                _ => Ok(0),
+            },
+            Kind::ChargedTrail {
+                size,
+                fade,
+                target,
+                flight,
+            } => match slot {
+                1 => setting!(*size, value),
+                3 => setting!(*fade, value),
+                4..=6 => displacement(
+                    target,
+                    flight.as_mut().map(|f| &mut f.velocity),
+                    slot - 4,
+                    value,
+                ),
                 _ => Ok(0),
             },
             Kind::Ray {
