@@ -904,17 +904,18 @@
     },
     {
       "opcode": 95,
-      "name": "native_5f",
+      "name": "map_camera_track_position",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2",
-        "arg3",
-        "arg4",
-        "arg5",
-        "arg6",
-        "arg7"
-      ]
+        "mode",
+        "position",
+        "start",
+        "end",
+        "reserved0",
+        "reserved1",
+        "reserved2",
+        "reserved3"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 96,
@@ -1675,10 +1676,10 @@
     },
     {
       "opcode": 174,
-      "name": "native_ae",
+      "name": "configure_camera_track",
       "arguments": [
-        "arg0",
-        "arg1"
+        "operation",
+        "value"
       ],
       "returns_value": true
     },

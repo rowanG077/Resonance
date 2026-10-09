@@ -532,6 +532,13 @@ impl BoneAdjustment {
 pub struct CameraTrack {
     pub resource: u32,
     pub start_tick: u32,
+    pub(crate) start_frame: f32,
+    pub(crate) rate: f32,
+    pub(crate) playing: bool,
+    pub(crate) repeat: bool,
+    pub(crate) completed: bool,
+    pub(crate) target_actor: i32,
+    pub(crate) target_offset: [f32; 3],
 }
 #[derive(Default)]
 pub struct GameWorld {

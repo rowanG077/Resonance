@@ -4094,6 +4094,55 @@ fn numbered_world_cinematics_keep_the_following_scene_and_retire_the_caller() {
 }
 
 #[test]
+fn camera_tracks_hold_mapped_positions_then_resume_and_loop() {
+    let setup = script(&[
+        (Call::PlayCameraTrack, &[555, 1, 1]),
+        (Call::MapCameraTrackPosition, &[0, 0, -100, 300, 0, 0, 0, 0]),
+    ]);
+    let resume = script(&[
+        (Call::ConfigureCameraTrack, &[4, 100]),
+        (Call::ConfigureCameraTrack, &[0, 0]),
+        (Call::YieldCommand, &[0, 30]),
+        (Call::ConfigureCameraTrack, &[10, 0]),
+    ]);
+    let resources = ResourceLibrary {
+        bindings: [(555, (ResourceKind::Camera, 22))].into(),
+        camera_tracks: [(
+            22,
+            vec![
+                resonance_content::CameraKey {
+                    time: 0.,
+                    position: [0.; 3],
+                    target: [0., 10., 0.],
+                },
+                resonance_content::CameraKey {
+                    time: 20.,
+                    position: [40., 0., 0.],
+                    target: [0., 10., 0.],
+                },
+            ],
+        )]
+        .into(),
+        ..Default::default()
+    };
+    let mut world = controlled_world();
+    world.field_camera = Some(Default::default());
+    let mut events = runtime(program(&setup, &resume), resources, world);
+    steps(&mut events, 10);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().position,
+        [10., 0., 0.]
+    );
+    assert!(events.trigger(42, true).unwrap());
+    steps(&mut events, 31);
+    assert_eq!(
+        events.world.field_camera.as_ref().unwrap().position,
+        [30., 0., 0.]
+    );
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 1);
+}
+
+#[test]
 fn actor_queries_follow_the_controlled_actor_through_a_scripted_move() {
     let mut world = controlled_world();
     world.controlled_actor = 2;
