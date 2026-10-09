@@ -996,6 +996,13 @@ impl GameWorld {
                 if clear_particles {
                     // Retire submitted particles after their final presentation.
                     particle.lifetime = particle.lifetime.min(age + 2);
+                    // A pending release must not renew a retired particle's lifetime.
+                    if matches!(
+                        particle.controller,
+                        Some(crate::effect::BillboardController::Guided(_))
+                    ) {
+                        particle.controller = None;
+                    }
                 } else if let crate::effect::OwnerTail::Fade(updates) = particle.owner_tail {
                     particle.rgba[3] = particle.alpha(self.tick) as u8;
                     particle.lifetime = particle.lifetime.min(age + updates);
