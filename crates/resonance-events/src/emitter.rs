@@ -55,7 +55,15 @@ enum Kind {
         target: [f32; 3],
         velocity: Option<[f32; 3]>,
     },
-    Flash,
+    ModelTrail {
+        remaining: i32,
+        target: [f32; 3],
+        velocity: Option<[f32; 3]>,
+    },
+    Flash {
+        sparks: bool,
+        lifetime: u32,
+    },
     Shafts(rays::Shafts),
     Convergence(rays::Convergence),
     Rising(rays::Rising),
@@ -177,17 +185,23 @@ impl Emitter {
         let phase = &mut self.phase;
         let tick = self.age;
         match &mut self.kind {
-            Kind::Flash => {
+            Kind::Flash { sparks, lifetime } => {
                 crate::world::random(random);
                 if *phase == 0 {
-                    let mut flash = particle(center, born, 33, 11);
+                    let mut flash = particle(center, born, 33, *lifetime);
                     flash.field_fog = false;
                     flash.size = [100.; 2];
                     flash.size_delta = 40.;
-                    flash.rgba = [10, 200, 200, 255];
-                    flash.fade = Fade::Linear(0.);
-                    flash.blend = Some(crate::effect::Blend::Subtractive);
-                    out.push(flash);
+                    if *sparks {
+                        flash.fade = Fade::Linear(0.);
+                        out.push(flash.clone());
+                        out.push(flash);
+                        rays::flash_sparks(center, born, camera, random, out);
+                    } else {
+                        flash.rgba = [10, 200, 200, 255];
+                        flash.blend = Some(crate::effect::Blend::Subtractive);
+                        out.push(flash);
+                    }
                     *phase = 1;
                 }
             }
@@ -215,6 +229,28 @@ impl Emitter {
                 *phase = if *remaining < 0 { 2 } else { 1 };
             }
             Kind::Burst(burst) => burst.emit(center, born, phase, random, out),
+            Kind::ModelTrail {
+                remaining,
+                target,
+                velocity,
+            } => {
+                crate::world::random(random);
+                let velocity = velocity.get_or_insert_with(|| {
+                    std::array::from_fn(|i| (target[i] - center[i]) / (*remaining).max(1) as f32)
+                });
+                if *remaining >= 0 {
+                    actor.position = std::array::from_fn(|i| center[i] + velocity[i]);
+                    *remaining -= 1;
+                }
+                if *phase < 2 {
+                    out.push_model(crate::model_particle::ModelParticle::streak(
+                        actor.resource,
+                        actor.position,
+                        velocity[1].atan2(velocity[0]).to_degrees(),
+                    ));
+                    *phase = if *remaining <= 0 { 2 } else { 1 };
+                }
+            }
             Kind::Mote(mote) => return mote.emit(actor, born, random, out),
             Kind::Gathering { state, .. } => {
                 state.emit(center, born, clock, random, out);

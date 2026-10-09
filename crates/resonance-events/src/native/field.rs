@@ -850,7 +850,7 @@ impl NativeHost<'_> {
                 };
                 let mut actor = Actor::new(resource, [a[1] as f32, a[2] as f32, a[3] as f32]);
                 // Recipe 46 keeps its model solely for independent afterimages.
-                actor.visible = resource != 0 && a[5] != 46;
+                actor.visible = resource != 0 && !matches!(a[5], 46 | 50);
                 actor.contact = crate::ActorContact::None;
                 actor.collidable = false;
                 actor.grounded = false;

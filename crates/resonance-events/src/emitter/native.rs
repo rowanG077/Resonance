@@ -113,7 +113,15 @@ impl Emitter {
                 offset: 0.,
                 interval: 1,
             },
-            53 => Kind::Flash,
+            50 => Kind::ModelTrail {
+                remaining: 1,
+                target: [0.; 3],
+                velocity: None,
+            },
+            52 | 53 => Kind::Flash {
+                sparks: a[5] == 52,
+                lifetime: 11,
+            },
             56 => Kind::LinearTrail {
                 sprite: BillboardEffect {
                     size_delta: -0.75,
@@ -247,7 +255,8 @@ impl Emitter {
                         Kind::Projectile { path, .. } => *path = None,
                         Kind::Charge { velocity, .. }
                         | Kind::Fireball { velocity, .. }
-                        | Kind::LinearTrail { velocity, .. } => *velocity = None,
+                        | Kind::LinearTrail { velocity, .. }
+                        | Kind::ModelTrail { velocity, .. } => *velocity = None,
                         Kind::Mote(mote) => mote.path = None,
                         Kind::Stream(stream::Stream::Smoke { emitted, .. }) => *emitted = 0,
                         _ => {}
@@ -264,7 +273,22 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
-            Kind::Flash => Ok(0),
+            Kind::Flash { sparks, lifetime } => {
+                if *sparks && slot == 0 {
+                    duration(lifetime, value)
+                } else {
+                    Ok(0)
+                }
+            }
+            Kind::ModelTrail {
+                remaining,
+                target,
+                velocity,
+            } => match slot {
+                1 => setting!(*remaining, value, nonnegative),
+                4..=6 => displacement(target, velocity.as_mut(), slot - 4, value),
+                _ => Ok(0),
+            },
             Kind::LinearTrail {
                 sprite,
                 remaining,

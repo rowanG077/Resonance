@@ -150,6 +150,72 @@ fn timed_light_trail_emits_along_its_path_and_then_finishes() {
 }
 
 #[test]
+fn radial_flash_expands_once_and_its_sparks_travel_outward() {
+    use resonance_content::effect::sprite::ORB_SPRITE;
+    let setup = script(&[(Call::CreateEffectEmitter, &emitter(52, 0, &[10]))]);
+    let mut events = interactive_effect(&setup, &[0x20ff]);
+    events.step().unwrap();
+    assert_eq!(events.world.billboards.len(), 34);
+    let glows = events
+        .world
+        .billboards
+        .values()
+        .filter(|p| p.recipe == ORB_SPRITE);
+    assert_eq!(glows.count(), 2);
+    steps(&mut events, 5);
+    for p in events.world.billboards.values() {
+        if p.recipe == ORB_SPRITE {
+            assert!(p.size[0] > 100.);
+            assert_eq!(p.alpha(events.world.tick), 255.);
+        } else {
+            assert!(p.alpha(events.world.tick) < 200.);
+            let distance = p.position.iter().map(|v| v * v).sum::<f32>().sqrt();
+            assert!(distance >= 45. - 0.001, "spark distance: {distance}");
+        }
+    }
+    steps(&mut events, 40);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
+fn model_trail_reaches_its_target_then_its_copies_expire() {
+    let mut input = emitter(50, 0, &[0, 4, 0, 0, 100, 0, 0]);
+    input[4] = 1;
+    let setup = script(&[(Call::CreateEffectEmitter, &input)]);
+    let query = script(&[(Call::GetActorProperty, &[500, 33])]);
+    let mut events = runtime(
+        program(&setup, &query),
+        enemy_resources(),
+        controlled_world(),
+    );
+    steps(&mut events, 4);
+    assert!(!events.world.actors[&500].visible);
+    assert_eq!(
+        events
+            .world
+            .model_particles
+            .values()
+            .map(|p| p.position[0])
+            .collect::<Vec<_>>(),
+        [25., 50., 75., 100.]
+    );
+    assert!(
+        events
+            .world
+            .model_particles
+            .values()
+            .all(|p| p.resource == 1)
+    );
+    let first = events.world.model_particles.values().next().unwrap();
+    assert!(first.scale[2] > first.scale[0]);
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
+    steps(&mut events, 10);
+    assert!(events.world.model_particles.is_empty());
+}
+
+#[test]
 fn expanding_flash_is_brief_and_rising_embers_leave_no_permanent_particles() {
     let flash = script(&[(Call::CreateEffectEmitter, &emitter(53, 0, &[]))]);
     let mut events = interactive_effect(&flash, &[0x20ff]);
