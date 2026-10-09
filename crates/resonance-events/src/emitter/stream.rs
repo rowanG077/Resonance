@@ -33,6 +33,11 @@ pub(crate) enum Stream {
         target: [f32; 3],
     },
     Rain,
+    Embers {
+        radius: u32,
+        size: f32,
+        variation: u32,
+    },
     RisingSmoke {
         emitted: u32,
         remaining: u32,
@@ -90,6 +95,11 @@ impl Stream {
                 }
             }
             17 => Self::Rain,
+            62 => Self::Embers {
+                radius: 0,
+                size: 0.,
+                variation: 0,
+            },
             41 => {
                 sprite.recipe = crate::effect::GLOW_SPRITE;
                 sprite.palette = Some(33);
@@ -142,6 +152,27 @@ impl Stream {
             p
         };
         match self {
+            Self::Embers {
+                radius,
+                size,
+                variation,
+            } if clock % 4 >= 2 => {
+                let color = if random(rng).is_multiple_of(2) {
+                    80
+                } else {
+                    104
+                };
+                let mut p = particle(center, born, color, 301);
+                p.field_fog = false;
+                p.size = [*size + spread(rng, *variation) as f32; 2];
+                p.fade = Fade::Linear(-2.);
+                p.velocity[2] = ((random(rng) % 500 + 100) / 100) as f32;
+                let (sin, cos) = (random(rng) as f32 % 360.).to_radians().sin_cos();
+                let radius = spread(rng, *radius) as f32;
+                p.position[0] += cos * radius;
+                p.position[1] += sin * radius;
+                out.push(p);
+            }
             Self::Splash {
                 sprite,
                 interval,

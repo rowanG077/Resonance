@@ -49,6 +49,13 @@ enum Kind {
         offset: f32,
         interval: u32,
     },
+    LinearTrail {
+        sprite: BillboardEffect,
+        remaining: i32,
+        target: [f32; 3],
+        velocity: Option<[f32; 3]>,
+    },
+    Flash,
     Shafts(rays::Shafts),
     Convergence(rays::Convergence),
     Rising(rays::Rising),
@@ -97,12 +104,12 @@ enum Kind {
         afterimages: bool,
     },
     Projectile {
-        completed_phase: u8,
+        completed_phase: Option<u8>,
+        color: ProjectileColor,
         path: Option<mote::Path>,
         launch: [f32; 3],
         curvature: i32,
         size: f32,
-        fade: f32,
         target: [f32; 3],
         texture: Option<(u32, u8)>,
     },
@@ -126,6 +133,13 @@ enum Kind {
         angle: f32,
         count: i32,
     },
+}
+
+#[derive(Debug, Clone)]
+enum ProjectileColor {
+    Violet,
+    Selected(u16),
+    Changing { fade: f32 },
 }
 
 #[derive(Debug, Clone)]
@@ -163,6 +177,43 @@ impl Emitter {
         let phase = &mut self.phase;
         let tick = self.age;
         match &mut self.kind {
+            Kind::Flash => {
+                crate::world::random(random);
+                if *phase == 0 {
+                    let mut flash = particle(center, born, 33, 11);
+                    flash.field_fog = false;
+                    flash.size = [100.; 2];
+                    flash.size_delta = 40.;
+                    flash.rgba = [10, 200, 200, 255];
+                    flash.fade = Fade::Linear(0.);
+                    flash.blend = Some(crate::effect::Blend::Subtractive);
+                    out.push(flash);
+                    *phase = 1;
+                }
+            }
+            Kind::LinearTrail {
+                sprite,
+                remaining,
+                target,
+                velocity,
+            } => {
+                crate::world::random(random);
+                if *phase >= 2 {
+                    return Ok(());
+                }
+                let velocity = velocity.get_or_insert_with(|| {
+                    std::array::from_fn(|i| (target[i] - center[i]) / (*remaining).max(1) as f32)
+                });
+                let mut trail = sprite.clone();
+                trail.position = center;
+                trail.born = born;
+                out.push(trail);
+                if *remaining >= 0 {
+                    actor.position = std::array::from_fn(|i| center[i] + velocity[i]);
+                    *remaining -= 1;
+                }
+                *phase = if *remaining < 0 { 2 } else { 1 };
+            }
             Kind::Burst(burst) => burst.emit(center, born, phase, random, out),
             Kind::Mote(mote) => return mote.emit(actor, born, random, out),
             Kind::Gathering { state, .. } => {
@@ -187,17 +238,17 @@ impl Emitter {
             }
             Kind::Projectile {
                 completed_phase,
+                color,
                 path,
                 launch,
                 curvature,
                 size,
-                fade,
                 target,
                 texture,
                 ..
             } => {
                 crate::world::random(random);
-                if *phase >= *completed_phase {
+                if completed_phase.is_some_and(|done| *phase >= done) {
                     return Ok(());
                 }
                 if speed <= 0. {
@@ -206,12 +257,20 @@ impl Emitter {
                 let path = path.get_or_insert_with(|| {
                     mote::Path::new(center, *target, *launch, speed, *curvature)
                 });
+                let emitting = !path.arrived();
                 actor.position = path.advance();
-                let mut trail = particle(actor.position, born, palette(108, random), 61);
-                trail.field_fog = false;
-                trail.size = [*size; 2];
-                trail.fade = Fade::Linear(*fade);
-                out.push(trail);
+                if emitting {
+                    let (color, fade) = match color {
+                        ProjectileColor::Violet => (65, -10.),
+                        ProjectileColor::Selected(color) => (*color, -10.),
+                        ProjectileColor::Changing { fade } => (palette(108, random), *fade),
+                    };
+                    let mut trail = particle(actor.position, born, color, 61);
+                    trail.field_fog = false;
+                    trail.size = [*size; 2];
+                    trail.fade = Fade::Linear(fade);
+                    out.push(trail);
+                }
                 if path.arrived() {
                     if let Some(texture) = texture {
                         out.push(arrival_flash(
@@ -221,7 +280,7 @@ impl Emitter {
                             *texture,
                         ));
                     }
-                    *phase = *completed_phase;
+                    *phase = completed_phase.unwrap_or(1);
                 } else {
                     *phase = 1;
                 }

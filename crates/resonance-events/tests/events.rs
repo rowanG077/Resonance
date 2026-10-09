@@ -82,16 +82,34 @@ fn rising_smoke_fills_its_volume_then_runs_out_and_fades() {
 }
 
 #[test]
-fn curved_projectiles_stop_at_completion_and_leave_a_finite_trail() {
-    for (kind, phase) in [(61, 2), (66, 3)] {
-        let setup = script(&[(
-            Call::CreateEffectEmitter,
-            &emitter(kind, 5, &[100, 40, 0, -400, 100, 0, 0, 0, 0, 100]),
-        )]);
+fn curved_projectiles_finish_their_trails_and_report_their_phase() {
+    for (kind, phase, color) in [
+        (10, 2, Some(65)),
+        (37, 1, Some(34)),
+        (61, 2, None),
+        (66, 3, None),
+    ] {
+        let mut parameters = [100, 40, 0, -400, 100, 0, 0, 0, 0, 100];
+        if kind == 37 {
+            parameters[1..3].copy_from_slice(&[34, 40]);
+        }
+        let setup = script(&[(Call::CreateEffectEmitter, &emitter(kind, 5, &parameters))]);
         let query = script(&[(Call::GetActorProperty, &[500, 33])]);
         let mut events = interactive_effect(&setup, &query);
+        if let Some(color) = color {
+            events.world.effect_palette.0[color] = [12, 23, 45, 255];
+        }
         steps(&mut events, 10);
         assert!(events.world.actors[&500].position[2] > 15.);
+        if color.is_some() {
+            assert!(
+                events
+                    .world
+                    .billboards
+                    .values()
+                    .all(|p| p.rgba[..3] == [12, 23, 45])
+            );
+        }
         steps(&mut events, 10);
         let end = events.world.actors[&500].position;
         assert!(!events.world.billboards.is_empty());
@@ -99,9 +117,65 @@ fn curved_projectiles_stop_at_completion_and_leave_a_finite_trail() {
         events.step().unwrap();
         assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), phase);
         steps(&mut events, 65);
-        assert_eq!(events.world.actors[&500].position, end);
+        assert_eq!(events.world.actors[&500].position == end, kind != 37);
         assert!(events.world.billboards.is_empty());
     }
+}
+
+#[test]
+fn timed_light_trail_emits_along_its_path_and_then_finishes() {
+    let setup = script(&[(
+        Call::CreateEffectEmitter,
+        &emitter(56, 0, &[101, 20, 4, -4, 100, 0, 0]),
+    )]);
+    let query = script(&[(Call::GetActorProperty, &[500, 33])]);
+    let mut events = interactive_effect(&setup, &query);
+    steps(&mut events, 5);
+    assert_eq!(
+        events
+            .world
+            .billboards
+            .values()
+            .map(|p| p.position[0])
+            .collect::<Vec<_>>(),
+        [0., 25., 50., 75., 100.]
+    );
+    let end = events.world.actors[&500].position;
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 2);
+    steps(&mut events, 65);
+    assert_eq!(events.world.actors[&500].position, end);
+    assert!(events.world.billboards.is_empty());
+}
+
+#[test]
+fn expanding_flash_is_brief_and_rising_embers_leave_no_permanent_particles() {
+    let flash = script(&[(Call::CreateEffectEmitter, &emitter(53, 0, &[]))]);
+    let mut events = interactive_effect(&flash, &[0x20ff]);
+    events.step().unwrap();
+    let p = events.world.billboards.values().next().unwrap();
+    assert_eq!(p.rgba, [10, 200, 200, 255]);
+    assert_eq!(p.blend, Some(effect::Blend::Subtractive));
+    let size = p.size;
+    events.step().unwrap();
+    assert!(events.world.billboards.values().next().unwrap().size[0] > size[0]);
+    steps(&mut events, 15);
+    assert!(events.world.billboards.is_empty());
+
+    let embers = script(&[(Call::CreateEffectEmitter, &emitter(62, 0, &[50, 15, 15]))]);
+    let remove = script(&[(Call::DespawnActor, &[500])]);
+    let mut events = interactive_effect(&embers, &remove);
+    steps(&mut events, 20);
+    assert!(!events.world.billboards.is_empty());
+    for p in events.world.billboards.values() {
+        assert!(p.position[0].hypot(p.position[1]) <= 50.);
+        assert!((1. ..=5.).contains(&p.velocity[2]));
+    }
+    assert!(events.trigger(42, true).unwrap());
+    events.step().unwrap();
+    steps(&mut events, 130);
+    assert!(events.world.billboards.is_empty());
 }
 
 #[test]
