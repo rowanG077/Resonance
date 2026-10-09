@@ -582,8 +582,18 @@ impl Session {
             self.play_time.advance();
             return Ok(Vec::new());
         }
-        self.skits
-            .step(&self.events, 3000, self.player_has_control())?;
+        let state = self.travel.state();
+        let area = self.assets.rules.area(state.world, state.position);
+        let terrain = self
+            .assets
+            .rules
+            .terrain(state.world, self.travel.response());
+        self.skits.step(
+            &self.events,
+            3000,
+            self.player_has_control(),
+            Some((area, terrain)),
+        )?;
         if input.skit
             && self.player_has_control()
             && let Some(id) = self.skits.open()

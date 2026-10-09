@@ -91,8 +91,80 @@ pub enum SkitLocation {
 #[serde(rename_all = "snake_case")]
 pub enum SkitCondition {
     None,
+    /// A catalogue entry that never announces itself; explicit playback still works.
+    Never,
     Maps([u16; 2]),
-    Unimplemented,
+    All(Vec<Self>),
+    Any(Vec<Self>),
+    Not(Box<Self>),
+    Flag(u16),
+    Viewed(u16),
+    Member(u8),
+    Item(u16),
+    Terrain(crate::overworld::Terrain),
+    Range {
+        value: SkitValue,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<i64>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkitValue {
+    Global(u8),
+    Gald,
+    AffinityRank(u8),
+    Level(u8),
+    BattleParticipation(u8),
+    Battles,
+    HeadgearCategory(u8),
+    Title(u8),
+    RingMode,
+    /// Nominal 60 Hz clocks, expressed in whole seconds.
+    ExplorationSeconds,
+    PlayedSeconds,
+    WorldArea,
+}
+
+impl SkitCondition {
+    pub fn validate(&self) -> Result<()> {
+        match self {
+            Self::All(conditions) | Self::Any(conditions) => {
+                ensure!(!conditions.is_empty(), "empty skit condition group");
+                for condition in conditions {
+                    condition.validate()?;
+                }
+            }
+            Self::Not(condition) => condition.validate()?,
+            Self::Maps([start, end]) => ensure!(start <= end, "inverted skit map range"),
+            Self::Viewed(id) => ensure!((1..=860).contains(id), "invalid viewed skit"),
+            Self::Member(id) => ensure!((1..=9).contains(id), "invalid skit party member"),
+            Self::Range { value, min, max } => {
+                ensure!(min.is_some() || max.is_some(), "unbounded skit condition");
+                ensure!(
+                    min.zip(*max).is_none_or(|(a, b)| a <= b),
+                    "inverted skit range"
+                );
+                match value {
+                    SkitValue::AffinityRank(id) => {
+                        ensure!((2..=9).contains(id), "invalid affinity member")
+                    }
+                    SkitValue::Level(id)
+                    | SkitValue::BattleParticipation(id)
+                    | SkitValue::HeadgearCategory(id)
+                    | SkitValue::Title(id) => {
+                        ensure!((1..=9).contains(id), "invalid skit party member");
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 impl SkitCatalog {
@@ -115,11 +187,11 @@ impl SkitCatalog {
                     && !skit.title.chars().any(char::is_control)
                     && skit.story.is_none_or(|[start, end]| start <= end)
                     && skit.party_mask & !0x3fe == 0
-                    && !matches!(skit.condition, SkitCondition::Maps([start, end]) if start > end)
                     && !matches!(skit.location, SkitLocation::Overworld(Some(2..))),
                 "invalid skit definition {}",
                 skit.id
             );
+            skit.condition.validate()?;
             previous = skit.id;
         }
         for (&id, resource) in &self.resources {

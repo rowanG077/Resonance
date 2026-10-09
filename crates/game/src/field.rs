@@ -856,7 +856,8 @@ impl FieldSession {
                     .as_ref()
                     .is_none_or(|f| world.tick >= f.start_tick.saturating_add(f.duration)),
         );
-        self.skits.step(&self.events, self.map_id, free_control)?;
+        self.skits
+            .step(&self.events, self.map_id, free_control, None)?;
         if self.events.world.input_enabled
             && let Some((id, heading, automatic_heading)) = self.conversation_facing.take()
             && let Some(actor) = self.events.world.actors.get_mut(&id)
