@@ -263,6 +263,22 @@ impl NativeHost<'_> {
                         .map_or(0, |dialogue| dialogue.status as i32),
                 );
             }
+            NativeCall::GetReplaySkit => {
+                let order = &self
+                    .resources
+                    .skits
+                    .as_ref()
+                    .ok_or("skit catalogue is missing")?
+                    .preview_order;
+                value = Some(if a[0] == -1 {
+                    order.len() as i32
+                } else {
+                    usize::try_from(a[0])
+                        .ok()
+                        .and_then(|index| order.get(index))
+                        .map_or(-1, |&id| i32::from(id))
+                });
+            }
             NativeCall::ConfigureDialogue => {
                 require(
                     (0..i32::from(DIALOGUE_SLOTS)).contains(&a[0]),

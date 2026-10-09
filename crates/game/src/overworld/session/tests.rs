@@ -746,6 +746,7 @@ fn event_only_skit_suspends_world_and_returns_progress_once() -> Result<()> {
         42, 0x3000, 0x4000, 0x2068, 0, 0x3000, 0x4000, 2, 0x3000, 0x4000, 0x2064, 0x20ff,
     ]);
     let catalog = Arc::new(SkitCatalog {
+        preview_order: Vec::new(),
         version: 2,
         skits: vec![],
         resources: [(

@@ -2374,10 +2374,10 @@
     },
     {
       "opcode": 235,
-      "name": "native_eb",
+      "name": "configure_monster_knowledge",
       "arguments": [
-        "arg0",
-        "arg1"
+        "monster",
+        "flags"
       ],
       "returns_value": true
     },
@@ -2392,9 +2392,9 @@
     },
     {
       "opcode": 237,
-      "name": "native_ed",
+      "name": "get_replay_skit",
       "arguments": [
-        "arg0"
+        "index"
       ],
       "returns_value": true
     },

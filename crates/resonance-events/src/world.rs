@@ -546,6 +546,8 @@ pub struct GameWorld {
     pub(crate) ring: crate::ring::Controller,
     pub(crate) fog_effects: BTreeMap<i32, crate::camera::FogEffect>,
     pub tick: u32,
+    /// Published by the scene owner; includes time spent in menus and movies.
+    pub played_ticks: u64,
     pub effect_tick: u32,
     /// The owning scene's map, also available to its nested skit scripts.
     pub current_field: Option<u32>,

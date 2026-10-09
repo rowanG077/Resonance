@@ -335,6 +335,10 @@ pub struct Party {
     pub grade_hundredths: u32,
     #[serde(default)]
     pub collectors_book_complete: bool,
+    #[serde(default)]
+    pub monster_book_complete: bool,
+    #[serde(default)]
+    pub figurine_book_complete: bool,
     pub spent_gald: u32,
     pub settings: Settings,
 }
@@ -543,6 +547,8 @@ impl Party {
             gald: 0,
             grade_hundredths: 0,
             collectors_book_complete: false,
+            monster_book_complete: false,
+            figurine_book_complete: false,
             spent_gald: 0,
             settings,
         })

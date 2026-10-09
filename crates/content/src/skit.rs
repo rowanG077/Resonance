@@ -10,6 +10,8 @@ pub const MAX_PORTRAITS: usize = 32;
 pub struct SkitCatalog {
     pub version: u32,
     pub skits: Vec<SkitDefinition>,
+    /// Catalogue order for the Katz' Village replay service.
+    pub preview_order: Vec<u16>,
     /// Cooked VM scenario and message resources keyed by skit ID.
     #[serde(default)]
     pub resources: BTreeMap<u16, SkitResourcePaths>,
@@ -97,6 +99,12 @@ impl SkitCatalog {
     pub fn validate(&self) -> Result<()> {
         ensure!(self.version == 2, "unsupported skit catalog");
         ensure!(self.skits.len() <= 512, "too many skit definitions");
+        ensure!(
+            self.preview_order
+                .iter()
+                .all(|id| self.resources.contains_key(id)),
+            "skit replay catalogue references an unavailable script"
+        );
         let mut previous = 0;
         for skit in &self.skits {
             ensure!(
