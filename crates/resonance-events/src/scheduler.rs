@@ -914,9 +914,14 @@ impl EventRuntime {
             ring.cancel(&mut self.world);
         }
         if let Some(party) = &mut self.world.party {
+            const MAX_FIELD_TICKS: u32 = u32::MAX - 15;
+            party.travel.scenario_ticks = party
+                .travel
+                .scenario_ticks
+                .saturating_add(1)
+                .min(MAX_FIELD_TICKS);
             party.travel.field_countdown = party.travel.field_countdown.saturating_sub(1);
             if !self.world.mapped_input_disabled {
-                const MAX_FIELD_TICKS: u32 = u32::MAX - 15;
                 party.travel.field_ticks = party
                     .travel
                     .field_ticks

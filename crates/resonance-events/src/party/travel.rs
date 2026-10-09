@@ -14,6 +14,9 @@ pub struct Travel {
     /// Native field clock: advances only while scenario input is unpaused.
     #[serde(default)]
     pub field_ticks: u32,
+    /// Scenario clock also advances while player input is suspended.
+    #[serde(default)]
+    pub scenario_ticks: u32,
     /// Scenario countdown; continues while mapped input is disabled.
     #[serde(default)]
     pub field_countdown: u32,

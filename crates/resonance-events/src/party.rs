@@ -39,6 +39,7 @@ pub struct Member {
     #[serde(skip)]
     ex_rules: Option<ex_skills::Rules>,
     #[serde(default = "initial_title")]
+    /// Events may temporarily equip a title that has not been learned.
     pub title: u8,
     #[serde(default = "initial_titles")]
     pub titles: BTreeSet<u8>,
@@ -441,7 +442,7 @@ impl Party {
                         .iter()
                         .zip(resonance_content::menu_data::STRATEGY_COUNTS)
                         .all(|(v, count)| usize::from(*v) < count)
-                    && member.titles.contains(&member.title)
+                    && (1..32).contains(&member.title)
                     && member.titles.iter().all(|id| (1..32).contains(id))
                     && (-100..=100).contains(&member.technique_balance)
                     && usize::from(member.level) < data.experience.len()

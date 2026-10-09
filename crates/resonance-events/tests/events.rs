@@ -437,12 +437,63 @@ fn costume_change_selects_a_body_and_survives_save() {
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
+fn script_collection_and_character_changes_survive_save_without_stale_shortcuts() {
+    let data = Arc::new(cooked("session-data.json"));
+    let mut party = party::Party::new(&data, Default::default()).unwrap();
+    party.members[4].techniques.insert(139);
+    party.members[4].disabled_techniques.insert(139);
+    party.members[4].shortcuts[0] = 139;
+    party.members[0].assist_shortcuts[0] = Some(party::TechniqueShortcut {
+        character: 4,
+        technique: 139,
+    });
+    let setup = script(&[
+        (Call::ConfigureFigurine, &[0, 50]),
+        (Call::RecipeProficiency, &[1, 0, 3]),
+        (Call::LearnTitle, &[262]),
+        (Call::SetEquippedTitle, &[2, 262]),
+        (Call::ForgetTitle, &[262]),
+        (Call::ForgetTechnique, &[5, 139]),
+        (Call::GetTitle, &[2, 0]),
+    ]);
+    let mut world = GameWorld::default();
+    world.party = Some(party);
+    let events = runtime(
+        program(&setup, &[0x20ff]),
+        ResourceLibrary {
+            session_data: Some(data),
+            text: Arc::new(cooked("text.json")),
+            ..Default::default()
+        },
+        world,
+    );
+    assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 262);
+    let restored = reload(
+        &events,
+        &script(&[(Call::HasTechnique, &[5, 139])]),
+        &[0x20ff],
+    );
+    assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 0);
+    let party = restored.world.party.as_ref().unwrap();
+    assert!(party.figurines.contains(&50));
+    assert_eq!(party.members[0].cooking[0], 8);
+    assert_eq!(party.members[1].title, 6);
+    assert!(!party.members[1].titles.contains(&6));
+    assert_eq!(party.members[4].shortcuts[0], 0);
+    assert!(!party.members[4].disabled_techniques.contains(&139));
+    assert!(party.members[0].assist_shortcuts[0].is_none());
+}
+
+#[test]
+#[ignore = "requires locally cooked party definitions; no devices"]
 fn field_countdown_runs_during_pause_and_reentry_preserves_countdown_and_conditions() {
     const CONDITIONS: i32 = 100;
     const STATUS: i32 = 0x8000_0080u32 as i32;
     let setup = script(&[
         (Call::SetFieldCountdown, &[4]),
         (Call::SetRingTimer, &[9]),
+        (Call::ResetFieldTicks, &[]),
+        (Call::ResetScenarioTicks, &[]),
         (Call::SetActorProperty, &[1, CONDITIONS, STATUS]),
         (Call::DisableMappedInput, &[]),
         (Call::GetFieldCountdown, &[]),
@@ -456,12 +507,18 @@ fn field_countdown_runs_during_pause_and_reentry_preserves_countdown_and_conditi
     events.step().unwrap();
     // Scripts read the countdown before the common frame's decrement.
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 3);
+    let travel = &events.world.party.as_ref().unwrap().travel;
+    assert_eq!((travel.field_ticks, travel.scenario_ticks), (0, 2));
     let read_conditions = script(&[
         (Call::EnableMappedInput, &[]),
         (Call::GetActorProperty, &[1, CONDITIONS]),
     ]);
     let mut restored = reload(&events, &read_conditions, &query);
     assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), STATUS);
+    assert_eq!(
+        restored.world.party.as_ref().unwrap().travel.scenario_ticks,
+        2
+    );
     assert_eq!(
         restored
             .world
