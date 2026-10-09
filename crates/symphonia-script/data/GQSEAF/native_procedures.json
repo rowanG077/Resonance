@@ -638,12 +638,13 @@
     },
     {
       "opcode": 68,
-      "name": "native_44",
+      "name": "seek_scenery_animation",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
-      ]
+        "layer",
+        "channel",
+        "frame"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 69,

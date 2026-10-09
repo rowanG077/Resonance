@@ -84,7 +84,7 @@ native_calls! {
     GetCurrentField = 0x41,
     ConfigureSceneryAnimation = 0x42,
     ClearSceneryAnimation = 0x43,
-    Unknown44 = 0x44,
+    SeekSceneryAnimation = 0x44,
     Unknown45 = 0x45,
     ConfigureRendering = 0x46,
     Unknown47 = 0x47,

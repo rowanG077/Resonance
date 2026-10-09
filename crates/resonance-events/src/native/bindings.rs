@@ -147,6 +147,7 @@ impl Host for NativeHost<'_> {
         SetActorAnimationFlags(2) -> () = dispatch;
         ConfigureSceneryAnimation(6) -> () = field;
         ClearSceneryAnimation(2) -> () = field;
+        SeekSceneryAnimation(3) -> () = field;
         SetActorAnimationProperty(3) -> i32 = field;
         RumbleController(3) -> () = field;
         ShakeCamera(3) -> () = field;

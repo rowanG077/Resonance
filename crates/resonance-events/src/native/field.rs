@@ -230,7 +230,7 @@ impl NativeHost<'_> {
                     actor.scenery_animations.insert(a[1] as i8, animation);
                 }
             }
-            NativeCall::ClearSceneryAnimation => {
+            NativeCall::ClearSceneryAnimation | NativeCall::SeekSceneryAnimation => {
                 let id = match a[0] {
                     2 => SECOND_SCENERY,
                     3 => THIRD_SCENERY,
@@ -238,7 +238,19 @@ impl NativeHost<'_> {
                 };
                 require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
                 if let Some(actor) = self.world.actors.get_mut(&id) {
-                    if a[1] == -1 {
+                    if op == NativeCall::SeekSceneryAnimation {
+                        let animation = if a[1] == -1 {
+                            actor.animation.as_mut()
+                        } else {
+                            actor.scenery_animations.get_mut(&(a[1] as i8))
+                        };
+                        if let Some(animation) = animation {
+                            animation.seek(
+                                (a[2] as f32 * 2.).min(animation.duration_ticks as f32),
+                                self.world.tick,
+                            );
+                        }
+                    } else if a[1] == -1 {
                         actor.animation = None;
                     } else {
                         actor.scenery_animations.remove(&(a[1] as i8));
