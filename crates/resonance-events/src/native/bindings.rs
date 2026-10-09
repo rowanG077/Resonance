@@ -127,6 +127,7 @@ impl Host for NativeHost<'_> {
         ClearEventBit(1) -> () = field;
         TestEventBit(1) -> i32 = field;
         AddGald(1) -> i32 = party;
+        AddGrade(1) -> i32 = party;
         IsDebugSession(0) -> i32 = dispatch;
         ConfigureSession(2) -> i32 = party;
         ConfigureSorcerersRing(2) -> i32 = party;
