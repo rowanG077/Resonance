@@ -61,6 +61,12 @@ enum Kind {
         target: [f32; 3],
         velocity: Option<[f32; 3]>,
     },
+    Ray {
+        palette: u16,
+        size: f32,
+        target: [f32; 3],
+        velocity: Option<[f32; 3]>,
+    },
     Flash {
         sparks: bool,
         lifetime: u32,
@@ -231,6 +237,36 @@ impl Emitter {
                 *phase = if *remaining < 0 { 2 } else { 1 };
             }
             Kind::Burst(burst) => burst.emit(center, born, phase, random, out),
+            Kind::Ray {
+                palette,
+                size,
+                target,
+                velocity,
+            } => {
+                crate::world::random(random);
+                let velocity = velocity.get_or_insert_with(|| {
+                    normalized(std::array::from_fn(|i| target[i] - center[i])).map(|v| v * speed)
+                });
+                let mut glow = particle(center, born, *palette, 61);
+                glow.field_fog = false;
+                glow.size = [*size; 2];
+                glow.size_delta = -0.75;
+                glow.fade = Fade::Linear(-10.);
+                glow.blend = Some(crate::effect::Blend::Additive);
+                out.push(glow.clone());
+                glow.recipe = crate::effect::ELECTRIC_ARC_SPRITE;
+                glow.size = [*size * 0.75; 2];
+                glow.position =
+                    center.map(|v| v + 15. - (crate::world::random(random) % 30) as f32);
+                glow.angular_velocity[2] = if crate::world::random(random).is_multiple_of(2) {
+                    -100.
+                } else {
+                    100.
+                };
+                out.push(glow);
+                actor.position = std::array::from_fn(|i| center[i] + velocity[i]);
+                *phase = 1;
+            }
             Kind::Cloud(cloud) => cloud.emit(center, born, clock, *phase, actor, random, out),
             Kind::ModelTrail {
                 remaining,
@@ -422,7 +458,7 @@ impl Emitter {
                 }
             }
             Kind::Stream(stream) => {
-                stream.particles(center, actor, born, clock, random, out);
+                stream.particles((owner, center), actor, born, clock, random, out);
             }
             Kind::TwinTrail { sprite, radius, .. } => {
                 crate::world::random(random);
@@ -825,7 +861,7 @@ impl Emitter {
 }
 
 enum Birth {
-    Sprite(BillboardEffect),
+    Sprite(BillboardEffect, [Option<u8>; 3]),
     Model(crate::model_particle::ModelParticle),
     Refraction(RefractionPulse),
 }
@@ -837,7 +873,10 @@ struct Births {
 }
 impl Births {
     fn push(&mut self, sprite: BillboardEffect) {
-        self.items.push(Birth::Sprite(sprite));
+        self.items.push(Birth::Sprite(sprite, [None; 3]));
+    }
+    fn push_tinted(&mut self, sprite: BillboardEffect, tint: [Option<u8>; 3]) {
+        self.items.push(Birth::Sprite(sprite, tint));
     }
     fn push_model(&mut self, model: crate::model_particle::ModelParticle) {
         self.items.push(Birth::Model(model));
@@ -887,7 +926,7 @@ impl GameWorld {
         let direction = normalized([camera[0], camera[1], 0.]);
         for birth in output.items {
             match birth {
-                Birth::Sprite(mut p) => {
+                Birth::Sprite(mut p, tint) => {
                     match &p.controller {
                         Some(BillboardController::Orbit(orbit)) => p.position = orbit.position(0),
                         Some(BillboardController::CameraOffset {
@@ -898,7 +937,15 @@ impl GameWorld {
                         }
                         _ => {}
                     }
-                    self.emit_billboard(p)?;
+                    let id = self.emit_billboard(p)?;
+                    for (channel, color) in self.billboards.get_mut(&id).unwrap().rgba[..3]
+                        .iter_mut()
+                        .zip(tint)
+                    {
+                        if let Some(color) = color {
+                            *channel = color;
+                        }
+                    }
                 }
                 Birth::Model(p) => {
                     self.emit_model_particle(p)?;

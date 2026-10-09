@@ -33,6 +33,15 @@ pub(crate) enum Stream {
         target: [f32; 3],
     },
     Rain,
+    Lightning {
+        sprite: BillboardEffect,
+        radius: u32,
+    },
+    Flame {
+        size: u32,
+        palette: u16,
+        tint: [u8; 3],
+    },
     Embers {
         radius: u32,
         size: f32,
@@ -95,6 +104,15 @@ impl Stream {
                 }
             }
             17 => Self::Rain,
+            39 => {
+                sprite.recipe = crate::effect::LIGHTNING_BOLT_SPRITE;
+                Self::Lightning { sprite, radius: 0 }
+            }
+            25 => Self::Flame {
+                size: 0,
+                palette: 0,
+                tint: [0; 3],
+            },
             62 => Self::Embers {
                 radius: 0,
                 size: 0.,
@@ -136,7 +154,7 @@ impl Stream {
 
     pub(super) fn particles(
         &mut self,
-        center: [f32; 3],
+        (owner, center): (i32, [f32; 3]),
         actor: &Actor,
         born: u32,
         clock: u32,
@@ -152,6 +170,43 @@ impl Stream {
             p
         };
         match self {
+            Self::Lightning { sprite, radius } if clock.is_multiple_of(5) => {
+                let mut p = start(sprite);
+                p.size = [(96 + random(rng) % 32) as f32, 1024.];
+                p.rotation[1] = if random(rng).is_multiple_of(2) {
+                    0.
+                } else {
+                    180.
+                };
+                let (sin, cos) = ((random(rng) % 360) as f32).to_radians().sin_cos();
+                let radius = spread(rng, *radius) as f32;
+                p.position[0] += cos * radius;
+                p.position[1] += sin * radius;
+                out.push(p);
+            }
+            Self::Flame {
+                size,
+                palette,
+                tint,
+            } if clock.is_multiple_of(4) => {
+                if *size == 0 {
+                    *size = 60;
+                }
+                let mut p = particle(center, born, *palette, (*size).max(60) + 1);
+                p.owner = Some(owner);
+                p.recipe = crate::effect::GLOW_SPRITE;
+                p.blend = Some(actor.blend.unwrap_or(crate::effect::Blend::Additive));
+                p.size = [(*size + random(rng) % 16) as f32; 2];
+                p.size_delta = -1.;
+                p.velocity = [
+                    (random(rng) % 16) as f32 / 32.,
+                    0.,
+                    2. + (random(rng) % 16) as f32 / 16.,
+                ];
+                p.angular_velocity[2] = -3.;
+                p.fade = Fade::Linear(0.);
+                out.push_tinted(p, tint.map(|v| (v != 0).then_some(v)));
+            }
             Self::Embers {
                 radius,
                 size,
