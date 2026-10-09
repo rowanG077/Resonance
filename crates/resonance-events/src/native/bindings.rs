@@ -147,6 +147,7 @@ impl Host for NativeHost<'_> {
         RecipeProficiency(3) -> i32 = party;
         IsDebugSession(0) -> i32 = dispatch;
         ConfigureSession(2) -> i32 = party;
+        ConfigureBattleRules(2) -> i32 = party;
         ConfigureSorcerersRing(2) -> i32 = party;
         SetPlayerSize(4) -> () = field;
         SnapshotParty(1) -> () = party;

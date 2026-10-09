@@ -246,7 +246,7 @@ native_calls! {
     GetScenarioTicks = 0xe4,
     SetFieldCountdown = 0xe5,
     GetFieldCountdown = 0xe6,
-    UnknownE7 = 0xe7,
+    ConfigureBattleRules = 0xe7,
     RecipeProficiency = 0xe8,
     SelectAudioBank = 0xe9,
     SetSoundReverb = 0xea,
