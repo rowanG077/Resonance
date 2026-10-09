@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 pub mod animation;
 pub mod appearance;
+pub mod credits;
 pub mod effect;
 pub mod field;
 pub mod field_audio;

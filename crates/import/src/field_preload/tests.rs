@@ -6,6 +6,28 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
+#[test]
+#[ignore = "requires cooked ending field; checks preparation without recooking or devices"]
+fn ending_script_preloads_credits_text_pictures_and_music() -> Result<()> {
+    let root = std::env::var_os("RESONANCE_TEST_ASSETS").map_or_else(
+        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../local/all-assets"),
+        PathBuf::from,
+    );
+    let existing: Manifest =
+        serde_json::from_slice(&fs::read(root.join("fields/map-534.preload.json"))?)?;
+    let rebuilt = build(&root, existing.inputs)?;
+    let credits: resonance_content::credits::Manifest =
+        serde_json::from_slice(&fs::read(root.join(resonance_content::credits::PATH))?)?;
+    for path in std::iter::once(resonance_content::credits::PATH)
+        .chain(credits.pictures.iter().map(|picture| picture.path.as_str()))
+        .chain([credits.music.asset.path.as_str()])
+    {
+        assert_eq!(rebuilt.files[path].sha256, existing.files[path].sha256);
+        assert_eq!(rebuilt.files[path].bytes, existing.files[path].bytes);
+    }
+    Ok(())
+}
+
 struct Fixture(PathBuf);
 
 impl Drop for Fixture {

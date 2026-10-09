@@ -5,7 +5,7 @@ mod attachment;
 pub(crate) use archive::Directory as PhysicalDirectory;
 pub(crate) use archive::{FieldDirectory, MemberKind, entries as archive_entries};
 mod audio_tables;
-mod credits;
+pub(crate) mod credits;
 mod embedded;
 #[cfg(test)]
 pub(crate) use embedded::cook_tables;
