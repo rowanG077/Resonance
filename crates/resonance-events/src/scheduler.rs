@@ -94,6 +94,10 @@ impl EventRuntime {
     pub fn resources(&self) -> &ResourceLibrary {
         &self.resources
     }
+    /// Restart a reusable scene without reloading its program or immutable assets.
+    pub fn fresh(&self) -> Result<Self> {
+        Self::new(self.program.clone(), self.resources.clone())
+    }
     pub fn restore_field_leader(&mut self) -> Result<()> {
         let id = self
             .world
@@ -241,6 +245,7 @@ impl EventRuntime {
             && self.world.input_enabled
             && !self.world.mapped_input_disabled
             && self.world.battle_request.is_none()
+            && self.world.screen_request.is_none()
             && !self
                 .instances
                 .iter()
@@ -638,6 +643,7 @@ impl EventRuntime {
         self.world.dialogue.clear();
         self.world.choices.clear();
         self.world.menu_request = None;
+        self.world.screen_request = None;
         self.world.battle_request = None;
         self.world.movie = None;
         self.world.voice = None;
@@ -674,7 +680,7 @@ impl EventRuntime {
     ) -> Result<()> {
         ensure!(!self.failed, "event runtime stopped after a script failure");
         self.world.reap_authored_resources();
-        if self.world.blocked_by_movie() {
+        if self.world.blocked_by_movie() || self.world.screen_request.is_some() {
             return Ok(());
         }
         self.world.actors.retain(|_, actor| !actor.retiring);

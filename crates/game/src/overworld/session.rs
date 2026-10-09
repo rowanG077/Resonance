@@ -512,6 +512,9 @@ impl Session {
     }
     pub fn step(&mut self, input: Input) -> Result<Vec<travel::Cue>> {
         input.travel.validate()?;
+        if self.events.world.screen_request.is_some() {
+            return Ok(Vec::new());
+        }
         if self.battle.is_some() {
             self.poll_battle()?;
             return Ok(Vec::new());
