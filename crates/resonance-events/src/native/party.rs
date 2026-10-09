@@ -330,9 +330,7 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::GetItemStackLimit => {
-                value = Some(i32::from(
-                    resonance_content::session::DEFAULT_ITEM_STACK_LIMIT,
-                ));
+                value = Some(i32::from(party.stack_limit()));
             }
             NativeCall::ChangeItemCount => {
                 value = Some(i32::from(party.change_item(
@@ -446,6 +444,12 @@ impl NativeHost<'_> {
                 party.raise_level(data, index, level, growth, || crate::world::random(random))?;
             }
             NativeCall::ConfigureSession => {
+                if a[0] == 16 {
+                    self.world
+                        .start_new_game_plus(memory, data)
+                        .map_err(|e| e.to_string())?;
+                    return Ok(NativeResult::Continue(Some(0)));
+                }
                 if a[0] == 10 {
                     let shop = &self
                         .resources

@@ -557,6 +557,7 @@ pub struct GameWorld {
     pub tick: u32,
     /// Published by the scene owner; includes time spent in menus and movies.
     pub played_ticks: u64,
+    pub reset_play_time: bool,
     pub effect_tick: u32,
     /// The owning scene's map, also available to its nested skit scripts.
     pub current_field: Option<u32>,

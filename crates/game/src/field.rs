@@ -422,6 +422,18 @@ impl FieldSession {
         if let Some(request) = self.events.world.menu_request.take() {
             ensure!(!self.menu_is_open(), "nested field menu");
             match request.target {
+                resonance_events::menu::Target::GradeShop
+                | resonance_events::menu::Target::ClearSave => {
+                    let saving = request.target == resonance_events::menu::Target::ClearSave;
+                    let page = if saving {
+                        crate::menu::Page::Slots(crate::menu::Mode::Save)
+                    } else {
+                        crate::menu::Page::GradeShop
+                    };
+                    self.open_menu(page, self.endgame_checkpoint()?, saving);
+                    self.menu_operation = Some(request.operation);
+                    return Ok(());
+                }
                 resonance_events::menu::Target::Shop(id) => {
                     self.shop = Some(shop::Shop::open(
                         id,
@@ -813,6 +825,9 @@ impl FieldSession {
                 Ok(())
             },
         )?;
+        if std::mem::take(&mut self.events.world.reset_play_time) {
+            self.play_time = Default::default();
+        }
         let action = if can_trigger && self.events.player_has_control() {
             action.or(self.interaction_action()?)
         } else {

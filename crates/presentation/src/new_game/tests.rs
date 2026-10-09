@@ -1735,3 +1735,106 @@ fn save_identity_tracks_shared_data_and_every_prepared_field() -> Result<()> {
     assert_ne!(changed, Session::identity(root)?);
     Ok(())
 }
+
+#[test]
+#[ignore = "requires cooked setup script and menus; no window or audio device"]
+fn clear_save_runs_grade_shop_and_starts_a_fresh_story() -> Result<()> {
+    use resonance_content::grade::Benefit;
+    use resonance_game::menu::Page;
+    let mut session = Session::load(&asset_root())?;
+    let mut progress = session.field.events.save_progress()?;
+    progress.script_globals[0x40 / 4] = 1;
+    progress.party.new_game_plus.cleared = true;
+    progress.party.game_clears = 1;
+    progress.party.grade_hundredths = 100_000;
+    progress.party.gald = 9876;
+    session.restore(FieldCheckpoint {
+        allow_incomplete_scripts: false,
+        map_id: 5,
+        position: [0.; 3],
+        heading: 0.,
+        camera: None,
+        progress,
+        played_ticks: Some(9000),
+    })?;
+    let accept = FieldInput {
+        pressed_buttons: [Button::Accept].into(),
+        skip_dialogue: true,
+        ..Default::default()
+    };
+    for _ in 0..600 {
+        if session.field.menu.is_some() {
+            break;
+        }
+        session.field.step(accept)?;
+    }
+    let menu = session
+        .field
+        .menu
+        .as_mut()
+        .context("Grade Shop did not open")?;
+    assert_eq!(menu.page, Page::GradeShop);
+    let shop = &menu.resources.as_ref().unwrap().data.grade_shop;
+    let gald_row = shop
+        .options
+        .iter()
+        .position(|p| p.benefit == Benefit::Gald)
+        .unwrap();
+    let cost = shop.options[gald_row].price * 100;
+    menu.grade_shop.row = gald_row;
+    session.field.step(accept)?;
+    assert!(
+        session
+            .field
+            .menu
+            .as_ref()
+            .unwrap()
+            .grade_shop
+            .selected
+            .contains(&Benefit::Gald)
+    );
+    session.field.step(FieldInput {
+        pressed_buttons: [Button::Start].into(),
+        ..Default::default()
+    })?;
+    session.field.step(accept)?;
+    assert_eq!(
+        session.field.menu.as_ref().unwrap().grade_shop.confirmation,
+        Some(false)
+    );
+    session.field.step(FieldInput {
+        direction: [-1., 0.],
+        ..Default::default()
+    })?;
+    session.field.step(accept)?;
+    assert!(session.field.menu.is_none());
+    for _ in 0..600 {
+        if session.field.events.world.field_transition.is_some() {
+            break;
+        }
+        session.field.step(accept)?;
+    }
+    let world = &session.field.events.world;
+    assert_eq!(
+        world
+            .field_transition
+            .as_ref()
+            .context("new story did not start")?
+            .map,
+        340
+    );
+    let party = world.party.as_ref().unwrap();
+    // The opening script grants another 500 Gald after applying carryover.
+    assert_eq!(
+        (party.gald, party.grade_hundredths),
+        (9876 + 500, 100_000 - cost)
+    );
+    assert_eq!(party.new_game_plus.benefits, [Benefit::Gald].into());
+    assert!(!party.new_game_plus.cleared);
+    assert!(session.field.play_time.total() < 9000);
+    assert_eq!(
+        session.field.events.save_progress()?.script_globals[0x40 / 4],
+        0
+    );
+    Ok(())
+}

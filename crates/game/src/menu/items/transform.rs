@@ -56,7 +56,7 @@ impl Menu {
         let target = resources.data.items[usize::from(id)].transforms_to;
         let party = self.party();
         if party.items.get(&target).copied().unwrap_or(0)
-            >= resources.session.items[usize::from(target)].stack_limit
+            >= party.item_limit(&resources.session.items[usize::from(target)])
         {
             self.inventory.notice = Some(resources.data.labels["transform_full"].clone());
             return 4;

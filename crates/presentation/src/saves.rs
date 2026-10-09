@@ -74,6 +74,7 @@ impl SceneCheckpoint {
     }
     fn location(&self) -> String {
         match self {
+            Self::Field(c) if c.starts_new_game_plus() => "Game cleared".into(),
             Self::Field(c) => format!("Field {}", c.map_id),
             Self::World(c) => match c.overworld.state.world {
                 resonance_game::overworld::World::Sylvarant => "Sylvarant".into(),

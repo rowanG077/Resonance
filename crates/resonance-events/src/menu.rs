@@ -5,6 +5,8 @@ pub enum Target {
     Shop(u8),
     Crafting(u8),
     Main,
+    GradeShop,
+    ClearSave,
 }
 
 impl TryFrom<i32> for Target {
@@ -14,6 +16,8 @@ impl TryFrom<i32> for Target {
         match selector {
             0..52 => Ok(Self::Shop(selector as u8)),
             9995 => Ok(Self::Main),
+            9996 => Ok(Self::GradeShop),
+            9997 => Ok(Self::ClearSave),
             9999..=10020 => Ok(Self::Crafting((selector - 9999) as u8)),
             _ => Err(format!(
                 "script menu selector {selector} is not implemented"

@@ -211,8 +211,8 @@ impl Shop {
         let quantity = row.quantity;
         let owned = party.items.get(&row.id).copied().unwrap_or(0);
         let maximum = if self.choice == Choice::Buy {
-            let capacity = self.resources.session.items[usize::from(row.id)]
-                .stack_limit
+            let capacity = party
+                .item_limit(&self.resources.session.items[usize::from(row.id)])
                 .saturating_sub(owned);
             let price = self.unit_price(row.id, party);
             let affordable = party
@@ -242,7 +242,9 @@ impl Shop {
             ensure!(
                 if self.choice == Choice::Buy {
                     u16::from(owned) + u16::from(row.quantity)
-                        <= u16::from(self.resources.session.items[usize::from(row.id)].stack_limit)
+                        <= u16::from(
+                            party.item_limit(&self.resources.session.items[usize::from(row.id)]),
+                        )
                 } else {
                     row.quantity <= owned
                 },

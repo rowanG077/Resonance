@@ -116,7 +116,7 @@ impl Party {
         }
         if old != 0
             && self.items.get(&old).copied().unwrap_or(0)
-                >= data.items[usize::from(old)].stack_limit
+                >= self.item_limit(&data.items[usize::from(old)])
         {
             return Err("There is no room in the inventory for the equipped item.".into());
         }
@@ -286,7 +286,7 @@ impl Party {
                 .ok_or("unknown inventory item")?;
         }
         if self.items.get(&target).copied().unwrap_or(0)
-            >= data.items[usize::from(target)].stack_limit
+            >= self.item_limit(&data.items[usize::from(target)])
         {
             return Ok(false);
         }

@@ -157,9 +157,12 @@ impl FieldPackage {
             .clone()
             .entry(&self.assets, data, available_fields)?;
         entry.skits = Some(skits);
+        let kind = entry.kind;
         let mut field = self.enter(entry)?;
-        initialize_checkpoint(&mut field, checkpoint)?;
-        self.queue_entry(&mut field, resonance_game::field::EntryKind::Restore);
+        if kind == resonance_game::field::EntryKind::Restore {
+            initialize_checkpoint(&mut field, checkpoint)?;
+        }
+        self.queue_entry(&mut field, kind);
         Ok(field)
     }
 

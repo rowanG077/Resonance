@@ -445,7 +445,7 @@ impl Party {
             self.items.iter().all(|(id, count)| data
                 .items
                 .get(usize::from(*id))
-                .is_some_and(|item| *count > 0 && *count <= item.stack_limit))
+                .is_some_and(|item| *count > 0 && *count <= self.item_limit(item)))
                 && self
                     .found_items
                     .iter()
@@ -575,12 +575,12 @@ impl Party {
     }
     pub fn change_item(&mut self, data: &SessionData, id: u16, delta: i8) -> Result<bool, String> {
         let item = data.items.get(usize::from(id)).ok_or("unknown item")?;
+        let limit = self.item_limit(item);
         let previous = self.items.get(&id).copied().unwrap_or(0);
-        if delta > 0 && previous == item.stack_limit || delta <= 0 && previous == 0 {
+        if delta > 0 && previous == limit || delta <= 0 && previous == 0 {
             return Ok(false);
         }
-        let count =
-            (i16::from(previous) + i16::from(delta)).clamp(0, i16::from(item.stack_limit)) as u8;
+        let count = (i16::from(previous) + i16::from(delta)).clamp(0, i16::from(limit)) as u8;
         if count == 0 {
             self.items.remove(&id);
         } else {
