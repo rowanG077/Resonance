@@ -16,6 +16,9 @@ const THIRD_SCENERY: i32 = 999_998;
 #[derive(Clone, Copy)]
 #[repr(i32)]
 enum FieldSystemCommand {
+    CheckCollectorsBook = 3,
+    CollectorsBookComplete = 6,
+    SetCollectorsBookComplete = 9,
     FieldLeader = 13,
     SetFieldLeader = 14,
     SuppressTransitionFade = 15,
@@ -28,6 +31,9 @@ impl TryFrom<i32> for FieldSystemCommand {
 
     fn try_from(id: i32) -> Result<Self, Self::Error> {
         match id {
+            3 => Ok(Self::CheckCollectorsBook),
+            6 => Ok(Self::CollectorsBookComplete),
+            9 => Ok(Self::SetCollectorsBookComplete),
             13 => Ok(Self::FieldLeader),
             14 => Ok(Self::SetFieldLeader),
             15 => Ok(Self::SuppressTransitionFade),
@@ -337,6 +343,37 @@ impl NativeHost<'_> {
             }
             NativeCall::Unknown92 => {
                 match FieldSystemCommand::try_from(a[0])? {
+                    command @ (FieldSystemCommand::CheckCollectorsBook
+                    | FieldSystemCommand::CollectorsBookComplete
+                    | FieldSystemCommand::SetCollectorsBookComplete) => {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        match command {
+                            FieldSystemCommand::CheckCollectorsBook => {
+                                let menu = self
+                                    .resources
+                                    .menu_data
+                                    .as_ref()
+                                    .ok_or("item catalogue is missing")?;
+                                let complete = menu
+                                    .items
+                                    .iter()
+                                    .enumerate()
+                                    .skip(1)
+                                    .filter(|(_, item)| item.category != 0)
+                                    .all(|(id, _)| party.found_items.contains(&(id as u16)));
+                                party.collectors_book_complete |= complete;
+                                value = Some(i32::from(complete));
+                            }
+                            FieldSystemCommand::CollectorsBookComplete => {
+                                value = Some(i32::from(party.collectors_book_complete))
+                            }
+                            _ => party.collectors_book_complete = a[1] & 1 != 0,
+                        }
+                    }
                     FieldSystemCommand::FieldLeader => {
                         value = Some(i32::from(
                             self.world
