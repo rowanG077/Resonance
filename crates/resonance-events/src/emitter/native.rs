@@ -28,6 +28,7 @@ impl Emitter {
             },
             49 => Kind::Seal(Default::default()),
             31 => Kind::Contract(Default::default()),
+            29 => Kind::Burst(Default::default()),
             18 => Kind::Mote(Default::default()),
             23 | 63 => Kind::Column(super::column::Column {
                 expands: a[5] == 63,
@@ -243,6 +244,13 @@ impl Emitter {
             return Ok(0);
         };
         match &mut self.kind {
+            Kind::Burst(burst) => match slot {
+                3 => setting!(burst.radius, value),
+                4 => setting!(burst.spread, value, positive),
+                5 => setting!(burst.tilt, value),
+                7..=9 => setting!(burst.target[slot - 7], value),
+                _ => Ok(0),
+            },
             Kind::Mote(mote) => match slot {
                 0 => setting!(mote.curvature, value),
                 1 => setting!(mote.size, value),
