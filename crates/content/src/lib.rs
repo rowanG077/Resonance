@@ -8,6 +8,7 @@ pub mod field_audio;
 pub mod field_preload;
 pub mod figurine;
 pub mod font;
+pub mod grade;
 pub mod menu;
 pub mod menu_data;
 pub mod model_behavior;
