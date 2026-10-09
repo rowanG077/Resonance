@@ -28,6 +28,7 @@ impl Host for NativeHost<'_> {
         SpawnCollisionActor(8) -> () = field;
         SpawnSceneryActor(8) -> () = field;
         DespawnActor(1) -> () = field;
+        DespawnActorAfterMovement(1) -> () = dispatch;
         SetActorHeading(2) -> () = field;
         FaceActorAfterMovement(2) -> () = dispatch;
         TransformActorNode(6) -> () = dispatch;
@@ -126,6 +127,7 @@ impl Host for NativeHost<'_> {
         ClearEventBit(1) -> () = field;
         TestEventBit(1) -> i32 = field;
         AddGald(1) -> i32 = party;
+        AddGrade(1) -> i32 = party;
         IsDebugSession(0) -> i32 = dispatch;
         ConfigureSession(2) -> i32 = party;
         ConfigureSorcerersRing(2) -> i32 = party;
@@ -146,6 +148,7 @@ impl Host for NativeHost<'_> {
         SetActorAnimationFlags(2) -> () = dispatch;
         ConfigureSceneryAnimation(6) -> () = field;
         ClearSceneryAnimation(2) -> () = field;
+        SeekSceneryAnimation(3) -> () = field;
         SetActorAnimationProperty(3) -> i32 = field;
         RumbleController(3) -> () = field;
         ShakeCamera(3) -> () = field;

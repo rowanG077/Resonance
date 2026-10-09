@@ -323,6 +323,20 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::GetEventActor => value = Some(i32::from(self.event_actor)),
+            NativeCall::DespawnActorAfterMovement => {
+                let actor = if a[0] == crate::CONTROLLED_ACTOR {
+                    self.world.controlled_actor
+                } else {
+                    a[0]
+                };
+                let mut wait = Wait::Service {
+                    condition: Box::new(Wait::DespawnAfterMotion(actor)),
+                    ready_at: None,
+                };
+                wait.poll(self.world)?;
+                *self.wait = Some(wait);
+                return Ok(NativeResult::Suspend);
+            }
             NativeCall::SetActorPosition => {
                 // Position updates for absent actors are ignored.
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
@@ -547,7 +561,7 @@ impl NativeHost<'_> {
                     TOON_LIGHTING => actor.toon_lighting.map(i32::from).unwrap_or_else(|| {
                         i32::from(
                             self.resources
-                                .model(actor.resource)
+                                .model(actor.model_resource())
                                 .is_some_and(|model| model.toon_lighting),
                         )
                     }),
@@ -612,7 +626,7 @@ impl NativeHost<'_> {
                             actor.model_collision = if a[2] & 1 != 0 {
                                 Some(
                                     self.resources
-                                        .model(actor.resource)
+                                        .model(actor.model_resource())
                                         .ok_or("collision model is missing")?
                                         .collision
                                         .clone(),
@@ -891,11 +905,30 @@ impl NativeHost<'_> {
                 require((0..=32767).contains(&a[3]), "invalid choice timeout")?;
                 require(a[4] & !choice_flags::ALL == 0, "unsupported choice flags")?;
                 let initial = ((a[4] & choice_flags::INITIAL_LINE) - 1).clamp(first, last);
+                // Script lines span the whole message; the cursor belongs to its final page.
+                let mut line = 0;
+                let mut page_start = 0;
+                for token in &dialogue.body.tokens {
+                    if let crate::dialogue::TextToken::Text { text } = token {
+                        for character in text.chars() {
+                            if matches!(character, '\n' | '\u{c}') {
+                                line += 1;
+                            }
+                            if character == '\u{c}' {
+                                page_start = line;
+                            }
+                        }
+                    }
+                }
+                require(
+                    first >= page_start && last <= line,
+                    "choice is outside the final message page",
+                )?;
                 let choice = crate::dialogue::Choice {
                     operation: self.world.operations.begin()?,
-                    first_line: first as u8,
-                    last_line: last as u8,
-                    selected_line: initial as u8,
+                    first_line: (first - page_start) as u8,
+                    last_line: (last - page_start) as u8,
+                    selected_line: (initial - page_start) as u8,
                     cancel_allowed: a[4] & choice_flags::DISABLE_CANCEL == 0,
                     confirmation: if a[4] & choice_flags::SHOULDER_CONFIRM != 0 {
                         ChoiceConfirmation::AcceptOrShoulder
@@ -1066,7 +1099,17 @@ impl NativeHost<'_> {
                 if key != a[0] {
                     self.world.duplicate_actors.insert(key, a[0]);
                 }
-                let model = self.resources.model(resource);
+                let costume = self
+                    .world
+                    .party
+                    .as_ref()
+                    .and_then(|party| party.members.get(resource.wrapping_sub(1) as usize))
+                    .map_or(0, |member| member.costume);
+                let model = self
+                    .resources
+                    .model(resonance_content::appearance::costume_resource(
+                        resource, costume,
+                    ));
                 let animation = model
                     .and_then(|model| model.clips.get(&slot::IDLE))
                     .map(|clip| {
@@ -1084,6 +1127,7 @@ impl NativeHost<'_> {
                         visible: !locator,
                         interaction_anchor: locator,
                         appearance: crate::Appearance {
+                            costume,
                             hidden_nodes: model.map(|m| m.hidden_nodes.clone()).unwrap_or_default(),
                             ..Default::default()
                         },
@@ -1127,7 +1171,7 @@ impl NativeHost<'_> {
                     )?;
                     let model = self
                         .resources
-                        .model(actor.resource)
+                        .model(actor.model_resource())
                         .ok_or("node model missing")?;
                     let Some(name) = usize::try_from(a[2]).ok().and_then(|i| model.names.get(i))
                     else {
@@ -1229,7 +1273,9 @@ impl NativeHost<'_> {
                 }
             }
             NativeCall::CreateParticle => {
-                let Some(kind) = self.resources.particles.get(&a[0]) else {
+                let rising = a[0] == 26;
+                let recipe_id = if rising { 25 } else { a[0] };
+                let Some(kind) = self.resources.particles.get(&recipe_id) else {
                     return self.field(op, a, memory);
                 };
                 require(
@@ -1246,11 +1292,12 @@ impl NativeHost<'_> {
                         .get(a[11] as usize)
                         .ok_or("particle color is not cooked")?;
                     rgba[3] = a[9] as u8;
-                    let flutter = Flutter::pending(recipe);
+                    let flutter = Flutter::pending(recipe, rising);
                     let lifetime = a[1] as u32 + 1;
                     return Ok(NativeResult::Continue(Some(self.world.emit_billboard(
                         BillboardEffect {
-                            recipe: a[0].try_into().map_err(|_| "invalid leaf recipe")?,
+                            recipe: recipe_id.try_into().map_err(|_| "invalid leaf recipe")?,
+                            blend: rising.then_some(crate::effect::Blend::Additive),
                             born: self.world.tick + 1,
                             lifetime,
                             position: [a[2] as f32, a[3] as f32, a[4] as f32],

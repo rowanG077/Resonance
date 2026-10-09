@@ -85,18 +85,23 @@ impl Package {
         catalogue: &crate::resource::Catalogue,
         declarations: &std::collections::BTreeSet<u32>,
     ) -> anyhow::Result<Self> {
-        use crate::resource::PartyResource;
         let mut paths = declarations
             .iter()
             .map(|&id| catalogue.source(id))
             .collect::<anyhow::Result<std::collections::BTreeSet<_>>>()?;
+        paths.insert(&catalogue.colette_wings);
         for id in 1..=catalogue.party_bodies.len() as u8 {
-            paths.insert(catalogue.party(PartyResource::Body, id, 0)?);
+            paths.insert(catalogue.party(crate::resource::PartyResource::Body, id, 0)?);
             paths.insert(catalogue.field_motion(id)?);
             paths.insert(catalogue.field_service(id)?);
         }
-        let mut package = Self::default();
         let files = extracted.join("files");
+        for name in catalogue.party_bodies.iter().flatten().flatten() {
+            if crate::field_resources::find_path(&files, name)?.is_some() {
+                paths.insert(name);
+            }
+        }
+        let mut package = Self::default();
         for path in paths {
             let bytes = Arc::new(std::fs::read(
                 files.join(crate::field_resources::resolve_path(&files, path)?),

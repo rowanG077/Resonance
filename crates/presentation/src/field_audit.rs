@@ -92,11 +92,11 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
     for (&id, actor) in &state.get().events.world.actors {
         if actor.visible && !actor.appearance.model_hidden {
             if !matches!(actor.appearance.face, resonance_events::Face::Disabled)
-                && art.has_eyes(actor.resource)
+                && art.has_eyes(actor.model_resource())
             {
                 applied.expected.insert(Request::Eyes(id));
             }
-            for part in art.secondary_parts(actor.resource) {
+            for part in art.secondary_parts(actor.model_resource()) {
                 applied.expected.insert(Request::SecondaryMotion(id, part));
             }
             if actor.casts_shadow {
@@ -106,7 +106,7 @@ pub(super) fn begin(state: State, art: Res<Art>, mut applied: ResMut<Applied>) {
         if actor.visible
             && !actor.appearance.model_hidden
             && (actor.appearance.mouth.is_some() || state.get().talking.contains_key(&id))
-            && art.has_mouth(actor.resource)
+            && art.has_mouth(actor.model_resource())
         {
             applied.expected.insert(Request::Mouth(id));
         }
@@ -156,7 +156,7 @@ fn expected(
     let mut expected = BTreeSet::new();
     for (&id, actor) in &world.actors {
         if actor.visible && !actor.appearance.model_hidden {
-            for part in 0..parts(actor.resource).max(1) {
+            for part in 0..parts(actor.model_resource()).max(1) {
                 expected.extend(actor_requests(id, part, actor));
             }
         }
@@ -308,6 +308,7 @@ mod tests {
                 image: resonance_events::effect::RefractionImage::Ripple,
                 palette: resonance_events::effect::NEUTRAL_PALETTE,
                 orientation: resonance_events::effect::SpriteOrientation::World,
+                angular_velocity: [0.; 3],
                 rotation: [0.; 3],
                 position: [0.; 3],
                 velocity: [0.; 3],

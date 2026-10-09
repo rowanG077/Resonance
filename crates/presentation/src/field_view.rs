@@ -532,7 +532,7 @@ pub(super) fn ready(world: &mut World) -> bool {
         && art.ready
         && art.map == session.assets.map_id
         && session.field.events.world.actors.iter().all(|(id, actor)| {
-            !art.models.contains_key(&actor.resource) || art.instances.contains_key(id)
+            !art.models.contains_key(&actor.model_resource()) || art.instances.contains_key(id)
         })
         && world
             .query::<&ActorPart>()
@@ -838,7 +838,7 @@ pub(super) fn advance_live(
     if ui.is_none_or(|ui| !ui.ready(&images))
         || parts.iter().any(|part| !part.prepared)
         || session.field.events.world.actors.iter().any(|(id, actor)| {
-            art.models.contains_key(&actor.resource) && !art.instances.contains_key(id)
+            art.models.contains_key(&actor.model_resource()) && !art.instances.contains_key(id)
         })
     {
         return;
@@ -1808,7 +1808,7 @@ fn instances(
             if !entities.is_empty()
                 && entities.iter().all(|entity| {
                     instances.get(*entity).is_ok_and(|part| {
-                        part.instance == actor.instance && part.resource == actor.resource
+                        part.instance == actor.instance && part.resource == actor.model_resource()
                     })
                 })
             {
@@ -1818,7 +1818,7 @@ fn instances(
                 commands.entity(entity).despawn();
             }
         }
-        let Some(parts) = art.models.get(&actor.resource) else {
+        let Some(parts) = art.models.get(&actor.model_resource()) else {
             continue;
         };
         let entities = parts
@@ -1836,7 +1836,7 @@ fn instances(
             })
             .map(|(index, part, pass)| {
                 let materials = art
-                    .surfaces(actor.resource, index, &mut images, &mut sampled)
+                    .surfaces(actor.model_resource(), index, &mut images, &mut sampled)
                     .map(|surface| surfaces.add(surface))
                     .collect();
                 commands
@@ -1846,7 +1846,7 @@ fn instances(
                         ActorPart {
                             actor: id,
                             instance: actor.instance,
-                            resource: actor.resource,
+                            resource: actor.model_resource(),
                             part: index,
                             pass,
                             materials,
@@ -1950,9 +1950,11 @@ fn pose(
             .position(|id| *id == instance.actor)
             .expect("rendered actor has a submission order");
         debug_assert_eq!(
-            instance.resource, actor.resource,
+            instance.resource,
+            actor.model_resource(),
             "VM actor {} changed its model without replacing the scene instance at tick {}",
-            instance.actor, tick
+            instance.actor,
+            tick
         );
         let part = &art.models[&instance.resource][instance.part];
         let save_point = world.save_points.iter().find(|p| p.actor == instance.actor);

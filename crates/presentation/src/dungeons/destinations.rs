@@ -422,9 +422,11 @@ impl Destination {
                     .write(ANGEL_PROGRESS, Width::S32, angel_progress)?;
                 persistent.memory.write(mission as u16, Width::S32, value)?;
                 if matches!(mission, Mission::Asgard) {
+                    const ASGARD_RANCH_INFILTRATED: u16 = 330;
+                    persistent.event_flags.insert(ASGARD_RANCH_INFILTRATED);
                     // Asgard's scenes rebuild both three-person groups from
                     // these per-member bits.
-                    split_party(&mut persistent, 3);
+                    split_party(&mut persistent, 3)?;
                 }
                 if matches!(mission, Mission::Palmacosta) {
                     // Field 198's post-Magnius evacuation and destruction
@@ -435,14 +437,7 @@ impl Destination {
                 }
             }
             Progress::IseliaInfiltration(story) => {
-                let party = persistent.party.as_ref().unwrap();
-                for (slot, id) in party.formation.iter().copied().enumerate() {
-                    persistent
-                        .memory
-                        .write(SAVED_PARTY + slot as u16, Width::S8, i32::from(id))?;
-                }
-                persistent.memory.write(SAVED_LEADER, Width::S8, 1)?;
-                split_party(&mut persistent, 4);
+                split_party(&mut persistent, 4)?;
                 story
             }
         };
@@ -463,9 +458,16 @@ impl Destination {
 }
 
 /// Each character stores a group bit and a two-bit position within that group.
-fn split_party(state: &mut PersistentState, group_size: usize) {
+fn split_party(state: &mut PersistentState, group_size: usize) -> Result<()> {
     const GROUP_FLAGS: u16 = 150;
-    for (index, &id) in state.party.as_ref().unwrap().formation.iter().enumerate() {
+    let party = state.party.as_ref().unwrap();
+    state
+        .memory
+        .write(SAVED_LEADER, Width::S8, i32::from(party.field_leader))?;
+    for (index, &id) in party.formation.iter().enumerate() {
+        state
+            .memory
+            .write(SAVED_PARTY + index as u16, Width::S8, i32::from(id))?;
         let slot = index % group_size;
         let base = GROUP_FLAGS + u16::from(id) * 3;
         for (offset, set) in [index >= group_size, slot & 2 != 0, slot & 1 != 0]
@@ -477,4 +479,5 @@ fn split_party(state: &mut PersistentState, group_size: usize) {
             }
         }
     }
+    Ok(())
 }

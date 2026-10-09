@@ -147,8 +147,6 @@ pub struct FieldEffects<Image = String> {
 }
 pub const FIELD_EFFECTS_VERSION: u32 = 10;
 pub const SMOKE_UPDATES: u32 = 56;
-/// Maximum simultaneous distortion planes in a field view.
-pub const REFRACTION_LIMIT: usize = 16;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpriteFrame {

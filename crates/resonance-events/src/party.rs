@@ -329,6 +329,11 @@ pub struct Party {
     pub found_items: BTreeSet<u16>,
     pub recent_items: Vec<u16>,
     pub gald: u32,
+    /// Grade is stored in hundredths; script purchases use whole Grade amounts.
+    #[serde(default)]
+    pub grade_hundredths: u32,
+    #[serde(default)]
+    pub collectors_book_complete: bool,
     pub spent_gald: u32,
     pub settings: Settings,
 }
@@ -386,11 +391,7 @@ impl Party {
         );
         ensure!(
             self.members.len() == data.characters.len()
-                && self
-                    .members
-                    .iter()
-                    .enumerate()
-                    .all(|(i, m)| m.costume == 0 || (i < 2 && m.costume == 3))
+                && self.members.iter().all(|m| m.costume < 5)
                 && (1..=8).contains(&self.formation.len())
                 && self.formation.contains(&self.field_leader)
                 && self
@@ -400,6 +401,7 @@ impl Party {
                 && self.formation.iter().collect::<BTreeSet<_>>().len() == self.formation.len()
                 && self.settings.battle_controls.iter().all(|v| *v <= 2)
                 && self.gald <= 99_999_999
+                && self.grade_hundredths <= 99_999_999
                 && self.viewed_skits.iter().all(|&id| (1..=860).contains(&id)),
             "invalid saved party"
         );
@@ -538,6 +540,8 @@ impl Party {
             found_items: BTreeSet::new(),
             recent_items: Vec::new(),
             gald: 0,
+            grade_hundredths: 0,
+            collectors_book_complete: false,
             spent_gald: 0,
             settings,
         })

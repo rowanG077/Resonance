@@ -7,7 +7,6 @@ struct Settings {
     uv: array<vec4<f32>, 2>,
     parameters: vec4<f32>,
     screen_copy: vec4<f32>,
-    pulses: array<Pulse, #{REFRACTION_LIMIT}>,
 };
 @group(0) @binding(0) var scene: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;
@@ -15,6 +14,7 @@ struct Settings {
 @group(0) @binding(3) var<uniform> settings: Settings;
 @group(0) @binding(4) var scene_depth: texture_depth_2d;
 @group(0) @binding(5) var air_displacement: texture_2d<f32>;
+@group(0) @binding(6) var<storage, read> pulses: array<Pulse>;
 
 fn scene_texel(pixel: vec2<i32>) -> vec4<f32> {
     let size = vec2<i32>(textureDimensions(scene));
@@ -60,7 +60,7 @@ struct RippleVertex {
 
 @vertex
 fn quad_vertex(@builtin(vertex_index) vertex: u32, @builtin(instance_index) instance: u32) -> RippleVertex {
-    let pulse = settings.pulses[instance];
+    let pulse = pulses[instance];
     if pulse.opacity.x <= 0. {
         return RippleVertex(vec4<f32>(0., 0., 0., 1.), vec2<f32>(0.), instance);
     }
@@ -74,7 +74,7 @@ fn quad_vertex(@builtin(vertex_index) vertex: u32, @builtin(instance_index) inst
 
 @fragment
 fn quad_fragment(in: RippleVertex) -> @location(0) vec4<f32> {
-    let pulse = settings.pulses[in.pulse];
+    let pulse = pulses[in.pulse];
     // Reverse-Z: ripples remain behind nearer scenery.
     if in.position.z <= textureLoad(scene_depth, vec2<i32>(in.position.xy), 0) { discard; }
     let bounds = settings.uv[u32(pulse.opacity.y)];

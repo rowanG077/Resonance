@@ -207,10 +207,11 @@
     },
     {
       "opcode": 27,
-      "name": "native_1b",
+      "name": "despawn_actor_after_movement",
       "arguments": [
-        "arg0"
-      ]
+        "actor_id"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 28,
@@ -637,12 +638,13 @@
     },
     {
       "opcode": 68,
-      "name": "native_44",
+      "name": "seek_scenery_animation",
       "arguments": [
-        "arg0",
-        "arg1",
-        "arg2"
-      ]
+        "layer",
+        "channel",
+        "frame"
+      ],
+      "returns_value": false
     },
     {
       "opcode": 69,
@@ -1322,9 +1324,9 @@
     },
     {
       "opcode": 139,
-      "name": "native_8b",
+      "name": "add_grade",
       "arguments": [
-        "arg0"
+        "amount"
       ],
       "returns_value": true
     },

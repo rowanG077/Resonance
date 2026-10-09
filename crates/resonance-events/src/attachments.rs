@@ -61,7 +61,7 @@ impl GameWorld {
         }
         .root(id, 0)?;
         let frame = match resources
-            .model(actor.resource)
+            .model(actor.model_resource())
             .and_then(|model| model.names.first())
         {
             Some(name) => multiply(root, resources.bone_matrix(actor, name, self.tick)?),

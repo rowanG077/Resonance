@@ -367,13 +367,11 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
             }
             TextToken::Control { opcode, value } => match opcode {
                 2 => {
-                    delay = if *value < 0 {
+                    let speed = *value as i8;
+                    delay = if speed == -1 {
                         default_delay
                     } else {
-                        u16::try_from(*value)
-                            .ok()
-                            .filter(|d| *d <= 120)
-                            .ok_or_else(|| anyhow::anyhow!("unsupported text delay"))?
+                        speed.max(0) as u16
                     }
                 }
                 3 => {
@@ -408,6 +406,19 @@ pub fn pages(message: &ResolvedMessage, default_delay: u16) -> Result<Vec<Page>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_speed_controls_can_restore_the_default_or_disable_delay() {
+        for (value, expected) in [(255, 2), (128, 0), (0, 0), (127, 127)] {
+            let message = ResolvedMessage {
+                tokens: vec![
+                    TextToken::Control { opcode: 2, value },
+                    TextToken::Text { text: "A".into() },
+                ],
+            };
+            assert_eq!(pages(&message, 2).unwrap()[0].glyphs[0].delay, expected);
+        }
+    }
     fn player(text: &str, flags: u16) -> (DialoguePlayer, resonance_events::EventRuntime) {
         let bytes = [4u16, 0, 0, 0, 1, 0x3000, 0x4000, 0x2054, 0x20ff]
             .into_iter()

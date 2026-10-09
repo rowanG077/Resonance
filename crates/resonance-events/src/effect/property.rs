@@ -93,7 +93,10 @@ impl crate::GameWorld {
     ) -> Result<(), String> {
         let change = Property::decode(property, value)?;
         let born = if let Some(effect) = self.refractions.get(&handle) {
-            if !matches!(change, Property::Growth(_)) {
+            if !matches!(
+                change,
+                Property::Growth(_) | Property::Rotation(_, _) | Property::Spin(_, _)
+            ) {
                 return Err("refraction property is not implemented".into());
             }
             effect.born
@@ -121,10 +124,13 @@ impl crate::GameWorld {
             Change::Sprite(change) => {
                 if let Some(effect) = self.billboards.get_mut(&handle) {
                     change.apply(effect, tick);
-                } else if let Property::Growth(growth) = change
-                    && let Some(effect) = self.refractions.get_mut(&handle)
-                {
-                    effect.growth = growth;
+                } else if let Some(effect) = self.refractions.get_mut(&handle) {
+                    match change {
+                        Property::Growth(value) => effect.growth = value,
+                        Property::Rotation(axis, value) => effect.rotation[axis] = value,
+                        Property::Spin(axis, value) => effect.angular_velocity[axis] = value,
+                        _ => unreachable!("validated refraction property"),
+                    }
                 }
             }
             Change::Model(change) => {

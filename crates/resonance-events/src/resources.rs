@@ -107,7 +107,9 @@ impl ResourceLibrary {
         node: usize,
         tick: u32,
     ) -> Result<[f32; 3], String> {
-        let model = self.model(actor.resource).ok_or("actor model is missing")?;
+        let model = self
+            .model(actor.model_resource())
+            .ok_or("actor model is missing")?;
         let name = model.names.get(node).ok_or("bone index is missing")?;
         let matrix = self
             .bone_matrix(actor, name, tick)
@@ -124,7 +126,7 @@ impl ResourceLibrary {
     ) -> anyhow::Result<resonance_content::animation::Matrix> {
         use anyhow::Context;
         let model = self
-            .model(actor.resource)
+            .model(actor.model_resource())
             .context("attachment model is missing")?;
         if let Some(animation) = &actor.animation {
             let clip = self
@@ -154,10 +156,17 @@ impl ResourceLibrary {
 
     pub fn attachment_pose(&self, actor: &crate::Actor) -> Option<&AttachmentPose> {
         let animation = actor.animation.as_ref()?;
-        self.model(actor.resource)?
+        let resource = if animation.source == crate::animation::AnimationSource::Model
+            && animation.resource == actor.resource
+        {
+            actor.model_resource()
+        } else {
+            animation.resource
+        };
+        self.model(actor.model_resource())?
             .attachments
             .clips
-            .get(&(animation.source, animation.resource, animation.slot))
+            .get(&(animation.source, resource, animation.slot))
             .or_else(|| self.animation(animation)?.attachments.as_ref())
     }
 
