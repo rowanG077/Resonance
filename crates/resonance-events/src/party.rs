@@ -332,6 +332,8 @@ pub struct Party {
     /// Grade is stored in hundredths; script purchases use whole Grade amounts.
     #[serde(default)]
     pub grade_hundredths: u32,
+    #[serde(default)]
+    pub collectors_book_complete: bool,
     pub spent_gald: u32,
     pub settings: Settings,
 }
@@ -543,6 +545,7 @@ impl Party {
             recent_items: Vec::new(),
             gald: 0,
             grade_hundredths: 0,
+            collectors_book_complete: false,
             spent_gald: 0,
             settings,
         })
