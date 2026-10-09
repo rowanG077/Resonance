@@ -49,6 +49,10 @@ impl Emitter {
             },
             13 => Kind::Scatter(Default::default()),
             59 => Kind::Cloud(Default::default()),
+            65 | 68 => Kind::Orbiting(super::orbiting::Orbiting {
+                expanding: a[5] == 68,
+                ..Default::default()
+            }),
             14 => Kind::Portal {
                 palette: 0,
                 size: 0.,
@@ -566,6 +570,15 @@ impl Emitter {
                     value.map(|v| i32::from(v as i16)),
                     16.,
                 ),
+                _ => Ok(0),
+            },
+            Kind::Orbiting(s) => match slot {
+                0 => setting!(s.radius, value),
+                1 => setting!(s.count, value, count),
+                2 => setting!(s.size, value),
+                3 => setting!(s.variation, value, nonnegative),
+                4..=6 => setting!(s.direction_target[slot - 4], value),
+                7..=9 => setting!(s.target[slot - 7], value),
                 _ => Ok(0),
             },
             Kind::Scatter(s) => match slot {

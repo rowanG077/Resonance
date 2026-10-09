@@ -590,6 +590,7 @@ pub enum RotationOrder {
 #[derive(Debug, Clone)]
 pub(crate) enum BillboardController {
     Orbit(crate::emitter::Orbit),
+    Guided(crate::emitter::orbiting::Guided),
     Scatter {
         direction: [f32; 3],
         speed: f32,
@@ -877,6 +878,14 @@ impl crate::GameWorld {
             match &mut effect.controller {
                 Some(BillboardController::Orbit(orbit)) => {
                     effect.position = orbit.position(self.tick.saturating_sub(effect.born));
+                }
+                Some(BillboardController::Guided(guided)) => {
+                    if let Some((velocity, lifetime)) = guided.step(&mut effect.position) {
+                        effect.velocity = velocity;
+                        effect.born = self.tick;
+                        effect.lifetime = lifetime;
+                        effect.fade = Fade::tail(lifetime);
+                    }
                 }
                 Some(BillboardController::Flutter(flutter)) => {
                     flutter.step(

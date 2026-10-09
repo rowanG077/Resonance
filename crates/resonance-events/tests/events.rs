@@ -230,6 +230,43 @@ fn radial_flash_expands_once_and_its_sparks_travel_outward() {
 }
 
 #[test]
+fn orbiting_particles_release_existing_lights_toward_their_destination() {
+    for kind in [65, 68] {
+        let setup = script(&[(
+            Call::CreateEffectEmitter,
+            &emitter(kind, 5, &[100, 12, 10, 10, 0, 100, 0, 500, 0, 100]),
+        )]);
+        let release = script(&[(Call::SetActorProperty, &[500, 33, 2])]);
+        let mut events = interactive_effect(&setup, &release);
+        steps(&mut events, 30);
+        assert_eq!(events.world.billboards.len(), 12);
+        let ids: std::collections::BTreeSet<_> = events.world.billboards.keys().copied().collect();
+        assert!(
+            events
+                .world
+                .billboards
+                .values()
+                .all(|p| p.velocity == [0.; 3])
+        );
+        assert!(events.trigger(42, true).unwrap());
+        let mut travelled = false;
+        for _ in 0..180 {
+            events.step().unwrap();
+            for (id, p) in &events.world.billboards {
+                assert!(ids.contains(id));
+                if p.velocity != [0.; 3] {
+                    travelled = true;
+                    assert!(p.velocity[0] > 0.);
+                }
+            }
+        }
+        assert!(travelled);
+        steps(&mut events, 600);
+        assert!(events.world.billboards.is_empty());
+    }
+}
+
+#[test]
 fn explosion_and_spray_particles_move_outward_and_expire() {
     for kind in [43, 45] {
         let parameters = if kind == 43 {

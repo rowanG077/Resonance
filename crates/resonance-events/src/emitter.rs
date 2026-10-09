@@ -7,6 +7,7 @@ mod fire;
 mod gathering;
 mod mote;
 mod native;
+pub(crate) mod orbiting;
 mod rays;
 pub(crate) mod scatter;
 mod seal;
@@ -118,6 +119,7 @@ enum Kind {
     },
     Scatter(scatter::Scatter),
     Cloud(cloud::Cloud),
+    Orbiting(orbiting::Orbiting),
     Travel {
         flight: Option<Flight>,
         texture: Option<(u32, u8)>,
@@ -326,6 +328,9 @@ impl Emitter {
                 *phase = 1;
             }
             Kind::Cloud(cloud) => cloud.emit(center, born, clock, *phase, actor, random, out),
+            Kind::Orbiting(orbiting) => {
+                orbiting.emit((owner, center), actor, phase, born, clock, random, out)?
+            }
             Kind::ModelTrail {
                 remaining,
                 target,
@@ -932,6 +937,7 @@ enum Birth {
 struct Births {
     items: Vec<Birth>,
     shake: Option<f32>,
+    release: Option<i32>,
 }
 impl Births {
     fn push(&mut self, sprite: BillboardEffect) {
@@ -1014,6 +1020,17 @@ impl GameWorld {
                 }
                 Birth::Refraction(p) => {
                     self.emit_refraction(p)?;
+                }
+            }
+        }
+        if let Some(owner) = output.release {
+            for p in self
+                .billboards
+                .values_mut()
+                .filter(|p| p.owner == Some(owner))
+            {
+                if let Some(BillboardController::Guided(guided)) = &mut p.controller {
+                    guided.release();
                 }
             }
         }
