@@ -33,6 +33,8 @@ pub(crate) enum Stream {
         target: [f32; 3],
     },
     Rain,
+    ConvergingShafts,
+    Spiral,
     PlanarLights {
         sprite: BillboardEffect,
         radius: u32,
@@ -118,6 +120,8 @@ impl Stream {
                 }
             }
             17 => Self::Rain,
+            20 => Self::ConvergingShafts,
+            21 => Self::Spiral,
             57 => {
                 sprite.orientation = SpriteOrientation::World;
                 Self::PlanarLights {
@@ -201,6 +205,44 @@ impl Stream {
             p
         };
         match self {
+            Self::ConvergingShafts if clock.is_multiple_of(2) => {
+                const START_RADIUS: f32 = 650.;
+                const ACCELERATION: f32 = 0.02;
+                let mut p = particle(center, born, 46, 301);
+                p.recipe = crate::effect::STREAK_SPRITE;
+                p.orientation = SpriteOrientation::World;
+                p.field_fog = false;
+                p.size = [
+                    (5 + random(rng) % 4) as f32,
+                    (100 + random(rng) % 50) as f32,
+                ];
+                p.rgba[3] = 150;
+                p.fade = Fade::Linear(-1.);
+                let angle = (10 + random(rng) % 160) as f32;
+                let (sin, cos) = angle.to_radians().sin_cos();
+                let radial = [cos, 0., sin];
+                p.rotation = [90., 90. - angle, 0.];
+                p.position = std::array::from_fn(|i| center[i] + radial[i] * START_RADIUS);
+                p.velocity = radial.map(|v| -v * (3. + ACCELERATION));
+                p.controller = Some(crate::effect::BillboardController::Accelerate {
+                    multiplier: 1.,
+                    delta: radial.map(|v| -v * ACCELERATION),
+                });
+                out.push(p);
+            }
+            Self::Spiral if clock.is_multiple_of(5) => {
+                let mut p = particle(center, born, 33 + (random(rng) % 28) as u16, 601);
+                p.field_fog = false;
+                p.size = [(45 + random(rng) % 45) as f32; 2];
+                p.rgba[3] = 150;
+                p.fade = Fade::Linear(0.);
+                let mut origin = center;
+                origin[2] += 5.;
+                let mut orbit = super::Orbit::new(origin, [0., 0., 1.], 150., 1., 105., 15.);
+                orbit.rise = 5.;
+                p.controller = Some(crate::effect::BillboardController::Orbit(orbit));
+                out.push(p);
+            }
             Self::PlanarLights {
                 sprite,
                 radius,

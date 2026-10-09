@@ -70,6 +70,7 @@ impl Column {
                     p.velocity[2] = ACCELERATION;
                     p.controller = Some(BillboardController::Accelerate {
                         multiplier: ACCELERATION,
+                        delta: [0.; 3],
                     });
                 }
             } else {
