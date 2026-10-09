@@ -1163,7 +1163,7 @@ fn muzzle_height(
     const BONE: &str = "Bone_sebone03";
     let actor = &world.actors[&id];
     let model = resources
-        .model(actor.resource)
+        .model(actor.model_resource())
         .context("ring actor model is missing")?;
     if !model.names.iter().any(|name| name == BONE) {
         return Ok(MUZZLE_HEIGHT);

@@ -16,6 +16,9 @@ const THIRD_SCENERY: i32 = 999_998;
 #[derive(Clone, Copy)]
 #[repr(i32)]
 enum FieldSystemCommand {
+    CheckCollectorsBook = 3,
+    CollectorsBookComplete = 6,
+    SetCollectorsBookComplete = 9,
     FieldLeader = 13,
     SetFieldLeader = 14,
     SuppressTransitionFade = 15,
@@ -28,6 +31,9 @@ impl TryFrom<i32> for FieldSystemCommand {
 
     fn try_from(id: i32) -> Result<Self, Self::Error> {
         match id {
+            3 => Ok(Self::CheckCollectorsBook),
+            6 => Ok(Self::CollectorsBookComplete),
+            9 => Ok(Self::SetCollectorsBookComplete),
             13 => Ok(Self::FieldLeader),
             14 => Ok(Self::SetFieldLeader),
             15 => Ok(Self::SuppressTransitionFade),
@@ -230,7 +236,7 @@ impl NativeHost<'_> {
                     actor.scenery_animations.insert(a[1] as i8, animation);
                 }
             }
-            NativeCall::ClearSceneryAnimation => {
+            NativeCall::ClearSceneryAnimation | NativeCall::SeekSceneryAnimation => {
                 let id = match a[0] {
                     2 => SECOND_SCENERY,
                     3 => THIRD_SCENERY,
@@ -238,7 +244,19 @@ impl NativeHost<'_> {
                 };
                 require((-1..4).contains(&a[1]), "invalid scenery motion channel")?;
                 if let Some(actor) = self.world.actors.get_mut(&id) {
-                    if a[1] == -1 {
+                    if op == NativeCall::SeekSceneryAnimation {
+                        let animation = if a[1] == -1 {
+                            actor.animation.as_mut()
+                        } else {
+                            actor.scenery_animations.get_mut(&(a[1] as i8))
+                        };
+                        if let Some(animation) = animation {
+                            animation.seek(
+                                (a[2] as f32 * 2.).min(animation.duration_ticks as f32),
+                                self.world.tick,
+                            );
+                        }
+                    } else if a[1] == -1 {
                         actor.animation = None;
                     } else {
                         actor.scenery_animations.remove(&(a[1] as i8));
@@ -325,6 +343,37 @@ impl NativeHost<'_> {
             }
             NativeCall::Unknown92 => {
                 match FieldSystemCommand::try_from(a[0])? {
+                    command @ (FieldSystemCommand::CheckCollectorsBook
+                    | FieldSystemCommand::CollectorsBookComplete
+                    | FieldSystemCommand::SetCollectorsBookComplete) => {
+                        let party = self
+                            .world
+                            .party
+                            .as_mut()
+                            .ok_or("party is not initialized")?;
+                        match command {
+                            FieldSystemCommand::CheckCollectorsBook => {
+                                let menu = self
+                                    .resources
+                                    .menu_data
+                                    .as_ref()
+                                    .ok_or("item catalogue is missing")?;
+                                let complete = menu
+                                    .items
+                                    .iter()
+                                    .enumerate()
+                                    .skip(1)
+                                    .filter(|(_, item)| item.category != 0)
+                                    .all(|(id, _)| party.found_items.contains(&(id as u16)));
+                                party.collectors_book_complete |= complete;
+                                value = Some(i32::from(complete));
+                            }
+                            FieldSystemCommand::CollectorsBookComplete => {
+                                value = Some(i32::from(party.collectors_book_complete))
+                            }
+                            _ => party.collectors_book_complete = a[1] & 1 != 0,
+                        }
+                    }
                     FieldSystemCommand::FieldLeader => {
                         value = Some(i32::from(
                             self.world
@@ -666,13 +715,14 @@ impl NativeHost<'_> {
                     ELECTRIC_ARC_SPRITE, ELECTRIC_SPARK_SPRITE, Fade, Flutter, GLOW_SPRITE,
                     ORB_SPRITE, RING_SPRITE, RefractionImage, RefractionPulse, SEAL_SPARK_SPRITE,
                     SEAL_STAR_SPRITE, SPINNING_STAR_SPRITE, STAR_SPRITE, STATION_GLOW_SPRITE,
-                    SpriteOrientation, WORLD_GLOW_SPRITE,
+                    SpriteOrientation, TRAIL_GLOW_SPRITE, WORLD_GLOW_SPRITE,
                 };
                 use resonance_content::effect::{
                     SMOKE_UPDATES,
                     sprite::{DEBRIS_SPRITES, SMOKE_SPRITE, STREAK_SPRITE},
                 };
                 const IMPACT_GLOW: u16 = 2;
+                const AIR_REFRACTION: u16 = 9;
                 const CAMERA_RIPPLE: u16 = 27;
                 const WORLD_RIPPLE: u16 = 28;
                 const BOUND_SPRITES: std::ops::Range<u16> = 32..40;
@@ -686,7 +736,10 @@ impl NativeHost<'_> {
                 require(
                     (0..resonance_content::effect::FIELD_PALETTE_COLORS as i32).contains(&palette)
                         && (!directed
-                            || matches!(kind, WORLD_GLOW_SPRITE | SPINNING_STAR_SPRITE)
+                            || matches!(
+                                kind,
+                                WORLD_GLOW_SPRITE | SPINNING_STAR_SPRITE | AIR_REFRACTION
+                            )
                             || parameter == 0),
                     "invalid effect palette or parameter",
                 )?;
@@ -756,7 +809,7 @@ impl NativeHost<'_> {
                             });
                         }
                     }
-                    STREAK_SPRITE if directed => particle.size[1] /= 6.,
+                    STREAK_SPRITE => particle.size[1] /= 6.,
                     SEAL_SPARK_SPRITE if directed => {}
                     STATION_GLOW_SPRITE if !directed => {}
                     CAMERA_DISC_SPRITE | CAMERA_RING => particle.recipe = WORLD_GLOW_SPRITE,
@@ -778,7 +831,7 @@ impl NativeHost<'_> {
                         };
                         // Choose the motion on its first update, after all births
                         // in this script update have consumed their own randomness.
-                        let flutter = Flutter::pending(recipe);
+                        let flutter = Flutter::pending(recipe, false);
                         particle.recipe = SEAL_STAR_SPRITE;
                         particle.orientation = SpriteOrientation::World;
                         particle.rotation = [0.; 3];
@@ -789,19 +842,31 @@ impl NativeHost<'_> {
                         particle.recipe = SEAL_STAR_SPRITE;
                         particle.uv = Some([192., 0., 254., 62.].map(|v| v / 256.));
                     }
-                    CAMERA_RIPPLE | WORLD_RIPPLE => {
-                        require(parameter == 0, "invalid refraction parameter")?;
+                    AIR_REFRACTION | CAMERA_RIPPLE | WORLD_RIPPLE => {
                         let handle = self.world.emit_refraction(RefractionPulse {
                             draw_order: 0,
                             operation: None,
                             owner: None,
-                            image: RefractionImage::Ripple,
+                            image: if kind == AIR_REFRACTION {
+                                RefractionImage::Air
+                            } else {
+                                RefractionImage::Ripple
+                            },
                             palette: palette as u8,
                             orientation: if kind == WORLD_RIPPLE {
                                 SpriteOrientation::World
                             } else {
                                 SpriteOrientation::Camera
                             },
+                            angular_velocity: [
+                                0.,
+                                0.,
+                                if kind == AIR_REFRACTION {
+                                    parameter as f32
+                                } else {
+                                    0.
+                                },
+                            ],
                             rotation: [0.; 3],
                             position: particle.position,
                             velocity: particle.velocity,
@@ -814,7 +879,10 @@ impl NativeHost<'_> {
                         })?;
                         return Ok(NativeResult::Continue(Some(handle)));
                     }
-                    ORB_SPRITE | ELECTRIC_SPARK_SPRITE | ELECTRIC_ARC_SPRITE => {}
+                    ORB_SPRITE
+                    | ELECTRIC_SPARK_SPRITE
+                    | ELECTRIC_ARC_SPRITE
+                    | TRAIL_GLOW_SPRITE => {}
                     _ if DEBRIS_SPRITES.contains(&kind) => {}
                     _ => return Err("effect recipe is not implemented".into()),
                 }
@@ -899,7 +967,7 @@ impl NativeHost<'_> {
                     self.world
                         .actors
                         .get(&a[0])
-                        .and_then(|actor| self.resources.model(actor.resource))
+                        .and_then(|actor| self.resources.model(actor.model_resource()))
                         .and_then(|model| {
                             let name = NAMES.get(usize::try_from(a[1]).ok()?)?;
                             model.names.iter().position(|n| n == name)
@@ -924,7 +992,7 @@ impl NativeHost<'_> {
                     require(a[6] >= 0, "negative bone adjustment duration")?;
                     let bone = self
                         .resources
-                        .model(actor.resource)
+                        .model(actor.model_resource())
                         .and_then(|m| m.names.get(usize::try_from(a[2]).ok()?))
                         .ok_or("bone adjustment target is not cooked")?
                         .clone();
@@ -1069,7 +1137,7 @@ impl NativeHost<'_> {
                 if let Some(actor) = self.world.actors.get_mut(&a[0]) {
                     let names = &self
                         .resources
-                        .model(actor.resource)
+                        .model(actor.model_resource())
                         .ok_or("actor model missing")?
                         .names;
                     if ["Bone_kubi", "Bone_atama"]
@@ -1098,7 +1166,7 @@ impl NativeHost<'_> {
                     let index = u16::try_from(a[1]).map_err(|_| "invalid node index")?;
                     require(
                         self.resources
-                            .model(actor.resource)
+                            .model(actor.model_resource())
                             .is_some_and(|m| (index as usize) < m.names.len()),
                         "node is not cooked",
                     )?;

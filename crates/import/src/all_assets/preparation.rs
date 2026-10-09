@@ -68,6 +68,11 @@ pub(super) fn discover<'a>(
                 party.insert(source_hash(sources, disc, &files, &path)?);
             }
         }
+        for name in catalogue.party_bodies.iter().flatten().flatten() {
+            if let Some(path) = crate::field_resources::find_path(&files, name)? {
+                party.insert(source_hash(sources, disc, &files, &path)?);
+            }
+        }
         for phase in &document.catalogues.field_phases().records {
             if fields.contains_key(&phase.id) {
                 continue;

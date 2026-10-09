@@ -399,14 +399,40 @@ fn enemy_pause_property_retains_negative_values_and_counts_down_positive_values(
 
 #[test]
 #[ignore = "requires locally cooked party definitions; no devices"]
-fn colette_costume_change_returns_previous_value_and_survives_save() {
-    let setup = script(&[(Call::SetCharacterCostume, &[2, 3])]);
-    let events = party_runtime(&setup, &[0x20ff]);
+fn costume_change_selects_a_body_and_survives_save() {
+    let data = Arc::new(cooked("session-data.json"));
+    let body = resonance_content::appearance::costume_resource(4, 2);
+    let setup = script(&[(Call::SetCharacterCostume, &[4, 2])]);
+    let mut world = GameWorld::default();
+    world.party = Some(party::Party::new(&data, Default::default()).unwrap());
+    world.actors.insert(4, Actor::new(4, [0.; 3]));
+    let events = runtime(
+        program(&setup, &[0x20ff]),
+        ResourceLibrary {
+            session_data: Some(data),
+            models: [
+                (4, model([12], 20)),
+                (
+                    body,
+                    ModelResource {
+                        hidden_nodes: [38].into(),
+                        ..model([12], 20)
+                    },
+                ),
+            ]
+            .into(),
+            ..Default::default()
+        },
+        world,
+    );
     assert_eq!(events.memory().read(0x20, Width::S32).unwrap(), 0);
-    let query = script(&[(Call::SetCharacterCostume, &[2, -1])]);
+    assert_eq!(events.world.actors[&4].resource, 4);
+    assert_eq!(events.world.actors[&4].model_resource(), body);
+    assert_eq!(events.world.actors[&4].appearance.hidden_nodes, [38].into());
+    let query = script(&[(Call::SetCharacterCostume, &[4, -1])]);
     let restored = reload(&events, &query, &[0x20ff]);
-    assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 3);
-    assert_eq!(restored.world.party.as_ref().unwrap().members[1].costume, 3);
+    assert_eq!(restored.memory().read(0x20, Width::S32).unwrap(), 2);
+    assert_eq!(restored.world.party.as_ref().unwrap().members[3].costume, 2);
 }
 
 #[test]
@@ -3045,11 +3071,13 @@ fn dialogue_completion_resumes_only_its_caller_and_cannot_fire_twice() {
 #[test]
 fn choices_return_the_selected_line_and_completion_reason_once() {
     use resonance_events::dialogue::ChoiceExit;
-    for (reason, flags, expected_reason) in [
-        (ChoiceExit::Confirm, 0x104, 0),
-        (ChoiceExit::Cancel, 4, 1),
-        (ChoiceExit::Timeout, 0x104, -1),
+    for (reason, flags, expected_reason, page_break) in [
+        (ChoiceExit::Confirm, 0x104, 0, false),
+        (ChoiceExit::Cancel, 4, 1, false),
+        (ChoiceExit::Timeout, 0x104, -1, false),
+        (ChoiceExit::Confirm, 0x104, 0, true),
     ] {
+        let page_start = if page_break { 2 } else { 0 };
         let mut code = Vec::new();
         native(
             &mut code,
@@ -3067,18 +3095,21 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
                 Message { tokens: vec![] },
                 Message {
                     tokens: vec![Token::Text {
-                        text: "Heading\nDescription\nOne\nTwo\nThree".into(),
+                        text: format!(
+                            "Heading\nDescription{}One\nTwo\nThree",
+                            if page_break { '\u{c}' } else { '\n' }
+                        ),
                     }],
                 },
             ],
             ..Default::default()
         };
         let mut events = runtime(program(&code, &[0x20ff]), resources, Default::default());
-        assert_eq!(events.world.choices[&1].selected_line, 3);
+        assert_eq!(events.world.choices[&1].selected_line, 3 - page_start);
         steps(&mut events, 4);
         assert!(events.world.texture_bindings.is_empty());
         let choice = events.world.choices.get_mut(&1).unwrap();
-        choice.selected_line = 4;
+        choice.selected_line = 4 - page_start;
         let callback = choice.clone();
         choice.finish(reason).unwrap();
         events.step().unwrap();
@@ -3087,7 +3118,10 @@ fn choices_return_the_selected_line_and_completion_reason_once() {
         events.step().unwrap();
         assert!(events.world.texture_bindings.is_empty());
         events.step().unwrap();
-        assert_eq!(events.memory().read(0x100, Width::S32).unwrap(), 5);
+        assert_eq!(
+            events.memory().read(0x100, Width::S32).unwrap(),
+            i32::from(5 - page_start)
+        );
         assert_eq!(
             events.memory().read(0x24, Width::S32).unwrap(),
             expected_reason
@@ -4014,6 +4048,7 @@ fn scenery_motion_layers_pause_and_clear_independently() {
             Call::ConfigureSceneryAnimation,
             &[999996, 0, -65536, 0, 100, 8],
         ),
+        (Call::SeekSceneryAnimation, &[1, -1, 5]),
     ]);
     let mut world = GameWorld::default();
     world.actors.insert(999996, Actor::new(1, [0.; 3]));
@@ -4030,7 +4065,7 @@ fn scenery_motion_layers_pause_and_clear_independently() {
     steps(&mut events, 30);
     let actor = &events.world.actors[&999996];
     let paused = actor.animation.as_ref().unwrap();
-    assert_eq!(paused.sample(events.tick(), 0, 20.), 6.);
+    assert_eq!(paused.sample(events.tick(), 0, 20.), 10.);
     assert_eq!(
         actor.scenery_animations[&0].sample(events.tick(), 0, 20.),
         20.

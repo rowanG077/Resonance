@@ -147,6 +147,9 @@ impl Enemy {
     }
 }
 impl Actor {
+    pub fn model_resource(&self) -> u32 {
+        resonance_content::appearance::costume_resource(self.resource, self.appearance.costume)
+    }
     pub fn model_scale(&self) -> [f32; 3] {
         self.model_scale_percent().map(|scale| scale as f32 / 100.)
     }
@@ -439,6 +442,7 @@ pub struct Appearance {
     pub mouth: Option<Face>,
     pub expression: u8,
     pub costume_frame: u8,
+    pub costume: u8,
     pub model_hidden: bool,
     pub secondary_motion_disabled: bool,
     pub hidden_nodes: std::collections::BTreeSet<u16>,

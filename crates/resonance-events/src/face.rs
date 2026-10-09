@@ -39,8 +39,21 @@ impl EventRuntime {
 }
 
 impl GameWorld {
-    pub(crate) fn update_costumes(&mut self) {
+    pub(crate) fn update_costumes(&mut self, resources: &ResourceLibrary) {
         for actor in self.actors.values_mut() {
+            let costume = self
+                .party
+                .as_ref()
+                .and_then(|party| party.members.get(actor.resource.wrapping_sub(1) as usize))
+                .map_or(0, |member| member.costume);
+            if actor.appearance.costume != costume {
+                actor.appearance.costume = costume;
+                // Accessory node indices belong to the selected body.
+                actor.appearance.hidden_nodes = resources
+                    .model(actor.model_resource())
+                    .map(|model| model.hidden_nodes.clone())
+                    .unwrap_or_default();
+            }
             actor.appearance.costume_frame =
                 appearance::costume_frame(actor.resource, &self.event_flags);
         }
@@ -52,7 +65,11 @@ impl GameWorld {
         colette_progress: i32,
     ) -> Result<()> {
         for actor in self.actors.values_mut() {
-            if !actor.visible || !resources.model(actor.resource).is_some_and(|m| m.has_eyes) {
+            if !actor.visible
+                || !resources
+                    .model(actor.model_resource())
+                    .is_some_and(|m| m.has_eyes)
+            {
                 continue;
             }
             if appearance::forced_face(actor.resource, colette_progress).is_some() {

@@ -324,32 +324,13 @@ impl Sources {
     }
 }
 
-pub(crate) fn cook_field(
-    output: &Path,
-    map_id: u32,
-    physical: &crate::scene::binding::Map<'_>,
-    sources: &Sources,
-    shared: &[(u32, Arc<AuthoredAnimation>)],
-    original: &mut Resources<'_>,
-    declarations: &crate::field_resources::Declarations,
-) -> Result<Prepared> {
-    let decoded = original.package();
-    let binder = Binder {
-        output,
-        decoded,
-        shared,
-    };
+fn cook_party(binder: &Binder<'_>, original: &Resources<'_>) -> Result<Vec<ActorAssets>> {
     let resources = original.catalogue;
-    let mut model_resources = declarations.resources.clone();
-    for id in sources.textures.keys() {
-        model_resources.remove(id);
-    }
-    let mut assets = Prepared::default();
+    let decoded = original.package();
+    let mut actors = Vec::new();
     // Scripts choose actor and animation handles independently. Prepare every
     // pairing instead of assigning a guessed owner to a shared clip.
     for id in 1..=resources.party_bodies.len() as u32 {
-        let model_path = resources.party(crate::resource::PartyResource::Body, id as u8, 0)?;
-        let model = original.source(model_path)?;
         let animation_path = resources.field_motion(id as u8)?;
         let animation = original.source(animation_path)?;
         let service = original.source(resources.field_service(id as u8)?)?;
@@ -373,15 +354,61 @@ pub(crate) fn cook_field(
                 animation,
             })
             .collect();
-        assets.add(
-            &binder,
-            id,
-            &format!("party-{id}"),
-            &model,
-            &animation,
-            &extra,
-        )?;
+        let mut bodies = BTreeMap::<&str, ActorAssets>::new();
+        for (costume, model_path) in resources.party_bodies[id as usize - 1].iter().enumerate() {
+            let Some(model_path) = model_path.as_deref() else {
+                continue;
+            };
+            let resource = resonance_content::appearance::costume_resource(id, costume as u8);
+            if let Some(body) = bodies.get(model_path) {
+                actors.push(ActorAssets {
+                    resource,
+                    ..body.clone()
+                });
+                continue;
+            }
+            // Some catalogue slots name outfits absent from the shipped assets.
+            if costume != 0 && decoded.source(model_path).is_err() {
+                continue;
+            }
+            let model = original.source(model_path)?;
+            let name = if costume == 0 {
+                format!("party-{id}")
+            } else {
+                format!("party-{id}-costume-{costume}")
+            };
+            let body = binder.cook(resource, &name, &model, &animation, &extra)?;
+            bodies.insert(model_path, body.clone());
+            actors.push(body);
+        }
     }
+    Ok(actors)
+}
+
+pub(crate) fn cook_field(
+    output: &Path,
+    map_id: u32,
+    physical: &crate::scene::binding::Map<'_>,
+    sources: &Sources,
+    shared: &[(u32, Arc<AuthoredAnimation>)],
+    original: &mut Resources<'_>,
+    declarations: &crate::field_resources::Declarations,
+) -> Result<Prepared> {
+    let decoded = original.package();
+    let binder = Binder {
+        output,
+        decoded,
+        shared,
+    };
+    let resources = original.catalogue;
+    let mut model_resources = declarations.resources.clone();
+    for id in sources.textures.keys() {
+        model_resources.remove(id);
+    }
+    let mut assets = Prepared {
+        actors: cook_party(&binder, original)?,
+        ..Default::default()
+    };
     for (&id, bytes) in &sources.packages {
         ensure!(
             !assets.actors.iter().any(|a| a.resource == id)
@@ -914,6 +941,22 @@ mod tests {
             .actors;
             assert!((1..=9).all(|id| actors.iter().any(|actor| actor.resource == id)));
             assert!(actors.iter().any(|actor| actor.resource > 9));
+            for (member, outfits) in catalogue.party_bodies.iter().enumerate() {
+                for (costume, path) in outfits.iter().enumerate() {
+                    let Some(path) = path.as_deref() else {
+                        continue;
+                    };
+                    if crate::field_resources::find_path(&extracted.join("files"), path)?.is_none()
+                    {
+                        continue;
+                    }
+                    let resource = resonance_content::appearance::costume_resource(
+                        member as u32 + 1,
+                        costume as u8,
+                    );
+                    assert!(actors.iter().any(|actor| actor.resource == resource));
+                }
+            }
             let mut durations = BTreeSet::new();
             for actor in actors {
                 for part in actor.parts {

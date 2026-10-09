@@ -276,7 +276,7 @@ impl GameWorld {
                 continue;
             }
             let model = resources
-                .model(actor.resource)
+                .model(actor.model_resource())
                 .context("wing model is missing")?;
             let points: Result<Vec<_>> = model
                 .names
