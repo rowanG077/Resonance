@@ -243,8 +243,10 @@ Generated cases cover every eligible input before repeating, then combine
 finite particles with randomized placement, size, palette, opacity, duration,
 casting direction and random seed. Sprites, models, emitters, emotes and actors
 use named inputs and timed changes; numeric commands are compiled at the simulator
-boundary. Generated changes include sprite properties, moving targets, early
-quake removal and emitter-handle reuse. Every complete scenario is saved in
+boundary. Sprite cases cover fractional and integer velocity, speed, direction mode
+and all six rotation orders with combined axis rotations, including leaves and refraction.
+Generated changes also include moving targets, early quake removal and
+emitter-handle reuse. Every complete scenario is saved in
 `case.json`. Use `--replay-case PATH` to reproduce it independently of generator
 changes. `--only 'sprite-*'` filters case names. `--random-cases 0` runs the
 base catalogue only. Visible scenarios must actually appear in the source recording;

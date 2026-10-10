@@ -317,22 +317,24 @@ impl crate::GameWorld {
 /// Wind-blown leaves tumble around three world axes, rather than facing the camera.
 #[derive(Debug, Clone)]
 pub(crate) struct Flutter {
+    rising: bool,
     fall_speed: f32,
     initial_variation: Option<f32>,
     spin: f32,
     heading: f32,
-    turn_after: i32,
+    turn_after: f32,
 }
 
 impl Flutter {
     pub(crate) fn pending(recipe: &resonance_content::effect::FlutterRecipe, rising: bool) -> Self {
         let direction = if rising { -1. } else { 1. };
         Self {
+            rising,
             fall_speed: recipe.fall_speed * direction,
             initial_variation: Some(recipe.fall_variation * direction),
             spin: recipe.spin,
             heading: 0.,
-            turn_after: 0,
+            turn_after: 0.,
         }
     }
     fn initialize(&mut self, rotation: &mut [f32; 3], random: &mut impl FnMut() -> u32) {
@@ -343,7 +345,7 @@ impl Flutter {
         if random() & 1 != 0 {
             turn_after = -turn_after;
         }
-        self.turn_after = turn_after;
+        self.turn_after = turn_after as f32;
         self.fall_speed -= (random() & 31) as f32 * variation;
         *rotation = std::array::from_fn(|_| random() as f32);
     }
@@ -355,9 +357,9 @@ impl Flutter {
         random: &mut impl FnMut() -> u32,
     ) {
         self.initialize(rotation, random);
-        self.turn_after -= 1;
-        if self.turn_after < 0 {
-            self.turn_after = (random() & 63) as i32 + 5;
+        self.turn_after -= 1.;
+        if self.turn_after < 0. {
+            self.turn_after = (random() & 63) as f32 + 5.;
             self.heading += (random() as i32 % 90 - 45) as f32;
             rotation[1] -= (random() & 3) as f32;
             rotation[0] += (random() & 3) as f32;
@@ -381,11 +383,12 @@ mod flutter_tests {
         let flutter = BillboardEffect {
             lifetime: 30,
             controller: Some(BillboardController::Flutter(Flutter {
+                rising: false,
                 fall_speed: 2.,
                 initial_variation: None,
                 spin: 0.2,
                 heading: 0.,
-                turn_after: 0,
+                turn_after: 0.,
             })),
             ..Default::default()
         };
@@ -422,11 +425,12 @@ mod flutter_tests {
     #[test]
     fn leaves_fall_sway_and_spin() {
         let mut motion = Flutter {
+            rising: false,
             fall_speed: 2.,
             initial_variation: None,
             spin: 0.2,
             heading: 0.,
-            turn_after: 10,
+            turn_after: 10.,
         };
         let mut position = [0., 0., 100.];
         let mut rotation = [0.; 3];
@@ -749,15 +753,9 @@ impl BillboardEffect {
             self.rotation[i] += self.angular_velocity[i];
         }
         self.velocity[2] += self.gravity;
-        let aspect = if matches!(self.controller, Some(BillboardController::Flutter(_)))
-            && self.size[0] > 0.
-        {
-            self.size[1] / self.size[0]
-        } else {
-            1.
-        };
-        self.size[0] += self.size_delta;
-        self.size[1] += self.size_delta * aspect;
+        for size in &mut self.size {
+            *size += self.size_delta;
+        }
     }
     fn alive(&self, tick: u32) -> bool {
         tick.saturating_sub(self.born) < self.lifetime
@@ -900,6 +898,7 @@ impl crate::GameWorld {
                         effect_tick,
                         &mut || crate::world::random(&mut self.random_state),
                     );
+                    continue;
                 }
                 Some(BillboardController::TextureStrip { columns, ticks }) => {
                     let left = (self.tick - effect.born) / *ticks % *columns;
